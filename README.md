@@ -4,7 +4,8 @@
 изоляции (отдельный git worktree + песочница FS/сети), **автономно** (без постоянных
 промптов на разрешения), на **локальной Linux-машине**.
 
-Статус: **исследование / PoC** (build-or-adopt ещё не решён — см. decision-log ниже).
+Статус: **рабочий MVP** (`bin/sandboxer`, ставится как nix flake). Решение build-or-adopt
+принято — см. decision-log ниже. Своей песочницы нет: изоляцию даёт нативный Claude Code `/sandbox`.
 
 ## Требования
 
@@ -55,6 +56,64 @@ poc/
 Вне scope: облачные платформы (E2B, Daytona, Modal, Northflank) и microVM (microsandbox) —
 не «локально + доверенный код». Подробности в `docs/market-research.md`.
 
+## Установка (nix flake)
+
+Linux-only (нативный sandbox использует bubblewrap). На машине должен быть установлен и
+авторизован **Claude Code** (`claude`) — он не бандлится (проприетарный).
+
+```bash
+# разово запустить без установки
+nix run github:<owner>/sandboxer -- run --help          # или: nix run .#sandboxer -- ...
+
+# поставить в профиль (CLI `sandboxer` в PATH)
+nix profile install github:<owner>/sandboxer
+
+# как вход в другой flake
+inputs.sandboxer.url = "github:<owner>/sandboxer";
+# затем: environment.systemPackages = [ inputs.sandboxer.packages.${system}.default ];
+
+# локально из этого репо
+nix build .#sandboxer && ./result/bin/sandboxer help
+nix develop          # dev-shell с зависимостями
+```
+
+Обёртка кладёт в PATH зависимости (bash, coreutils, git, rsync, nodejs, bubblewrap, socat),
+сохраняя PATH хоста, чтобы `claude` и `systemd-run` оставались доступны.
+
+## Использование
+
+```bash
+cd your-project                 # git-репо
+sandboxer run tasks.txt --model sonnet --max-parallel 3
+sandboxer status                # таблица: agent / exit / sec / changed / result
+sandboxer diff [agent]          # дифф изменений агента (чистый, относительно snapshot)
+sandboxer merge [agent...]      # cherry-pick коммитов агента в текущую ветку (или --patch)
+sandboxer clean                 # убрать .sandboxer/
+```
+
+Формат tasks-файла (`sandboxer.tasks.example`):
+```
+[slug]
+многострочный промпт для агента...
+
+[slug2]
+...
+```
+
+Как работает (на каждый `[slug]`):
+1. **Отдельная директория** — полная копия проекта в `<src>/.sandboxer/<slug>` (rsync, без
+   `.sandboxer`/`node_modules`/`sandboxer.tasks`); ветка `sandbox/<slug>` + snapshot стартового состояния.
+2. **Автономный агент** — `claude -p … --permission-mode bypassPermissions --settings '<inline>'`,
+   нативный `/sandbox` включён через inline-настройки (в репо ничего не пишется). Запись вне копии
+   режется ОС (`read-only`), сеть — по `--allow-domains`.
+3. **Параллелизм** — семафор `--max-parallel`; политес — `nice`; опц. `--wall` (timeout),
+   `--mem`/`--cpu` (cgroup через transient `systemd-run --user --scope`, per-user).
+4. **Возврат** — `merge` переносит только коммиты агента (диапазон snapshot..tip) cherry-pick'ом
+   в исходный репо; `--patch` выгружает `.patch`.
+
+Проверено e2e на установленном бинаре: 3 параллельных агента в отдельных копиях → автономно →
+изоляция FS подтверждена → ветки слиты чисто → `npm test` 11/11 pass.
+
 ## Decision-log
 
 - **2026-05-29** — Greenfield. Уточнены требования (параллельные агенты, локально, доверенный
@@ -70,6 +129,14 @@ poc/
     systemd/proxy на этом NixOS-хосте. Ниша: изоляция не-claude процессов / всего агента.
   - **Docker-per-agent** — сильнейшая граница, NixOS-agnostic, но требует claude-в-образе +
     авторизацию; тяжелее для доверенного локального кода. Ниша: недоверенный код / воспроизводимость.
-  - **Единственный пробел native — оркестрация UX** (N worktree + N агентов + логи/диффы + merge).
+  - **Единственный пробел native — оркестрация UX** (N директорий + N агентов + логи/диффы + merge).
     Прототип уже есть: `poc/native.sh`. → Фаза 3: тонкий `sandboxer` поверх native.
-- _Следующий шаг: построить MVP тонкого оркестратора (Фаза 3 плана) — по подтверждению пользователя._
+- **2026-05-29 — Фаза 3: построен MVP `bin/sandboxer`.** Уточнения пользователя по ходу:
+  - изоляция на агента = **отдельная директория (полная копия `cp -r`/rsync), НЕ git worktree**;
+  - возврат результатов = **git** (snapshot-база + cherry-pick диапазона в исходный репо, либо `--patch`);
+  - язык — **bash**; приоритеты — запуск N, merge, логи/статус, лимиты;
+  - **поставка только через nix/flake**; **systemd — можно, но в установленном инструменте, не ad-hoc по хосту**
+    (лимиты `--mem/--cpu` через transient `systemd-run --user --scope`; по умолчанию выключены).
+  - Sandbox включается через `claude --settings '<inline json>'` — в репо агента ничего не пишется (чистый diff).
+  - Проверено e2e через `nix build` → установленный бинарь: 3 агента (haiku) параллельно в отдельных
+    копиях, автономно, изоляция FS подтверждена, чистый cherry-pick merge, `npm test` 11/11.

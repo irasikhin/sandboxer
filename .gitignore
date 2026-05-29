@@ -3,6 +3,9 @@ poc/.work/
 poc/**/logs/
 *.log
 
+# Рабочая область sandboxer: копии проектов на агента, логи, патчи
+.sandboxer/
+
 # Node
 node_modules/
 
