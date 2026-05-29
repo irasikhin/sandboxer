@@ -1,0 +1,9 @@
+{
+  "name": "sample-repo",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Стенд для PoC sandboxer: маленький Node-проект без внешних зависимостей.",
+  "scripts": {
+    "test": "node --test"
+  }
+}

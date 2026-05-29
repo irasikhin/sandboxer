@@ -1,0 +1,10 @@
+# Рабочая область PoC: копии стенда, worktrees, логи прогонов
+poc/.work/
+poc/**/logs/
+*.log
+
+# Node
+node_modules/
+
+# srt / venv мусор при установке
+.venv/
