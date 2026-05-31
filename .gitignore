@@ -6,6 +6,10 @@ poc/**/logs/
 # Рабочая область sandboxer: копии проектов на агента, логи, патчи
 .sandboxer/
 
+# Результаты nix build
+result
+result-*
+
 # Node
 node_modules/
 

@@ -1,23 +1,34 @@
 #!/usr/bin/env bash
-# sandboxer — изолированные песочницы для разработки с Claude.
+# sandboxer — конфиг-driven изолированные песочницы для нескольких кодинг-агентов.
 #
-# Ручной цикл:  create <slug>  ->  enter <slug>  (интерактивный claude в копии)  ->  merge <slug>
-# Батч-цикл:    run <tasks>    (N автономных агентов параллельно)
+# Песочница = ОТДЕЛЬНАЯ КОПИЯ проекта (rsync mainSrc) + git-ветка sandbox/<slug> + snapshot.
+# Запуск агента — в БЭКЕНДЕ изоляции:
+#   • podman/docker (по умолчанию): OCI-образ-тулбокс со всеми агентами, сеть/прокси/креды
+#     прокидываются per-config; любой агент (claude/codex/opencode/aider/pi/…).
+#   • native (только claude): нативный /sandbox (`claude --settings '{sandbox…}'`).
 #
-# Изоляция на песочницу = ОТДЕЛЬНАЯ ДИРЕКТОРИЯ (полная копия проекта, rsync) + нативный
-# Claude Code /sandbox (FS/сеть на уровне ОС, bubblewrap). Возврат — через git
-# (ветка sandbox/<slug>, snapshot-база, cherry-pick диапазона). Своей песочницы нет.
+# Конфиг — Nix-профиль (.nix → JSON через cfg.mjs): mainSrc, srcs→dest, proxy, network, agent, model.
+# Возврат: код — git (merge, cherry-pick snapshot..tip); зависимости — push (rw srcs обратно в origins).
 #
-# Команды: create | enter | run | list | status | diff | merge | rm | clean | help
+# Команды: create enter exec run | pull push merge | list diff show | rm rm-all | use agents help
 set -uo pipefail
 
-# ---------- дефолты (env SANDBOXER_* и флаги) ----------
-DEFAULT_MODEL="${SANDBOXER_MODEL:-}"                 # пусто = модель по умолчанию claude
-DEFAULT_DOMAINS="${SANDBOXER_DOMAINS:-api.anthropic.com,registry.npmjs.org}"
+# ---------- дефолты (env SANDBOXER_* и флаги/профиль) ----------
+DEFAULT_MODEL="${SANDBOXER_MODEL:-}"
+DEFAULT_AGENT="${SANDBOXER_AGENT:-claude}"
+DEFAULT_BACKEND="${SANDBOXER_BACKEND:-podman}"
+# allowlist по умолчанию: AI-эндпоинты + типовые пакетные репозитории разных языков
+DEFAULT_DOMAINS="${SANDBOXER_DOMAINS:-api.anthropic.com,api.openai.com,api.deepseek.com,generativelanguage.googleapis.com,openrouter.ai,registry.npmjs.org,pypi.org,files.pythonhosted.org,repo.maven.apache.org,repo1.maven.org,central.sonatype.com,plugins.gradle.org,services.gradle.org,crates.io,static.crates.io,index.crates.io,proxy.golang.org,sum.golang.org,rubygems.org,github.com,codeload.github.com,raw.githubusercontent.com,objects.githubusercontent.com,api.github.com}"
 DEFAULT_MAXP="${SANDBOXER_MAX_PARALLEL:-4}"
 DEFAULT_NICE="${SANDBOXER_NICE:-10}"
 DEFAULT_MEM="${SANDBOXER_MEM:-}"; DEFAULT_CPU="${SANDBOXER_CPU:-}"; DEFAULT_WALL="${SANDBOXER_WALL:-}"
 STATE_DIR_NAME=".sandboxer"
+IMAGE="${SANDBOXER_IMAGE:-sandboxer-toolbox:latest}"
+IN_CONTAINER="${SANDBOXER_IN_CONTAINER:-}"
+
+_self="$(readlink -f "$0" 2>/dev/null || echo "$0")"; _selfdir="$(dirname "$_self")"
+SANDBOXER_CFG="${SANDBOXER_CFG:-$_selfdir/../libexec/sandboxer-cfg.mjs}"
+SANDBOXER_REGISTRY="${SANDBOXER_REGISTRY:-$_selfdir/../agents/registry.nix}"
 
 err(){ echo "sandboxer: $*" >&2; }
 die(){ err "$*"; exit 1; }
@@ -25,10 +36,48 @@ have(){ command -v "$1" >/dev/null 2>&1; }
 abspath(){ ( cd "$1" 2>/dev/null && pwd ); }
 sanitize(){ printf '%s' "$1" | tr -c 'A-Za-z0-9_.-' '-' | sed -E 's/-+/-/g; s/^-+//; s/-+$//'; }
 dom_json(){ printf '%s' "$1" | awk -F, '{for(i=1;i<=NF;i++)printf (i>1?",":"")"\""$i"\""}'; }
-settings_json(){ echo "{\"sandbox\":{\"enabled\":true,\"network\":{\"allowedDomains\":[$(dom_json "$1")]}}}"; }
+settings_json(){ echo "{\"sandbox\":{\"enabled\":true,\"autoAllowBashIfSandboxed\":true,\"network\":{\"allowedDomains\":[$(dom_json "$1")]}}}"; }
 
-# Глобали, заполняемые _resolve_base: G_SRC G_BASE G_IS_GIT G_BASE_SHA G_DOMAINS G_MODEL
-_resolve_base(){  # $1=src
+# ---------- Nix-профиль / реестр агентов ----------
+profile_eval(){ node "$SANDBOXER_CFG" eval "$1"; }   # .nix -> JSON
+# profile_get <dotted.key>  : читает JSON из stdin (массив -> csv, объект -> JSON, иначе строка)
+profile_get(){ node -e 'const j=JSON.parse(require("fs").readFileSync(0,"utf8")||"{}");const v=process.argv[1].split(".").reduce((o,k)=>(o==null?o:o[k]),j);if(v==null)process.stdout.write("");else if(Array.isArray(v))process.stdout.write(v.join(","));else if(typeof v==="object")process.stdout.write(JSON.stringify(v));else process.stdout.write(""+v);' "$1"; }
+
+AGENT_JSON=""
+registry_eval(){  # $1=agent -> AGENT_JSON
+  have nix || die "нужен nix (для реестра агентов)"
+  AGENT_JSON="$(nix --extra-experimental-features nix-command eval --impure --json --expr "(import $SANDBOXER_REGISTRY {}).\"$1\"" 2>/dev/null)" \
+    || die "неизвестный агент: $1 (см. sandboxer agents)"
+}
+registry_names(){ nix --extra-experimental-features nix-command eval --impure --json --expr "builtins.attrNames (import $SANDBOXER_REGISTRY {})" 2>/dev/null | node -e 'process.stdout.write(JSON.parse(require("fs").readFileSync(0)).join(" "))'; }
+
+# agent_cmd <agent> <interactive|headless> <model> <domains> [task]  -> строка-команда (caller делает eval)
+agent_cmd(){
+  local agent="$1" mode="$2" model="$3" domains="$4" task="${5:-}"
+  registry_eval "$agent"
+  local tmpl native sflag="" mflag="" tq=""
+  tmpl="$(printf '%s' "$AGENT_JSON" | jq -r ".$mode")"
+  native="$(printf '%s' "$AGENT_JSON" | jq -r '.nativeSandbox')"
+  [ "$native" = true ] && sflag="--settings $(printf %q "$(settings_json "$domains")")"
+  [ -n "$model" ] && mflag="--model $(printf %q "$model")"
+  [ -n "$task" ]  && tq="$(printf %q "$task")"
+  tmpl="${tmpl//\{settingsFlag\}/$sflag}"
+  tmpl="${tmpl//\{modelFlag\}/$mflag}"
+  tmpl="${tmpl//\{task\}/$tq}"
+  printf '%s' "$tmpl"
+}
+
+ENGINE=""
+detect_oci(){
+  ENGINE="${SANDBOXER_ENGINE:-}"; [ -n "$ENGINE" ] && return 0
+  if have podman; then ENGINE=podman
+  elif have docker; then ENGINE=docker
+  else die "нужен podman или docker для контейнерного бэкенда (NixOS: virtualisation.podman.enable). Либо backend=native (claude-only)."; fi
+}
+
+# ---------- база/копия/коммит ----------
+# Глобали: G_SRC G_BASE G_IS_GIT G_BASE_SHA G_DOMAINS G_MODEL
+_resolve_base(){  # $1=src(=mainSrc/root)
   G_SRC="$(abspath "$1")" || die "нет такой папки: $1"
   G_BASE="$G_SRC/$STATE_DIR_NAME"
   mkdir -p "$G_BASE/_meta" "$G_BASE/_logs"
@@ -45,12 +94,14 @@ _resolve_base(){  # $1=src
   . "$G_BASE/_meta/run.env"; G_IS_GIT="$IS_GIT"; G_BASE_SHA="$BASE_SHA"; G_DOMAINS="$DOMAINS"; G_MODEL="$MODEL"
 }
 
-# Создать песочницу-копию (idempotent: пересоздаёт чисто). Заполняет .base, регистрирует slug.
+# Создать копию-песочницу: rsync mainSrc -> копия; если есть профиль — втянуть srcs ВНУТРЬ снапшота.
 _make_sandbox(){  # $1=slug
   local slug="$1" DEST="$G_BASE/$slug"
   rsync -a --delete \
     --exclude="/$STATE_DIR_NAME" --exclude="node_modules/" --exclude="/sandboxer.tasks" \
     "$G_SRC"/ "$DEST"/
+  local pj="$G_BASE/_meta/$slug.profile.json"
+  [ -f "$pj" ] && node "$SANDBOXER_CFG" in "$pj" "$DEST" "$G_BASE/_meta/$slug.manifest.json"
   [ "$G_IS_GIT" -ne 1 ] && git -C "$DEST" init -q
   git -C "$DEST" checkout -q -B "sandbox/$slug" 2>/dev/null || true
   git -C "$DEST" add -A
@@ -59,94 +110,232 @@ _make_sandbox(){  # $1=slug
   grep -qxF "$slug" "$G_BASE/_meta/agents.list" 2>/dev/null || echo "$slug" >> "$G_BASE/_meta/agents.list"
 }
 
-# Авто-коммит изменений агента в его ветке (чтобы merge их забрал)
 _commit_work(){  # $1=dest $2=slug
   git -C "$1" add -A >/dev/null 2>&1
   git -C "$1" diff --cached --quiet 2>/dev/null || \
     git -C "$1" -c user.email=sandboxer@local -c user.name=sandboxer commit -q -m "sandboxer: $2" >/dev/null 2>&1
 }
 
-# ---------- create ----------
-cmd_create(){
-  local SRC="$PWD" DOMAINS="" slug=""
-  while [ $# -gt 0 ]; do case "$1" in
-    --src) SRC="$2"; shift 2;; --allow-domains) DOMAINS="$2"; shift 2;;
-    -*) die "флаг? $1";; *) [ -z "$slug" ] && slug="$1" || die "лишний аргумент: $1"; shift;;
-  esac; done
-  [ -z "$slug" ] && die "укажи имя песочницы: sandboxer create <slug>"
-  slug="$(sanitize "$slug")"
-  have rsync || die "нужен rsync"; have git || die "нужен git"
-  _resolve_base "$SRC"
-  [ -n "$DOMAINS" ] && sed -i "s|^DOMAINS=.*|DOMAINS=$DOMAINS|" "$G_BASE/_meta/run.env"
-  _make_sandbox "$slug"
-  echo "песочница '$slug' создана: $G_BASE/$slug (ветка sandbox/$slug)"
-  echo "войти и работать:   sandboxer enter $slug"
-  echo "вернуть результат:  sandboxer merge $slug"
+# ---------- выбор песочницы ----------
+# Вход: $1=src $2=config $3=sbox(-S) $4=positional
+# Выход: G_ROOT SLUG PROFILE_FILE PROFILE_JSON
+resolve_target(){
+  local src="$1" config="$2" sbox="$3" pos="$4"
+  PROFILE_FILE=""; PROFILE_JSON=""
+  if [ -n "$config" ]; then PROFILE_FILE="$config"
+  elif [ -n "$pos" ] && [ "${pos##*.}" = "nix" ] && [ -f "$pos" ]; then PROFILE_FILE="$pos"; pos=""
+  elif [ -z "$pos$sbox" ] && [ -z "$IN_CONTAINER" ] && [ -f "sandboxer.nix" ]; then PROFILE_FILE="sandboxer.nix"
+  fi
+  if [ -n "$PROFILE_FILE" ]; then
+    PROFILE_JSON="$(profile_eval "$PROFILE_FILE")" || die "nix eval профиля провалился: $PROFILE_FILE"
+    SLUG="$(printf '%s' "$PROFILE_JSON" | profile_get name)"
+    local ms; ms="$(printf '%s' "$PROFILE_JSON" | profile_get mainSrc)"
+    [ -n "$slug_required_name" ] && [ -z "$SLUG" ] && die "в профиле нет name"
+    G_ROOT="$(abspath "${src:-$ms}" 2>/dev/null || echo "${src:-$ms}")"
+  else
+    G_ROOT="$(abspath "${src:-$PWD}")" || die "нет папки: ${src:-$PWD}"
+    SLUG="${sbox:-$pos}"
+    if [ -z "$SLUG" ]; then
+      local cur="$G_ROOT/$STATE_DIR_NAME/_meta/current"
+      [ -f "$cur" ] && SLUG="$(cat "$cur")"
+    fi
+    if [ -z "$SLUG" ]; then
+      local list="$G_ROOT/$STATE_DIR_NAME/_meta/agents.list"
+      [ -f "$list" ] && [ "$(grep -c . "$list" 2>/dev/null)" = "1" ] && SLUG="$(grep . "$list" | head -1)"
+    fi
+    [ -z "$SLUG" ] && die "не выбрана песочница: укажи <slug>, -S <slug> или 'sandboxer use <slug>' (список: sandboxer list)"
+  fi
+  SLUG="$(sanitize "$SLUG")"
+}
+slug_required_name=1
+
+# Загрузить сохранённый профиль и выставить runtime-опции (proxy/domains/model/agent/backend).
+PROFILE=""; PHTTP=""; PHTTPS=""; PNO=""; DOMAINS=""; MODEL=""; AGENT=""; BACKEND=""; AUTH_AGENTS=""
+load_runtime(){  # uses G_BASE SLUG ; flag overrides via env-like vars set by caller (F_*)
+  local pj="$G_BASE/_meta/$SLUG.profile.json"
+  PROFILE="$([ -f "$pj" ] && cat "$pj" || echo '{}')"
+  PHTTP="$(printf '%s' "$PROFILE"  | profile_get proxy.http)"
+  PHTTPS="$(printf '%s' "$PROFILE" | profile_get proxy.https)"
+  PNO="$(printf '%s' "$PROFILE"    | profile_get proxy.no)"
+  DOMAINS="${F_DOMAINS:-$(printf '%s' "$PROFILE" | profile_get network.allowedDomains)}"; DOMAINS="${DOMAINS:-$G_DOMAINS}"
+  MODEL="${F_MODEL:-$(printf '%s' "$PROFILE" | profile_get model)}"; MODEL="${MODEL:-$G_MODEL}"
+  AGENT="${F_AGENT:-$(printf '%s' "$PROFILE" | profile_get agent)}"; AGENT="${AGENT:-$DEFAULT_AGENT}"
+  BACKEND="${F_BACKEND:-$(printf '%s' "$PROFILE" | profile_get backend)}"; BACKEND="${BACKEND:-$DEFAULT_BACKEND}"
+  AUTH_AGENTS="$(printf '%s' "$PROFILE" | profile_get agents | tr ',' ' ')"
+  [ -z "$AUTH_AGENTS" ] && AUTH_AGENTS="$(registry_names)"
 }
 
-# ---------- enter (интерактивный claude в копии; --bash = обычный шел) ----------
-cmd_enter(){
-  local SRC="$PWD" BASH_MODE=0 MODEL="" DOMAINS="" slug=""
+# ---------- контейнерный бэкенд ----------
+# auth_flags <agent...> -> построчно токены podman/docker (--volume X / --env Y)
+auth_flags(){
+  local agent host mode p e
+  for agent in "$@"; do
+    registry_eval "$agent" 2>/dev/null || continue
+    while IFS=$'\t' read -r host mode; do
+      [ -z "$host" ] && continue
+      p="${host/#\~/$HOME}"; [ -e "$p" ] || continue
+      if [ "${F_EPHEMERAL:-0}" = 1 ]; then
+        mkdir -p "$EPHDIR"; cp -a "$p" "$EPHDIR/" 2>/dev/null || true; p="$EPHDIR/$(basename "$p")"; mode=rw
+      fi
+      printf -- '--volume\n%s:%s:%s\n' "$p" "$p" "$mode"   # HOME в контейнере = хостовый, путь тот же
+    done < <(printf '%s' "$AGENT_JSON" | jq -r '.authConfigDirs[]? | "\(.path)\t\(.mode)"')
+    for e in $(printf '%s' "$AGENT_JSON" | jq -r '.authEnv[]?'); do
+      [ -n "${!e:-}" ] && printf -- '--env\n%s=%s\n' "$e" "${!e}"
+    done
+  done
+}
+# origin_mounts -> биндим origins зависимостей внутрь (rw -> RW для in-container push, ro -> RO)
+origin_mounts(){
+  local mf="$G_BASE/_meta/$SLUG.manifest.json"; [ -f "$mf" ] || return
+  jq -r '.[] | "\(.origin)\t\(.mode)"' "$mf" 2>/dev/null | while IFS=$'\t' read -r o m; do
+    [ -e "$o" ] || continue
+    printf -- '--volume\n%s:%s:%s\n' "$o" "$o" "$([ "$m" = rw ] && echo rw || echo ro)"
+  done
+}
+
+# backend_run <interactive 0|1> -- <cmd...>   (uses ENGINE DEST SLUG G_BASE PHTTP* DOMAINS AUTH_AGENTS)
+backend_run(){
+  local interactive="$1"; shift; [ "${1:-}" = "--" ] && shift
+  detect_oci
+  local -a A=(run --rm)
+  [ "$interactive" = 1 ] && A+=(-it)
+  A+=(--user "$(id -u):$(id -g)" --cap-drop=ALL --security-opt no-new-privileges
+      --workdir "$DEST" --volume "$DEST:$DEST:rw"
+      --env "HOME=$HOME" --env "SANDBOXER_IN_CONTAINER=1"
+      --env "SANDBOXER_SLUG=$SLUG" --env "SANDBOXER_SANDBOX_DIR=$DEST")
+  [ "$ENGINE" = podman ] && A+=(--userns=keep-id)
+  local pj="$G_BASE/_meta/$SLUG.profile.json" mf="$G_BASE/_meta/$SLUG.manifest.json"
+  [ -f "$pj" ] && A+=(--volume "$pj:/run/sandboxer/profile.json:ro")
+  [ -f "$mf" ] && A+=(--volume "$mf:/run/sandboxer/manifest.json:rw")
+  [ -n "$PHTTP" ]  && A+=(--env "HTTP_PROXY=$PHTTP"   --env "http_proxy=$PHTTP")
+  [ -n "$PHTTPS" ] && A+=(--env "HTTPS_PROXY=$PHTTPS" --env "https_proxy=$PHTTPS")
+  [ -n "$PNO" ]    && A+=(--env "NO_PROXY=$PNO"       --env "no_proxy=$PNO")
+  # NB: строгий egress-allowlist в контейнере (squid-сайдкар по network.allowedDomains) — следующий
+  # шаг; сейчас сеть ограничивает upstream-proxy (если задан). allowlist пробрасываем как подсказку.
+  [ -n "$DOMAINS" ] && A+=(--env "SANDBOXER_ALLOW_DOMAINS=$DOMAINS")
+  local line
+  while IFS= read -r line; do [ -n "$line" ] && A+=("$line"); done < <(auth_flags $AUTH_AGENTS)
+  while IFS= read -r line; do [ -n "$line" ] && A+=("$line"); done < <(origin_mounts)
+  while IFS= read -r line; do [ -n "$line" ] && A+=("$line"); done < <(printf '%s' "$PROFILE" | node -e 'const j=JSON.parse(require("fs").readFileSync(0)||"{}");for(const m of (j.extraMounts||[]))process.stdout.write(`--volume\n${m.source}:${m.target}:${m.mode||"rw"}\n`);for(const [k,v] of Object.entries(j.env||{}))process.stdout.write(`--env\n${k}=${v}\n`);')
+  A+=("$IMAGE" "$@")
+  "$ENGINE" "${A[@]}"
+}
+
+# ---------- create ----------
+cmd_create(){
+  local SRC="" CONFIG="" DOMAINS_F="" slug=""
   while [ $# -gt 0 ]; do case "$1" in
-    --src) SRC="$2"; shift 2;; --bash) BASH_MODE=1; shift;;
-    --model) MODEL="$2"; shift 2;; --allow-domains) DOMAINS="$2"; shift 2;;
+    --src) SRC="$2"; shift 2;; --config) CONFIG="$2"; shift 2;; --allow-domains) DOMAINS_F="$2"; shift 2;;
     -*) die "флаг? $1";; *) [ -z "$slug" ] && slug="$1" || die "лишний аргумент: $1"; shift;;
   esac; done
-  [ -z "$slug" ] && die "укажи песочницу: sandboxer enter <slug>"
-  slug="$(sanitize "$slug")"
-  _resolve_base "$SRC"
-  local DEST="$G_BASE/$slug"
-  [ -d "$DEST" ] || { echo "песочницы '$slug' нет — создаю"; _make_sandbox "$slug"; }
-  [ -n "$DOMAINS" ] || DOMAINS="$G_DOMAINS"
-  [ -n "$MODEL" ] || MODEL="$G_MODEL"
+  have rsync || die "нужен rsync"; have git || die "нужен git"
+  resolve_target "$SRC" "$CONFIG" "" "$slug"
+  [ -z "$SLUG" ] && die "укажи имя песочницы или --config"
+  _resolve_base "$G_ROOT"
+  [ -n "$DOMAINS_F" ] && sed -i "s|^DOMAINS=.*|DOMAINS=$DOMAINS_F|" "$G_BASE/_meta/run.env"
+  [ -n "$PROFILE_JSON" ] && printf '%s' "$PROFILE_JSON" > "$G_BASE/_meta/$SLUG.profile.json"
+  _make_sandbox "$SLUG"
+  echo "песочница '$SLUG' создана: $G_BASE/$SLUG (ветка sandbox/$SLUG)"
+  echo "войти:    sandboxer enter $SLUG        # интерактивный шелл внутри (агенты в PATH)"
+  echo "запустить: sandboxer exec $SLUG -- claude"
+  echo "вернуть:  sandboxer merge $SLUG"
+}
 
-  if [ "$BASH_MODE" -eq 1 ]; then
-    echo "sandboxer: обычный шел в копии $DEST (это НЕ песочница ОС, просто изолированная директория)."
-    echo "           выход из шела -> авто-коммит изменений в sandbox/$slug."
-    ( cd "$DEST" && "${SHELL:-bash}" )
+# Общий парсер для команд над существующей песочницей: заполняет SRC CONFIG SBOX MODEL_F AGENT_F BACKEND_F DOM_F POS и REST(после --)
+_parse_existing(){
+  SRC=""; CONFIG=""; SBOX=""; F_MODEL=""; F_AGENT=""; F_BACKEND=""; F_DOMAINS=""; POS=""; FORCE=0; BASHX=0; REST=()
+  while [ $# -gt 0 ]; do case "$1" in
+    --) shift; REST=("$@"); break;;
+    --src) SRC="$2"; shift 2;; --config) CONFIG="$2"; shift 2;;
+    -S|--sandbox) SBOX="$2"; shift 2;; --model) F_MODEL="$2"; shift 2;;
+    --agent) F_AGENT="$2"; shift 2;; --backend) F_BACKEND="$2"; shift 2;;
+    --allow-domains) F_DOMAINS="$2"; shift 2;; --force) FORCE=1; shift;; --bash) BASHX=1; shift;;
+    -*) die "флаг? $1";; *) [ -z "$POS" ] && POS="$1" || die "лишний аргумент: $1"; shift;;
+  esac; done
+}
+
+# ---------- enter (войти внутрь: интерактивный шелл) ----------
+cmd_enter(){
+  _parse_existing "$@"
+  resolve_target "$SRC" "$CONFIG" "$SBOX" "$POS"
+  _resolve_base "$G_ROOT"
+  DEST="$G_BASE/$SLUG"
+  [ -d "$DEST" ] || { echo "песочницы '$SLUG' нет — создаю"; [ -n "$PROFILE_JSON" ] && printf '%s' "$PROFILE_JSON" > "$G_BASE/_meta/$SLUG.profile.json"; _make_sandbox "$SLUG"; }
+  load_runtime
+  EPHDIR="$(mktemp -d)"; trap 'rm -rf "$EPHDIR"' RETURN
+  if [ "$BACKEND" = native ]; then
+    echo "sandboxer: шелл в копии $DEST (backend=native; OS-песочница только при запуске 'claude --settings')."
+    ( cd "$DEST"; export HTTP_PROXY="$PHTTP" HTTPS_PROXY="$PHTTPS" NO_PROXY="$PNO" http_proxy="$PHTTP" https_proxy="$PHTTPS" no_proxy="$PNO"; "${SHELL:-bash}" )
   else
-    echo "sandboxer: интерактивный claude в $DEST, нативный /sandbox включён."
-    echo "           запись вне этой папки режет ОС; сеть -> $DOMAINS. Выход -> авто-коммит."
-    local SET; SET="$(settings_json "$DOMAINS")"
-    ( cd "$DEST" && claude --settings "$SET" ${MODEL:+--model "$MODEL"} )
+    echo "sandboxer: интерактивный шелл в контейнере ($ENGINE_HINT$IMAGE). Агенты в PATH: $AUTH_AGENTS"
+    backend_run 1 -- bash -l
   fi
-  _commit_work "$DEST" "$slug"
-  echo "sandboxer: изменения зафиксированы в ветке sandbox/$slug. Вернуть: sandboxer merge $slug"
+  [ -f "$G_BASE/_meta/$SLUG.manifest.json" ] && node "$SANDBOXER_CFG" out "$G_BASE/_meta/$SLUG.manifest.json"
+  _commit_work "$DEST" "$SLUG"
+  echo "sandboxer: изменения зафиксированы в sandbox/$SLUG. Вернуть: sandboxer merge $SLUG"
+}
+ENGINE_HINT=""
+
+# ---------- exec (выполнить команду внутри) ----------
+cmd_exec(){
+  _parse_existing "$@"
+  [ "${#REST[@]}" -eq 0 ] && die "укажи команду после --: sandboxer exec <slug> -- <cmd...>"
+  resolve_target "$SRC" "$CONFIG" "$SBOX" "$POS"
+  _resolve_base "$G_ROOT"
+  DEST="$G_BASE/$SLUG"; [ -d "$DEST" ] || die "нет песочницы '$SLUG' (создай: sandboxer create)"
+  load_runtime
+  EPHDIR="$(mktemp -d)"; trap 'rm -rf "$EPHDIR"' RETURN
+  if [ "$BACKEND" = native ]; then
+    ( cd "$DEST"; export HTTP_PROXY="$PHTTP" HTTPS_PROXY="$PHTTPS" NO_PROXY="$PNO" http_proxy="$PHTTP" https_proxy="$PHTTPS" no_proxy="$PNO"
+      if [ "${REST[0]}" = claude ]; then
+        exec claude --settings "$(settings_json "$DOMAINS")" ${MODEL:+--model "$MODEL"} "${REST[@]:1}"
+      else "${REST[@]}"; fi )
+  else
+    backend_run 1 -- "${REST[@]}"
+  fi
+  _commit_work "$DEST" "$SLUG"
 }
 
 # ---------- run (батч автономных агентов) ----------
 cmd_run(){
-  local SRC="$PWD" TASKS="" MODEL="$DEFAULT_MODEL" DOMAINS="$DEFAULT_DOMAINS"
-  local MAXP="$DEFAULT_MAXP" NICE="$DEFAULT_NICE" MEM="$DEFAULT_MEM" CPU="$DEFAULT_CPU"
-  local WALL="$DEFAULT_WALL" KEEP=0 DRY=0
+  local SRC="" CONFIG="" TASKS="" MODEL="$DEFAULT_MODEL" AGENT="$DEFAULT_AGENT" DOMAINS="$DEFAULT_DOMAINS"
+  local MAXP="$DEFAULT_MAXP" NICE="$DEFAULT_NICE" MEM="$DEFAULT_MEM" CPU="$DEFAULT_CPU" WALL="$DEFAULT_WALL" KEEP=0 DRY=0 BACKEND="$DEFAULT_BACKEND"
   while [ $# -gt 0 ]; do case "$1" in
-    --src) SRC="$2"; shift 2;; --model) MODEL="$2"; shift 2;; --allow-domains) DOMAINS="$2"; shift 2;;
+    --src) SRC="$2"; shift 2;; --config) CONFIG="$2"; shift 2;; --model) MODEL="$2"; shift 2;;
+    --agent) AGENT="$2"; shift 2;; --backend) BACKEND="$2"; shift 2;; --allow-domains) DOMAINS="$2"; shift 2;;
     --max-parallel) MAXP="$2"; shift 2;; --nice) NICE="$2"; shift 2;;
     --mem) MEM="$2"; shift 2;; --cpu) CPU="$2"; shift 2;; --wall) WALL="$2"; shift 2;;
     --keep) KEEP=1; shift;; --dry-run) DRY=1; shift;;
     -*) die "неизвестный флаг: $1";; *) [ -z "$TASKS" ] && TASKS="$1" || die "лишний аргумент: $1"; shift;;
   esac; done
-  [ -z "$TASKS" ] && TASKS="$SRC/sandboxer.tasks"
+  local rootsrc="$SRC"
+  if [ -n "$CONFIG" ]; then
+    local P; P="$(profile_eval "$CONFIG")" || die "nix eval профиля"
+    rootsrc="$(printf '%s' "$P" | profile_get mainSrc)"
+    [ -z "$AGENT" ] && AGENT="$(printf '%s' "$P" | profile_get agent)"
+  fi
+  [ -z "$rootsrc" ] && rootsrc="$PWD"
+  [ -z "$TASKS" ] && TASKS="$rootsrc/sandboxer.tasks"
   [ -f "$TASKS" ] || die "tasks-файл не найден: $TASKS (см. sandboxer.tasks.example)"
   have rsync || die "нужен rsync"; have git || die "нужен git"
-  local rb; rb="$(abspath "$SRC")" || die "нет --src"
+  local rb; rb="$(abspath "$rootsrc")" || die "нет --src"
   [ "$KEEP" -eq 1 ] || rm -rf "$rb/$STATE_DIR_NAME"
-  _resolve_base "$SRC"
+  _resolve_base "$rb"
   [ -n "$DOMAINS" ] && sed -i "s|^DOMAINS=.*|DOMAINS=$DOMAINS|" "$G_BASE/_meta/run.env"
-  local SET; SET="$(settings_json "$DOMAINS")"
 
-  echo "sandboxer: src=$G_SRC model=${MODEL:-default} parallel=$MAXP nice=$NICE${MEM:+ mem=$MEM}${CPU:+ cpu=$CPU}${WALL:+ wall=${WALL}s}$([ "$DRY" = 1 ] && echo ' DRY-RUN')"
+  echo "sandboxer: src=$G_SRC agent=$AGENT backend=$BACKEND model=${MODEL:-default} parallel=$MAXP${MEM:+ mem=$MEM}${CPU:+ cpu=$CPU}${WALL:+ wall=${WALL}s}$([ "$DRY" = 1 ] && echo ' DRY-RUN')"
   local n=0 slug b64 prompt
   while IFS=$'\t' read -r slug b64; do
     [ -z "$slug" ] && continue; n=$((n+1)); prompt="$(printf '%s' "$b64" | base64 -d)"
+    [ -n "$CONFIG" ] && profile_eval "$CONFIG" > "$G_BASE/_meta/$slug.profile.json"
     _make_sandbox "$slug"
     while [ "$(jobs -rp | wc -l)" -ge "$MAXP" ]; do wait -n 2>/dev/null || break; done
-    launch_agent "$slug" "$G_BASE/$slug" "$prompt" "$MODEL" "$SET" "$NICE" "$MEM" "$CPU" "$WALL" "$DRY" "$G_BASE" &
+    launch_agent "$slug" "$G_BASE/$slug" "$prompt" "$MODEL" "$AGENT" "$DOMAINS" "$BACKEND" "$NICE" "$MEM" "$CPU" "$WALL" "$DRY" "$G_BASE" &
   done < <(parse_tasks "$TASKS")
   [ "$n" -eq 0 ] && die "в tasks-файле нет задач"
   echo "sandboxer: запущено $n агент(ов), ждём…"; wait
   echo "sandboxer: все агенты завершились."; echo
-  cmd_status --src "$G_SRC"
+  cmd_list --src "$G_SRC"
 }
 
 parse_tasks(){
@@ -160,40 +349,63 @@ parse_tasks(){
   done < "$file"; _emit
 }
 
-launch_agent(){  # slug dest prompt model settings nice mem cpu wall dry base
-  local slug="$1" dest="$2" prompt="$3" model="$4" settings="$5" nice="$6" mem="$7" cpu="$8" wall="$9" dry="${10}" base="${11}"
+launch_agent(){  # slug dest prompt model agent domains backend nice mem cpu wall dry base
+  local slug="$1" dest="$2" prompt="$3" model="$4" agent="$5" domains="$6" backend="$7" nice="$8" mem="$9" cpu="${10}" wall="${11}" dry="${12}" base="${13}"
   local meta="$base/_meta/$slug.meta" out="$base/_logs/$slug.json" errf="$base/_logs/$slug.err"
-  local full="Ты в изолированной копии проекта (отдельная директория). Действуй автономно, без вопросов. Не выходи за пределы текущего каталога. Оставь рабочее дерево консистентным. Задача:
+  local full="Ты в изолированной копии проекта. Действуй автономно, без вопросов. Не выходи за пределы текущего каталога. Оставь дерево консистентным. Задача:
 $prompt"
   printf "exit=RUNNING\nsecs=0\n" > "$meta"
+  # headless-команда выбранного агента
+  SLUG="$slug" G_BASE="$base"; PHTTP=""; PHTTPS=""; PNO=""; PROFILE="$([ -f "$base/_meta/$slug.profile.json" ] && cat "$base/_meta/$slug.profile.json" || echo '{}')"
+  PHTTP="$(printf '%s' "$PROFILE" | profile_get proxy.http)"; PHTTPS="$(printf '%s' "$PROFILE" | profile_get proxy.https)"; PNO="$(printf '%s' "$PROFILE" | profile_get proxy.no)"
+  AUTH_AGENTS="$agent"
+  local acmd; acmd="$(agent_cmd "$agent" headless "$model" "$domains" "$full")"
   local body
   if [ "$dry" -eq 1 ]; then
-    body='cd "$DEST"||exit 97; t0=$SECONDS; node -e "require(\"fs\").writeFileSync(\"DRYRUN.txt\",\"dry\")"; echo "{\"result\":\"(dry-run)\"}">"$OUT"; rc=0; secs=$((SECONDS-t0)); git add -A>/dev/null 2>&1; git diff --cached --quiet||git -c user.email=sandboxer@local -c user.name=sandboxer commit -qm "sandboxer: $SLUG">/dev/null 2>&1; printf "exit=%s\nsecs=%s\n" "$rc" "$secs">"$META"'
+    body='cd "$DEST"||exit 97; t0=$SECONDS; echo "{\"result\":\"(dry-run)\"}">"$OUT"; rc=0; secs=$((SECONDS-t0)); git add -A>/dev/null 2>&1; git diff --cached --quiet||git -c user.email=sandboxer@local -c user.name=sandboxer commit -qm "sandboxer: $SLUG">/dev/null 2>&1; printf "exit=%s\nsecs=%s\n" "$rc" "$secs">"$META"'
+    export DEST="$dest" OUT="$out" META="$meta" SLUG="$slug"
+    local -a wrap=(); [ -n "$wall" ] && have timeout && wrap+=(timeout --signal=TERM "$wall")
+    "${wrap[@]}" nice -n "$nice" bash -c "$body"; return
+  fi
+  DEST="$dest"
+  # запуск: native -> eval acmd в копии; иначе -> в контейнере (headless), креды эфемерные
+  local runner
+  if [ "$backend" = native ]; then
+    runner=$'cd "'$dest$'" || exit 97\n'"$acmd"' >"'"$out"'" 2>"'"$errf"'"'
   else
-    body='cd "$DEST"||exit 97; t0=$SECONDS; claude -p "$PROMPT" --permission-mode bypassPermissions ${MODEL:+--model "$MODEL"} --settings "$SETTINGS" --output-format json >"$OUT" 2>"$ERR"; rc=$?; secs=$((SECONDS-t0)); git add -A>/dev/null 2>&1; git diff --cached --quiet||git -c user.email=sandboxer@local -c user.name=sandboxer commit -qm "sandboxer: $SLUG">/dev/null 2>&1; printf "exit=%s\nsecs=%s\n" "$rc" "$secs">"$META"'
+    F_EPHEMERAL=1 EPHDIR="$(mktemp -d)"
+    runner="" # контейнерный путь исполняем напрямую ниже
   fi
-  export DEST="$dest" PROMPT="$full" MODEL="$model" SETTINGS="$settings" OUT="$out" ERR="$errf" META="$meta" SLUG="$slug"
-  local -a wrap=(); [ -n "$wall" ] && have timeout && wrap+=(timeout --signal=TERM "${wall}")
-  if { [ -n "$mem" ] || [ -n "$cpu" ]; } && have systemd-run && [ -n "${XDG_RUNTIME_DIR:-}" ]; then
-    if systemd-run --user --scope --quiet --collect --unit "sandboxer-$(sanitize "$slug")-$$" \
-         ${mem:+-p "MemoryMax=$mem"} ${cpu:+-p "CPUQuota=$cpu"} -p "TasksMax=1024" \
-         nice -n "$nice" bash -c "$body" 2>>"$errf"; then return; fi
-    err "[$slug] systemd-run scope не стартовал — без cgroup-лимитов"
+  local t0=$SECONDS rc=0
+  if [ "$backend" = native ]; then
+    local -a wrap=(); [ -n "$wall" ] && have timeout && wrap+=(timeout --signal=TERM "$wall")
+    if { [ -n "$mem" ] || [ -n "$cpu" ]; } && have systemd-run && [ -n "${XDG_RUNTIME_DIR:-}" ]; then
+      systemd-run --user --scope --quiet --collect --unit "sandboxer-$(sanitize "$slug")-$$" \
+        ${mem:+-p "MemoryMax=$mem"} ${cpu:+-p "CPUQuota=$cpu"} -p "TasksMax=1024" \
+        nice -n "$nice" bash -c "$runner" 2>>"$errf" || rc=$?
+    else
+      "${wrap[@]}" nice -n "$nice" bash -c "$runner" || rc=$?
+    fi
+  else
+    F_EPHEMERAL=1; EPHDIR="${EPHDIR:-$(mktemp -d)}"
+    backend_run 0 -- bash -lc "$acmd" >"$out" 2>"$errf" || rc=$?
+    rm -rf "$EPHDIR"
   fi
-  "${wrap[@]}" nice -n "$nice" bash -c "$body"
+  local secs=$((SECONDS-t0))
+  git -C "$dest" add -A >/dev/null 2>&1; git -C "$dest" diff --cached --quiet 2>/dev/null || git -C "$dest" -c user.email=sandboxer@local -c user.name=sandboxer commit -qm "sandboxer: $slug" >/dev/null 2>&1
+  printf "exit=%s\nsecs=%s\n" "$rc" "$secs" > "$meta"
 }
 
-# ---------- list / status ----------
-cmd_list(){ cmd_status "$@"; }
-cmd_status(){
+# ---------- list ----------
+cmd_list(){
   local SRC="$PWD"; [ "${1:-}" = "--src" ] && SRC="$2"
   local rb; rb="$(abspath "$SRC")" || die "нет --src"
   local BASE="$rb/$STATE_DIR_NAME"
   [ -f "$BASE/_meta/run.env" ] || die "нет песочниц в $BASE (создай: sandboxer create <slug>)"
   # shellcheck disable=SC1091
   . "$BASE/_meta/run.env"
-  printf "%-16s %-9s %-5s %-8s %s\n" "SANDBOX" "EXIT" "SEC" "CHANGED" "RESULT"
-  printf "%-16s %-9s %-5s %-8s %s\n" "-------" "----" "---" "-------" "------"
+  local cur=""; [ -f "$BASE/_meta/current" ] && cur="$(cat "$BASE/_meta/current")"
+  printf "%-2s %-16s %-9s %-5s %-8s %s\n" "" "SANDBOX" "EXIT" "SEC" "CHANGED" "RESULT"
   local slug
   while read -r slug; do
     [ -z "$slug" ] && continue
@@ -202,18 +414,19 @@ cmd_status(){
     local base; base="$(cat "$BASE/_meta/$slug.base" 2>/dev/null || echo "${BASE_SHA:-}")"
     local changed="-"; [ -d "$DEST/.git" ] && [ -n "$base" ] && changed="$(git -C "$DEST" diff --name-only "$base"..HEAD 2>/dev/null | wc -l | tr -d ' ')"
     local res=""; [ -f "$BASE/_logs/$slug.json" ] && res="$(json_result "$BASE/_logs/$slug.json")"
-    printf "%-16s %-9s %-5s %-8s %s\n" "${slug:0:16}" "$rc" "$secs" "${changed:-0}" "${res:0:56}"
+    printf "%-2s %-16s %-9s %-5s %-8s %s\n" "$([ "$slug" = "$cur" ] && echo '*')" "${slug:0:16}" "$rc" "$secs" "${changed:-0}" "${res:0:50}"
   done < "$BASE/_meta/agents.list"
-  echo; echo "enter <s> | diff [s] | merge [s...] | rm <s>"
+  echo; echo "* = активная (use). enter <s> | exec <s> -- cmd | diff [s] | merge [s...] | rm <s>"
 }
 json_result(){ node -e 'try{const j=require(process.argv[1]);process.stdout.write(((j.result||j.error||"")+"").replace(/\s+/g," "))}catch(e){process.stdout.write("")}' "$1" 2>/dev/null; }
 
 # ---------- diff ----------
 cmd_diff(){
-  local SRC="$PWD" only=""
-  while [ $# -gt 0 ]; do case "$1" in --src) SRC="$2"; shift 2;; *) only="$1"; shift;; esac; done
-  local rb; rb="$(abspath "$SRC")" || die "нет --src"; local BASE="$rb/$STATE_DIR_NAME"
+  _parse_existing "$@"
+  resolve_target "$SRC" "$CONFIG" "$SBOX" "$POS" 2>/dev/null || true
+  local rb="$G_ROOT"; local BASE="$rb/$STATE_DIR_NAME"
   [ -f "$BASE/_meta/run.env" ] || die "нет песочниц"; . "$BASE/_meta/run.env"
+  local only="$SLUG"
   local slug
   while read -r slug; do
     [ -z "$slug" ] && continue; [ -n "$only" ] && [ "$slug" != "$(sanitize "$only")" ] && continue
@@ -222,6 +435,37 @@ cmd_diff(){
     if [ -n "$only" ]; then git -C "$DEST" --no-pager diff "$base"..HEAD 2>/dev/null
     else git -C "$DEST" --no-pager diff --stat "$base"..HEAD 2>/dev/null; fi
   done < "$BASE/_meta/agents.list"
+}
+
+# ---------- show ----------
+cmd_show(){
+  if [ -n "$IN_CONTAINER" ]; then
+    echo "== profile =="; cat /run/sandboxer/profile.json 2>/dev/null; echo
+    echo "== manifest =="; cat /run/sandboxer/manifest.json 2>/dev/null; return
+  fi
+  _parse_existing "$@"; resolve_target "$SRC" "$CONFIG" "$SBOX" "$POS"; _resolve_base "$G_ROOT"
+  echo "== profile ($SLUG) =="; cat "$G_BASE/_meta/$SLUG.profile.json" 2>/dev/null || echo "(нет профиля)"; echo
+  echo "== manifest =="; cat "$G_BASE/_meta/$SLUG.manifest.json" 2>/dev/null || echo "(нет манифеста)"
+}
+
+# ---------- pull / push ----------
+cmd_pull(){
+  if [ -n "$IN_CONTAINER" ]; then
+    node "$SANDBOXER_CFG" in /run/sandboxer/profile.json "${SANDBOXER_SANDBOX_DIR:-$PWD}" /run/sandboxer/manifest.json $([ "${1:-}" = --force ] && echo --force); return
+  fi
+  _parse_existing "$@"; resolve_target "$SRC" "$CONFIG" "$SBOX" "$POS"; _resolve_base "$G_ROOT"
+  local pj="$G_BASE/_meta/$SLUG.profile.json"
+  [ -f "$pj" ] || die "у '$SLUG' нет профиля (srcs нечего тянуть)"
+  node "$SANDBOXER_CFG" in "$pj" "$G_BASE/$SLUG" "$G_BASE/_meta/$SLUG.manifest.json" $([ "$FORCE" = 1 ] && echo --force)
+}
+cmd_push(){
+  if [ -n "$IN_CONTAINER" ]; then
+    node "$SANDBOXER_CFG" out /run/sandboxer/manifest.json $([ "${1:-}" = --force ] && echo --force); return
+  fi
+  _parse_existing "$@"; resolve_target "$SRC" "$CONFIG" "$SBOX" "$POS"; _resolve_base "$G_ROOT"
+  local mf="$G_BASE/_meta/$SLUG.manifest.json"
+  [ -f "$mf" ] || die "у '$SLUG' нет манифеста (нечего возвращать)"
+  node "$SANDBOXER_CFG" out "$mf" $([ "$FORCE" = 1 ] && echo --force)
 }
 
 # ---------- merge ----------
@@ -257,50 +501,76 @@ cmd_merge(){
   done <<< "$list"
 }
 
-# ---------- rm / clean ----------
+# ---------- rm / rm-all / use / agents ----------
 cmd_rm(){
-  local SRC="$PWD" slug=""
-  while [ $# -gt 0 ]; do case "$1" in --src) SRC="$2"; shift 2;; *) slug="$(sanitize "$1")"; shift;; esac; done
-  [ -z "$slug" ] && die "укажи песочницу: sandboxer rm <slug>"
-  local rb; rb="$(abspath "$SRC")" || die "нет --src"; local BASE="$rb/$STATE_DIR_NAME"
-  rm -rf "$BASE/$slug" "$BASE/_meta/$slug.meta" "$BASE/_meta/$slug.base" "$BASE/_logs/$slug".* "$BASE/_patches/$slug"
-  [ -f "$BASE/_meta/agents.list" ] && { grep -vxF "$slug" "$BASE/_meta/agents.list" > "$BASE/_meta/agents.list.tmp" 2>/dev/null; mv "$BASE/_meta/agents.list.tmp" "$BASE/_meta/agents.list"; }
-  echo "удалена песочница: $slug"
+  _parse_existing "$@"; resolve_target "$SRC" "$CONFIG" "$SBOX" "$POS"; local rb="$G_ROOT"; local BASE="$rb/$STATE_DIR_NAME"
+  rm -rf "$BASE/$SLUG" "$BASE/_meta/$SLUG.meta" "$BASE/_meta/$SLUG.base" "$BASE/_meta/$SLUG".profile.json "$BASE/_meta/$SLUG".manifest.json "$BASE/_logs/$SLUG".* "$BASE/_patches/$SLUG"
+  [ -f "$BASE/_meta/agents.list" ] && { grep -vxF "$SLUG" "$BASE/_meta/agents.list" > "$BASE/_meta/agents.list.tmp" 2>/dev/null; mv "$BASE/_meta/agents.list.tmp" "$BASE/_meta/agents.list"; }
+  [ "$(cat "$BASE/_meta/current" 2>/dev/null)" = "$SLUG" ] && rm -f "$BASE/_meta/current"
+  echo "удалена песочница: $SLUG"
 }
-cmd_clean(){ local SRC="${2:-$PWD}"; local rb; rb="$(abspath "$SRC")" || die "нет папки"; rm -rf "$rb/$STATE_DIR_NAME"; echo "удалено: $rb/$STATE_DIR_NAME"; }
+cmd_rm_all(){ local SRC="${1:-$PWD}"; local rb; rb="$(abspath "$SRC")" || die "нет папки"; rm -rf "$rb/$STATE_DIR_NAME"; echo "удалено: $rb/$STATE_DIR_NAME"; }
+cmd_use(){
+  local SRC="$PWD" slug="" clear=0
+  while [ $# -gt 0 ]; do case "$1" in --src) SRC="$2"; shift 2;; --clear) clear=1; shift;; *) slug="$1"; shift;; esac; done
+  local rb; rb="$(abspath "$SRC")" || die "нет папки"; local BASE="$rb/$STATE_DIR_NAME"
+  mkdir -p "$BASE/_meta"
+  if [ "$clear" = 1 ]; then rm -f "$BASE/_meta/current"; echo "активная песочница сброшена"; return; fi
+  if [ -z "$slug" ]; then cat "$BASE/_meta/current" 2>/dev/null || echo "(активная не задана)"; return; fi
+  slug="$(sanitize "$slug")"; echo "$slug" > "$BASE/_meta/current"; echo "активная песочница: $slug"
+}
+cmd_agents(){
+  have nix || die "нужен nix"
+  nix --extra-experimental-features nix-command eval --impure --json --expr "(import $SANDBOXER_REGISTRY {})" \
+    | node -e 'const r=JSON.parse(require("fs").readFileSync(0));for(const[n,a]of Object.entries(r)){const dirs=(a.authConfigDirs||[]).map(d=>d.path).join(" ");console.log(`${n.padEnd(10)} bin=${(a.bin||"").padEnd(9)} sandbox=${a.nativeSandbox?"native":"-"}  auth: ${dirs}  env: ${(a.authEnv||[]).join(",")}`)}'
+}
 
 cmd_help(){ cat <<'H'
-sandboxer — изолированные песочницы для разработки с Claude (отдельная директория-копия
-            на песочницу + нативный /sandbox: FS/сеть изолированы на уровне ОС).
+sandboxer — конфиг-driven изолированные песочницы для нескольких кодинг-агентов.
 
-РУЧНОЙ ЦИКЛ:
-  sandboxer create <slug> [--src DIR] [--allow-domains a,b]   # создать песочницу под задачу
-  sandboxer enter  <slug> [--model M] [--allow-domains a,b]   # интерактивный claude в копии (/sandbox вкл.)
-  sandboxer enter  <slug> --bash                              # обычный шел в копии (без OS-песочницы)
-  sandboxer merge  <slug>                                     # вернуть изменения в исходный репо (cherry-pick)
-  sandboxer list | diff [slug] | rm <slug> | clean
+  Песочница = копия проекта (rsync mainSrc) + git-ветка sandbox/<slug> + snapshot.
+  Бэкенд изоляции: podman/docker (любой агент) | native (только claude, /sandbox).
+  Профиль — Nix (.nix): mainSrc, srcs→dest, proxy, network.allowedDomains, agent, model.
 
-БАТЧ (автономно, N агентов):
-  sandboxer run [tasks] [--model M] [--max-parallel N] [--nice N] [--wall SEC]
-                [--mem 2G] [--cpu 100%]   # cgroup через systemd-run --user --scope
-                [--allow-domains a,b] [--dry-run] [--keep]
+ВЫБОР ПЕСОЧНИЦЫ (снаружи): -S/--sandbox <slug> | sandboxer use <slug> | позиционно. Внутри — авто.
+ПРОФИЛЬ: --config feat.nix | bare feat.nix | авто sandboxer.nix в cwd.
 
-КАК РАБОТАЕТ:
-  • На <slug> — копия проекта в <src>/.sandboxer/<slug> (rsync, без .sandboxer/node_modules/sandboxer.tasks),
-    ветка sandbox/<slug> + snapshot стартового состояния.
-  • enter: интерактивный `claude --settings '<inline sandbox json>'`; запись вне копии режет ОС (read-only),
-    сеть для bash-команд — по --allow-domains. На выходе изменения авто-коммитятся.
-  • merge: переносит ТОЛЬКО коммиты песочницы (диапазон snapshot..tip) cherry-pick'ом в текущую ветку.
-  • Нужен установленный и авторизованный `claude` в PATH. Linux-only.
+ЖИЗНЕННЫЙ ЦИКЛ:
+  sandboxer create [<slug>|<f.nix>|--config f] [--src DIR] [--allow-domains a,b]
+  sandboxer enter  [<slug>|--config f] [--backend podman|native]    # ВОЙТИ: шелл внутри
+  sandboxer exec   [<slug>] [--backend B] -- <cmd...>               # выполнить команду внутри
+  sandboxer run    [tasks] [--config f] [--agent X] [--model M] [--max-parallel N]
+                   [--nice N] [--mem 2G] [--cpu 100%] [--wall SEC] [--dry-run] [--keep]
+
+ЗАВИСИМОСТИ / ВОЗВРАТ:
+  sandboxer pull [<slug>] [--force]    # origins -> песочница (skip изменённых; --force затирает)
+  sandboxer push [<slug>] [--force]    # rw-зависимости песочница -> origins
+  sandboxer merge [slug...] [--patch]  # вернуть КОД в исходный репо (cherry-pick)
+
+ОСМОТР / УБОРКА:
+  sandboxer list | diff [<slug>] | show [<slug>]
+  sandboxer rm <slug> | rm-all [SRC]
+  sandboxer use [<slug>] [--clear] | agents
+
+Образ-тулбокс со всеми агентами:  nix run .#build-image
+Нужен установленный 'claude' (и podman/docker для контейнерного бэкенда). Linux-only.
 H
 }
 
+# ---------- main ----------
 main(){
   local sub="${1:-help}"; shift || true
+  # сторож: внутри контейнера разрешены только pull/push/show/list/diff
+  if [ -n "$IN_CONTAINER" ]; then
+    case "$sub" in
+      create|enter|exec|run|rm|rm-all|merge|use) die "команда '$sub' недоступна внутри контейнера (только pull/push/show/list/diff)";;
+    esac
+  fi
   case "$sub" in
-    create) cmd_create "$@";; enter) cmd_enter "$@";; run) cmd_run "$@";;
-    list) cmd_list "$@";; status) cmd_status "$@";; diff) cmd_diff "$@";;
-    merge) cmd_merge "$@";; rm) cmd_rm "$@";; clean) cmd_clean "$@";;
+    create) cmd_create "$@";; enter) cmd_enter "$@";; exec) cmd_exec "$@";; run) cmd_run "$@";;
+    pull) cmd_pull "$@";; push) cmd_push "$@";; merge) cmd_merge "$@";;
+    list|status) cmd_list "$@";; diff) cmd_diff "$@";; show) cmd_show "$@";;
+    rm) cmd_rm "$@";; rm-all) cmd_rm_all "$@";; use) cmd_use "$@";; agents) cmd_agents "$@";;
     help|-h|--help) cmd_help;;
     *) err "неизвестная команда: $sub"; cmd_help; exit 1;;
   esac
