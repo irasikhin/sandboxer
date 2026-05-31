@@ -17,7 +17,7 @@
   #   "native"            — нативный Claude /sandbox (только agent = "claude").
   backend = "native";
 
-  # Кодинг-агент из реестра (sandboxer agents): claude | codex | opencode | aider | pi | gemini.
+  # Кодинг-агент из реестра (sandboxer agents): claude | codex | opencode | crush | aider | pi | gemini.
   agent = "claude";
 
   # Модель агента (необязательно). Для claude: "haiku" | "sonnet" | "opus" | полный id.

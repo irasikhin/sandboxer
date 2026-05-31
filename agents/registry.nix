@@ -67,6 +67,19 @@ in
     authEnv = [ "OPENAI_API_KEY" "ANTHROPIC_API_KEY" "OPENROUTER_API_KEY" "DEEPSEEK_API_KEY" ];
   };
 
+  crush = {
+    package        = pkg "crush";                               # charmbracelet/crush (Go — дёшево печь в образ)
+    bin            = "crush";
+    interactive    = "crush {modelFlag}";                       # TO-VERIFY: флаг выбора модели
+    headless       = "crush run {task}";                        # TO-VERIFY headless-флаг (по образцу opencode)
+    nativeSandbox  = false;
+    authConfigDirs = [
+      { path = "~/.config/crush"; mode = "rw"; optional = true; }       # TO-VERIFY путь конфига
+      { path = "~/.local/share/crush"; mode = "rw"; optional = true; }  # данные/сессии
+    ];
+    authEnv = [ "ANTHROPIC_API_KEY" "OPENAI_API_KEY" "GROQ_API_KEY" "OPENROUTER_API_KEY" ];
+  };
+
   aider = {
     package        = pkg "aider";
     bin            = "aider";
