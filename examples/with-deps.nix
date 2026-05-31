@@ -7,14 +7,16 @@
   name = "integ";
   mainSrc = "/home/me/work/app";
 
-  # Контейнер-тулбокс: образ со всеми агентами (nix run .#build-image). Любой агент, не только claude.
+  # Контейнер-тулбокс: образ с JS-агентами (nix run .#build-image). Любой агент, не только claude.
+  # (codex — Rust, в образ не запекается из-за времени сборки; на контейнерном бэкенде недоступен,
+  #  используйте его на нативном бэкенде. См. flake.nix imageAgents.)
   backend = "podman";
-  agent = "codex";
-  model = "gpt-5-codex";
+  agent = "opencode";
+  model = "gpt-5";
 
   # Какие агенты авторизовать в контейнере (биндить их конфиг-каталоги/env). По умолчанию — все
   # из реестра; сузить полезно, чтобы не монтировать лишние креды.
-  agents = [ "codex" "claude" ];
+  agents = [ "opencode" "claude" ];
 
   network.allowedDomains = [ "api.openai.com" "api.anthropic.com" "registry.npmjs.org" "pypi.org" ];
 

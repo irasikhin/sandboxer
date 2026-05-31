@@ -58,9 +58,13 @@
           };
 
           # Агенты для образа: берём .package из реестра (отсутствующие в llm-agents -> null -> отброшены).
+          # codex собирается из исходников (Rust, -j1) и катастрофически замедляет сборку образа —
+          # исключаем из тулбокса. В реестре он остаётся: доступен на нативном бэкенде (BYO из host
+          # PATH / nix-профиля) и как метаданные лаунчера.
           llmAgents = llm-agents.packages.${system};
+          imageAgents = removeAttrs (import ./agents/registry.nix { inherit pkgs llmAgents; }) [ "codex" ];
           agentPkgs = lib.filter (p: p != null)
-            (map (a: a.package) (lib.attrValues (import ./agents/registry.nix { inherit pkgs llmAgents; })));
+            (map (a: a.package) (lib.attrValues imageAgents));
 
           # OCI-образ-тулбокс: базовый userland + все агенты + сам sandboxer. Слоёный
           # (maxLayers), так что `nix flake update llm-agents` пересобирает только слои агентов.

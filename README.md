@@ -12,8 +12,9 @@ Nix-профили; поставка — nix flake.
 
 - **native** — нативный Claude Code `/sandbox` (bubblewrap, FS+сеть на уровне ОС). Только `claude`,
   нулевая установка, проверено на NixOS из коробки.
-- **podman / docker** — контейнер-тулбокс со всеми агентами (claude, codex, opencode, aider, pi,
-  gemini). Любой агент; сеть/прокси/креды прокидываются per-config.
+- **podman / docker** — контейнер-тулбокс с JS-агентами (claude, opencode, aider, pi, gemini).
+  Любой из них; сеть/прокси/креды прокидываются per-config. `codex` (Rust) в образ не запекается
+  из-за времени сборки — используйте его на нативном бэкенде.
 
 ## Требования
 
@@ -93,7 +94,7 @@ nix flake update llm-agents    # обновить набор агентов; п�
   # model = "sonnet";
   network.allowedDomains = [ "api.anthropic.com" "registry.npmjs.org" "github.com" ];
 
-  # agents = [ "codex" "claude" ];                       # какие креды биндить в контейнер
+  # agents = [ "opencode" "claude" ];                    # какие креды биндить в контейнер
   # proxy = { http = "http://proxy:3128"; https = "http://proxy:3128"; no = "localhost"; };
   # srcs = [ { from = "/abs/shared-lib"; to = "vendor/shared-lib"; mode = "rw"; }
   #          { root = "/abs/schemas"; glob = "**/*.proto"; to = "proto"; mode = "ro"; } ];
