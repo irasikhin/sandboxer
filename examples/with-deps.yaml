@@ -1,0 +1,43 @@
+# Profile with dependencies, a container backend, and a proxy.
+#
+# Shows the full set of fields. `srcs` are external directories/files pulled
+# INTO the sandbox and, for rw entries, pushed back to their origin on
+# teardown. Handy for monorepo vendoring or shared libs living outside mainSrc.
+
+name: integ
+mainSrc: /home/me/work/app
+
+# Container toolbox: image with the JS agents (nix run .#build-image). Any
+# agent, not just claude. (codex is Rust and is not baked into the image due to
+# build time; use it on the native backend instead. See flake.nix imageAgents.)
+backend: podman
+agent: opencode
+model: gpt-5
+
+# Which agents to authorize in the container (bind their config dirs / env).
+# Defaults to every agent in the registry; narrow it to avoid mounting
+# credentials you don't need.
+agents: [opencode, claude]
+
+network:
+  allowedDomains: [api.openai.com, api.anthropic.com, registry.npmjs.org, pypi.org]
+
+# Container egress is forced by the allowlist proxy by default (agent on an
+# --internal network, sole exit via the forward-proxy). Disable with:
+# egress: false        # or set env SANDBOXER_NO_EGRESS=1
+
+# Corporate proxy, forwarded as HTTP(S)_PROXY / NO_PROXY to both backends.
+# proxy: { http: "http://proxy.corp:3128", https: "http://proxy.corp:3128", no: "localhost,127.0.0.1,.corp" }
+
+# Dependencies: each entry is either EXPLICIT (from/to) or a MATCHER
+# (root + glob/regex/name).
+srcs:
+  - { from: /home/me/work/shared-lib, to: vendor/shared-lib, mode: rw }   # explicit, pushed back
+  - { from: /home/me/work/fixtures, to: test/fixtures, mode: ro }          # explicit ro
+  - { root: /home/me/work/schemas, glob: "**/*.proto", to: proto, mode: ro } # matcher
+
+# Extra bind mounts and env for the container (optional).
+# extraMounts:
+#   - { source: /data/cache, target: /data/cache, mode: rw }
+# env:
+#   NPM_CONFIG_REGISTRY: "https://registry.npmjs.org/"

@@ -1,0 +1,42 @@
+# Minimal sandbox profile.
+#
+# sandboxer auto-discovers `sandboxer.yaml` in the current directory (or pass
+# one explicitly: `sandboxer create --config path/feat.yaml`, or positionally
+# `sandboxer create feat.yaml`).
+
+# Sandbox name (slug). Drives the working copy at .sandboxer/<name> and the
+# branch sandbox/<name>.
+name: feature-x
+
+# Project root that gets rsync-copied into the sandbox. Defaults to the
+# profile's directory.
+mainSrc: .
+
+# Isolation backend:
+#   native            — Claude Code's own /sandbox (bubblewrap); agent must be claude.
+#   podman | docker   — container toolbox; works with any agent.
+backend: native
+
+# Coding agent from the registry (sandboxer agents):
+#   claude | codex | opencode | crush | aider | pi | gemini
+agent: claude
+
+# Agent model (optional). For claude: haiku | sonnet | opus | full id.
+# model: sonnet
+
+# Egress allowlist. On the native backend these are the allowedDomains of the
+# native /sandbox.
+network:
+  allowedDomains: [api.anthropic.com, registry.npmjs.org, github.com]
+
+# Which agents' credentials to bind into the container (container backends
+# only). Defaults to every agent in the registry; narrow it to avoid mounting
+# credentials you don't need.
+# agents: [opencode, claude]
+
+# Corporate proxy, forwarded as HTTP(S)_PROXY / NO_PROXY to both backends.
+# proxy: { http: "http://proxy:3128", https: "http://proxy:3128", no: "localhost" }
+
+# Container backends force the allowlist proxy by default (agent on an
+# --internal network, sole exit via the forward-proxy). Set to false to disable.
+# egress: true
