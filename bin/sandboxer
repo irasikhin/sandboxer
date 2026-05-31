@@ -193,32 +193,84 @@ origin_mounts(){
   done
 }
 
+# ---------- egress-allowlist сайдкар (gost v3) ----------
+# Жёсткий per-домен allowlist для контейнерного бэкенда: агент сидит в --internal сети (без
+# интернета), единственный выход — forward-proxy gost, пропускающий CONNECT/HTTP только к доменам
+# из network.allowedDomains (whitelist-bypass на уровне сервиса), остальное -> 403.
+# Результат: EG_ACTIVE=1, EG_NET (internal сеть для агента), EG_PROXY_URL.
+EG_ACTIVE=0; EG_NET=""; EG_EXTNET=""; EG_PROXY=""; EG_PROXY_URL=""; EG_CONFDIR=""
+egress_up(){  # $1=slug $2=domains(csv) -> 0 если allowlist поднят
+  local slug="$1" domains="$2" d
+  [ -z "$domains" ] && return 1
+  local id; id="sbx-$(sanitize "$slug")-$$"
+  EG_NET="${id}-int"; EG_EXTNET="${id}-ext"; EG_PROXY="${id}-proxy"
+  EG_CONFDIR="$(mktemp -d)"
+  { printf 'services:\n  - name: egress\n    addr: ":8888"\n    bypass: allowlist\n'
+    printf '    handler:\n      type: http\n    listener:\n      type: tcp\n'
+    printf 'bypasses:\n  - name: allowlist\n    whitelist: true\n    matchers:\n'; } > "$EG_CONFDIR/gost.yaml"
+  local IFS=,; for d in $domains; do [ -z "$d" ] && continue
+    printf '      - "%s"\n      - "*.%s"\n' "$d" "$d" >> "$EG_CONFDIR/gost.yaml"; done
+  "$ENGINE" network create --internal "$EG_NET" >/dev/null 2>&1 || { egress_down; return 1; }
+  "$ENGINE" network create "$EG_EXTNET" >/dev/null 2>&1 || { egress_down; return 1; }
+  "$ENGINE" run -d --name "$EG_PROXY" --network "$EG_NET" \
+    --user "$(id -u):$(id -g)" --cap-drop=ALL --security-opt no-new-privileges \
+    --volume "$EG_CONFDIR:/etc/sbx:ro" \
+    "$IMAGE" gost -C /etc/sbx/gost.yaml >/dev/null 2>&1 || { egress_down; return 1; }
+  "$ENGINE" network connect "$EG_EXTNET" "$EG_PROXY" >/dev/null 2>&1 || { egress_down; return 1; }
+  EG_PROXY_URL="http://$EG_PROXY:8888"; EG_ACTIVE=1; return 0
+}
+egress_down(){
+  [ -n "$EG_PROXY" ]  && "$ENGINE" rm -f "$EG_PROXY"        >/dev/null 2>&1
+  [ -n "$EG_NET" ]    && "$ENGINE" network rm "$EG_NET"     >/dev/null 2>&1
+  [ -n "$EG_EXTNET" ] && "$ENGINE" network rm "$EG_EXTNET"  >/dev/null 2>&1
+  [ -n "$EG_CONFDIR" ] && rm -rf "$EG_CONFDIR"
+  EG_ACTIVE=0; EG_NET=""; EG_EXTNET=""; EG_PROXY=""; EG_PROXY_URL=""; EG_CONFDIR=""
+}
+
 # backend_run <interactive 0|1> -- <cmd...>   (uses ENGINE DEST SLUG G_BASE PHTTP* DOMAINS AUTH_AGENTS)
 backend_run(){
   local interactive="$1"; shift; [ "${1:-}" = "--" ] && shift
   detect_oci
+  # egress-allowlist: контейнер видит только разрешённые домены. Не поднимаем, если задан upstream
+  # proxy (тогда границу держит он), либо SANDBOXER_NO_EGRESS=1, либо egress=false в профиле.
+  local use_eg=0 eg_off=""
+  [ -n "${PROFILE:-}" ] && eg_off="$(printf '%s' "$PROFILE" | profile_get egress)"
+  if [ "${SANDBOXER_NO_EGRESS:-0}" != 1 ] && [ "$eg_off" != false ] && [ -z "$PHTTP$PHTTPS" ] && [ -n "$DOMAINS" ]; then
+    if egress_up "$SLUG" "$DOMAINS"; then use_eg=1
+    else err "egress: allowlist-прокси не поднялся — контейнер БЕЗ сетевой изоляции (bridge)"; fi
+  fi
   local -a A=(run --rm)
-  [ "$interactive" = 1 ] && A+=(-it)
+  # -i для интерактива; -t только при реальном TTY (иначе docker падает «not a TTY» в пайпах/CI)
+  [ "$interactive" = 1 ] && { A+=(-i); [ -t 0 ] && [ -t 1 ] && A+=(-t); }
   A+=(--user "$(id -u):$(id -g)" --cap-drop=ALL --security-opt no-new-privileges
       --workdir "$DEST" --volume "$DEST:$DEST:rw"
       --env "HOME=$HOME" --env "SANDBOXER_IN_CONTAINER=1"
       --env "SANDBOXER_SLUG=$SLUG" --env "SANDBOXER_SANDBOX_DIR=$DEST")
   [ "$ENGINE" = podman ] && A+=(--userns=keep-id)
+  if [ "$use_eg" = 1 ]; then
+    A+=(--network "$EG_NET"
+        --env "HTTP_PROXY=$EG_PROXY_URL"  --env "http_proxy=$EG_PROXY_URL"
+        --env "HTTPS_PROXY=$EG_PROXY_URL" --env "https_proxy=$EG_PROXY_URL"
+        --env "NO_PROXY=localhost,127.0.0.1" --env "no_proxy=localhost,127.0.0.1")
+  fi
   local pj="$G_BASE/_meta/$SLUG.profile.json" mf="$G_BASE/_meta/$SLUG.manifest.json"
   [ -f "$pj" ] && A+=(--volume "$pj:/run/sandboxer/profile.json:ro")
   [ -f "$mf" ] && A+=(--volume "$mf:/run/sandboxer/manifest.json:rw")
   [ -n "$PHTTP" ]  && A+=(--env "HTTP_PROXY=$PHTTP"   --env "http_proxy=$PHTTP")
   [ -n "$PHTTPS" ] && A+=(--env "HTTPS_PROXY=$PHTTPS" --env "https_proxy=$PHTTPS")
   [ -n "$PNO" ]    && A+=(--env "NO_PROXY=$PNO"       --env "no_proxy=$PNO")
-  # NB: строгий egress-allowlist в контейнере (squid-сайдкар по network.allowedDomains) — следующий
-  # шаг; сейчас сеть ограничивает upstream-proxy (если задан). allowlist пробрасываем как подсказку.
+  # Строгий egress (gost-сайдкар по network.allowedDomains) поднимается выше при use_eg=1.
+  # Домены дополнительно пробрасываем как подсказку (для скриптов внутри песочницы).
   [ -n "$DOMAINS" ] && A+=(--env "SANDBOXER_ALLOW_DOMAINS=$DOMAINS")
   local line
   while IFS= read -r line; do [ -n "$line" ] && A+=("$line"); done < <(auth_flags $AUTH_AGENTS)
   while IFS= read -r line; do [ -n "$line" ] && A+=("$line"); done < <(origin_mounts)
   while IFS= read -r line; do [ -n "$line" ] && A+=("$line"); done < <(printf '%s' "$PROFILE" | node -e 'const j=JSON.parse(require("fs").readFileSync(0)||"{}");for(const m of (j.extraMounts||[]))process.stdout.write(`--volume\n${m.source}:${m.target}:${m.mode||"rw"}\n`);for(const [k,v] of Object.entries(j.env||{}))process.stdout.write(`--env\n${k}=${v}\n`);')
   A+=("$IMAGE" "$@")
-  "$ENGINE" "${A[@]}"
+  local rc=0
+  "$ENGINE" "${A[@]}" || rc=$?
+  egress_down   # идемпотентно: no-op, если allowlist не поднимался
+  return $rc
 }
 
 # ---------- create ----------
@@ -358,7 +410,7 @@ $prompt"
   # headless-команда выбранного агента
   SLUG="$slug" G_BASE="$base"; PHTTP=""; PHTTPS=""; PNO=""; PROFILE="$([ -f "$base/_meta/$slug.profile.json" ] && cat "$base/_meta/$slug.profile.json" || echo '{}')"
   PHTTP="$(printf '%s' "$PROFILE" | profile_get proxy.http)"; PHTTPS="$(printf '%s' "$PROFILE" | profile_get proxy.https)"; PNO="$(printf '%s' "$PROFILE" | profile_get proxy.no)"
-  AUTH_AGENTS="$agent"
+  AUTH_AGENTS="$agent"; DOMAINS="$domains"   # DOMAINS — для egress-сайдкара в backend_run
   local acmd; acmd="$(agent_cmd "$agent" headless "$model" "$domains" "$full")"
   local body
   if [ "$dry" -eq 1 ]; then
@@ -551,6 +603,9 @@ sandboxer — конфиг-driven изолированные песочницы 
   sandboxer list | diff [<slug>] | show [<slug>]
   sandboxer rm <slug> | rm-all [SRC]
   sandboxer use [<slug>] [--clear] | agents
+
+EGRESS (контейнер): агент в --internal сети, наружу только network.allowedDomains через
+  gost-сайдкар (whitelist). Отключить: SANDBOXER_NO_EGRESS=1 или egress=false в профиле.
 
 Образ-тулбокс со всеми агентами:  nix run .#build-image
 Нужен установленный 'claude' (и podman/docker для контейнерного бэкенда). Linux-only.

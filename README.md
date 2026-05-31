@@ -131,7 +131,9 @@ sandboxer merge [slug...]            # cherry-pick коммитов агента
      запись вне копии режет ОС (`read-only file system`), сеть по `allowedDomains`. В репо ничего не пишется.
    - *контейнер:* агент из образа-тулбокса; `--user $(id -u):$(id -g) --cap-drop=ALL
      --security-opt no-new-privileges`, HOME = хостовый (тот же путь), креды агента биндятся
-     (в батче — эфемерная копия), origins зависимостей — bind по mode (rw/ro).
+     (в батче — эфемерная копия), origins зависимостей — bind по mode (rw/ro). **Egress-allowlist:**
+     агент в `--internal` сети (без интернета), единственный выход — forward-proxy `gost` в сайдкаре,
+     пропускающий CONNECT/HTTP только к `network.allowedDomains` (whitelist), остальное → 403.
 3. **Параллелизм** — семафор `--max-parallel`; политес — `nice`; опц. `--wall` (timeout),
    `--mem`/`--cpu` (cgroup через transient `systemd-run --user --scope`, per-user, по умолчанию выкл).
 4. **Возврат** — `merge` cherry-pick'ит диапазон `snapshot..tip` в исходный репо (или `--patch`
@@ -141,12 +143,14 @@ sandboxer merge [slug...]            # cherry-pick коммитов агента
 авторизации). Добавить агента = добавить одну запись. Резолвер профилей и перенос зависимостей —
 `libexec/sandboxer-cfg.mjs`.
 
+**Egress в контейнере** форсируется gost-сайдкаром (см. выше). Отключить — `SANDBOXER_NO_EGRESS=1`
+или `egress = false;` в профиле; если задан `proxy.*`, границу держит указанный upstream-прокси, а
+сайдкар не поднимается. Native-бэкенд использует нативный `/sandbox` (allowlist на уровне ОС).
+
 ### Известные ограничения
 
-- **Egress-allowlist в контейнере ещё не форсируется** на уровне сети. Строгий allowlist даёт
-  только native-бэкенд (нативный `/sandbox`); в контейнере сеть ограничивает upstream-`proxy`
-  (если задан), а `network.allowedDomains` пробрасывается как подсказка (`SANDBOXER_ALLOW_DOMAINS`).
-  Жёсткий egress (squid-сайдкар по `allowedDomains`) — следующий шаг.
+- Egress-allowlist домен-уровневый (по hostname в CONNECT/HTTP), не per-path/IP; жёсткий kill
+  процесса sandboxer (SIGKILL) может оставить сети `sbx-*` — чистить `docker network prune`.
 - Адверсариальные «выйди из песочницы» промпты агент отклоняет на уровне модели — границу ОС
   проверять **легитимно сформулированным** тестом записи в `$HOME` (агент репортит `read-only file system`).
 
@@ -196,5 +200,8 @@ poc/                      — PoC native / srt / docker + стендовый р�
   единственным: добавлен контейнерный бэкенд (podman/docker) с образом-тулбоксом всех агентов
   (`numtide/llm-agents.nix`), декларативный реестр агентов, Nix-профили (`mainSrc`/`srcs`/`proxy`/
   `network`/`agent`/`model`/`backend`), перенос зависимостей `pull`/`push` (rw/ro, stat-детект),
-  ручной цикл `create`/`enter`/`exec`. Команда `clean` → `rm`/`rm-all`. Проверено: native
-  create/run/exec/diff/merge, pull/push rw·ro, eval образа и профилей.
+  ручной цикл `create`/`enter`/`exec`. Команда `clean` → `rm`/`rm-all`. **Egress-allowlist в
+  контейнере**: агент в `--internal` сети + forward-proxy `gost` v3 (whitelist-bypass по
+  `allowedDomains`) — выбран вместо tinyproxy. Также исправлен Entrypoint образа (`/bin/bash` →
+  `Cmd`), иначе контейнер не исполнял переданную команду. Проверено: native create/run/exec/diff/
+  merge, pull/push rw·ro, eval образа и профилей, gost allowlist (allowed→200 / blocked→403).

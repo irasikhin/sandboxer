@@ -18,6 +18,10 @@
 
   network.allowedDomains = [ "api.openai.com" "api.anthropic.com" "registry.npmjs.org" "pypi.org" ];
 
+  # Egress в контейнере по умолчанию форсируется gost-сайдкаром (агент в --internal сети, наружу
+  # только перечисленные домены). Выключить: egress = false; (или env SANDBOXER_NO_EGRESS=1).
+  # egress = false;
+
   # Корпоративный прокси (прокидывается как HTTP(S)_PROXY/NO_PROXY и в native-, и в контейнер-бэкенд).
   # proxy.http  = "http://proxy.corp:3128";
   # proxy.https = "http://proxy.corp:3128";

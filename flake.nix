@@ -72,9 +72,12 @@
             contents = (with pkgs; [
               bashInteractive coreutils git rsync nodejs_22 jq
               curl cacert gnused gawk gnugrep openssh which
+              gost   # egress-сайдкар: domain-allowlist forward-proxy (gost v3) для контейнерного бэкенда
             ]) ++ agentPkgs ++ [ sandboxer ];
             config = {
-              Entrypoint = [ "/bin/bash" ];
+              # БЕЗ Entrypoint: `docker run img <cmd...>` исполняет <cmd> напрямую
+              # (лаунчер всегда передаёт полную команду: bash -lc …, claude …, tinyproxy …).
+              Cmd = [ "bash" "-l" ];
               WorkingDir = "/work";
               Env = [
                 "PATH=/bin"
