@@ -21,7 +21,9 @@
 #   authEnv         — имена env-переменных с ключами (пробрасываются, если заданы на хосте).
 #
 # Расширяемость: добавить агента = добавить одну запись. `deepseek-reasoner` — это МОДЕЛЬ,
-# а не агент: используйте agent = "aider"|"opencode"|"pi" + model = "deepseek/deepseek-reasoner".
+# а не агент: используйте agent = "opencode"|"pi" + model = "deepseek/deepseek-reasoner"
+# (оба запекаются в образ, у обоих DEEPSEEK_API_KEY в authEnv). aider тоже умеет deepseek, но
+# в llm-agents для этой платформы пакета нет (package=null) — в образ не попадает.
 
 { pkgs ? null, llmAgents ? null }:
 
