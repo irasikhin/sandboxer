@@ -1,0 +1,71 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v6
+        with:
+          go-version: "1.24"
+          cache: true
+      - run: go build ./cmd/sandboxer
+      - run: go test ./... -coverprofile=coverage.out
+      - name: Coverage summary
+        run: go tool cover -func=coverage.out | tail -1
+      - run: go vet ./...
+      - uses: actions/upload-artifact@v4
+        with:
+          name: coverage-profile
+          path: coverage.out
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v6
+        with:
+          go-version: "1.24"
+          cache: true
+      - uses: golangci/golangci-lint-action@v9
+        with:
+          version: v2.1.6
+
+  nix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: cachix/install-nix-action@v31
+      - run: nix flake check --no-build
+      - run: nix build .#sandboxer --no-link
+
+  commits:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Validate Conventional Commits
+        run: |
+          range="${{ github.event.pull_request.base.sha }}..${{ github.event.pull_request.head.sha }}"
+          status=0
+          while IFS= read -r sha; do
+            [ -z "$sha" ] && continue
+            msg_file="$(mktemp)"
+            git log -1 --format=%B "$sha" > "$msg_file"
+            if ! bash scripts/git-hooks/commit-msg "$msg_file"; then
+              echo "::error::commit $sha has a non-conforming message" >&2
+              status=1
+            fi
+            rm -f "$msg_file"
+          done < <(git rev-list --no-merges "$range")
+          exit "$status"

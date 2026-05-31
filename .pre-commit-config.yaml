@@ -1,0 +1,59 @@
+# pre-commit hooks for sandboxer.
+# Install: pre-commit install && pre-commit install --hook-type commit-msg
+# Run manually: pre-commit run --all-files
+
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+        args: [--allow-multiple-documents]
+      - id: check-json
+      - id: check-added-large-files
+        args: [--maxkb=500]
+
+  - repo: https://github.com/dnephin/pre-commit-golang
+    rev: v0.5.1
+    hooks:
+      - id: go-fmt
+      - id: go-imports
+        args: [-local, github.com/irasikhin/sandboxer]
+      - id: go-vet
+      - id: go-mod-tidy
+
+  - repo: https://github.com/golangci/golangci-lint
+    rev: v2.1.6
+    hooks:
+      - id: golangci-lint
+        args: [--timeout=3m]
+
+  - repo: local
+    hooks:
+      - id: commit-msg
+        name: conventional-commits
+        entry: bash scripts/git-hooks/commit-msg
+        language: system
+        stages: [commit-msg]
+      - id: go-test
+        name: go-test
+        entry: go test ./...
+        language: system
+        pass_filenames: false
+        types: [go]
+      - id: actionlint
+        name: actionlint
+        entry: actionlint
+        language: system
+        files: ^\.github/workflows/.*\.ya?ml$
+      - id: nixfmt-check
+        name: nixfmt-check
+        entry: nixfmt --check
+        language: system
+        files: \.nix$
+      - id: markdownlint
+        name: markdownlint
+        entry: markdownlint
+        language: system
+        files: \.md$

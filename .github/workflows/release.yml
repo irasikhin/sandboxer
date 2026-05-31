@@ -1,0 +1,105 @@
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - goos: linux
+            goarch: amd64
+          - goos: linux
+            goarch: arm64
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version: "1.24"
+          cache: true
+
+      - name: Verify tag matches nix/package.nix version
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          pkg_version=$(grep -oP 'version\s*=\s*"\K[^"]+' nix/package.nix | head -1)
+          if [ "$tag" != "$pkg_version" ]; then
+            echo "Tag $GITHUB_REF_NAME does not match nix/package.nix version $pkg_version" >&2
+            exit 1
+          fi
+
+      - name: Test
+        if: matrix.goarch == 'amd64' && matrix.goos == 'linux'
+        run: go test ./...
+
+      - name: Build ${{ matrix.goos }}/${{ matrix.goarch }}
+        env:
+          CGO_ENABLED: "0"
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+        run: |
+          mkdir -p dist
+          out="sandboxer-${GITHUB_REF_NAME}-${GOOS}-${GOARCH}"
+          go build -trimpath \
+            -ldflags "-s -w -X main.version=${GITHUB_REF_NAME}" \
+            -o "dist/${out}/sandboxer" ./cmd/sandboxer
+          cp README.md CHANGELOG.md LICENSE "dist/${out}/" 2>/dev/null || true
+          tar -czf "dist/${out}.tar.gz" -C dist "${out}"
+          (cd dist && sha256sum "${out}.tar.gz" > "${out}.tar.gz.sha256")
+          if [ "$GOOS" = "linux" ] && [ "$GOARCH" = "amd64" ]; then
+            "dist/${out}/sandboxer" --version
+            "dist/${out}/sandboxer" --help >/dev/null
+          fi
+          rm -rf "dist/${out}"
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: sandboxer-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: dist/*
+          retention-days: 7
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v8
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Extract changelog section for this tag
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          awk -v tag="$tag" '
+            BEGIN { p = 0 }
+            /^## \[/ {
+              if (p) exit
+              if ($0 ~ "^## \\[" tag "\\]") { p = 1; next }
+            }
+            p { print }
+          ' CHANGELOG.md > release-notes.md
+          if [ ! -s release-notes.md ]; then
+            echo "_(no changelog section authored for this release)_" > release-notes.md
+          fi
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v3
+        with:
+          files: |
+            dist/*.tar.gz
+            dist/*.tar.gz.sha256
+          body_path: release-notes.md

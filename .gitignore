@@ -1,17 +1,17 @@
-# Рабочая область PoC: копии стенда, worktrees, логи прогонов
-poc/.work/
-poc/**/logs/
-*.log
+# Go
+/sandboxer
+/cmd/sandboxer/sandboxer
+/result
+/result-*
+/dist
 
-# Рабочая область sandboxer: копии проектов на агента, логи, патчи
-.sandboxer/
+# Cache & tools
+/.direnv
+/.pre-commit-cache
+/.golangci-lint-cache
 
-# Результаты nix build
-result
-result-*
+# Editor / tooling state
+/.claude/
 
-# Node
-node_modules/
-
-# srt / venv мусор при установке
-.venv/
+# sandboxer's own state dir
+/.sandboxer/
