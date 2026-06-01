@@ -20,12 +20,12 @@ A **sandbox** is an isolated **directory copy** of your project (rsync of
 your working tree and its git history are never touched. You bring the work back
 into the source repo with git (`cherry-pick`) or as patches (`--patch`).
 
-- **Sandbox** — the isolated project copy at `.sandboxer/<slug>/`.
+- **Sandbox** — the project copy at `.sandboxer/<slug>/`. It includes its own
+  `.git`, so it is a standalone git repository, independent of your working repo.
 - **slug** — a short sandbox name (`feat`, `bugfix-auth`, …), set at `create`.
-- **Snapshot branch** — a real git branch `sandbox/<slug>`, but created in the
-  copy's *own* `.git` (the copy is a separate checkout), recording the starting
-  point. It exists only in the copy: it never appears in your repository and is
-  never pushed to any remote.
+- **Snapshot branch** — the git branch `sandbox/<slug>` that sandboxer creates
+  *in that copy* to record the starting point. It exists only there: it never
+  appears in your repository and is never pushed to any remote.
 - **Return** (`merge`) — `cherry-pick` of the sandbox's commits onto **your
   repository's current branch** (or `--patch` to export patch files). This is
   the only moment your repo changes.
