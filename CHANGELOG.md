@@ -10,9 +10,25 @@ commit messages with that in mind. See [CONTRIBUTING.md](./CONTRIBUTING.md).
 
 ## [Unreleased]
 
+## [0.3.0] — 2026-06-01
+
 ### Changed
 
 - Rewrote the entire CLI from Bash + Node to Go.
+- Replaced the git-based snapshot/merge with a git-free model: a sandbox is a
+  plain rsync copy of the project, and `sandboxer return` copies the changed
+  files back to the source. `.git` is excluded from the copy, so a sandbox
+  never carries the project's git remotes.
+
+### Added
+
+- Test suite across all packages (91.8% statement coverage).
+- MIT LICENSE and README badges (CI, coverage, Go, license).
+
+### Removed
+
+- The `gitx` package, in-copy snapshot branches, and the git-based
+  merge / cherry-pick / `--patch` return path.
 
 ## [0.2.0] — 2026-05-31
 
@@ -20,5 +36,6 @@ commit messages with that in mind. See [CONTRIBUTING.md](./CONTRIBUTING.md).
 
 - Config-driven multi-agent sandboxes (Bash implementation): native + podman/docker backends, egress allowlist, Nix profiles.
 
-[Unreleased]: https://github.com/irasikhin/sandboxer/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/irasikhin/sandboxer/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/irasikhin/sandboxer/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/irasikhin/sandboxer/compare/v0.0.0...v0.2.0
