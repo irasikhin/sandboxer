@@ -9,11 +9,23 @@
 песочнице), каждый в своей изоляции, на **локальной Linux-машине**. CLI на Go; поставка — готовый
 бинарь, `go install` или nix flake.
 
-Каждая песочница — **отдельная директория-копия** проекта (rsync `mainSrc`) + git-ветка
-`sandbox/<slug>` + snapshot стартового состояния. Возврат результатов — обратно в исходный
-репозиторий через git (`cherry-pick` диапазона `snapshot..tip`) либо `--patch`.
+Каждая **песочница** — изолированная **директория-копия** проекта (rsync `mainSrc`) в
+`.sandboxer/<slug>/`; твой рабочий репозиторий при этом не трогается. Наработку возвращаешь
+в исходный репозиторий через git (`cherry-pick`) или как патчи (`--patch`).
 
-Два бэкенда изоляции:
+## Термины
+
+- **Песочница** — изолированная директория-копия проекта в `.sandboxer/<slug>/`. Агент
+  работает только в ней; твой рабочий каталог и его git не меняются.
+- **slug** — короткое имя песочницы (`feat`, `bugfix-auth`, …); задаётся при `create`.
+- **Snapshot-ветка** — git-ветка `sandbox/<slug>` **внутри копии**, фиксирующая старт. Живёт
+  только в копии: в твой репозиторий не попадает и ни на какой remote не пушится.
+- **Возврат** (`merge`) — `cherry-pick` коммитов snapshot-ветки в **текущую ветку твоего
+  репозитория** (или экспорт патчей `--patch`). Только в этот момент твой репо что-то получает.
+- **Источник зависимости** (`srcs` → `from`/`root`) — внешний путь, втягиваемый в песочницу;
+  при `mode: rw` изменения возвращаются по этому пути на `push`. Не путать с git-remote `origin`.
+
+## Изоляция: два бэкенда
 
 - **native** — нативный Claude Code `/sandbox` (bubblewrap, FS+сеть на уровне ОС). Только `claude`,
   нулевая установка.
@@ -39,10 +51,10 @@ go install github.com/irasikhin/sandboxer/cmd/sandboxer@latest
 ## Быстрый старт
 
 ```bash
-sandboxer create feat              # копия проекта + ветка sandbox/feat
-sandboxer enter  feat              # интерактивный шелл внутри (агенты в PATH)
-sandboxer exec   feat -- claude    # запустить агента/команду внутри
-sandboxer merge  feat              # вернуть код в исходный репозиторий (cherry-pick)
+sandboxer create feat              # создать песочницу feat (копия в .sandboxer/feat/)
+sandboxer enter  feat              # интерактивный шелл внутри песочницы (агенты в PATH)
+sandboxer exec   feat -- claude    # запустить агента/команду внутри песочницы
+sandboxer merge  feat              # вернуть наработку в текущую ветку исходного репо (cherry-pick)
 sandboxer list                     # статус песочниц
 sandboxer rm     feat              # удалить песочницу
 ```
@@ -78,12 +90,12 @@ agent: claude
 network:
   allowedDomains: [api.anthropic.com, registry.npmjs.org, github.com]
 srcs:
-  - { from: /abs/shared-lib, to: vendor/shared-lib, mode: rw }   # вернётся в origin при push
+  - { from: /abs/shared-lib, to: vendor/shared-lib, mode: rw }   # rw: вернётся по исходному пути на push
   - { root: /abs/schemas, glob: "**/*.proto", to: proto, mode: ro }
 ```
 
-`srcs` втягиваются внутрь песочницы (`sandboxer pull`); rw-записи возвращаются в origin
-(`sandboxer push`), с защитой от затирания локальных изменений (без `--force`).
+`srcs` втягиваются внутрь песочницы (`sandboxer pull`); rw-записи копируются обратно по их
+исходным путям (`sandboxer push`), с защитой от затирания локальных изменений (без `--force`).
 
 ## Агенты
 
