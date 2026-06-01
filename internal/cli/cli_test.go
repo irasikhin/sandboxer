@@ -10,8 +10,6 @@ import (
 	"testing"
 
 	"github.com/spf13/cobra"
-
-	"github.com/irasikhin/sandboxer/internal/gitx"
 )
 
 // --- pure helpers -----------------------------------------------------------
@@ -65,7 +63,6 @@ func TestFileExistsAndInContainer(t *testing.T) {
 	if !fileExists(f) {
 		t.Error("existing file reported missing")
 	}
-
 	t.Setenv("SANDBOXER_IN_CONTAINER", "1")
 	if !inContainer() {
 		t.Error("inContainer should be true when env set")
@@ -160,11 +157,9 @@ func TestSplitDash(t *testing.T) {
 
 func TestResolveProfileFile(t *testing.T) {
 	t.Setenv("SANDBOXER_IN_CONTAINER", "")
-	// --config wins outright.
 	if file, pos := resolveProfileFile("cfg.yaml", "leftover"); file != "cfg.yaml" || pos != "leftover" {
 		t.Errorf("config precedence = (%q,%q)", file, pos)
 	}
-	// A positional yaml that exists is taken as the profile.
 	dir := t.TempDir()
 	t.Chdir(dir)
 	if err := os.WriteFile("p.yaml", []byte("name: x\n"), 0o644); err != nil {
@@ -173,14 +168,12 @@ func TestResolveProfileFile(t *testing.T) {
 	if file, pos := resolveProfileFile("", "p.yaml"); file != "p.yaml" || pos != "" {
 		t.Errorf("positional yaml = (%q,%q)", file, pos)
 	}
-	// Auto-discovery of sandboxer.yaml in cwd.
 	if err := os.WriteFile("sandboxer.yaml", []byte("name: y\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if file, pos := resolveProfileFile("", ""); file != "sandboxer.yaml" || pos != "" {
 		t.Errorf("auto-discovery = (%q,%q)", file, pos)
 	}
-	// A non-yaml positional is left as the leftover slug.
 	if file, pos := resolveProfileFile("", "slug"); file != "" || pos != "slug" {
 		t.Errorf("non-yaml positional = (%q,%q)", file, pos)
 	}
@@ -192,6 +185,27 @@ func run(args ...string) (int, string, string) {
 	var out, errb bytes.Buffer
 	code := Run(args, strings.NewReader(""), &out, &errb)
 	return code, out.String(), errb.String()
+}
+
+func requireExec(t *testing.T, names ...string) {
+	t.Helper()
+	for _, n := range names {
+		if _, err := exec.LookPath(n); err != nil {
+			t.Skipf("%s not available", n)
+		}
+	}
+}
+
+// newProject returns a fresh project dir (plain, no git) with one file, and
+// ensures the in-container guard is off.
+func newProject(t *testing.T) string {
+	t.Helper()
+	t.Setenv("SANDBOXER_IN_CONTAINER", "")
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "f.txt"), []byte("v1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return dir
 }
 
 func TestRunAgentsVersionHelp(t *testing.T) {
@@ -209,75 +223,46 @@ func TestRunAgentsVersionHelp(t *testing.T) {
 	}
 }
 
-func requireExec(t *testing.T, names ...string) {
-	t.Helper()
-	for _, n := range names {
-		if _, err := exec.LookPath(n); err != nil {
-			t.Skipf("%s not available", n)
-		}
-	}
-}
-
-func isolateGit(t *testing.T) {
-	t.Helper()
-	t.Setenv("GIT_CONFIG_GLOBAL", filepath.Join(t.TempDir(), "global"))
-	t.Setenv("GIT_CONFIG_SYSTEM", filepath.Join(t.TempDir(), "system"))
-	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
-}
-
 func TestRunLifecycle(t *testing.T) {
-	requireExec(t, "git", "rsync")
-	isolateGit(t)
-	t.Setenv("SANDBOXER_IN_CONTAINER", "")
+	requireExec(t, "rsync", "diff")
+	project := newProject(t)
 
-	project := t.TempDir()
-	if err := gitx.Init(project); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(project, "f.txt"), []byte("v1\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := gitx.Snapshot(project, "init"); err != nil {
-		t.Fatal(err)
-	}
-
-	// create
 	if code, out, errs := run("create", "feat", "--src", project); code != 0 || !strings.Contains(out, "created") {
 		t.Fatalf("create = (%d, %q, %q)", code, out, errs)
 	}
-	if _, err := os.Stat(filepath.Join(project, ".sandboxer", "feat")); err != nil {
-		t.Errorf("sandbox dir not created: %v", err)
+	if _, err := os.Stat(filepath.Join(project, ".sandboxer", "feat", "f.txt")); err != nil {
+		t.Errorf("sandbox copy not created: %v", err)
 	}
-	// list
 	if code, out, _ := run("list", "--src", project); code != 0 || !strings.Contains(out, "feat") {
 		t.Errorf("list = (%d, %q)", code, out)
 	}
-	// use set + get
 	if code, _, _ := run("use", "feat", "--src", project); code != 0 {
-		t.Errorf("use set exit = %d", code)
+		t.Errorf("use set exit code")
 	}
 	if code, out, _ := run("use", "--src", project); code != 0 || !strings.Contains(out, "feat") {
 		t.Errorf("use get = (%d, %q)", code, out)
 	}
-	// diff / show
-	if code, out, _ := run("diff", "--src", project); code != 0 || !strings.Contains(out, "feat") {
-		t.Errorf("diff = (%d, %q)", code, out)
-	}
 	if code, out, _ := run("show", "feat", "--src", project); code != 0 || !strings.Contains(out, "no profile") {
 		t.Errorf("show = (%d, %q)", code, out)
 	}
-	// merge: sandbox has no commits beyond base → "no changes".
-	if code, out, _ := run("merge", "feat", "--src", project); code != 0 || !strings.Contains(out, "no changes") {
-		t.Errorf("merge = (%d, %q)", code, out)
+
+	// Edit the copy, then diff + return should reflect it.
+	if err := os.WriteFile(filepath.Join(project, ".sandboxer", "feat", "f.txt"), []byte("changed\n"), 0o644); err != nil {
+		t.Fatal(err)
 	}
-	if code, out, _ := run("merge", "--patch", "feat", "--src", project); code != 0 || !strings.Contains(out, "no changes") {
-		t.Errorf("merge --patch = (%d, %q)", code, out)
+	if code, out, _ := run("diff", "feat", "--src", project); code != 0 || !strings.Contains(out, "changed") {
+		t.Errorf("diff = (%d, %q)", code, out)
 	}
-	// rm
+	if code, out, _ := run("return", "feat", "--src", project); code != 0 || !strings.Contains(out, "RETURN") {
+		t.Errorf("return = (%d, %q)", code, out)
+	}
+	if got, _ := os.ReadFile(filepath.Join(project, "f.txt")); string(got) != "changed\n" {
+		t.Errorf("source not updated by return: %q", got)
+	}
+
 	if code, out, _ := run("rm", "feat", "--src", project); code != 0 || !strings.Contains(out, "removed") {
 		t.Errorf("rm = (%d, %q)", code, out)
 	}
-	// rm-all
 	if code, out, _ := run("rm-all", project); code != 0 || !strings.Contains(out, "removed") {
 		t.Errorf("rm-all = (%d, %q)", code, out)
 	}
@@ -298,7 +283,6 @@ func TestRunInContainerRestriction(t *testing.T) {
 }
 
 func TestBaseOnlyNoState(t *testing.T) {
-	// baseOnly errors clearly when the project has no .sandboxer state yet.
 	if _, err := baseOnly(t.TempDir()); err == nil {
 		t.Error("baseOnly should error without existing state")
 	}

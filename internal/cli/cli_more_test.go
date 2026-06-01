@@ -17,12 +17,12 @@ func fakePodman(t *testing.T) {
 	}
 	t.Setenv("PATH", bin+":"+os.Getenv("PATH"))
 	t.Setenv("HOME", t.TempDir())
-	t.Setenv("SANDBOXER_ENGINE", "") // let DetectEngine find the fake podman
+	t.Setenv("SANDBOXER_ENGINE", "")
 }
 
 func TestRunEnterExecContainer(t *testing.T) {
-	requireExec(t, "git", "rsync", "sh")
-	project := newGitProject(t)
+	requireExec(t, "rsync", "sh")
+	project := newProject(t)
 	fakePodman(t)
 
 	if code, _, errs := run("create", "feat", "--src", project); code != 0 {
@@ -37,10 +37,9 @@ func TestRunEnterExecContainer(t *testing.T) {
 }
 
 func TestRunEnterAutoCreate(t *testing.T) {
-	requireExec(t, "git", "rsync", "sh")
-	project := newGitProject(t)
+	requireExec(t, "rsync", "sh")
+	project := newProject(t)
 	t.Setenv("SHELL", "true")
-	// The sandbox does not exist yet → enter creates it first.
 	if code, _, errs := run("enter", "fresh", "--src", project, "--backend", "native"); code != 0 {
 		t.Fatalf("enter auto-create = %d, %s", code, errs)
 	}
@@ -50,8 +49,8 @@ func TestRunEnterAutoCreate(t *testing.T) {
 }
 
 func TestRunCreateWithDomains(t *testing.T) {
-	requireExec(t, "git", "rsync")
-	project := newGitProject(t)
+	requireExec(t, "rsync")
+	project := newProject(t)
 	if code, _, errs := run("create", "feat", "--src", project, "--allow-domains", "a.com,b.com"); code != 0 {
 		t.Fatalf("create with domains = %d, %s", code, errs)
 	}
@@ -61,61 +60,48 @@ func TestRunCreateWithDomains(t *testing.T) {
 	}
 }
 
-func TestRunMergeSuccessAndPatch(t *testing.T) {
-	requireExec(t, "git", "rsync", "sh")
-	project := newGitProject(t)
+func TestRunReturnAliasAndForce(t *testing.T) {
+	requireExec(t, "rsync")
+	project := newProject(t)
 	if code, _, _ := run("create", "feat", "--src", project); code != 0 {
 		t.Fatal("create failed")
 	}
-	// Produce a commit in the sandbox (exec auto-commits the work).
-	if code, _, errs := run("exec", "feat", "--src", project, "--backend", "native", "--", "sh", "-c", "echo added > newfile.txt"); code != 0 {
-		t.Fatalf("exec change = %d, %s", code, errs)
-	}
-	if code, out, errs := run("merge", "feat", "--src", project); code != 0 || !strings.Contains(out, "merged") {
-		t.Errorf("merge success = (%d, %q, %q)", code, out, errs)
-	}
-	// And as patches.
-	if code, out, _ := run("merge", "--patch", "feat", "--src", project); code != 0 || !strings.Contains(out, "patch[feat]") {
-		t.Errorf("merge --patch = (%d, %q)", code, out)
-	}
-	if _, err := os.Stat(filepath.Join(project, ".sandboxer", "_patches", "feat")); err != nil {
-		t.Errorf("patch dir not created: %v", err)
-	}
-}
-
-func TestRunMergeNonGit(t *testing.T) {
-	requireExec(t, "git", "rsync")
-	isolateGit(t)
-	t.Setenv("SANDBOXER_IN_CONTAINER", "")
-	project := t.TempDir() // not a git repo
-	if err := os.WriteFile(filepath.Join(project, "f.txt"), []byte("x\n"), 0o644); err != nil {
+	copyFile := filepath.Join(project, ".sandboxer", "feat", "f.txt")
+	if err := os.WriteFile(copyFile, []byte("sandbox-edit\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if code, _, _ := run("create", "feat", "--src", project); code != 0 {
-		t.Fatal("create failed")
+	// The source file changed out-of-band → plain return SKIPs it.
+	if err := os.WriteFile(filepath.Join(project, "f.txt"), []byte("external\n"), 0o644); err != nil {
+		t.Fatal(err)
 	}
-	if code, _, errs := run("merge", "feat", "--src", project); code != 1 || !strings.Contains(errs, "not a git repo") {
-		t.Errorf("merge non-git = (%d, %q)", code, errs)
+	// `merge` is a kept alias for `return`.
+	if code, out, _ := run("merge", "feat", "--src", project); code != 0 || !strings.Contains(out, "SKIP") {
+		t.Errorf("merge alias / SKIP = (%d, %q)", code, out)
+	}
+	if got, _ := os.ReadFile(filepath.Join(project, "f.txt")); string(got) != "external\n" {
+		t.Errorf("source overwritten despite SKIP: %q", got)
+	}
+	// --force overwrites.
+	if code, out, _ := run("return", "feat", "--src", project, "--force"); code != 0 || !strings.Contains(out, "RETURN") {
+		t.Errorf("return --force = (%d, %q)", code, out)
+	}
+	if got, _ := os.ReadFile(filepath.Join(project, "f.txt")); string(got) != "sandbox-edit\n" {
+		t.Errorf("source after --force = %q", got)
 	}
 }
 
 func TestRunProxyMode(t *testing.T) {
-	// The hidden _proxy mode runs the allowlist proxy; a bad listen addr makes
-	// ListenAndServe return immediately with an error.
 	if code, _, _ := run("_proxy", "--listen", "127.0.0.1:-1"); code != 1 {
 		t.Errorf("_proxy bad addr exit = %d, want 1", code)
 	}
 }
 
 func TestResolveTargetSelection(t *testing.T) {
-	requireExec(t, "git", "rsync")
-	project := newGitProject(t)
-
-	// No sandbox, no current, zero agents → clear error.
+	requireExec(t, "rsync")
+	project := newProject(t)
 	if code, _, errs := run("show", "--src", project); code != 1 || !strings.Contains(errs, "no sandbox selected") {
 		t.Errorf("no-sandbox show = (%d, %q)", code, errs)
 	}
-	// A single sandbox is auto-selected when no slug is given.
 	if code, _, _ := run("create", "only", "--src", project); code != 0 {
 		t.Fatal("create failed")
 	}
@@ -125,20 +111,17 @@ func TestResolveTargetSelection(t *testing.T) {
 }
 
 func TestListMarkerAndJSONResultNoKeys(t *testing.T) {
-	requireExec(t, "git", "rsync")
-	project := newGitProject(t)
+	requireExec(t, "rsync")
+	project := newProject(t)
 	if code, _, _ := run("create", "feat", "--src", project); code != 0 {
 		t.Fatal("create failed")
 	}
 	if code, _, _ := run("use", "feat", "--src", project); code != 0 {
 		t.Fatal("use failed")
 	}
-	// The active sandbox is marked with '*'.
 	if code, out, _ := run("list", "--src", project); code != 0 || !strings.Contains(out, "*") {
 		t.Errorf("list active marker = (%d, %q)", code, out)
 	}
-
-	// jsonResult returns "" for valid JSON without result/error keys.
 	p := filepath.Join(t.TempDir(), "j.json")
 	if err := os.WriteFile(p, []byte(`{"other":1}`), 0o644); err != nil {
 		t.Fatal(err)

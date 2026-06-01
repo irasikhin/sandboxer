@@ -52,7 +52,7 @@ func newRootCmd() *cobra.Command {
 				return nil
 			}
 			switch cmd.Name() {
-			case "create", "enter", "exec", "run", "rm", "rm-all", "merge", "use":
+			case "create", "enter", "exec", "run", "rm", "rm-all", "return", "use":
 				return fmt.Errorf("command %q is not available inside the container (only pull/push/show/list/diff)", cmd.Name())
 			}
 			return nil

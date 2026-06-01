@@ -201,7 +201,6 @@ func (s launchSpec) run() {
 		rc = s.runContainer(dest, acmd, outPath, errPath)
 	}
 	secs := int(time.Since(start).Seconds())
-	_ = s.base.CommitWork(s.slug)
 	_ = os.WriteFile(meta, []byte(fmt.Sprintf("exit=%d\nsecs=%d\n", rc, secs)), 0o644)
 }
 

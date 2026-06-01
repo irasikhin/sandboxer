@@ -1,29 +1,33 @@
 // Package sandbox owns the on-disk state under .sandboxer/: the base metadata
-// (run.env), per-sandbox copies, snapshot branches, manifests and logs. It
-// mirrors the layout the original bash implementation used so existing trees
-// keep working.
+// (run.env), per-sandbox project copies, create-time baselines, dependency
+// manifests and logs.
+//
+// A sandbox is a plain rsync copy of the project — no git is involved. To find
+// what an agent changed, the copy is compared against a baseline (file
+// signatures recorded at create time); changes are returned by copying the
+// modified files back to the source project (see Return).
 package sandbox
 
 import (
 	"bufio"
+	"bytes"
+	"encoding/json"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 
 	"github.com/irasikhin/sandboxer/internal/config"
-	"github.com/irasikhin/sandboxer/internal/gitx"
 	"github.com/irasikhin/sandboxer/internal/srcs"
 )
 
-// Base is a resolved project root and its .sandboxer state (the bash G_* set).
+// Base is a resolved project root and its .sandboxer state.
 type Base struct {
 	Src     string // absolute project root
 	Dir     string // <Src>/.sandboxer
-	IsGit   bool
-	BaseSHA string
 	Domains string
 	Model   string
 }
@@ -48,17 +52,7 @@ func ResolveBase(src string) (*Base, error) {
 	runEnv := filepath.Join(b.metaDir(), "run.env")
 	if _, err := os.Stat(runEnv); err != nil {
 		d := config.LoadDefaults()
-		isGit := gitx.IsRepo(abs)
-		sha := ""
-		if isGit {
-			sha = gitx.HeadSHA(abs)
-		}
-		gitFlag := "0"
-		if isGit {
-			gitFlag = "1"
-		}
-		content := fmt.Sprintf("SRC=%s\nMODEL=%s\nDOMAINS=%s\nIS_GIT=%s\nBASE_SHA=%s\n",
-			abs, d.Model, d.Domains, gitFlag, sha)
+		content := fmt.Sprintf("SRC=%s\nMODEL=%s\nDOMAINS=%s\n", abs, d.Model, d.Domains)
 		if err := os.WriteFile(runEnv, []byte(content), 0o644); err != nil {
 			return nil, err
 		}
@@ -70,8 +64,6 @@ func ResolveBase(src string) (*Base, error) {
 	if err != nil {
 		return nil, err
 	}
-	b.IsGit = env["IS_GIT"] == "1"
-	b.BaseSHA = env["BASE_SHA"]
 	b.Domains = env["DOMAINS"]
 	b.Model = env["MODEL"]
 	return b, nil
@@ -83,16 +75,15 @@ func (b *Base) logsDir() string { return filepath.Join(b.Dir, "_logs") }
 // SandboxDir is the copy directory for a sandbox.
 func (b *Base) SandboxDir(slug string) string { return filepath.Join(b.Dir, slug) }
 
-// ProfileJSONPath, ManifestPath, BaseFilePath, MetaFilePath locate per-sandbox
-// metadata files.
+// ProfileJSONPath, ManifestPath, MetaFilePath locate per-sandbox metadata files.
 func (b *Base) ProfileJSONPath(slug string) string {
 	return filepath.Join(b.metaDir(), slug+".profile.json")
 }
 func (b *Base) ManifestPath(slug string) string {
 	return filepath.Join(b.metaDir(), slug+".manifest.json")
 }
-func (b *Base) BaseFilePath(slug string) string {
-	return filepath.Join(b.metaDir(), slug+".base")
+func (b *Base) baselinePath(slug string) string {
+	return filepath.Join(b.metaDir(), slug+".baseline.json")
 }
 func (b *Base) MetaFilePath(slug string) string {
 	return filepath.Join(b.metaDir(), slug+".meta")
@@ -102,9 +93,6 @@ func (b *Base) LogPath(slug, ext string) string {
 }
 func (b *Base) AgentsListPath() string { return filepath.Join(b.metaDir(), "agents.list") }
 func (b *Base) currentPath() string    { return filepath.Join(b.metaDir(), "current") }
-func (b *Base) patchesDir(slug string) string {
-	return filepath.Join(b.Dir, "_patches", slug)
-}
 
 // RunEnvExists reports whether the base has been initialized (at least one
 // sandbox created here).
@@ -122,7 +110,7 @@ func (b *Base) WriteProfileJSON(slug string, data []byte) error {
 	return os.WriteFile(b.ProfileJSONPath(slug), data, 0o644)
 }
 
-// SetDomains rewrites the DOMAINS line in run.env (create --allow-domains, run).
+// SetDomains rewrites the DOMAINS line in run.env.
 func (b *Base) SetDomains(domains string) error {
 	runEnv := filepath.Join(b.metaDir(), "run.env")
 	env, err := parseEnvFile(runEnv)
@@ -132,15 +120,14 @@ func (b *Base) SetDomains(domains string) error {
 	env["DOMAINS"] = domains
 	b.Domains = domains
 	var sb strings.Builder
-	for _, k := range []string{"SRC", "MODEL", "DOMAINS", "IS_GIT", "BASE_SHA"} {
+	for _, k := range []string{"SRC", "MODEL", "DOMAINS"} {
 		fmt.Fprintf(&sb, "%s=%s\n", k, env[k])
 	}
 	return os.WriteFile(runEnv, []byte(sb.String()), 0o644)
 }
 
-// MakeSandbox creates (or refreshes) the copy for slug: rsync the project,
-// pull srcs, init a snapshot branch, and register the sandbox. Progress from
-// the srcs pull is written to w.
+// MakeSandbox creates (or refreshes) the copy for slug: rsync the project, pull
+// srcs, record the baseline and register the sandbox. Progress is written to w.
 func (b *Base) MakeSandbox(slug string, w io.Writer) error {
 	dest := b.SandboxDir(slug)
 	if err := os.MkdirAll(dest, 0o755); err != nil {
@@ -149,6 +136,7 @@ func (b *Base) MakeSandbox(slug string, w io.Writer) error {
 	rsync := exec.Command("rsync", "-a", "--delete",
 		"--exclude=/"+config.StateDirName,
 		"--exclude=node_modules/",
+		"--exclude=.git",
 		"--exclude=/sandboxer.tasks",
 		b.Src+"/", dest+"/")
 	rsync.Stdout = w
@@ -161,26 +149,106 @@ func (b *Base) MakeSandbox(slug string, w io.Writer) error {
 			return fmt.Errorf("srcs pull: %w", err)
 		}
 	}
-	if !b.IsGit {
-		if err := gitx.Init(dest); err != nil {
-			return err
-		}
-	}
-	_ = gitx.CheckoutBranch(dest, "sandbox/"+slug)
-	if err := gitx.Snapshot(dest, "sandboxer: snapshot"); err != nil {
+	if err := b.recordBaseline(slug); err != nil {
 		return err
-	}
-	if sha := gitx.HeadSHA(dest); sha != "" {
-		if err := os.WriteFile(b.BaseFilePath(slug), []byte(sha+"\n"), 0o644); err != nil {
-			return err
-		}
 	}
 	return b.AppendAgent(slug)
 }
 
-// CommitWork stages and snapshots any changes in the sandbox copy.
-func (b *Base) CommitWork(slug string) error {
-	return gitx.Snapshot(b.SandboxDir(slug), "sandboxer: "+slug)
+// recordBaseline stores a file→signature map of the fresh copy, used later to
+// detect what the agent changed.
+func (b *Base) recordBaseline(slug string) error {
+	base := map[string]string{}
+	walkFiles(b.SandboxDir(slug), func(rel, full string) { base[rel] = fileSig(full) })
+	data, err := json.MarshalIndent(base, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(b.baselinePath(slug), data, 0o644)
+}
+
+func (b *Base) loadBaseline(slug string) map[string]string {
+	m := map[string]string{}
+	if data, err := os.ReadFile(b.baselinePath(slug)); err == nil {
+		_ = json.Unmarshal(data, &m)
+	}
+	return m
+}
+
+// ChangedFiles counts files in the copy that differ from the create-time
+// baseline (i.e. what the agent changed or added).
+func (b *Base) ChangedFiles(slug string) int {
+	baseline := b.loadBaseline(slug)
+	n := 0
+	walkFiles(b.SandboxDir(slug), func(rel, full string) {
+		if fileSig(full) != baseline[rel] {
+			n++
+		}
+	})
+	return n
+}
+
+// Return copies files the agent changed (vs the baseline) from the copy back to
+// the source project. A file whose source copy changed after create is skipped
+// unless force. Progress is written to w.
+func (b *Base) Return(slug string, force bool, w io.Writer) error {
+	baseline := b.loadBaseline(slug)
+	dest := b.SandboxDir(slug)
+	returned, skipped := 0, 0
+	var walkErr error
+	walkFiles(dest, func(rel, full string) {
+		if walkErr != nil {
+			return
+		}
+		if fileSig(full) == baseline[rel] {
+			return // unchanged by the agent
+		}
+		srcPath := filepath.Join(b.Src, filepath.FromSlash(rel))
+		if !force {
+			if baseSig, known := baseline[rel]; known && fileSig(srcPath) != baseSig {
+				fmt.Fprintf(w, "  SKIP   %s — changed in the source after create (use --force)\n", rel)
+				skipped++
+				return
+			}
+		}
+		if err := copyBack(full, srcPath); err != nil {
+			walkErr = err
+			return
+		}
+		fmt.Fprintf(w, "  RETURN %s\n", rel)
+		returned++
+	})
+	if walkErr != nil {
+		return walkErr
+	}
+	tail := ""
+	if skipped > 0 {
+		tail = fmt.Sprintf(" (%d skipped)", skipped)
+	}
+	fmt.Fprintf(w, "return: %d file(s) copied back%s\n", returned, tail)
+	return nil
+}
+
+// Diff returns a unified diff of the agent's changes (each changed file in the
+// copy against its source counterpart). Requires the `diff` tool.
+func (b *Base) Diff(slug string) (string, error) {
+	baseline := b.loadBaseline(slug)
+	dest := b.SandboxDir(slug)
+	var out bytes.Buffer
+	walkFiles(dest, func(rel, full string) {
+		if fileSig(full) == baseline[rel] {
+			return
+		}
+		from := filepath.Join(b.Src, filepath.FromSlash(rel))
+		if !fileExists(from) {
+			from = os.DevNull
+		}
+		// diff exits 1 when files differ (expected); the diff text is still on
+		// stdout, so ignore the error.
+		o, _ := exec.Command("diff", "-u", from, full).Output()
+		out.Write(o)
+	})
+	return out.String(), nil
 }
 
 // Agents lists the registered sandbox slugs (one per line in agents.list).
@@ -258,10 +326,9 @@ func (b *Base) Remove(slug string) error {
 	paths := []string{
 		b.SandboxDir(slug),
 		b.MetaFilePath(slug),
-		b.BaseFilePath(slug),
+		b.baselinePath(slug),
 		b.ProfileJSONPath(slug),
 		b.ManifestPath(slug),
-		b.patchesDir(slug),
 	}
 	for _, p := range paths {
 		_ = os.RemoveAll(p)
@@ -283,18 +350,72 @@ func (b *Base) Remove(slug string) error {
 	return nil
 }
 
-// BaseRef returns the recorded snapshot base for slug, falling back to the
-// project base SHA (or "HEAD" when fallback is empty).
-func (b *Base) BaseRef(slug, fallback string) string {
-	if data, err := os.ReadFile(b.BaseFilePath(slug)); err == nil {
-		if s := strings.TrimSpace(string(data)); s != "" {
-			return s
+// --- helpers ----------------------------------------------------------------
+
+// skipDirNames are directories never copied back, diffed or baselined.
+var skipDirNames = map[string]bool{
+	config.StateDirName: true,
+	"node_modules":      true,
+	".git":              true,
+}
+
+// walkFiles visits every regular file under root (skipping skipDirNames and the
+// root sandboxer.tasks), passing the slash-relative path and the absolute path.
+func walkFiles(root string, fn func(rel, full string)) {
+	_ = filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return nil //nolint:nilerr // unreadable entry: skip it, keep walking
 		}
+		if d.IsDir() {
+			if p != root && skipDirNames[d.Name()] {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		// filepath.Rel cannot fail here: p is always root or below it.
+		rel, _ := filepath.Rel(root, p)
+		rel = filepath.ToSlash(rel)
+		if rel == "sandboxer.tasks" {
+			return nil
+		}
+		fn(rel, p)
+		return nil
+	})
+}
+
+// fileSig is a cheap stat-based signature (mtimeMs:size); "" for missing files
+// or directories.
+func fileSig(path string) string {
+	st, err := os.Lstat(path)
+	if err != nil || st.IsDir() {
+		return ""
 	}
-	if fallback != "" {
-		return fallback
+	return fmt.Sprintf("%d:%d", st.ModTime().UnixMilli(), st.Size())
+}
+
+// copyBack copies src over dst, creating parent dirs and preserving file perms.
+func copyBack(src, dst string) error {
+	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+		return err
 	}
-	return "HEAD"
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+	mode := os.FileMode(0o644)
+	if st, err := in.Stat(); err == nil {
+		mode = st.Mode().Perm()
+	}
+	out, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, mode)
+	if err != nil {
+		return err
+	}
+	if _, err := io.Copy(out, in); err != nil {
+		out.Close()
+		return err
+	}
+	return out.Close()
 }
 
 func fileExists(p string) bool {

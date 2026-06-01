@@ -1,7 +1,7 @@
 # sandboxer
 
 [![CI](https://github.com/irasikhin/sandboxer/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/irasikhin/sandboxer/actions/workflows/ci.yml?query=branch%3Amain)
-[![Coverage](https://img.shields.io/badge/coverage-92.1%25-brightgreen.svg)](#testing)
+[![Coverage](https://img.shields.io/badge/coverage-91.8%25-brightgreen.svg)](#testing)
 [![Go](https://img.shields.io/badge/Go-1.24+-00ADD8?logo=go)](https://go.dev/)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
@@ -17,18 +17,19 @@ drives.
 
 A **sandbox** is an isolated **directory copy** of your project (rsync of
 `mainSrc`) under `.sandboxer/<slug>/`. The agent runs only inside that copy —
-your working tree and its git history are never touched. You bring the work back
-into the source repo with git (`cherry-pick`) or as patches (`--patch`).
+your project is never touched until you explicitly return the work. **No git is
+involved**: copying in, comparing, and copying changes back are plain file
+operations.
 
-- **Sandbox** — the project copy at `.sandboxer/<slug>/`. It includes its own
-  `.git`, so it is a standalone git repository, independent of your working repo.
+- **Sandbox** — the project copy at `.sandboxer/<slug>/` (`.git`, `node_modules`
+  and `.sandboxer` are excluded from the copy).
 - **slug** — a short sandbox name (`feat`, `bugfix-auth`, …), set at `create`.
-- **Snapshot branch** — the git branch `sandbox/<slug>` that sandboxer creates
-  *in that copy* to record the starting point. It exists only there: it never
-  appears in your repository and is never pushed to any remote.
-- **Return** (`merge`) — `cherry-pick` of the sandbox's commits onto **your
-  repository's current branch** (or `--patch` to export patch files). This is
-  the only moment your repo changes.
+- **Baseline** — file signatures recorded at create time, so sandboxer knows
+  exactly which files the agent changed.
+- **Return** (`sandboxer return <slug>`) — copies the changed files back over
+  the source project. A source file edited after create is skipped unless
+  `--force`. This is the only moment your project changes; review afterwards
+  with your own tools (`git diff` in your repo, etc.).
 
 Two isolation backends:
 
@@ -59,7 +60,8 @@ Or grab a [pre-built binary](https://github.com/irasikhin/sandboxer/releases)
 sandboxer create feat            # create sandbox feat (copy under .sandboxer/feat/)
 sandboxer enter  feat            # interactive shell inside it (agents on PATH)
 sandboxer exec   feat -- claude  # run an agent/command inside it
-sandboxer merge  feat            # return the work to your repo's branch (cherry-pick)
+sandboxer diff   feat            # show what the agent changed
+sandboxer return feat            # copy the changed files back to the project
 sandboxer list                   # status of all sandboxes
 sandboxer rm     feat            # delete the sandbox
 ```
@@ -144,21 +146,20 @@ go tool cover -func=cov.out | tail -1         # total coverage
 go tool cover -html=cov.out -o cov.html       # browseable report
 ```
 
-Current coverage: **92.1%** total. Per package:
+Current coverage: **91.8%** total. Per package:
 
 | Package             | Coverage |
 | ------------------- | -------- |
 | `cmd/sandboxer`     | 100.0%   |
 | `internal/config`   | 100.0%   |
-| `internal/gitx`     | 95.2%    |
 | `internal/backend`  | 94.9%    |
-| `internal/runner`   | 94.8%    |
+| `internal/runner`   | 94.7%    |
 | `internal/egress`   | 94.3%    |
 | `internal/registry` | 94.1%    |
-| `internal/cli`      | 90.9%    |
+| `internal/cli`      | 91.7%    |
 | `internal/proxy`    | 90.3%    |
 | `internal/srcs`     | 90.3%    |
-| `internal/sandbox`  | 88.5%    |
+| `internal/sandbox`  | 87.0%    |
 
 Backend tests use fake engine/agent stubs on `PATH` and an isolated git config,
 so they run without containers or touching real credentials; tests that need

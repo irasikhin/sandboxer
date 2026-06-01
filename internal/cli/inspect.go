@@ -9,7 +9,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/irasikhin/sandboxer/internal/config"
-	"github.com/irasikhin/sandboxer/internal/gitx"
 	"github.com/irasikhin/sandboxer/internal/sandbox"
 )
 
@@ -54,8 +53,7 @@ func printList(cmd *cobra.Command, base *sandbox.Base) {
 	fmt.Fprintf(out, "%-2s %-16s %-9s %-5s %-8s %s\n", "", "SANDBOX", "EXIT", "SEC", "CHANGED", "RESULT")
 	for _, slug := range base.Agents() {
 		exit, secs := readMeta(base.MetaFilePath(slug))
-		baseRef := base.BaseRef(slug, base.BaseSHA)
-		changed := gitx.ChangedCount(base.SandboxDir(slug), baseRef)
+		changed := base.ChangedFiles(slug)
 		res := jsonResult(base.LogPath(slug, "json"))
 		marker := ""
 		if slug == cur {
@@ -65,7 +63,7 @@ func printList(cmd *cobra.Command, base *sandbox.Base) {
 			marker, truncate(slug, 16), exit, secs, changed, truncate(res, 50))
 	}
 	fmt.Fprintln(out)
-	fmt.Fprintln(out, "* = active (use). enter <s> | exec <s> -- cmd | diff [s] | merge [s...] | rm <s>")
+	fmt.Fprintln(out, "* = active (use). enter <s> | exec <s> -- cmd | diff [s] | return [s...] | rm <s>")
 }
 
 func newDiffCmd() *cobra.Command {
@@ -88,11 +86,10 @@ func newDiffCmd() *cobra.Command {
 				if only != "" && slug != only {
 					continue
 				}
-				baseRef := base.BaseRef(slug, base.BaseSHA)
 				fmt.Fprintf(out, "===== %s =====\n", slug)
-				d, _ := gitx.Diff(base.SandboxDir(slug), baseRef+"..HEAD", only == "")
+				d, _ := base.Diff(slug)
 				if d != "" {
-					fmt.Fprintln(out, d)
+					fmt.Fprint(out, d)
 				}
 			}
 			return nil

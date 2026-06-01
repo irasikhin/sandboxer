@@ -20,7 +20,7 @@ func newCreateCmd() *cobra.Command {
 	var f commonFlags
 	cmd := &cobra.Command{
 		Use:   "create [slug|profile.yaml]",
-		Short: "Create a sandbox copy on a snapshot branch",
+		Short: "Create an isolated copy of the project as a sandbox",
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			t, err := resolveTarget(f, posArg(args))
@@ -41,10 +41,10 @@ func newCreateCmd() *cobra.Command {
 				return err
 			}
 			out := cmd.OutOrStdout()
-			fmt.Fprintf(out, "sandbox %q created: %s (branch sandbox/%s)\n", t.slug, t.base.SandboxDir(t.slug), t.slug)
+			fmt.Fprintf(out, "sandbox %q created: %s\n", t.slug, t.base.SandboxDir(t.slug))
 			fmt.Fprintf(out, "enter:  sandboxer enter %s\n", t.slug)
 			fmt.Fprintf(out, "run:    sandboxer exec %s -- claude\n", t.slug)
-			fmt.Fprintf(out, "return: sandboxer merge %s\n", t.slug)
+			fmt.Fprintf(out, "return: sandboxer return %s\n", t.slug)
 			return nil
 		},
 	}
@@ -100,8 +100,8 @@ func newEnterCmd() *cobra.Command {
 					return err
 				}
 			}
-			pushDepsAndCommit(t, cmd)
-			fmt.Fprintf(errOut, "sandboxer: changes committed to sandbox/%s. Return: sandboxer merge %s\n", t.slug, t.slug)
+			pushDeps(t, cmd)
+			fmt.Fprintf(errOut, "sandboxer: done in %s. Return changes: sandboxer return %s\n", dest, t.slug)
 			return nil
 		},
 	}
@@ -130,7 +130,7 @@ func newExecCmd() *cobra.Command {
 			rt := t.runtime(f)
 			if rt.Backend == "native" {
 				code, err := backend.NativeExec(dest, rt, rest, cmd.InOrStdin(), cmd.OutOrStdout(), cmd.ErrOrStderr())
-				pushDepsAndCommit(t, cmd)
+				pushDeps(t, cmd)
 				if err != nil {
 					return err
 				}
@@ -150,7 +150,7 @@ func newExecCmd() *cobra.Command {
 				Interactive: true, Args: rest,
 				Stdin: cmd.InOrStdin(), Stdout: cmd.OutOrStdout(), Stderr: cmd.ErrOrStderr(),
 			})
-			pushDepsAndCommit(t, cmd)
+			pushDeps(t, cmd)
 			if err != nil {
 				return err
 			}
@@ -164,14 +164,13 @@ func newExecCmd() *cobra.Command {
 	return cmd
 }
 
-// pushDepsAndCommit pushes rw dependencies back to their origins (if a manifest
-// exists) and snapshots the sandbox work.
-func pushDepsAndCommit(t *target, cmd *cobra.Command) {
+// pushDeps pushes rw dependencies back to their origins (if a manifest exists).
+// The sandbox copy itself is returned to the source with `sandboxer return`.
+func pushDeps(t *target, cmd *cobra.Command) {
 	mf := t.base.ManifestPath(t.slug)
 	if fileExists(mf) {
 		_ = srcs.CopyOut(cmd.ErrOrStderr(), mf, false)
 	}
-	_ = t.base.CommitWork(t.slug)
 }
 
 // splitDash separates the optional positional before `--` from the command

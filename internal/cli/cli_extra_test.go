@@ -7,7 +7,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/irasikhin/sandboxer/internal/gitx"
 	"github.com/irasikhin/sandboxer/internal/sandbox"
 )
 
@@ -18,7 +17,6 @@ func TestSilentErr(t *testing.T) {
 }
 
 func TestLoadStoredProfile(t *testing.T) {
-	isolateGit(t)
 	base, err := sandbox.ResolveBase(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -40,33 +38,14 @@ func TestLoadStoredProfile(t *testing.T) {
 	}
 }
 
-// newGitProject returns an initialized, git-isolated project with one commit.
-func newGitProject(t *testing.T) string {
-	t.Helper()
-	isolateGit(t)
-	t.Setenv("SANDBOXER_IN_CONTAINER", "")
-	project := t.TempDir()
-	if err := gitx.Init(project); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(project, "f.txt"), []byte("v1\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := gitx.Snapshot(project, "init"); err != nil {
-		t.Fatal(err)
-	}
-	return project
-}
-
 func TestRunEnterExecNative(t *testing.T) {
-	requireExec(t, "git", "rsync", "sh")
-	project := newGitProject(t)
+	requireExec(t, "rsync", "sh")
+	project := newProject(t)
 	t.Setenv("SHELL", "true") // NativeEnter runs $SHELL; `true` exits 0
 
 	if code, _, errs := run("create", "feat", "--src", project); code != 0 {
 		t.Fatalf("create: %d %s", code, errs)
 	}
-
 	if code, _, errs := run("enter", "feat", "--src", project, "--backend", "native"); code != 0 {
 		t.Errorf("enter native = %d, %s", code, errs)
 	}
@@ -85,8 +64,8 @@ func TestRunEnterExecNative(t *testing.T) {
 }
 
 func TestRunPullPushNoProfile(t *testing.T) {
-	requireExec(t, "git", "rsync")
-	project := newGitProject(t)
+	requireExec(t, "rsync")
+	project := newProject(t)
 	if code, _, _ := run("create", "feat", "--src", project); code != 0 {
 		t.Fatal("create failed")
 	}
@@ -99,8 +78,7 @@ func TestRunPullPushNoProfile(t *testing.T) {
 }
 
 func TestRunProfileFlow(t *testing.T) {
-	requireExec(t, "git", "rsync")
-	isolateGit(t)
+	requireExec(t, "rsync")
 	t.Setenv("SANDBOXER_IN_CONTAINER", "")
 
 	project := t.TempDir()
@@ -123,7 +101,6 @@ func TestRunProfileFlow(t *testing.T) {
 	if code, out, errs := run("create", "--config", cfg); code != 0 || !strings.Contains(out, "created") {
 		t.Fatalf("create with profile = (%d, %q, %q)", code, out, errs)
 	}
-	// The dependency was vendored into the sandbox by MakeSandbox.
 	if _, err := os.Stat(filepath.Join(project, ".sandboxer", "feat2", "vendor", "dep.txt")); err != nil {
 		t.Errorf("dependency not vendored: %v", err)
 	}
@@ -136,14 +113,11 @@ func TestRunProfileFlow(t *testing.T) {
 	if code, out, _ := run("show", "--config", cfg); code != 0 || !strings.Contains(out, "vendor") {
 		t.Errorf("show with profile = (%d, %q)", code, out)
 	}
-	if code, out, _ := run("diff", "feat2", "--src", project); code != 0 || !strings.Contains(out, "feat2") {
-		t.Errorf("diff with slug = (%d, %q)", code, out)
-	}
 }
 
 func TestRunUseClear(t *testing.T) {
-	requireExec(t, "git", "rsync")
-	project := newGitProject(t)
+	requireExec(t, "rsync")
+	project := newProject(t)
 	if code, _, _ := run("create", "feat", "--src", project); code != 0 {
 		t.Fatal("create failed")
 	}
@@ -161,11 +135,9 @@ func TestRunUseClear(t *testing.T) {
 func TestRunInContainerInspect(t *testing.T) {
 	t.Setenv("SANDBOXER_IN_CONTAINER", "1")
 	t.Setenv("SANDBOXER_SANDBOX_DIR", t.TempDir())
-	// show is allowed inside the container and dumps the in-container paths.
 	if code, out, _ := run("show"); code != 0 || !strings.Contains(out, "profile") {
 		t.Errorf("show in-container = (%d, %q)", code, out)
 	}
-	// pull/push in-container hit the /run/sandboxer paths, which don't exist here.
 	if code, _, _ := run("pull"); code != 1 {
 		t.Errorf("pull in-container (no profile.json) exit = %d, want 1", code)
 	}
@@ -175,8 +147,7 @@ func TestRunInContainerInspect(t *testing.T) {
 }
 
 func TestRunBatchDryRun(t *testing.T) {
-	requireExec(t, "git", "rsync")
-	isolateGit(t)
+	requireExec(t, "rsync")
 	t.Setenv("SANDBOXER_IN_CONTAINER", "")
 	project := t.TempDir()
 	if err := os.WriteFile(filepath.Join(project, "sandboxer.tasks"), []byte("[alpha]\ndo a\n\n[beta]\ndo b\n"), 0o644); err != nil {
@@ -192,7 +163,6 @@ func TestRunBatchDryRun(t *testing.T) {
 }
 
 func TestRmAllNonexistent(t *testing.T) {
-	// rm-all on a path with no state still succeeds (idempotent RemoveAll).
 	if code, out, _ := run("rm-all", filepath.Join(t.TempDir(), "sub")); code != 0 || !strings.Contains(out, "removed") {
 		t.Errorf("rm-all nonexistent = (%d, %q)", code, out)
 	}

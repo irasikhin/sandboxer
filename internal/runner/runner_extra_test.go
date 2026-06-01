@@ -21,13 +21,6 @@ func requireExec(t *testing.T, names ...string) {
 	}
 }
 
-func isolateGit(t *testing.T) {
-	t.Helper()
-	t.Setenv("GIT_CONFIG_GLOBAL", filepath.Join(t.TempDir(), "global"))
-	t.Setenv("GIT_CONFIG_SYSTEM", filepath.Join(t.TempDir(), "system"))
-	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
-}
-
 // --- pure helpers -----------------------------------------------------------
 
 func TestExitCode(t *testing.T) {
@@ -112,8 +105,7 @@ func TestWrapLimitsSystemd(t *testing.T) {
 // root from mainSrc, agent from the profile, domain override and per-task
 // profile JSON.
 func TestRunWithProfile(t *testing.T) {
-	requireExec(t, "git", "rsync")
-	isolateGit(t)
+	requireExec(t, "rsync")
 	root := t.TempDir()
 	writeTasks(t, root)
 	cfg := filepath.Join(t.TempDir(), "p.yaml")
@@ -159,8 +151,7 @@ func writeTasks(t *testing.T, root string) {
 }
 
 func TestRunDryRun(t *testing.T) {
-	requireExec(t, "git", "rsync")
-	isolateGit(t)
+	requireExec(t, "rsync")
 	root := t.TempDir()
 	writeTasks(t, root)
 

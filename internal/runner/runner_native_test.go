@@ -20,8 +20,7 @@ func writeScript(t *testing.T, path, body string) {
 // TestRunNative drives a real (non-dry) native run with a fake `claude` agent
 // on PATH, covering launchSpec.runNative end to end.
 func TestRunNative(t *testing.T) {
-	requireExec(t, "git", "rsync", "bash", "nice", "sh")
-	isolateGit(t)
+	requireExec(t, "rsync", "bash", "nice", "sh")
 
 	bin := t.TempDir()
 	writeScript(t, filepath.Join(bin, "claude"), `echo '{"result":"native-ok"}'`+"\n")
@@ -59,8 +58,7 @@ func TestRunNative(t *testing.T) {
 // TestRunContainer drives a non-dry container run with a fake `podman` engine,
 // covering launchSpec.runContainer.
 func TestRunContainer(t *testing.T) {
-	requireExec(t, "git", "rsync", "sh")
-	isolateGit(t)
+	requireExec(t, "rsync", "sh")
 	t.Setenv("HOME", t.TempDir()) // no real ~/.claude to copy
 	t.Setenv("SANDBOXER_NO_EGRESS", "1")
 

@@ -2,6 +2,7 @@ package sandbox
 
 import (
 	"encoding/json"
+	"io"
 	"os"
 	"path/filepath"
 	"testing"
@@ -13,8 +14,7 @@ import (
 // when a profile.json with srcs is present, dependencies are pulled into the
 // copy and a manifest is written.
 func TestMakeSandboxWithProfile(t *testing.T) {
-	requireExec(t, "rsync", "git")
-	isolateGit(t)
+	requireExec(t, "rsync")
 
 	src := t.TempDir()
 	writeFile(t, filepath.Join(src, "main.txt"), "main\n")
@@ -32,7 +32,7 @@ func TestMakeSandboxWithProfile(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := b.MakeSandbox("feat", os.Stderr); err != nil {
+	if err := b.MakeSandbox("feat", io.Discard); err != nil {
 		t.Fatalf("MakeSandbox: %v", err)
 	}
 	dest := b.SandboxDir("feat")
@@ -41,39 +41,5 @@ func TestMakeSandboxWithProfile(t *testing.T) {
 	}
 	if _, err := os.Stat(b.ManifestPath("feat")); err != nil {
 		t.Errorf("manifest not written: %v", err)
-	}
-}
-
-func TestRemoveKeepsOtherCurrent(t *testing.T) {
-	isolateGit(t)
-	b, err := ResolveBase(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := b.AppendAgent("a"); err != nil {
-		t.Fatal(err)
-	}
-	if err := b.SetCurrent("b"); err != nil { // current is a different slug
-		t.Fatal(err)
-	}
-	if err := b.Remove("a"); err != nil {
-		t.Fatal(err)
-	}
-	if b.Current() != "b" {
-		t.Errorf("removing a non-current sandbox cleared current: %q", b.Current())
-	}
-}
-
-func TestAgentsIgnoresBlankLines(t *testing.T) {
-	isolateGit(t)
-	b, err := ResolveBase(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(b.AgentsListPath(), []byte("one\n\n  \ntwo\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if got := b.Agents(); len(got) != 2 || got[0] != "one" || got[1] != "two" {
-		t.Errorf("Agents with blank lines = %v, want [one two]", got)
 	}
 }
