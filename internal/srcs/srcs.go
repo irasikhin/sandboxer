@@ -23,6 +23,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 )
@@ -40,11 +41,14 @@ type Src struct {
 	Depth int    `json:"depth"`
 }
 
-// Profile is the resolved sandbox configuration: a main source root and a list
-// of srcs entries to vendor.
+// Profile is the resolved sandbox configuration. It carries either explicit
+// srcs entries or a depsync-style roots+deps pair (search deps under roots by
+// path suffix), or both.
 type Profile struct {
-	MainSrc string `json:"mainSrc"`
-	Srcs    []Src  `json:"srcs"`
+	MainSrc string   `json:"mainSrc"`
+	Srcs    []Src    `json:"srcs"`
+	Roots   []string `json:"roots"`
+	Deps    []string `json:"deps"`
 }
 
 // ManifestEntry records one copied target so a later push can find its origin.
@@ -225,6 +229,62 @@ func resolveTargets(p Profile, sandboxDir string) ([]target, error) {
 	return targets, nil
 }
 
+// resolveDeps turns the depsync-style roots+deps config into copy jobs: each
+// dep is searched (by path suffix) under every root, and the first match is
+// copied to <sandbox>/<dep>. Not-found and multi-match are reported to w.
+func resolveDeps(p Profile, sandboxDir string, w io.Writer) []target {
+	if len(p.Deps) == 0 {
+		return nil
+	}
+	roots := p.Roots
+	if len(roots) == 0 {
+		if p.MainSrc != "" {
+			roots = []string{p.MainSrc}
+		} else {
+			roots = []string{cwd()}
+		}
+	}
+	var out []target
+	for _, dep := range p.Deps {
+		matches := searchDep(roots, dep)
+		switch {
+		case len(matches) == 0:
+			fmt.Fprintf(w, "  SKIP  %s — not found under roots\n", dep)
+			continue
+		case len(matches) > 1:
+			fmt.Fprintf(w, "  WARN  %s — %d matches, using %s\n", dep, len(matches), matches[0])
+		}
+		out = append(out, target{
+			Origin: matches[0],
+			Dest:   absJoin(sandboxDir, dep),
+			Mode:   "rw",
+		})
+	}
+	return out
+}
+
+// searchDep finds entries under roots whose path ends with dep's components
+// (depsync's leaf-name + path-suffix match), limited to depth 5. Matches are
+// returned in deterministic (sorted-walk) order.
+func searchDep(roots []string, dep string) []string {
+	depParts := strings.Split(strings.Trim(filepath.ToSlash(dep), "/"), "/")
+	leaf := depParts[len(depParts)-1]
+	var found []string
+	for _, r := range roots {
+		root := mustAbs(r)
+		walk(root, 5, func(p string) {
+			if filepath.Base(p) != leaf {
+				return
+			}
+			parts := strings.Split(filepath.ToSlash(p), "/")
+			if len(parts) >= len(depParts) && slices.Equal(parts[len(parts)-len(depParts):], depParts) {
+				found = append(found, p)
+			}
+		})
+	}
+	return found
+}
+
 // copyEntry copies src onto dst the way depsync's copy_entry does: dst is
 // removed first, then src is copied — symlinks preserved, directories recursed,
 // file mode and mtime carried over.
@@ -333,6 +393,8 @@ func CopyIn(w io.Writer, profileFile, sandboxDir, manifestOut string, force bool
 	if err != nil {
 		return err
 	}
+	// depsync-style roots+deps resolve to additional copy jobs.
+	targets = append(targets, resolveDeps(profile, sandboxDir, w)...)
 
 	manifest := []ManifestEntry{}
 	pulled, kept := 0, 0

@@ -1,7 +1,7 @@
 # sandboxer
 
 [![CI](https://github.com/irasikhin/sandboxer/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/irasikhin/sandboxer/actions/workflows/ci.yml?query=branch%3Amain)
-[![Coverage](https://img.shields.io/badge/coverage-92.1%25-brightgreen.svg)](#testing)
+[![Coverage](https://img.shields.io/badge/coverage-92.0%25-brightgreen.svg)](#testing)
 [![Go](https://img.shields.io/badge/Go-1.24+-00ADD8?logo=go)](https://go.dev/)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
@@ -23,9 +23,10 @@ back to their origins when you're done. No git is involved.
 - **Sandbox** — the directory `.sandboxer/<slug>/`. It contains only what `srcs`
   pulled in; an empty `srcs` means an empty sandbox.
 - **slug** — a short sandbox name (`feat`, `bugfix-auth`, …), set at `create`.
-- **srcs** — the list (in `sandboxer.yaml`) of what to copy into the sandbox:
-  explicit `from`/`to` paths, or matchers (`root` + `name`/`glob`/`regex`)
-  resolved under `mainSrc`. This is the single source of a sandbox's contents.
+- **srcs / deps** — what to copy into the sandbox, and the single source of its
+  contents. Either explicit `srcs` (`from`/`to`, or `root` + `name`/`glob`/`regex`),
+  or a depsync-style `roots` + `deps`: each `dep` is located by **path suffix**
+  under the `roots` and copied flat to `<sandbox>/<dep>`.
 - **pull / push** — `sandboxer pull` copies the `srcs` in, keeping a target
   that already exists unless `--force`; `sandboxer push` copies read-write
   entries back over their origins (always overwriting, like depsync).
@@ -99,10 +100,21 @@ srcs:
   - { root: /abs/schemas, glob: "**/*.proto", to: proto, mode: ro }
 ```
 
-`srcs` are pulled into the sandbox (`sandboxer pull`) — an already-present
-target is kept unless `--force`. `rw` entries are copied back to their source
-paths (`sandboxer push`), always overwriting. The copy preserves symlinks and
-file modes, and replaces the destination wholesale (depsync semantics).
+Or the depsync-style form — search `deps` by path suffix under `roots`, copied
+flat to `<sandbox>/<dep>`:
+
+```yaml
+name: feature-x
+roots: [/abs/monorepo, /abs/shared]
+deps:
+  - some_module          # any dir/file named some_module
+  - src/lib/util.go      # any path ending with src/lib/util.go
+```
+
+`srcs`/`deps` are pulled into the sandbox (`sandboxer pull`) — an already-present
+target is kept unless `--force`. `rw` entries (and all `deps`) are copied back to
+their origins (`sandboxer push`), always overwriting. The copy preserves symlinks
+and file modes and replaces the destination wholesale (depsync semantics).
 
 ## Egress allowlist (container backend)
 
@@ -145,7 +157,7 @@ go tool cover -func=cov.out | tail -1         # total coverage
 go tool cover -html=cov.out -o cov.html       # browseable report
 ```
 
-Current coverage: **92.1%** total. Per package:
+Current coverage: **92.0%** total. Per package:
 
 | Package             | Coverage |
 | ------------------- | -------- |
@@ -157,7 +169,7 @@ Current coverage: **92.1%** total. Per package:
 | `internal/registry` | 94.1%    |
 | `internal/cli`      | 91.3%    |
 | `internal/proxy`    | 90.3%    |
-| `internal/srcs`     | 89.3%    |
+| `internal/srcs`     | 88.9%    |
 | `internal/sandbox`  | 88.8%    |
 
 Backend tests use fake engine/agent stubs on `PATH`, so they run without

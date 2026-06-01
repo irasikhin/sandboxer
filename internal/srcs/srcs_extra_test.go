@@ -40,6 +40,41 @@ func TestMatchEntriesNameRegexDepth(t *testing.T) {
 	}
 }
 
+func TestDepsSearchAndLayout(t *testing.T) {
+	// Two roots; a dep matched by path SUFFIX lands flat at <sandbox>/<dep>.
+	base := t.TempDir()
+	rootA := filepath.Join(base, "a")
+	rootB := filepath.Join(base, "b")
+	writeFile(t, filepath.Join(rootA, "src", "lib", "util.go"), "deep\n") // matches src/lib/util.go
+	writeFile(t, filepath.Join(rootA, "other", "util.go"), "wrong\n")     // same leaf, wrong suffix
+	writeFile(t, filepath.Join(rootB, "config.yaml"), "cfg\n")
+	writeFile(t, filepath.Join(rootA, ".git", "util.go"), "git\n") // hidden/.git skipped
+
+	sandbox := filepath.Join(base, "sandbox")
+	manifest := filepath.Join(base, "m.json")
+	profile := Profile{
+		Roots: []string{rootA, rootB},
+		Deps:  []string{"src/lib/util.go", "config.yaml", "missing.txt"},
+	}
+	pf := writeProfile(t, base, profile)
+
+	var out bytes.Buffer
+	if err := CopyIn(&out, pf, sandbox, manifest, false); err != nil {
+		t.Fatalf("CopyIn: %v", err)
+	}
+	// Suffix match → flat layout at <sandbox>/<dep>.
+	if got := readFile(t, filepath.Join(sandbox, "src", "lib", "util.go")); got != "deep\n" {
+		t.Errorf("dep landed wrong: %q", got)
+	}
+	if got := readFile(t, filepath.Join(sandbox, "config.yaml")); got != "cfg\n" {
+		t.Errorf("dep from second root: %q", got)
+	}
+	// Not-found dep is reported, .git is skipped (so no util.go from .git won).
+	if !strings.Contains(out.String(), "SKIP") || !strings.Contains(out.String(), "missing.txt") {
+		t.Errorf("expected SKIP for missing dep, got: %q", out.String())
+	}
+}
+
 func TestResolveTargets(t *testing.T) {
 	dep := filepath.Join(t.TempDir(), "lib")
 	writeFile(t, filepath.Join(dep, "f"), "x")

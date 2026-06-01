@@ -62,6 +62,8 @@ type Profile struct {
 	Agents      []string          `yaml:"agents,omitempty"      json:"agents,omitempty"`
 	Egress      *bool             `yaml:"egress,omitempty"      json:"egress,omitempty"`
 	Srcs        []Src             `yaml:"srcs,omitempty"        json:"srcs,omitempty"`
+	Roots       []string          `yaml:"roots,omitempty"       json:"roots,omitempty"`
+	Deps        []string          `yaml:"deps,omitempty"        json:"deps,omitempty"`
 	ExtraMounts []Mount           `yaml:"extraMounts,omitempty" json:"extraMounts,omitempty"`
 	Env         map[string]string `yaml:"env,omitempty"         json:"env,omitempty"`
 }
