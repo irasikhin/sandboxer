@@ -1,6 +1,9 @@
 # sandboxer
 
-[![ci](https://github.com/irasikhin/sandboxer/actions/workflows/ci.yml/badge.svg)](https://github.com/irasikhin/sandboxer/actions/workflows/ci.yml)
+[![CI](https://github.com/irasikhin/sandboxer/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/irasikhin/sandboxer/actions/workflows/ci.yml?query=branch%3Amain)
+[![Coverage](https://img.shields.io/badge/coverage-92.1%25-brightgreen.svg)](#разработка)
+[![Go](https://img.shields.io/badge/Go-1.24+-00ADD8?logo=go)](https://go.dev/)
+[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 Запуск **нескольких автономных кодинг-агентов параллельно** (или ручная работа в одной
 песочнице), каждый в своей изоляции, на **локальной Linux-машине**. CLI на Go; поставка — готовый
@@ -110,9 +113,35 @@ nix run .#build-image     # собрать OCI-образ с агентами + 
 nix develop               # go toolchain + линтеры
 go build ./cmd/sandboxer
 go test ./...
+go test ./... -cover                      # покрытие по пакетам
+go test -coverprofile=cov.out ./... && go tool cover -func=cov.out | tail -1   # суммарно
 golangci-lint run ./...
 nix flake check
 ```
 
+Покрытие тестами: **92.1%** суммарно. По пакетам:
+
+| Пакет                  | Покрытие |
+| ---------------------- | -------- |
+| `cmd/sandboxer`        | 100.0%   |
+| `internal/config`      | 100.0%   |
+| `internal/gitx`        | 95.2%    |
+| `internal/backend`     | 94.9%    |
+| `internal/runner`      | 94.8%    |
+| `internal/egress`      | 94.3%    |
+| `internal/registry`    | 94.1%    |
+| `internal/cli`         | 90.9%    |
+| `internal/proxy`       | 90.3%    |
+| `internal/srcs`        | 90.3%    |
+| `internal/sandbox`     | 88.5%    |
+
+Тесты на бэкенды используют фейковые движки (скрипты-заглушки `podman`/`claude` в
+`PATH`) и изолированный git-конфиг, поэтому проходят без контейнеров; те, что требуют
+`git`/`rsync`, аккуратно пропускаются, если инструмент недоступен.
+
 См. [CONTRIBUTING.md](./CONTRIBUTING.md) (Conventional Commits, релиз) и
 [SECURITY.md](./SECURITY.md) (модель изоляции).
+
+## Лицензия
+
+MIT — см. [LICENSE](./LICENSE).
