@@ -22,9 +22,10 @@ into the source repo with git (`cherry-pick`) or as patches (`--patch`).
 
 - **Sandbox** — the isolated project copy at `.sandboxer/<slug>/`.
 - **slug** — a short sandbox name (`feat`, `bugfix-auth`, …), set at `create`.
-- **Snapshot branch** — a git branch `sandbox/<slug>` *inside the copy* that
-  records the starting point. It lives only in the copy: it never lands in your
-  repository and is never pushed to any remote.
+- **Snapshot branch** — a real git branch `sandbox/<slug>`, but created in the
+  copy's *own* `.git` (the copy is a separate checkout), recording the starting
+  point. It exists only in the copy: it never appears in your repository and is
+  never pushed to any remote.
 - **Return** (`merge`) — `cherry-pick` of the sandbox's commits onto **your
   repository's current branch** (or `--patch` to export patch files). This is
   the only moment your repo changes.
