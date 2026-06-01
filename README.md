@@ -35,8 +35,7 @@ Two isolation backends:
   `claude` only, zero install.
 - **podman / docker** (default) — a toolbox container with the agents baked in
   (claude, opencode, crush, aider, pi, gemini). Any of them; network, proxy and
-  credentials are wired per config. `codex` (Rust) is not baked into the image
-  (build time) — run it on the native backend.
+  credentials are wired per config.
 
 ## Install
 
