@@ -20,7 +20,7 @@ A **sandbox** is an isolated **directory copy** of your project (rsync of
 your project is untouched until you explicitly return the work.
 
 - **Sandbox** — the project copy at `.sandboxer/<slug>/` (`.git`, `node_modules`
-  and `.sandboxer` are excluded from the copy).
+  and `.sandboxer` are not copied).
 - **slug** — a short sandbox name (`feat`, `bugfix-auth`, …), set at `create`.
 - **Baseline** — file signatures recorded at create time, so sandboxer knows
   exactly which files the agent changed.
