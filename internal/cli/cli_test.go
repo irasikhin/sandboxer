@@ -1,0 +1,305 @@
+package cli
+
+import (
+	"bytes"
+	"io"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"github.com/spf13/cobra"
+
+	"github.com/irasikhin/sandboxer/internal/gitx"
+)
+
+// --- pure helpers -----------------------------------------------------------
+
+func TestFirstNonEmpty(t *testing.T) {
+	if got := firstNonEmpty("", "", "b"); got != "b" {
+		t.Errorf("firstNonEmpty = %q, want b", got)
+	}
+	if got := firstNonEmpty("a", "b"); got != "a" {
+		t.Errorf("firstNonEmpty = %q, want a", got)
+	}
+	if got := firstNonEmpty(); got != "" {
+		t.Errorf("firstNonEmpty() = %q, want empty", got)
+	}
+}
+
+func TestPosArg(t *testing.T) {
+	if posArg([]string{"a", "b"}) != "a" {
+		t.Error("posArg should return the first arg")
+	}
+	if posArg(nil) != "" {
+		t.Error("posArg(nil) should be empty")
+	}
+}
+
+func TestIsYAML(t *testing.T) {
+	for in, want := range map[string]bool{"a.yaml": true, "a.yml": true, "a.json": false, "a": false} {
+		if isYAML(in) != want {
+			t.Errorf("isYAML(%q) = %v, want %v", in, !want, want)
+		}
+	}
+}
+
+func TestTruncate(t *testing.T) {
+	if truncate("hello", 3) != "hel" {
+		t.Error("truncate should cut to n")
+	}
+	if truncate("hi", 5) != "hi" {
+		t.Error("truncate should leave short strings")
+	}
+}
+
+func TestFileExistsAndInContainer(t *testing.T) {
+	f := filepath.Join(t.TempDir(), "f")
+	if fileExists(f) {
+		t.Error("missing file reported existing")
+	}
+	if err := os.WriteFile(f, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if !fileExists(f) {
+		t.Error("existing file reported missing")
+	}
+
+	t.Setenv("SANDBOXER_IN_CONTAINER", "1")
+	if !inContainer() {
+		t.Error("inContainer should be true when env set")
+	}
+	t.Setenv("SANDBOXER_IN_CONTAINER", "")
+	if inContainer() {
+		t.Error("inContainer should be false when env empty")
+	}
+}
+
+func TestReadMeta(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "m")
+	if err := os.WriteFile(p, []byte("exit=0\nsecs=12\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if e, s := readMeta(p); e != "0" || s != "12" {
+		t.Errorf("readMeta = (%q,%q), want (0,12)", e, s)
+	}
+	if e, s := readMeta(filepath.Join(t.TempDir(), "missing")); e != "-" || s != "-" {
+		t.Errorf("readMeta(missing) = (%q,%q), want (-,-)", e, s)
+	}
+}
+
+func TestJSONResult(t *testing.T) {
+	dir := t.TempDir()
+	write := func(name, body string) string {
+		p := filepath.Join(dir, name)
+		if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		return p
+	}
+	if got := jsonResult(write("r.json", `{"result":"hello   world"}`)); got != "hello world" {
+		t.Errorf("result = %q, want 'hello world'", got)
+	}
+	if got := jsonResult(write("e.json", `{"error":"boom"}`)); got != "boom" {
+		t.Errorf("error = %q, want boom", got)
+	}
+	if got := jsonResult(write("bad.json", `not json`)); got != "" {
+		t.Errorf("invalid json = %q, want empty", got)
+	}
+	if got := jsonResult(filepath.Join(dir, "missing")); got != "" {
+		t.Errorf("missing = %q, want empty", got)
+	}
+}
+
+func TestDumpFile(t *testing.T) {
+	dir := t.TempDir()
+	noNL := filepath.Join(dir, "a")
+	_ = os.WriteFile(noNL, []byte("abc"), 0o644)
+	var buf bytes.Buffer
+	if !dumpFile(&buf, noNL) || buf.String() != "abc\n" {
+		t.Errorf("dumpFile appends newline: got %q", buf.String())
+	}
+	buf.Reset()
+	withNL := filepath.Join(dir, "b")
+	_ = os.WriteFile(withNL, []byte("abc\n"), 0o644)
+	if !dumpFile(&buf, withNL) || buf.String() != "abc\n" {
+		t.Errorf("dumpFile keeps single newline: got %q", buf.String())
+	}
+	if dumpFile(&buf, filepath.Join(dir, "missing")) {
+		t.Error("dumpFile(missing) should report false")
+	}
+}
+
+func TestSplitDash(t *testing.T) {
+	run := func(args []string) (string, []string) {
+		var pos string
+		var rest []string
+		c := &cobra.Command{Use: "x", RunE: func(cmd *cobra.Command, a []string) error {
+			pos, rest = splitDash(cmd, a)
+			return nil
+		}}
+		c.SetArgs(args)
+		c.SetOut(io.Discard)
+		c.SetErr(io.Discard)
+		if err := c.Execute(); err != nil {
+			t.Fatalf("execute %v: %v", args, err)
+		}
+		return pos, rest
+	}
+	if pos, rest := run([]string{"slug", "--", "echo", "hi"}); pos != "slug" || strings.Join(rest, " ") != "echo hi" {
+		t.Errorf("with dash = (%q,%v)", pos, rest)
+	}
+	if pos, rest := run([]string{"slug"}); pos != "slug" || rest != nil {
+		t.Errorf("no dash = (%q,%v)", pos, rest)
+	}
+	if pos, rest := run([]string{"--", "cmd"}); pos != "" || strings.Join(rest, " ") != "cmd" {
+		t.Errorf("dash only = (%q,%v)", pos, rest)
+	}
+}
+
+func TestResolveProfileFile(t *testing.T) {
+	t.Setenv("SANDBOXER_IN_CONTAINER", "")
+	// --config wins outright.
+	if file, pos := resolveProfileFile("cfg.yaml", "leftover"); file != "cfg.yaml" || pos != "leftover" {
+		t.Errorf("config precedence = (%q,%q)", file, pos)
+	}
+	// A positional yaml that exists is taken as the profile.
+	dir := t.TempDir()
+	t.Chdir(dir)
+	if err := os.WriteFile("p.yaml", []byte("name: x\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if file, pos := resolveProfileFile("", "p.yaml"); file != "p.yaml" || pos != "" {
+		t.Errorf("positional yaml = (%q,%q)", file, pos)
+	}
+	// Auto-discovery of sandboxer.yaml in cwd.
+	if err := os.WriteFile("sandboxer.yaml", []byte("name: y\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if file, pos := resolveProfileFile("", ""); file != "sandboxer.yaml" || pos != "" {
+		t.Errorf("auto-discovery = (%q,%q)", file, pos)
+	}
+	// A non-yaml positional is left as the leftover slug.
+	if file, pos := resolveProfileFile("", "slug"); file != "" || pos != "slug" {
+		t.Errorf("non-yaml positional = (%q,%q)", file, pos)
+	}
+}
+
+// --- end-to-end through Run() ----------------------------------------------
+
+func run(args ...string) (int, string, string) {
+	var out, errb bytes.Buffer
+	code := Run(args, strings.NewReader(""), &out, &errb)
+	return code, out.String(), errb.String()
+}
+
+func TestRunAgentsVersionHelp(t *testing.T) {
+	if code, out, _ := run("agents"); code != 0 || !strings.Contains(out, "claude") {
+		t.Errorf("agents = (%d, %q)", code, out)
+	}
+	if code, out, _ := run("--version"); code != 0 || !strings.Contains(out, Version) {
+		t.Errorf("--version = (%d, %q)", code, out)
+	}
+	if code, out, _ := run("--help"); code != 0 || !strings.Contains(out, "sandboxer") {
+		t.Errorf("--help = (%d, %q)", code, out)
+	}
+	if code, _, _ := run("totally-bogus-command"); code != 1 {
+		t.Errorf("unknown command exit = %d, want 1", code)
+	}
+}
+
+func requireExec(t *testing.T, names ...string) {
+	t.Helper()
+	for _, n := range names {
+		if _, err := exec.LookPath(n); err != nil {
+			t.Skipf("%s not available", n)
+		}
+	}
+}
+
+func isolateGit(t *testing.T) {
+	t.Helper()
+	t.Setenv("GIT_CONFIG_GLOBAL", filepath.Join(t.TempDir(), "global"))
+	t.Setenv("GIT_CONFIG_SYSTEM", filepath.Join(t.TempDir(), "system"))
+	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
+}
+
+func TestRunLifecycle(t *testing.T) {
+	requireExec(t, "git", "rsync")
+	isolateGit(t)
+	t.Setenv("SANDBOXER_IN_CONTAINER", "")
+
+	project := t.TempDir()
+	if err := gitx.Init(project); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(project, "f.txt"), []byte("v1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := gitx.Snapshot(project, "init"); err != nil {
+		t.Fatal(err)
+	}
+
+	// create
+	if code, out, errs := run("create", "feat", "--src", project); code != 0 || !strings.Contains(out, "created") {
+		t.Fatalf("create = (%d, %q, %q)", code, out, errs)
+	}
+	if _, err := os.Stat(filepath.Join(project, ".sandboxer", "feat")); err != nil {
+		t.Errorf("sandbox dir not created: %v", err)
+	}
+	// list
+	if code, out, _ := run("list", "--src", project); code != 0 || !strings.Contains(out, "feat") {
+		t.Errorf("list = (%d, %q)", code, out)
+	}
+	// use set + get
+	if code, _, _ := run("use", "feat", "--src", project); code != 0 {
+		t.Errorf("use set exit = %d", code)
+	}
+	if code, out, _ := run("use", "--src", project); code != 0 || !strings.Contains(out, "feat") {
+		t.Errorf("use get = (%d, %q)", code, out)
+	}
+	// diff / show
+	if code, out, _ := run("diff", "--src", project); code != 0 || !strings.Contains(out, "feat") {
+		t.Errorf("diff = (%d, %q)", code, out)
+	}
+	if code, out, _ := run("show", "feat", "--src", project); code != 0 || !strings.Contains(out, "no profile") {
+		t.Errorf("show = (%d, %q)", code, out)
+	}
+	// merge: sandbox has no commits beyond base → "no changes".
+	if code, out, _ := run("merge", "feat", "--src", project); code != 0 || !strings.Contains(out, "no changes") {
+		t.Errorf("merge = (%d, %q)", code, out)
+	}
+	if code, out, _ := run("merge", "--patch", "feat", "--src", project); code != 0 || !strings.Contains(out, "no changes") {
+		t.Errorf("merge --patch = (%d, %q)", code, out)
+	}
+	// rm
+	if code, out, _ := run("rm", "feat", "--src", project); code != 0 || !strings.Contains(out, "removed") {
+		t.Errorf("rm = (%d, %q)", code, out)
+	}
+	// rm-all
+	if code, out, _ := run("rm-all", project); code != 0 || !strings.Contains(out, "removed") {
+		t.Errorf("rm-all = (%d, %q)", code, out)
+	}
+	if _, err := os.Stat(filepath.Join(project, ".sandboxer")); !os.IsNotExist(err) {
+		t.Error(".sandboxer should be gone after rm-all")
+	}
+}
+
+func TestRunInContainerRestriction(t *testing.T) {
+	t.Setenv("SANDBOXER_IN_CONTAINER", "1")
+	code, _, errs := run("create", "x", "--src", t.TempDir())
+	if code != 1 {
+		t.Errorf("create in container exit = %d, want 1", code)
+	}
+	if !strings.Contains(errs, "not available inside the container") {
+		t.Errorf("missing restriction message: %q", errs)
+	}
+}
+
+func TestBaseOnlyNoState(t *testing.T) {
+	// baseOnly errors clearly when the project has no .sandboxer state yet.
+	if _, err := baseOnly(t.TempDir()); err == nil {
+		t.Error("baseOnly should error without existing state")
+	}
+}
