@@ -1,86 +1,90 @@
 # sandboxer
 
 [![CI](https://github.com/irasikhin/sandboxer/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/irasikhin/sandboxer/actions/workflows/ci.yml?query=branch%3Amain)
-[![Coverage](https://img.shields.io/badge/coverage-92.1%25-brightgreen.svg)](#разработка)
+[![Coverage](https://img.shields.io/badge/coverage-92.1%25-brightgreen.svg)](#testing)
 [![Go](https://img.shields.io/badge/Go-1.24+-00ADD8?logo=go)](https://go.dev/)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-Запуск **нескольких автономных кодинг-агентов параллельно** (или ручная работа в одной
-песочнице), каждый в своей изоляции, на **локальной Linux-машине**. CLI на Go; поставка — готовый
-бинарь, `go install` или nix flake.
+Run **several autonomous coding agents in parallel** — or work by hand in a
+single sandbox — each fully isolated, on your **local Linux machine**. A Go CLI,
+shipped as a static binary, `go install`, or a Nix flake. Human designs, AI
+drives.
 
-Каждая **песочница** — изолированная **директория-копия** проекта (rsync `mainSrc`) в
-`.sandboxer/<slug>/`; твой рабочий репозиторий при этом не трогается. Наработку возвращаешь
-в исходный репозиторий через git (`cherry-pick`) или как патчи (`--patch`).
+> ⚠️ **Pre-1.0.** CLI flags, the config schema, and the on-disk `.sandboxer/`
+> layout may change between minor versions until 1.0.
 
-## Термины
+## How it works
 
-- **Песочница** — изолированная директория-копия проекта в `.sandboxer/<slug>/`. Агент
-  работает только в ней; твой рабочий каталог и его git не меняются.
-- **slug** — короткое имя песочницы (`feat`, `bugfix-auth`, …); задаётся при `create`.
-- **Snapshot-ветка** — git-ветка `sandbox/<slug>` **внутри копии**, фиксирующая старт. Живёт
-  только в копии: в твой репозиторий не попадает и ни на какой remote не пушится.
-- **Возврат** (`merge`) — `cherry-pick` коммитов snapshot-ветки в **текущую ветку твоего
-  репозитория** (или экспорт патчей `--patch`). Только в этот момент твой репо что-то получает.
-- **Источник зависимости** (`srcs` → `from`/`root`) — внешний путь, втягиваемый в песочницу;
-  при `mode: rw` изменения возвращаются по этому пути на `push`. Не путать с git-remote `origin`.
+A **sandbox** is an isolated **directory copy** of your project (rsync of
+`mainSrc`) under `.sandboxer/<slug>/`. The agent runs only inside that copy —
+your working tree and its git history are never touched. You bring the work back
+into the source repo with git (`cherry-pick`) or as patches (`--patch`).
 
-## Изоляция: два бэкенда
+- **Sandbox** — the isolated project copy at `.sandboxer/<slug>/`.
+- **slug** — a short sandbox name (`feat`, `bugfix-auth`, …), set at `create`.
+- **Snapshot branch** — a git branch `sandbox/<slug>` *inside the copy* that
+  records the starting point. It lives only in the copy: it never lands in your
+  repository and is never pushed to any remote.
+- **Return** (`merge`) — `cherry-pick` of the sandbox's commits onto **your
+  repository's current branch** (or `--patch` to export patch files). This is
+  the only moment your repo changes.
 
-- **native** — нативный Claude Code `/sandbox` (bubblewrap, FS+сеть на уровне ОС). Только `claude`,
-  нулевая установка.
-- **podman / docker** — контейнер-тулбокс со встроенными агентами (claude, opencode, crush, aider,
-  pi, gemini). Любой из них; сеть/прокси/креды прокидываются per-config. `codex` (Rust) в образ не
-  запекается из-за времени сборки — используйте его на нативном бэкенде.
+Two isolation backends:
 
-## Установка
+- **native** — Claude Code's own `/sandbox` (bubblewrap; OS-level FS + network).
+  `claude` only, zero install.
+- **podman / docker** (default) — a toolbox container with the agents baked in
+  (claude, opencode, crush, aider, pi, gemini). Any of them; network, proxy and
+  credentials are wired per config. `codex` (Rust) is not baked into the image
+  (build time) — run it on the native backend.
 
-Linux-only. `claude` (для native) и движок контейнеров **не бандлятся** — берутся с хоста.
+## Install
 
-```bash
-# nix (без установки / в профиль / как flake-вход)
-nix run    github:irasikhin/sandboxer -- help
-nix profile install github:irasikhin/sandboxer
-
-# go
-go install github.com/irasikhin/sandboxer/cmd/sandboxer@latest
-
-# либо скачать бинарь из GitHub Releases (linux amd64/arm64)
-```
-
-## Быстрый старт
+Linux only. `claude` (for native) and the container engine are **not bundled** —
+they come from the host.
 
 ```bash
-sandboxer create feat              # создать песочницу feat (копия в .sandboxer/feat/)
-sandboxer enter  feat              # интерактивный шелл внутри песочницы (агенты в PATH)
-sandboxer exec   feat -- claude    # запустить агента/команду внутри песочницы
-sandboxer merge  feat              # вернуть наработку в текущую ветку исходного репо (cherry-pick)
-sandboxer list                     # статус песочниц
-sandboxer rm     feat              # удалить песочницу
+nix run    github:irasikhin/sandboxer -- help                   # try without installing
+nix profile install github:irasikhin/sandboxer                  # Nix
+go install github.com/irasikhin/sandboxer/cmd/sandboxer@latest  # Go
 ```
 
-Параллельный батч автономных агентов (по одной песочнице на задачу):
+Or grab a [pre-built binary](https://github.com/irasikhin/sandboxer/releases)
+(linux amd64/arm64).
+
+## Quick start
+
+```bash
+sandboxer create feat            # create sandbox feat (copy under .sandboxer/feat/)
+sandboxer enter  feat            # interactive shell inside it (agents on PATH)
+sandboxer exec   feat -- claude  # run an agent/command inside it
+sandboxer merge  feat            # return the work to your repo's branch (cherry-pick)
+sandboxer list                   # status of all sandboxes
+sandboxer rm     feat            # delete the sandbox
+```
+
+Run a batch of autonomous agents — one sandbox per task:
 
 ```bash
 sandboxer run tasks.txt --agent claude --max-parallel 4
-# tasks-файл: секции [slug] + текст задачи (см. sandboxer.tasks.example)
+# tasks file: [slug] sections + task text (see sandboxer.tasks.example)
 ```
 
-## Конфигурация
+## Config
 
-Скаляры задаются **флагами** и переменными окружения `SANDBOXER_*`:
+Scalars come from **flags** and `SANDBOXER_*` env vars:
 
-| Что | Флаг | Env |
-|-----|------|-----|
-| агент | `--agent` | `SANDBOXER_AGENT` (по умолчанию `claude`) |
-| бэкенд | `--backend` | `SANDBOXER_BACKEND` (по умолчанию `podman`) |
-| модель | `--model` | `SANDBOXER_MODEL` |
-| egress-домены | `--allow-domains a,b` | `SANDBOXER_DOMAINS` |
-| образ | — | `SANDBOXER_IMAGE` (по умолчанию `sandboxer-toolbox:latest`) |
+| Setting | Flag | Env |
+|---------|------|-----|
+| agent | `--agent` | `SANDBOXER_AGENT` (default `claude`) |
+| backend | `--backend` | `SANDBOXER_BACKEND` (default `podman`) |
+| model | `--model` | `SANDBOXER_MODEL` |
+| egress domains | `--allow-domains a,b` | `SANDBOXER_DOMAINS` |
+| image | — | `SANDBOXER_IMAGE` (default `sandboxer-toolbox:latest`) |
 
-Структурные поля (вендоринг зависимостей `srcs`, `extraMounts`, `env`) — в **опциональном**
-`sandboxer.yaml` (автоподхват в cwd или `--config <file>`). См. `examples/sandboxer.yaml` и
-`examples/with-deps.yaml`.
+Structured fields (dependency vendoring `srcs`, `extraMounts`, `env`) live in an
+**optional** `sandboxer.yaml` (auto-discovered in the cwd, or `--config <file>`).
+See `examples/sandboxer.yaml` and `examples/with-deps.yaml`.
 
 ```yaml
 name: feature-x
@@ -90,70 +94,75 @@ agent: claude
 network:
   allowedDomains: [api.anthropic.com, registry.npmjs.org, github.com]
 srcs:
-  - { from: /abs/shared-lib, to: vendor/shared-lib, mode: rw }   # rw: вернётся по исходному пути на push
+  - { from: /abs/shared-lib, to: vendor/shared-lib, mode: rw }   # rw: returned to its source path on push
   - { root: /abs/schemas, glob: "**/*.proto", to: proto, mode: ro }
 ```
 
-`srcs` втягиваются внутрь песочницы (`sandboxer pull`); rw-записи копируются обратно по их
-исходным путям (`sandboxer push`), с защитой от затирания локальных изменений (без `--force`).
+`srcs` are pulled into the sandbox (`sandboxer pull`); rw entries are copied back
+to their source paths (`sandboxer push`), with protection against clobbering
+local edits (unless `--force`).
 
-## Агенты
+## Egress allowlist (container backend)
 
-```bash
-sandboxer agents     # каталог: bin, sandbox-режим, попадание в образ, какие креды/env биндить
-```
+The agent sits on an `--internal` network with no direct outbound; its only exit
+is an allowlist proxy that permits just the domains in `network.allowedDomains`
+(everything else → 403). The proxy is **the same binary** in a hidden
+`sandboxer _proxy` mode (no external dependency). Disable with `egress: false`
+in the profile or `SANDBOXER_NO_EGRESS=1`. A configured upstream proxy holds the
+boundary itself.
 
-Реестр — единый источник `internal/registry/registry.json` (его же читает flake для образа).
-Добавить агента = одна запись.
-
-## Egress-allowlist (контейнерный бэкенд)
-
-Агент сидит в `--internal` сети без прямого выхода; единственный выход — allowlist-прокси,
-пропускающий только домены из `network.allowedDomains` (остальное → 403). Прокси — **тот же бинарь**
-в скрытом режиме `sandboxer _proxy` (внешних зависимостей нет). Отключить: `egress: false` в профиле
-или `SANDBOXER_NO_EGRESS=1`. Заданный upstream-прокси держит границу сам.
-
-## Образ-тулбокс
+## Agents
 
 ```bash
-nix run .#build-image     # собрать OCI-образ с агентами + бинарём и загрузить в podman/docker
+sandboxer agents   # catalog: bin, sandbox mode, image inclusion, creds/env to bind
 ```
 
-## Разработка
+The registry is a single source of truth, `internal/registry/registry.json` (the
+flake reads it too, to build the image). Adding an agent = one entry.
+
+## Toolbox image
 
 ```bash
-nix develop               # go toolchain + линтеры
-go build ./cmd/sandboxer
-go test ./...
-go test ./... -cover                      # покрытие по пакетам
-go test -coverprofile=cov.out ./... && go tool cover -func=cov.out | tail -1   # суммарно
-golangci-lint run ./...
-nix flake check
+nix run .#build-image   # build an OCI image with the agents + binary, load into podman/docker
 ```
 
-Покрытие тестами: **92.1%** суммарно. По пакетам:
+## Docs
 
-| Пакет                  | Покрытие |
-| ---------------------- | -------- |
-| `cmd/sandboxer`        | 100.0%   |
-| `internal/config`      | 100.0%   |
-| `internal/gitx`        | 95.2%    |
-| `internal/backend`     | 94.9%    |
-| `internal/runner`      | 94.8%    |
-| `internal/egress`      | 94.3%    |
-| `internal/registry`    | 94.1%    |
-| `internal/cli`         | 90.9%    |
-| `internal/proxy`       | 90.3%    |
-| `internal/srcs`        | 90.3%    |
-| `internal/sandbox`     | 88.5%    |
+- `sandboxer --help` / `sandboxer <cmd> --help` — commands, flags, examples
+- [CONTRIBUTING.md](./CONTRIBUTING.md) — dev setup, Conventional Commits, releases
+- [SECURITY.md](./SECURITY.md) — isolation model, vulnerability reporting
+- [CHANGELOG.md](./CHANGELOG.md) — what's in each release
 
-Тесты на бэкенды используют фейковые движки (скрипты-заглушки `podman`/`claude` в
-`PATH`) и изолированный git-конфиг, поэтому проходят без контейнеров; те, что требуют
-`git`/`rsync`, аккуратно пропускаются, если инструмент недоступен.
+## Testing
 
-См. [CONTRIBUTING.md](./CONTRIBUTING.md) (Conventional Commits, релиз) и
-[SECURITY.md](./SECURITY.md) (модель изоляции).
+```bash
+go test ./...                                 # run all tests
+go test ./... -cover                          # per-package coverage
+go test ./... -coverprofile=cov.out           # write a profile
+go tool cover -func=cov.out | tail -1         # total coverage
+go tool cover -html=cov.out -o cov.html       # browseable report
+```
 
-## Лицензия
+Current coverage: **92.1%** total. Per package:
 
-MIT — см. [LICENSE](./LICENSE).
+| Package             | Coverage |
+| ------------------- | -------- |
+| `cmd/sandboxer`     | 100.0%   |
+| `internal/config`   | 100.0%   |
+| `internal/gitx`     | 95.2%    |
+| `internal/backend`  | 94.9%    |
+| `internal/runner`   | 94.8%    |
+| `internal/egress`   | 94.3%    |
+| `internal/registry` | 94.1%    |
+| `internal/cli`      | 90.9%    |
+| `internal/proxy`    | 90.3%    |
+| `internal/srcs`     | 90.3%    |
+| `internal/sandbox`  | 88.5%    |
+
+Backend tests use fake engine/agent stubs on `PATH` and an isolated git config,
+so they run without containers or touching real credentials; tests that need
+`git`/`rsync` skip gracefully when those tools are absent.
+
+## License
+
+MIT — see [LICENSE](./LICENSE).
