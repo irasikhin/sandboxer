@@ -20,7 +20,7 @@ func newCreateCmd() *cobra.Command {
 	var f commonFlags
 	cmd := &cobra.Command{
 		Use:   "create [slug|profile.yaml]",
-		Short: "Create an isolated copy of the project as a sandbox",
+		Short: "Create a sandbox and pull its srcs (nothing else is copied)",
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			t, err := resolveTarget(f, posArg(args))
@@ -44,7 +44,7 @@ func newCreateCmd() *cobra.Command {
 			fmt.Fprintf(out, "sandbox %q created: %s\n", t.slug, t.base.SandboxDir(t.slug))
 			fmt.Fprintf(out, "enter:  sandboxer enter %s\n", t.slug)
 			fmt.Fprintf(out, "run:    sandboxer exec %s -- claude\n", t.slug)
-			fmt.Fprintf(out, "return: sandboxer return %s\n", t.slug)
+			fmt.Fprintf(out, "return: sandboxer push %s\n", t.slug)
 			return nil
 		},
 	}
@@ -101,7 +101,7 @@ func newEnterCmd() *cobra.Command {
 				}
 			}
 			pushDeps(t, cmd)
-			fmt.Fprintf(errOut, "sandboxer: done in %s. Return changes: sandboxer return %s\n", dest, t.slug)
+			fmt.Fprintf(errOut, "sandboxer: done in %s. Return rw srcs: sandboxer push %s\n", dest, t.slug)
 			return nil
 		},
 	}

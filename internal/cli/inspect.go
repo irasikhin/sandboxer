@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -50,27 +51,52 @@ func newListCmd() *cobra.Command {
 func printList(cmd *cobra.Command, base *sandbox.Base) {
 	out := cmd.OutOrStdout()
 	cur := base.Current()
-	fmt.Fprintf(out, "%-2s %-16s %-9s %-5s %-8s %s\n", "", "SANDBOX", "EXIT", "SEC", "CHANGED", "RESULT")
+	fmt.Fprintf(out, "%-2s %-16s %-9s %-5s %s\n", "", "SANDBOX", "EXIT", "SEC", "RESULT")
 	for _, slug := range base.Agents() {
 		exit, secs := readMeta(base.MetaFilePath(slug))
-		changed := base.ChangedFiles(slug)
 		res := jsonResult(base.LogPath(slug, "json"))
 		marker := ""
 		if slug == cur {
 			marker = "*"
 		}
-		fmt.Fprintf(out, "%-2s %-16s %-9s %-5s %-8d %s\n",
-			marker, truncate(slug, 16), exit, secs, changed, truncate(res, 50))
+		fmt.Fprintf(out, "%-2s %-16s %-9s %-5s %s\n",
+			marker, truncate(slug, 16), exit, secs, truncate(res, 50))
 	}
 	fmt.Fprintln(out)
-	fmt.Fprintln(out, "* = active (use). enter <s> | exec <s> -- cmd | diff [s] | return [s...] | rm <s>")
+	fmt.Fprintln(out, "* = active (use). enter <s> | exec <s> -- cmd | diff [s] | push [s] | rm <s>")
+}
+
+// sandboxDiff shows what changed in a sandbox's pulled srcs versus their
+// origins (one `diff -ruN` per manifest entry). Empty when there is no manifest.
+func sandboxDiff(base *sandbox.Base, slug string) string {
+	data, err := os.ReadFile(base.ManifestPath(slug))
+	if err != nil {
+		return ""
+	}
+	var entries []struct {
+		Origin      string `json:"origin"`
+		SandboxPath string `json:"sandboxPath"`
+	}
+	if json.Unmarshal(data, &entries) != nil {
+		return ""
+	}
+	var b strings.Builder
+	for _, e := range entries {
+		if e.Origin == "" || e.SandboxPath == "" {
+			continue
+		}
+		// diff exits 1 when files differ; the diff text is still on stdout.
+		o, _ := exec.Command("diff", "-ruN", e.Origin, e.SandboxPath).Output()
+		b.Write(o)
+	}
+	return b.String()
 }
 
 func newDiffCmd() *cobra.Command {
 	var src string
 	cmd := &cobra.Command{
 		Use:   "diff [slug]",
-		Short: "Show the diff of one or all sandboxes against their snapshot base",
+		Short: "Show what changed in a sandbox's srcs versus their origins",
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			base, err := baseOnly(src)
@@ -87,8 +113,7 @@ func newDiffCmd() *cobra.Command {
 					continue
 				}
 				fmt.Fprintf(out, "===== %s =====\n", slug)
-				d, _ := base.Diff(slug)
-				if d != "" {
+				if d := sandboxDiff(base, slug); d != "" {
 					fmt.Fprint(out, d)
 				}
 			}

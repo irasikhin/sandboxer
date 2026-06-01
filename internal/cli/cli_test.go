@@ -224,14 +224,18 @@ func TestRunAgentsVersionHelp(t *testing.T) {
 }
 
 func TestRunLifecycle(t *testing.T) {
-	requireExec(t, "rsync", "diff")
 	project := newProject(t)
 
+	// No profile → an empty sandbox (nothing is copied by default).
 	if code, out, errs := run("create", "feat", "--src", project); code != 0 || !strings.Contains(out, "created") {
 		t.Fatalf("create = (%d, %q, %q)", code, out, errs)
 	}
-	if _, err := os.Stat(filepath.Join(project, ".sandboxer", "feat", "f.txt")); err != nil {
-		t.Errorf("sandbox copy not created: %v", err)
+	dest := filepath.Join(project, ".sandboxer", "feat")
+	if fi, err := os.Stat(dest); err != nil || !fi.IsDir() {
+		t.Errorf("sandbox dir not created: %v", err)
+	}
+	if entries, _ := os.ReadDir(dest); len(entries) != 0 {
+		t.Errorf("sandbox should be empty without srcs, has %d entries", len(entries))
 	}
 	if code, out, _ := run("list", "--src", project); code != 0 || !strings.Contains(out, "feat") {
 		t.Errorf("list = (%d, %q)", code, out)
@@ -245,21 +249,6 @@ func TestRunLifecycle(t *testing.T) {
 	if code, out, _ := run("show", "feat", "--src", project); code != 0 || !strings.Contains(out, "no profile") {
 		t.Errorf("show = (%d, %q)", code, out)
 	}
-
-	// Edit the copy, then diff + return should reflect it.
-	if err := os.WriteFile(filepath.Join(project, ".sandboxer", "feat", "f.txt"), []byte("changed\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if code, out, _ := run("diff", "feat", "--src", project); code != 0 || !strings.Contains(out, "changed") {
-		t.Errorf("diff = (%d, %q)", code, out)
-	}
-	if code, out, _ := run("return", "feat", "--src", project); code != 0 || !strings.Contains(out, "RETURN") {
-		t.Errorf("return = (%d, %q)", code, out)
-	}
-	if got, _ := os.ReadFile(filepath.Join(project, "f.txt")); string(got) != "changed\n" {
-		t.Errorf("source not updated by return: %q", got)
-	}
-
 	if code, out, _ := run("rm", "feat", "--src", project); code != 0 || !strings.Contains(out, "removed") {
 		t.Errorf("rm = (%d, %q)", code, out)
 	}

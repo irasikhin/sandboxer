@@ -1,7 +1,7 @@
 # sandboxer
 
 [![CI](https://github.com/irasikhin/sandboxer/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/irasikhin/sandboxer/actions/workflows/ci.yml?query=branch%3Amain)
-[![Coverage](https://img.shields.io/badge/coverage-91.8%25-brightgreen.svg)](#testing)
+[![Coverage](https://img.shields.io/badge/coverage-92.2%25-brightgreen.svg)](#testing)
 [![Go](https://img.shields.io/badge/Go-1.24+-00ADD8?logo=go)](https://go.dev/)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
@@ -15,19 +15,20 @@ drives.
 
 ## How it works
 
-A **sandbox** is an isolated **directory copy** of your project (rsync of
-`mainSrc`) under `.sandboxer/<slug>/`. The agent runs only inside that copy —
-your project is untouched until you explicitly return the work.
+A **sandbox** is a directory under `.sandboxer/<slug>/` holding exactly the
+sources you list in `srcs` — **nothing is copied by default**. The agent runs
+inside that directory (isolated by the backend); read-write sources are pushed
+back to their origins when you're done. No git is involved.
 
-- **Sandbox** — the project copy at `.sandboxer/<slug>/` (`.git`, `node_modules`
-  and `.sandboxer` are not copied).
+- **Sandbox** — the directory `.sandboxer/<slug>/`. It contains only what `srcs`
+  pulled in; an empty `srcs` means an empty sandbox.
 - **slug** — a short sandbox name (`feat`, `bugfix-auth`, …), set at `create`.
-- **Baseline** — file signatures recorded at create time, so sandboxer knows
-  exactly which files the agent changed.
-- **Return** (`sandboxer return <slug>`) — copies the changed files back over
-  the source project. A source file edited after create is skipped unless
-  `--force`. This is the only moment your project changes; review afterwards
-  with your own tools (`git diff` in your repo, etc.).
+- **srcs** — the list (in `sandboxer.yaml`) of what to copy into the sandbox:
+  explicit `from`/`to` paths, or matchers (`root` + `name`/`glob`/`regex`)
+  resolved under `mainSrc`. This is the single source of a sandbox's contents.
+- **pull / push** — `sandboxer pull` copies the `srcs` in; `sandboxer push`
+  copies read-write entries back over their origins (an origin changed after
+  the pull is skipped unless `--force`).
 
 Two isolation backends:
 
@@ -54,13 +55,13 @@ Or grab a [pre-built binary](https://github.com/irasikhin/sandboxer/releases)
 ## Quick start
 
 ```bash
-sandboxer create feat            # create sandbox feat (copy under .sandboxer/feat/)
-sandboxer enter  feat            # interactive shell inside it (agents on PATH)
-sandboxer exec   feat -- claude  # run an agent/command inside it
-sandboxer diff   feat            # show what the agent changed
-sandboxer return feat            # copy the changed files back to the project
-sandboxer list                   # status of all sandboxes
-sandboxer rm     feat            # delete the sandbox
+sandboxer create --config sandboxer.yaml  # create a sandbox, pull its srcs in
+sandboxer enter  feat                     # interactive shell inside it (agents on PATH)
+sandboxer exec   feat -- claude           # run an agent/command inside it
+sandboxer diff   feat                     # show what changed vs the srcs' origins
+sandboxer push   feat                     # copy read-write srcs back to their origins
+sandboxer list                            # status of all sandboxes
+sandboxer rm     feat                     # delete the sandbox
 ```
 
 Run a batch of autonomous agents — one sandbox per task:
@@ -143,7 +144,7 @@ go tool cover -func=cov.out | tail -1         # total coverage
 go tool cover -html=cov.out -o cov.html       # browseable report
 ```
 
-Current coverage: **91.8%** total. Per package:
+Current coverage: **92.2%** total. Per package:
 
 | Package             | Coverage |
 | ------------------- | -------- |
@@ -153,14 +154,14 @@ Current coverage: **91.8%** total. Per package:
 | `internal/runner`   | 94.7%    |
 | `internal/egress`   | 94.3%    |
 | `internal/registry` | 94.1%    |
-| `internal/cli`      | 91.7%    |
+| `internal/cli`      | 91.3%    |
 | `internal/proxy`    | 90.3%    |
 | `internal/srcs`     | 90.3%    |
-| `internal/sandbox`  | 87.0%    |
+| `internal/sandbox`  | 88.8%    |
 
-Backend tests use fake engine/agent stubs on `PATH` and an isolated git config,
-so they run without containers or touching real credentials; tests that need
-`git`/`rsync` skip gracefully when those tools are absent.
+Backend tests use fake engine/agent stubs on `PATH`, so they run without
+containers or touching real credentials; the few tests that shell out (native
+`enter`/`exec`, `diff`) skip gracefully when the tool is absent.
 
 ## License
 

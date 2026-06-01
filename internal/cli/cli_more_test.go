@@ -21,7 +21,7 @@ func fakePodman(t *testing.T) {
 }
 
 func TestRunEnterExecContainer(t *testing.T) {
-	requireExec(t, "rsync", "sh")
+	requireExec(t, "sh")
 	project := newProject(t)
 	fakePodman(t)
 
@@ -37,7 +37,7 @@ func TestRunEnterExecContainer(t *testing.T) {
 }
 
 func TestRunEnterAutoCreate(t *testing.T) {
-	requireExec(t, "rsync", "sh")
+	requireExec(t, "sh")
 	project := newProject(t)
 	t.Setenv("SHELL", "true")
 	if code, _, errs := run("enter", "fresh", "--src", project, "--backend", "native"); code != 0 {
@@ -49,7 +49,6 @@ func TestRunEnterAutoCreate(t *testing.T) {
 }
 
 func TestRunCreateWithDomains(t *testing.T) {
-	requireExec(t, "rsync")
 	project := newProject(t)
 	if code, _, errs := run("create", "feat", "--src", project, "--allow-domains", "a.com,b.com"); code != 0 {
 		t.Fatalf("create with domains = %d, %s", code, errs)
@@ -60,33 +59,41 @@ func TestRunCreateWithDomains(t *testing.T) {
 	}
 }
 
-func TestRunReturnAliasAndForce(t *testing.T) {
-	requireExec(t, "rsync")
-	project := newProject(t)
-	if code, _, _ := run("create", "feat", "--src", project); code != 0 {
-		t.Fatal("create failed")
-	}
-	copyFile := filepath.Join(project, ".sandboxer", "feat", "f.txt")
-	if err := os.WriteFile(copyFile, []byte("sandbox-edit\n"), 0o644); err != nil {
+func TestRunDiffAndPush(t *testing.T) {
+	requireExec(t, "diff")
+	project := t.TempDir()
+	t.Setenv("SANDBOXER_IN_CONTAINER", "")
+	dep := filepath.Join(t.TempDir(), "lib")
+	if err := os.MkdirAll(dep, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	// The source file changed out-of-band → plain return SKIPs it.
-	if err := os.WriteFile(filepath.Join(project, "f.txt"), []byte("external\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dep, "d.txt"), []byte("v1\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	// `merge` is a kept alias for `return`.
-	if code, out, _ := run("merge", "feat", "--src", project); code != 0 || !strings.Contains(out, "SKIP") {
-		t.Errorf("merge alias / SKIP = (%d, %q)", code, out)
+	cfg := filepath.Join(project, "sandboxer.yaml")
+	yaml := "name: feat\nmainSrc: " + project + "\nsrcs:\n  - from: " + dep + "\n    to: vendor\n    mode: rw\n"
+	if err := os.WriteFile(cfg, []byte(yaml), 0o644); err != nil {
+		t.Fatal(err)
 	}
-	if got, _ := os.ReadFile(filepath.Join(project, "f.txt")); string(got) != "external\n" {
-		t.Errorf("source overwritten despite SKIP: %q", got)
+	if code, _, errs := run("create", "--config", cfg); code != 0 {
+		t.Fatalf("create: %d %s", code, errs)
 	}
-	// --force overwrites.
-	if code, out, _ := run("return", "feat", "--src", project, "--force"); code != 0 || !strings.Contains(out, "RETURN") {
-		t.Errorf("return --force = (%d, %q)", code, out)
+
+	// Edit the pulled copy.
+	copyF := filepath.Join(project, ".sandboxer", "feat", "vendor", "d.txt")
+	if err := os.WriteFile(copyF, []byte("edited\n"), 0o644); err != nil {
+		t.Fatal(err)
 	}
-	if got, _ := os.ReadFile(filepath.Join(project, "f.txt")); string(got) != "sandbox-edit\n" {
-		t.Errorf("source after --force = %q", got)
+	// diff shows the change against the origin.
+	if code, out, _ := run("diff", "feat", "--src", project); code != 0 || !strings.Contains(out, "edited") {
+		t.Errorf("diff = (%d, %q)", code, out)
+	}
+	// push returns the rw src to its origin.
+	if code, _, errs := run("push", "--config", cfg); code != 0 {
+		t.Errorf("push = %d, %s", code, errs)
+	}
+	if got, _ := os.ReadFile(filepath.Join(dep, "d.txt")); string(got) != "edited\n" {
+		t.Errorf("origin not updated by push: %q", got)
 	}
 }
 
@@ -97,7 +104,6 @@ func TestRunProxyMode(t *testing.T) {
 }
 
 func TestResolveTargetSelection(t *testing.T) {
-	requireExec(t, "rsync")
 	project := newProject(t)
 	if code, _, errs := run("show", "--src", project); code != 1 || !strings.Contains(errs, "no sandbox selected") {
 		t.Errorf("no-sandbox show = (%d, %q)", code, errs)
@@ -111,7 +117,6 @@ func TestResolveTargetSelection(t *testing.T) {
 }
 
 func TestListMarkerAndJSONResultNoKeys(t *testing.T) {
-	requireExec(t, "rsync")
 	project := newProject(t)
 	if code, _, _ := run("create", "feat", "--src", project); code != 0 {
 		t.Fatal("create failed")

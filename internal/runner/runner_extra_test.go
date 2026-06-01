@@ -105,7 +105,6 @@ func TestWrapLimitsSystemd(t *testing.T) {
 // root from mainSrc, agent from the profile, domain override and per-task
 // profile JSON.
 func TestRunWithProfile(t *testing.T) {
-	requireExec(t, "rsync")
 	root := t.TempDir()
 	writeTasks(t, root)
 	cfg := filepath.Join(t.TempDir(), "p.yaml")
@@ -151,7 +150,6 @@ func writeTasks(t *testing.T, root string) {
 }
 
 func TestRunDryRun(t *testing.T) {
-	requireExec(t, "rsync")
 	root := t.TempDir()
 	writeTasks(t, root)
 

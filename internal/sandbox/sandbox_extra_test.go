@@ -10,14 +10,11 @@ import (
 	"github.com/irasikhin/sandboxer/internal/config"
 )
 
-// TestMakeSandboxWithProfile exercises the srcs-vendoring branch of MakeSandbox:
-// when a profile.json with srcs is present, dependencies are pulled into the
-// copy and a manifest is written.
+// TestMakeSandboxWithProfile: a profile with srcs pulls exactly those entries
+// into the sandbox and writes a manifest. Nothing else is copied.
 func TestMakeSandboxWithProfile(t *testing.T) {
-	requireExec(t, "rsync")
-
 	src := t.TempDir()
-	writeFile(t, filepath.Join(src, "main.txt"), "main\n")
+	writeFile(t, filepath.Join(src, "main.txt"), "main\n") // NOT in srcs → not copied
 	dep := filepath.Join(t.TempDir(), "lib")
 	writeFile(t, filepath.Join(dep, "dep.txt"), "dep\n")
 
@@ -38,6 +35,10 @@ func TestMakeSandboxWithProfile(t *testing.T) {
 	dest := b.SandboxDir("feat")
 	if _, err := os.Stat(filepath.Join(dest, "vendor", "dep.txt")); err != nil {
 		t.Errorf("dependency not vendored into sandbox: %v", err)
+	}
+	// main.txt is in the project root but not in srcs → must not be copied.
+	if _, err := os.Stat(filepath.Join(dest, "main.txt")); !os.IsNotExist(err) {
+		t.Error("non-srcs file should not be copied into the sandbox")
 	}
 	if _, err := os.Stat(b.ManifestPath("feat")); err != nil {
 		t.Errorf("manifest not written: %v", err)

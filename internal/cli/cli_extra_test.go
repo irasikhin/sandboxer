@@ -39,7 +39,7 @@ func TestLoadStoredProfile(t *testing.T) {
 }
 
 func TestRunEnterExecNative(t *testing.T) {
-	requireExec(t, "rsync", "sh")
+	requireExec(t, "sh")
 	project := newProject(t)
 	t.Setenv("SHELL", "true") // NativeEnter runs $SHELL; `true` exits 0
 
@@ -64,7 +64,6 @@ func TestRunEnterExecNative(t *testing.T) {
 }
 
 func TestRunPullPushNoProfile(t *testing.T) {
-	requireExec(t, "rsync")
 	project := newProject(t)
 	if code, _, _ := run("create", "feat", "--src", project); code != 0 {
 		t.Fatal("create failed")
@@ -78,7 +77,6 @@ func TestRunPullPushNoProfile(t *testing.T) {
 }
 
 func TestRunProfileFlow(t *testing.T) {
-	requireExec(t, "rsync")
 	t.Setenv("SANDBOXER_IN_CONTAINER", "")
 
 	project := t.TempDir()
@@ -116,7 +114,6 @@ func TestRunProfileFlow(t *testing.T) {
 }
 
 func TestRunUseClear(t *testing.T) {
-	requireExec(t, "rsync")
 	project := newProject(t)
 	if code, _, _ := run("create", "feat", "--src", project); code != 0 {
 		t.Fatal("create failed")
@@ -147,7 +144,6 @@ func TestRunInContainerInspect(t *testing.T) {
 }
 
 func TestRunBatchDryRun(t *testing.T) {
-	requireExec(t, "rsync")
 	t.Setenv("SANDBOXER_IN_CONTAINER", "")
 	project := t.TempDir()
 	if err := os.WriteFile(filepath.Join(project, "sandboxer.tasks"), []byte("[alpha]\ndo a\n\n[beta]\ndo b\n"), 0o644); err != nil {
