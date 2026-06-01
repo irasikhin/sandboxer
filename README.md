@@ -17,9 +17,7 @@ drives.
 
 A **sandbox** is an isolated **directory copy** of your project (rsync of
 `mainSrc`) under `.sandboxer/<slug>/`. The agent runs only inside that copy —
-your project is never touched until you explicitly return the work. **No git is
-involved**: copying in, comparing, and copying changes back are plain file
-operations.
+your project is untouched until you explicitly return the work.
 
 - **Sandbox** — the project copy at `.sandboxer/<slug>/` (`.git`, `node_modules`
   and `.sandboxer` are excluded from the copy).
