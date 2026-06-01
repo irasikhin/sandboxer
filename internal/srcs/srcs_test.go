@@ -90,7 +90,7 @@ func TestResolveExplicitRoundTrip(t *testing.T) {
 	// Modify the copy inside the sandbox, then push back.
 	writeFile(t, dest, "modified\n")
 	out.Reset()
-	if err := CopyOut(&out, manifest, false); err != nil {
+	if err := CopyOut(&out, manifest); err != nil {
 		t.Fatalf("CopyOut: %v", err)
 	}
 
@@ -141,7 +141,7 @@ func TestMatcherGlob(t *testing.T) {
 	}
 }
 
-func TestKeepAndSkip(t *testing.T) {
+func TestPullKeepPushOverwrite(t *testing.T) {
 	base := t.TempDir()
 	originDir := filepath.Join(base, "origin", "pkg")
 	originFile := filepath.Join(originDir, "file.txt")
@@ -159,7 +159,7 @@ func TestKeepAndSkip(t *testing.T) {
 		t.Fatalf("CopyIn 1: %v", err)
 	}
 
-	// --- KEEP: locally modify dest, re-pull without force -> kept. ---
+	// --- KEEP: an existing target is kept on re-pull without force. ---
 	writeFile(t, dest, "local-change\n")
 	out.Reset()
 	if err := CopyIn(&out, pf, sandbox, manifest, false); err != nil {
@@ -172,7 +172,7 @@ func TestKeepAndSkip(t *testing.T) {
 		t.Errorf("dest after KEEP = %q, want local-change", got)
 	}
 
-	// --- force: re-pull with force -> overwritten from origin. ---
+	// --- force pull: overwritten from origin. ---
 	out.Reset()
 	if err := CopyIn(&out, pf, sandbox, manifest, true); err != nil {
 		t.Fatalf("CopyIn force: %v", err)
@@ -181,34 +181,18 @@ func TestKeepAndSkip(t *testing.T) {
 		t.Errorf("dest after force pull = %q, want v1", got)
 	}
 
-	// --- SKIP on push: modify origin externally, push without force. ---
-	// Fresh pull to record a clean originSig.
-	out.Reset()
-	if err := CopyIn(&out, pf, sandbox, manifest, true); err != nil {
-		t.Fatalf("CopyIn refresh: %v", err)
-	}
-	// Change the sandbox copy (so there is something to push) ...
+	// --- push always overwrites the origin (depsync semantics), even one
+	//     changed out-of-band. ---
 	writeFile(t, dest, "sandbox-edit\n")
-	// ... and change the origin out-of-band after the pull.
 	writeFile(t, originFile, "external-edit\n")
-
 	out.Reset()
-	if err := CopyOut(&out, manifest, false); err != nil {
-		t.Fatalf("CopyOut no-force: %v", err)
+	if err := CopyOut(&out, manifest); err != nil {
+		t.Fatalf("CopyOut: %v", err)
 	}
-	if !strings.Contains(out.String(), "SKIP") {
-		t.Errorf("expected SKIP message, got: %q", out.String())
-	}
-	if got := readFile(t, originFile); got != "external-edit\n" {
-		t.Errorf("origin after SKIP = %q, want external-edit (not overwritten)", got)
-	}
-
-	// --- force push: overwrites origin with sandbox content. ---
-	out.Reset()
-	if err := CopyOut(&out, manifest, true); err != nil {
-		t.Fatalf("CopyOut force: %v", err)
+	if !strings.Contains(out.String(), "PUSH") {
+		t.Errorf("expected PUSH message, got: %q", out.String())
 	}
 	if got := readFile(t, originFile); got != "sandbox-edit\n" {
-		t.Errorf("origin after force push = %q, want sandbox-edit", got)
+		t.Errorf("origin after push = %q, want sandbox-edit (overwritten)", got)
 	}
 }

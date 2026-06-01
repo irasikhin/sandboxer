@@ -54,7 +54,7 @@ func newPushCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			out := cmd.OutOrStdout()
 			if inContainer() {
-				return srcs.CopyOut(out, "/run/sandboxer/manifest.json", f.force)
+				return srcs.CopyOut(out, "/run/sandboxer/manifest.json")
 			}
 			t, err := resolveTarget(f, posArg(args))
 			if err != nil {
@@ -64,10 +64,9 @@ func newPushCmd() *cobra.Command {
 			if !fileExists(mf) {
 				return fmt.Errorf("sandbox %q has no manifest (nothing to return)", t.slug)
 			}
-			return srcs.CopyOut(out, mf, f.force)
+			return srcs.CopyOut(out, mf)
 		},
 	}
 	bindExisting(cmd, &f)
-	cmd.Flags().BoolVar(&f.force, "force", false, "overwrite origins modified after pull")
 	return cmd
 }

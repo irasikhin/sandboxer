@@ -2,6 +2,7 @@ package srcs
 
 import (
 	"bytes"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -13,7 +14,6 @@ func TestMatchEntriesNameRegexDepth(t *testing.T) {
 	writeFile(t, filepath.Join(root, "sub", "b.go"), "2")
 	writeFile(t, filepath.Join(root, "sub", "c.txt"), "3")
 
-	// name matches by basename, across all depths.
 	got, err := matchEntries(Src{Root: root, Name: "*.go"}, "")
 	if err != nil {
 		t.Fatal(err)
@@ -22,23 +22,19 @@ func TestMatchEntriesNameRegexDepth(t *testing.T) {
 		t.Errorf("name *.go matched %d, want 2: %+v", len(got), got)
 	}
 
-	// regex matches against the slash rel path.
 	got, err = matchEntries(Src{Root: root, Regex: `\.txt$`}, "")
 	if err != nil || len(got) != 1 {
 		t.Errorf("regex matched %d (err=%v), want 1", len(got), err)
 	}
 
-	// depth=1 stays at the top level only.
 	got, _ = matchEntries(Src{Root: root, Name: "*.go", Depth: 1}, "")
 	if len(got) != 1 {
 		t.Errorf("depth=1 matched %d, want 1 (a.go only): %+v", len(got), got)
 	}
 
-	// bad regex propagates an error.
 	if _, err := matchEntries(Src{Root: root, Regex: "["}, ""); err == nil {
 		t.Error("bad regex should error")
 	}
-	// no matcher field → error.
 	if _, err := matchEntries(Src{Root: root}, ""); err == nil {
 		t.Error("matcher without name/glob/regex should error")
 	}
@@ -49,7 +45,6 @@ func TestResolveTargets(t *testing.T) {
 	writeFile(t, filepath.Join(dep, "f"), "x")
 	sandbox := t.TempDir()
 
-	// Explicit From with no To → To defaults to basename.
 	ts, err := resolveTargets(Profile{Srcs: []Src{{From: dep, Mode: "rw"}}}, sandbox)
 	if err != nil {
 		t.Fatal(err)
@@ -57,60 +52,56 @@ func TestResolveTargets(t *testing.T) {
 	if len(ts) != 1 || filepath.Base(ts[0].Dest) != "lib" || ts[0].Mode != "rw" {
 		t.Errorf("explicit target = %+v", ts)
 	}
-
-	// An entry with nothing set is an error.
 	if _, err := resolveTargets(Profile{Srcs: []Src{{}}}, sandbox); err == nil {
 		t.Error("empty srcs entry should error")
 	}
 }
 
-func TestSig(t *testing.T) {
-	if sig(filepath.Join(t.TempDir(), "missing")) != "" {
-		t.Error("missing path sig should be empty")
+func TestCopyEntry(t *testing.T) {
+	// Missing src errors.
+	if err := copyEntry(filepath.Join(t.TempDir(), "nope"), filepath.Join(t.TempDir(), "dst")); err == nil {
+		t.Error("copyEntry of a missing src should error")
 	}
-	f := filepath.Join(t.TempDir(), "f")
-	writeFile(t, f, "data")
-	if s := sig(f); !strings.HasPrefix(s, "f:") {
-		t.Errorf("file sig = %q, want f: prefix", s)
-	}
-	d := t.TempDir()
-	writeFile(t, filepath.Join(d, "x"), "y")
-	if s := sig(d); !strings.HasPrefix(s, "d:") {
-		t.Errorf("dir sig = %q, want d: prefix", s)
-	}
-}
-
-func TestCopyFileAndPathErrors(t *testing.T) {
-	if err := copyFile(filepath.Join(t.TempDir(), "nope"), filepath.Join(t.TempDir(), "dst"), 0o644); err == nil {
-		t.Error("copyFile missing src should error")
-	}
-	if err := copyPath(filepath.Join(t.TempDir(), "nope"), filepath.Join(t.TempDir(), "dst")); err == nil {
-		t.Error("copyPath missing src should error")
-	}
-	// copyPath on a directory recreates the tree.
+	// A directory is copied recursively, and dst is replaced wholesale: a stale
+	// file already at dst must be gone afterwards (like depsync rmtree+copytree).
 	src := t.TempDir()
 	writeFile(t, filepath.Join(src, "a", "b.txt"), "hi")
 	dst := filepath.Join(t.TempDir(), "out")
-	if err := copyPath(src, dst); err != nil {
-		t.Fatalf("copyPath dir: %v", err)
+	writeFile(t, filepath.Join(dst, "stale.txt"), "old")
+	if err := copyEntry(src, dst); err != nil {
+		t.Fatalf("copyEntry dir: %v", err)
 	}
 	if !exists(filepath.Join(dst, "a", "b.txt")) {
-		t.Error("copyPath did not recreate nested file")
+		t.Error("copyEntry did not recreate nested file")
+	}
+	if exists(filepath.Join(dst, "stale.txt")) {
+		t.Error("copyEntry must remove the destination before copying")
+	}
+	// copyEntry under a file path fails (MkdirAll on a file parent).
+	blocker := filepath.Join(t.TempDir(), "blocker")
+	writeFile(t, blocker, "x")
+	if err := copyEntry(src, filepath.Join(blocker, "child")); err == nil {
+		t.Error("copyEntry under a file path should error")
 	}
 }
 
-func TestCopyAndManifestWriteErrors(t *testing.T) {
-	// A file standing where a parent directory is expected makes MkdirAll fail.
-	blocker := filepath.Join(t.TempDir(), "blocker")
-	writeFile(t, blocker, "x")
-	src := filepath.Join(t.TempDir(), "src")
-	writeFile(t, src, "data")
-	if err := copyFile(src, filepath.Join(blocker, "child"), 0o644); err == nil {
-		t.Error("copyFile under a file path should error")
+func TestCopyEntrySymlink(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "target.txt"), "data\n")
+	link := filepath.Join(dir, "link")
+	if err := os.Symlink("target.txt", link); err != nil {
+		t.Skipf("symlinks unsupported: %v", err)
 	}
-	// writeManifest to an unwritable path errors.
-	if err := writeManifest(filepath.Join(blocker, "m.json"), nil); err == nil {
-		t.Error("writeManifest under a file path should error")
+	dst := filepath.Join(t.TempDir(), "out", "link")
+	if err := copyEntry(link, dst); err != nil {
+		t.Fatalf("copyEntry symlink: %v", err)
+	}
+	fi, err := os.Lstat(dst)
+	if err != nil || fi.Mode()&os.ModeSymlink == 0 {
+		t.Fatalf("symlink not preserved: mode=%v err=%v", fi.Mode(), err)
+	}
+	if got, _ := os.Readlink(dst); got != "target.txt" {
+		t.Errorf("symlink target = %q, want target.txt", got)
 	}
 }
 
@@ -129,6 +120,12 @@ func TestManifestIO(t *testing.T) {
 	}
 	if got := readFile(t, out); strings.TrimSpace(got) != "[]" {
 		t.Errorf("nil manifest written as %q, want []", got)
+	}
+	// writeManifest under a file path errors.
+	blocker := filepath.Join(t.TempDir(), "blocker")
+	writeFile(t, blocker, "x")
+	if err := writeManifest(filepath.Join(blocker, "m.json"), nil); err == nil {
+		t.Error("writeManifest under a file path should error")
 	}
 }
 
@@ -162,18 +159,20 @@ func TestCopyInProfileErrors(t *testing.T) {
 	}
 }
 
-func TestCopyOutMissingAndForce(t *testing.T) {
+// TestCopyOutOverwriteAndMissing: push always overwrites the origin (even one
+// changed out-of-band) and reports entries whose sandbox copy is missing.
+func TestCopyOutOverwriteAndMissing(t *testing.T) {
 	base := t.TempDir()
 	origin := filepath.Join(base, "origin.txt")
-	writeFile(t, origin, "v0\n")
+	writeFile(t, origin, "external\n") // changed out-of-band; push overwrites anyway
 	sandboxFile := filepath.Join(base, "sb.txt")
 	writeFile(t, sandboxFile, "from-sandbox\n")
 	gone := filepath.Join(base, "gone.txt")
 
 	manifest := filepath.Join(base, "m.json")
 	entries := []ManifestEntry{
-		{Mode: "rw", Origin: origin, SandboxPath: sandboxFile, OriginSig: "stale-sig"},
-		{Mode: "rw", Origin: filepath.Join(base, "x"), SandboxPath: gone}, // sandbox missing → counted
+		{Mode: "rw", Origin: origin, SandboxPath: sandboxFile},
+		{Mode: "rw", Origin: filepath.Join(base, "x"), SandboxPath: gone}, // sandbox missing
 		{Mode: "ro", Origin: origin, SandboxPath: sandboxFile},            // ro skipped
 	}
 	if err := writeManifest(manifest, entries); err != nil {
@@ -181,20 +180,13 @@ func TestCopyOutMissingAndForce(t *testing.T) {
 	}
 
 	var buf bytes.Buffer
-	// Without force: origin's real sig != stale-sig → SKIP.
-	if err := CopyOut(&buf, manifest, false); err != nil {
+	if err := CopyOut(&buf, manifest); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(buf.String(), "SKIP") || !strings.Contains(buf.String(), "missing") {
-		t.Errorf("CopyOut output = %q, want SKIP + missing", buf.String())
-	}
-
-	// With force: origin overwritten by sandbox content.
-	buf.Reset()
-	if err := CopyOut(&buf, manifest, true); err != nil {
-		t.Fatal(err)
+	if !strings.Contains(buf.String(), "missing") {
+		t.Errorf("CopyOut output = %q, want a missing note", buf.String())
 	}
 	if got := readFile(t, origin); got != "from-sandbox\n" {
-		t.Errorf("origin after force = %q, want from-sandbox", got)
+		t.Errorf("origin after push = %q, want from-sandbox (overwritten)", got)
 	}
 }

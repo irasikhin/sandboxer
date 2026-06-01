@@ -1,12 +1,12 @@
 // Package srcs implements dependency vendoring between a project's origin
 // directories/files and a sandbox copy: it pulls "srcs" (origins) into the
-// sandbox (CopyIn) and pushes read-write entries back out (CopyOut), tracking
-// state in a manifest so that locally/externally modified files are preserved
-// unless --force is given.
+// sandbox (CopyIn) and pushes read-write entries back out (CopyOut).
 //
-// It is a faithful port of libexec/sandboxer-cfg.mjs (the `in`/`out` commands
-// and their helpers). The `eval` command (nix eval) is intentionally not
-// ported: configuration is Go-native now.
+// The copy semantics mirror the depsync reference script:
+//   - pull KEEPs a target that already exists (unless --force);
+//   - push always overwrites the origin (no signature/skip protection);
+//   - copy replaces the destination wholesale and preserves symlinks, file
+//     modes and mtimes.
 //
 // `srcs` entries come in two shapes:
 //
@@ -17,17 +17,14 @@
 package srcs
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
-	"sort"
 	"strings"
+	"time"
 )
 
 // Src is one entry in a profile's srcs list. It is either explicit (From set)
@@ -50,15 +47,13 @@ type Profile struct {
 	Srcs    []Src  `json:"srcs"`
 }
 
-// ManifestEntry records one copied target so subsequent pulls/pushes can detect
-// local/external modifications. Sigs are cheap stat-based signatures; an empty
-// sig means "unknown" (the mjs used null).
+// ManifestEntry records one copied target so a later push can find its origin.
+// Like depsync's manifest, it is just the mapping (plus the mode); no
+// signatures are kept.
 type ManifestEntry struct {
 	Mode        string `json:"mode"`
 	Origin      string `json:"origin"`
 	SandboxPath string `json:"sandboxPath"`
-	OriginSig   string `json:"originSig"`
-	DestSig     string `json:"destSig"`
 }
 
 // target is a flattened copy job: origin -> dest with a mode.
@@ -230,76 +225,52 @@ func resolveTargets(p Profile, sandboxDir string) ([]target, error) {
 	return targets, nil
 }
 
-// sig returns a cheap stat-based signature for change detection (no content
-// reads). Missing path -> "" (unknown). Directory -> "d:"+sha256 over sorted
-// "rel:mtimeMs:size" lines for every entry under it. File -> "f:mtimeMs:size".
-func sig(path string) string {
-	st, err := os.Lstat(path)
-	if err != nil {
-		return ""
-	}
-	if st.IsDir() {
-		var items []string
-		walk(path, 0, func(f string) {
-			s, err := os.Lstat(f)
-			if err != nil {
-				return
-			}
-			rel, err := filepath.Rel(path, f)
-			if err != nil {
-				rel = f
-			}
-			items = append(items, fmt.Sprintf("%s:%d:%d", rel, s.ModTime().UnixMilli(), s.Size()))
-		})
-		sort.Strings(items)
-		h := sha256.Sum256([]byte(strings.Join(items, "\n")))
-		return "d:" + hex.EncodeToString(h[:])
-	}
-	return fmt.Sprintf("f:%d:%d", st.ModTime().UnixMilli(), st.Size())
-}
-
-// copyPath recursively copies src to dst, creating parent dirs and overwriting
-// existing files (force). Directory trees are recreated with file perms.
-func copyPath(src, dst string) error {
+// copyEntry copies src onto dst the way depsync's copy_entry does: dst is
+// removed first, then src is copied — symlinks preserved, directories recursed,
+// file mode and mtime carried over.
+func copyEntry(src, dst string) error {
 	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
 		return err
 	}
+	if err := os.RemoveAll(dst); err != nil {
+		return err
+	}
+	return copyTree(src, dst)
+}
+
+func copyTree(src, dst string) error {
 	info, err := os.Lstat(src)
 	if err != nil {
 		return err
 	}
-	if info.IsDir() {
-		return filepath.WalkDir(src, func(p string, d fs.DirEntry, err error) error {
-			if err != nil {
+	switch {
+	case info.Mode()&os.ModeSymlink != 0:
+		link, err := os.Readlink(src)
+		if err != nil {
+			return err
+		}
+		return os.Symlink(link, dst)
+	case info.IsDir():
+		if err := os.MkdirAll(dst, info.Mode().Perm()); err != nil {
+			return err
+		}
+		ents, err := os.ReadDir(src)
+		if err != nil {
+			return err
+		}
+		for _, e := range ents {
+			if err := copyTree(filepath.Join(src, e.Name()), filepath.Join(dst, e.Name())); err != nil {
 				return err
 			}
-			rel, err := filepath.Rel(src, p)
-			if err != nil {
-				return err
-			}
-			target := filepath.Join(dst, rel)
-			if d.IsDir() {
-				di, err := d.Info()
-				if err != nil {
-					return err
-				}
-				return os.MkdirAll(target, di.Mode().Perm())
-			}
-			fi, err := d.Info()
-			if err != nil {
-				return err
-			}
-			return copyFile(p, target, fi.Mode().Perm())
-		})
+		}
+		return nil
+	default:
+		return copyFile(src, dst, info.Mode().Perm(), info.ModTime())
 	}
-	return copyFile(src, dst, info.Mode().Perm())
 }
 
-// copyFile copies a single file, overwriting dst, with the given perm.
-func copyFile(src, dst string, perm os.FileMode) error {
-	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
-		return err
-	}
+// copyFile copies a single regular file, preserving perm and mtime (copy2-like).
+func copyFile(src, dst string, perm os.FileMode, mtime time.Time) error {
 	in, err := os.Open(src)
 	if err != nil {
 		return err
@@ -313,7 +284,10 @@ func copyFile(src, dst string, perm os.FileMode) error {
 		out.Close()
 		return err
 	}
-	return out.Close()
+	if err := out.Close(); err != nil {
+		return err
+	}
+	return os.Chtimes(dst, mtime, mtime)
 }
 
 // readManifest loads a manifest, tolerating a missing or garbage file (returns
@@ -343,9 +317,8 @@ func writeManifest(file string, m []ManifestEntry) error {
 }
 
 // CopyIn pulls a profile's srcs (origins) into sandboxDir and writes a manifest
-// to manifestOut. Targets that exist in the sandbox and were modified locally
-// (per the previous manifest's destSig) are kept untouched unless force is set,
-// in which case they are overwritten. Progress is reported to w.
+// to manifestOut. A target that already exists is KEPT untouched unless force
+// is set, in which case it is overwritten. Progress is reported to w.
 func CopyIn(w io.Writer, profileFile, sandboxDir, manifestOut string, force bool) error {
 	data, err := os.ReadFile(profileFile)
 	if err != nil {
@@ -356,11 +329,6 @@ func CopyIn(w io.Writer, profileFile, sandboxDir, manifestOut string, force bool
 		return err
 	}
 
-	prev := make(map[string]ManifestEntry)
-	for _, e := range readManifest(manifestOut) {
-		prev[e.SandboxPath] = e
-	}
-
 	targets, err := resolveTargets(profile, sandboxDir)
 	if err != nil {
 		return err
@@ -369,28 +337,21 @@ func CopyIn(w io.Writer, profileFile, sandboxDir, manifestOut string, force bool
 	manifest := []ManifestEntry{}
 	pulled, kept := 0, 0
 	for _, t := range targets {
+		entry := ManifestEntry{Mode: t.Mode, Origin: t.Origin, SandboxPath: t.Dest}
 		if exists(t.Dest) && !force {
-			if p, ok := prev[t.Dest]; ok && sig(t.Dest) != p.DestSig {
-				rel, err := filepath.Rel(sandboxDir, t.Dest)
-				if err != nil {
-					rel = t.Dest
-				}
-				fmt.Fprintf(w, "  KEEP  %s — modified locally (use --force to overwrite)\n", rel)
-				manifest = append(manifest, p)
-				kept++
-				continue
+			rel, err := filepath.Rel(sandboxDir, t.Dest)
+			if err != nil {
+				rel = t.Dest
 			}
+			fmt.Fprintf(w, "  KEEP  %s — already exists (use --force to overwrite)\n", rel)
+			manifest = append(manifest, entry)
+			kept++
+			continue
 		}
-		if err := copyPath(t.Origin, t.Dest); err != nil {
+		if err := copyEntry(t.Origin, t.Dest); err != nil {
 			return err
 		}
-		manifest = append(manifest, ManifestEntry{
-			Mode:        t.Mode,
-			Origin:      t.Origin,
-			SandboxPath: t.Dest,
-			OriginSig:   sig(t.Origin),
-			DestSig:     sig(t.Dest),
-		})
+		manifest = append(manifest, entry)
 		pulled++
 	}
 
@@ -410,47 +371,31 @@ func CopyIn(w io.Writer, profileFile, sandboxDir, manifestOut string, force bool
 }
 
 // CopyOut pushes the rw entries of a manifest from the sandbox back over their
-// origins. An origin that changed outside the sandbox after the pull (per its
-// originSig) is skipped unless force is set. The manifest is rewritten with
-// refreshed origin sigs. Progress is reported to w.
-func CopyOut(w io.Writer, manifestFile string, force bool) error {
+// origins, always overwriting (like depsync's push). An entry whose sandbox
+// copy is missing is skipped. Progress is reported to w.
+func CopyOut(w io.Writer, manifestFile string) error {
 	manifest := readManifest(manifestFile)
-	back, missing, skipped := 0, 0, 0
+	back, missing := 0, 0
 	for i := range manifest {
 		e := &manifest[i]
 		if e.Mode != "rw" {
 			continue
 		}
 		if !exists(e.SandboxPath) {
+			fmt.Fprintf(w, "  SKIP  %s — local copy missing\n", e.SandboxPath)
 			missing++
 			continue
 		}
-		if exists(e.Origin) && !force && e.OriginSig != "" && sig(e.Origin) != e.OriginSig {
-			fmt.Fprintf(w, "  SKIP  %s — changed outside the sandbox after pull (use --force to overwrite)\n", e.Origin)
-			skipped++
-			continue
-		}
-		if err := copyPath(e.SandboxPath, e.Origin); err != nil {
+		if err := copyEntry(e.SandboxPath, e.Origin); err != nil {
 			return err
 		}
-		e.OriginSig = sig(e.Origin)
+		fmt.Fprintf(w, "  PUSH  %s -> %s\n", e.SandboxPath, e.Origin)
 		back++
 	}
 
-	if err := writeManifest(manifestFile, manifest); err != nil {
-		return err
-	}
-
-	var parts []string
-	if missing > 0 {
-		parts = append(parts, fmt.Sprintf("%d missing", missing))
-	}
-	if skipped > 0 {
-		parts = append(parts, fmt.Sprintf("%d skipped", skipped))
-	}
 	tail := ""
-	if len(parts) > 0 {
-		tail = " (" + strings.Join(parts, ", ") + ")"
+	if missing > 0 {
+		tail = fmt.Sprintf(" (%d missing)", missing)
 	}
 	fmt.Fprintf(w, "push: %d rw entries restored%s\n", back, tail)
 	return nil

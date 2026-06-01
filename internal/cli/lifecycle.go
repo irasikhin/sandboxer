@@ -169,7 +169,7 @@ func newExecCmd() *cobra.Command {
 func pushDeps(t *target, cmd *cobra.Command) {
 	mf := t.base.ManifestPath(t.slug)
 	if fileExists(mf) {
-		_ = srcs.CopyOut(cmd.ErrOrStderr(), mf, false)
+		_ = srcs.CopyOut(cmd.ErrOrStderr(), mf)
 	}
 }
 

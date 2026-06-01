@@ -138,8 +138,9 @@ func TestRunInContainerInspect(t *testing.T) {
 	if code, _, _ := run("pull"); code != 1 {
 		t.Errorf("pull in-container (no profile.json) exit = %d, want 1", code)
 	}
-	if code, _, _ := run("push"); code != 1 {
-		t.Errorf("push in-container (no manifest) exit = %d, want 1", code)
+	// push with no manifest is a no-op (nothing to return), like depsync.
+	if code, out, _ := run("push"); code != 0 || !strings.Contains(out, "0 rw entries") {
+		t.Errorf("push in-container (no manifest) = (%d, %q)", code, out)
 	}
 }
 
