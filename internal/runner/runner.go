@@ -67,9 +67,6 @@ func Run(o Options) (Result, error) {
 			return Result{}, fmt.Errorf("load profile %s: %w", o.ConfigPath, err)
 		}
 		profile = p
-		if root == "" {
-			root = p.MainSrc
-		}
 		if o.Overrides.Agent == "" && p.Agent != "" {
 			o.Overrides.Agent = p.Agent
 		}

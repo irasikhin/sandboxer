@@ -102,19 +102,19 @@ func TestWrapLimitsSystemd(t *testing.T) {
 }
 
 // TestRunWithProfile covers the profile-driven branches of Run: config load,
-// root from mainSrc, agent from the profile, domain override and per-task
-// profile JSON.
+// agent from the profile, domain override and per-task profile JSON.
 func TestRunWithProfile(t *testing.T) {
 	root := t.TempDir()
 	writeTasks(t, root)
 	cfg := filepath.Join(t.TempDir(), "p.yaml")
-	yaml := "mainSrc: " + root + "\nagent: claude\nnetwork:\n  allowedDomains: [x.com]\n"
+	yaml := "agent: claude\nnetwork:\n  allowedDomains: [x.com]\n"
 	if err := os.WriteFile(cfg, []byte(yaml), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
 	var out, errb bytes.Buffer
 	res, err := Run(Options{
+		Src:        root,
 		ConfigPath: cfg,
 		Defaults:   config.Defaults{Agent: "claude", Backend: "native"},
 		Overrides:  config.Overrides{Domains: "y.com"},

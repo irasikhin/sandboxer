@@ -1,15 +1,14 @@
 # Profile with dependencies, a container backend, and a proxy.
 #
-# Shows the full set of fields. `srcs` are external directories/files pulled
-# INTO the sandbox and, for rw entries, pushed back to their origin on
-# teardown. Handy for monorepo vendoring or shared libs living outside mainSrc.
+# The sandbox content is driven by roots+deps: each dep is located by path
+# suffix under the roots, copied INTO the sandbox, and (rw) pushed back to its
+# origin with `sandboxer push`. Handy for monorepo vendoring or shared libs.
 
 name: integ
-mainSrc: /home/me/work/app
 
-# Container toolbox: image with the JS agents (nix run .#build-image). Any
-# agent, not just claude. (codex is Rust and is not baked into the image due to
-# build time; use it on the native backend instead. See flake.nix imageAgents.)
+# Container toolbox: image with the agents (nix run .#build-image). Any agent,
+# not just claude. (codex is Rust and is not baked into the image due to build
+# time; use it on the native backend instead.)
 backend: podman
 agent: opencode
 model: gpt-5
@@ -29,12 +28,14 @@ network:
 # Corporate proxy, forwarded as HTTP(S)_PROXY / NO_PROXY to both backends.
 # proxy: { http: "http://proxy.corp:3128", https: "http://proxy.corp:3128", no: "localhost,127.0.0.1,.corp" }
 
-# Dependencies: each entry is either EXPLICIT (from/to) or a MATCHER
-# (root + glob/regex/name).
-srcs:
-  - { from: /home/me/work/shared-lib, to: vendor/shared-lib, mode: rw }   # explicit, pushed back
-  - { from: /home/me/work/fixtures, to: test/fixtures, mode: ro }          # explicit ro
-  - { root: /home/me/work/schemas, glob: "**/*.proto", to: proto, mode: ro } # matcher
+# Search roots and the deps to find under them (matched by path suffix, copied
+# flat to <sandbox>/<dep>; rw entries are pushed back on `sandboxer push`).
+roots:
+  - /home/me/work/app
+  - /home/me/work
+deps:
+  - shared-lib          # any dir/file named shared-lib
+  - src/proto           # any path ending with src/proto
 
 # Extra bind mounts and env for the container (optional).
 # extraMounts:

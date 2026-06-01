@@ -8,38 +8,6 @@ import (
 	"testing"
 )
 
-func TestMatchEntriesNameRegexDepth(t *testing.T) {
-	root := filepath.Join(t.TempDir(), "tree")
-	writeFile(t, filepath.Join(root, "a.go"), "1")
-	writeFile(t, filepath.Join(root, "sub", "b.go"), "2")
-	writeFile(t, filepath.Join(root, "sub", "c.txt"), "3")
-
-	got, err := matchEntries(Src{Root: root, Name: "*.go"}, "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(got) != 2 {
-		t.Errorf("name *.go matched %d, want 2: %+v", len(got), got)
-	}
-
-	got, err = matchEntries(Src{Root: root, Regex: `\.txt$`}, "")
-	if err != nil || len(got) != 1 {
-		t.Errorf("regex matched %d (err=%v), want 1", len(got), err)
-	}
-
-	got, _ = matchEntries(Src{Root: root, Name: "*.go", Depth: 1}, "")
-	if len(got) != 1 {
-		t.Errorf("depth=1 matched %d, want 1 (a.go only): %+v", len(got), got)
-	}
-
-	if _, err := matchEntries(Src{Root: root, Regex: "["}, ""); err == nil {
-		t.Error("bad regex should error")
-	}
-	if _, err := matchEntries(Src{Root: root}, ""); err == nil {
-		t.Error("matcher without name/glob/regex should error")
-	}
-}
-
 func TestDepsSearchAndLayout(t *testing.T) {
 	// Two roots; a dep matched by path SUFFIX lands flat at <sandbox>/<dep>.
 	base := t.TempDir()
@@ -75,20 +43,26 @@ func TestDepsSearchAndLayout(t *testing.T) {
 	}
 }
 
-func TestResolveTargets(t *testing.T) {
-	dep := filepath.Join(t.TempDir(), "lib")
-	writeFile(t, filepath.Join(dep, "f"), "x")
-	sandbox := t.TempDir()
+func TestDepsMultiMatchAndDefaultRoot(t *testing.T) {
+	// No roots → search cwd; a dep with two suffix matches → WARN + first.
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "p", "x.txt"), "one")
+	writeFile(t, filepath.Join(dir, "q", "x.txt"), "two")
+	t.Chdir(dir)
 
-	ts, err := resolveTargets(Profile{Srcs: []Src{{From: dep, Mode: "rw"}}}, sandbox)
-	if err != nil {
+	sandbox := filepath.Join(t.TempDir(), "sb")
+	manifest := filepath.Join(t.TempDir(), "m.json")
+	pf := writeProfile(t, dir, Profile{Deps: []string{"x.txt"}}) // roots empty → cwd
+
+	var out bytes.Buffer
+	if err := CopyIn(&out, pf, sandbox, manifest, false); err != nil {
 		t.Fatal(err)
 	}
-	if len(ts) != 1 || filepath.Base(ts[0].Dest) != "lib" || ts[0].Mode != "rw" {
-		t.Errorf("explicit target = %+v", ts)
+	if !strings.Contains(out.String(), "WARN") {
+		t.Errorf("expected WARN for multiple matches, got: %q", out.String())
 	}
-	if _, err := resolveTargets(Profile{Srcs: []Src{{}}}, sandbox); err == nil {
-		t.Error("empty srcs entry should error")
+	if !exists(filepath.Join(sandbox, "x.txt")) {
+		t.Error("dep not copied from the default (cwd) root")
 	}
 }
 
@@ -165,9 +139,6 @@ func TestManifestIO(t *testing.T) {
 }
 
 func TestPathHelpers(t *testing.T) {
-	if orDefault("", "d") != "d" || orDefault("x", "d") != "x" {
-		t.Error("orDefault")
-	}
 	if !filepath.IsAbs(absJoin("/base", "rel")) {
 		t.Error("absJoin should return absolute")
 	}

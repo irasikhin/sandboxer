@@ -79,38 +79,40 @@ func TestRunPullPushNoProfile(t *testing.T) {
 func TestRunProfileFlow(t *testing.T) {
 	t.Setenv("SANDBOXER_IN_CONTAINER", "")
 
-	project := t.TempDir()
-	if err := os.WriteFile(filepath.Join(project, "main.txt"), []byte("m\n"), 0o644); err != nil {
+	project := t.TempDir() // where .sandboxer lives
+	depRoot := t.TempDir()
+	if err := os.WriteFile(filepath.Join(mkdirAll(t, filepath.Join(depRoot, "lib")), "dep.txt"), []byte("d\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	dep := filepath.Join(t.TempDir(), "lib")
-	if err := os.MkdirAll(dep, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(dep, "dep.txt"), []byte("d\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	cfg := filepath.Join(project, "sandboxer.yaml")
-	yaml := "name: feat2\nmainSrc: " + project + "\nsrcs:\n  - from: " + dep + "\n    to: vendor\n    mode: rw\n"
+	cfg := filepath.Join(t.TempDir(), "p.yaml")
+	yaml := "name: feat2\nroots: [" + depRoot + "]\ndeps:\n  - lib\n"
 	if err := os.WriteFile(cfg, []byte(yaml), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
-	if code, out, errs := run("create", "--config", cfg); code != 0 || !strings.Contains(out, "created") {
+	if code, out, errs := run("create", "--src", project, "--config", cfg); code != 0 || !strings.Contains(out, "created") {
 		t.Fatalf("create with profile = (%d, %q, %q)", code, out, errs)
 	}
-	if _, err := os.Stat(filepath.Join(project, ".sandboxer", "feat2", "vendor", "dep.txt")); err != nil {
-		t.Errorf("dependency not vendored: %v", err)
+	if _, err := os.Stat(filepath.Join(project, ".sandboxer", "feat2", "lib", "dep.txt")); err != nil {
+		t.Errorf("dependency not pulled: %v", err)
 	}
-	if code, _, errs := run("pull", "--config", cfg); code != 0 {
+	if code, _, errs := run("pull", "--src", project, "--config", cfg); code != 0 {
 		t.Errorf("pull = %d, %s", code, errs)
 	}
-	if code, _, errs := run("push", "--config", cfg); code != 0 {
+	if code, _, errs := run("push", "--src", project, "--config", cfg); code != 0 {
 		t.Errorf("push = %d, %s", code, errs)
 	}
-	if code, out, _ := run("show", "--config", cfg); code != 0 || !strings.Contains(out, "vendor") {
+	if code, out, _ := run("show", "--src", project, "--config", cfg); code != 0 || !strings.Contains(out, "lib") {
 		t.Errorf("show with profile = (%d, %q)", code, out)
 	}
+}
+
+func mkdirAll(t *testing.T, dir string) string {
+	t.Helper()
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return dir
 }
 
 func TestRunUseClear(t *testing.T) {

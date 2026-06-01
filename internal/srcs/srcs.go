@@ -1,19 +1,13 @@
-// Package srcs implements dependency vendoring between a project's origin
-// directories/files and a sandbox copy: it pulls "srcs" (origins) into the
-// sandbox (CopyIn) and pushes read-write entries back out (CopyOut).
+// Package srcs implements depsync-style dependency vendoring between a set of
+// search roots and a sandbox directory: it locates each dep by path suffix
+// under the roots and pulls it into the sandbox (CopyIn), then pushes the
+// read-write copies back over their origins (CopyOut).
 //
 // The copy semantics mirror the depsync reference script:
 //   - pull KEEPs a target that already exists (unless --force);
 //   - push always overwrites the origin (no signature/skip protection);
 //   - copy replaces the destination wholesale and preserves symlinks, file
 //     modes and mtimes.
-//
-// `srcs` entries come in two shapes:
-//
-//	EXPLICIT: {from: "/abs/dir|file", to: "vendor/x", mode: "rw"|"ro"}
-//	          copies from -> <sandbox>/<to>; to defaults to basename(from).
-//	MATCHER:  {root: "/abs|rel", name|glob|regex: "...", to: ".", mode, depth}
-//	          searches under root and copies matches to <sandbox>/<to>/<rel>.
 package srcs
 
 import (
@@ -22,38 +16,20 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"regexp"
 	"slices"
 	"strings"
 	"time"
 )
 
-// Src is one entry in a profile's srcs list. It is either explicit (From set)
-// or a matcher (Name/Glob/Regex set).
-type Src struct {
-	From  string `json:"from"`
-	To    string `json:"to"`
-	Mode  string `json:"mode"`
-	Root  string `json:"root"`
-	Name  string `json:"name"`
-	Glob  string `json:"glob"`
-	Regex string `json:"regex"`
-	Depth int    `json:"depth"`
-}
-
-// Profile is the resolved sandbox configuration. It carries either explicit
-// srcs entries or a depsync-style roots+deps pair (search deps under roots by
-// path suffix), or both.
+// Profile is the resolved sandbox configuration: search roots and the deps to
+// find under them.
 type Profile struct {
-	MainSrc string   `json:"mainSrc"`
-	Srcs    []Src    `json:"srcs"`
-	Roots   []string `json:"roots"`
-	Deps    []string `json:"deps"`
+	Roots []string `json:"roots"`
+	Deps  []string `json:"deps"`
 }
 
-// ManifestEntry records one copied target so a later push can find its origin.
-// Like depsync's manifest, it is just the mapping (plus the mode); no
-// signatures are kept.
+// ManifestEntry records one copied target so a later push can find its origin
+// (like depsync's manifest; no signatures are kept).
 type ManifestEntry struct {
 	Mode        string `json:"mode"`
 	Origin      string `json:"origin"`
@@ -67,45 +43,11 @@ type target struct {
 	Mode   string
 }
 
-// skip holds directory/file names never walked into or matched.
+// skip holds directory names never walked into when searching.
 var skip = map[string]bool{
 	".git":         true,
 	"node_modules": true,
 	".sandboxer":   true,
-}
-
-// globToRe converts an ant-style glob to an anchored regexp:
-//   - "**" matches any chars (including "/"); a following "/" is swallowed.
-//   - "*" matches any chars except "/".
-//   - "?" matches a single non-"/" char.
-//   - regexp metacharacters are escaped, other chars are literal.
-func globToRe(glob string) *regexp.Regexp {
-	var re strings.Builder
-	re.WriteByte('^')
-	for i := 0; i < len(glob); i++ {
-		c := glob[i]
-		switch {
-		case c == '*':
-			if i+1 < len(glob) && glob[i+1] == '*' {
-				re.WriteString(".*")
-				i++
-				if i+1 < len(glob) && glob[i+1] == '/' {
-					i++
-				}
-			} else {
-				re.WriteString("[^/]*")
-			}
-		case c == '?':
-			re.WriteString("[^/]")
-		case strings.IndexByte(".+^${}()|[]\\", c) >= 0:
-			re.WriteByte('\\')
-			re.WriteByte(c)
-		default:
-			re.WriteByte(c)
-		}
-	}
-	re.WriteByte('$')
-	return regexp.MustCompile(re.String())
 }
 
 // walk yields every entry path under root (skipping SKIP names), recursing into
@@ -132,117 +74,16 @@ func walkAt(root string, depth, cur int, fn func(path string)) {
 	}
 }
 
-// matchEntry is a single matcher hit, carrying enough to build the dest later.
-type matchEntry struct {
-	Origin string
-	Rel    string
-	To     string
-	Mode   string
-}
-
-// matchEntries walks under (defaultRoot/s.Root) and returns matches for the
-// configured name/glob/regex test.
-func matchEntries(s Src, defaultRoot string) ([]matchEntry, error) {
-	rootArg := s.Root
-	if rootArg == "" {
-		rootArg = "."
-	}
-	root := absJoin(defaultRoot, rootArg)
-	to := s.To
-	if to == "" {
-		to = "."
-	}
-	mode := strings.ToLower(orDefault(s.Mode, "rw"))
-	depth := s.Depth
-
-	var test func(rel, base string) bool
-	switch {
-	case s.Name != "":
-		re := globToRe(s.Name)
-		test = func(_, base string) bool { return re.MatchString(base) }
-	case s.Glob != "":
-		re := globToRe(s.Glob)
-		test = func(rel, _ string) bool { return re.MatchString(rel) }
-	case s.Regex != "":
-		re, err := regexp.Compile(s.Regex)
-		if err != nil {
-			return nil, err
-		}
-		test = func(rel, _ string) bool { return re.MatchString(rel) }
-	default:
-		return nil, fmt.Errorf("srcs entry without from/name/glob/regex (root=%s)", s.Root)
-	}
-
-	var results []matchEntry
-	walk(root, depth, func(p string) {
-		rel, err := filepath.Rel(root, p)
-		if err != nil {
-			rel = p
-		}
-		rel = filepath.ToSlash(rel)
-		if test(rel, filepath.Base(p)) {
-			results = append(results, matchEntry{Origin: p, Rel: rel, To: to, Mode: mode})
-		}
-	})
-	return results, nil
-}
-
-// resolveTargets flattens a profile's srcs into copy jobs rooted at sandboxDir.
-func resolveTargets(p Profile, sandboxDir string) ([]target, error) {
-	var defaultRoot string
-	if p.MainSrc != "" {
-		defaultRoot = mustAbs(p.MainSrc)
-	} else {
-		defaultRoot = cwd()
-	}
-
-	var targets []target
-	for _, s := range p.Srcs {
-		switch {
-		case s.From != "":
-			origin := mustAbs(s.From)
-			to := s.To
-			if to == "" {
-				to = filepath.Base(origin)
-			}
-			targets = append(targets, target{
-				Origin: origin,
-				Dest:   absJoin(sandboxDir, to),
-				Mode:   strings.ToLower(orDefault(s.Mode, "rw")),
-			})
-		case s.Name != "" || s.Glob != "" || s.Regex != "":
-			ms, err := matchEntries(s, defaultRoot)
-			if err != nil {
-				return nil, err
-			}
-			for _, r := range ms {
-				targets = append(targets, target{
-					Origin: r.Origin,
-					Dest:   absJoin(sandboxDir, filepath.Join(r.To, r.Rel)),
-					Mode:   r.Mode,
-				})
-			}
-		default:
-			return nil, fmt.Errorf("srcs entry without from/name/glob/regex")
-		}
-	}
-	return targets, nil
-}
-
-// resolveDeps turns the depsync-style roots+deps config into copy jobs: each
-// dep is searched (by path suffix) under every root, and the first match is
-// copied to <sandbox>/<dep>. Not-found and multi-match are reported to w.
+// resolveDeps turns the roots+deps config into copy jobs: each dep is searched
+// (by path suffix) under every root, and the first match is copied to
+// <sandbox>/<dep>. Not-found and multi-match are reported to w.
 func resolveDeps(p Profile, sandboxDir string, w io.Writer) []target {
 	if len(p.Deps) == 0 {
 		return nil
 	}
 	roots := p.Roots
 	if len(roots) == 0 {
-		if p.MainSrc != "" {
-			roots = []string{p.MainSrc}
-		} else {
-			roots = []string{cwd()}
-		}
+		roots = []string{cwd()}
 	}
 	var out []target
 	for _, dep := range p.Deps {
@@ -376,9 +217,9 @@ func writeManifest(file string, m []ManifestEntry) error {
 	return os.WriteFile(file, data, 0o644)
 }
 
-// CopyIn pulls a profile's srcs (origins) into sandboxDir and writes a manifest
-// to manifestOut. A target that already exists is KEPT untouched unless force
-// is set, in which case it is overwritten. Progress is reported to w.
+// CopyIn pulls a profile's deps into sandboxDir and writes a manifest to
+// manifestOut. A target that already exists is KEPT untouched unless force is
+// set, in which case it is overwritten. Progress is reported to w.
 func CopyIn(w io.Writer, profileFile, sandboxDir, manifestOut string, force bool) error {
 	data, err := os.ReadFile(profileFile)
 	if err != nil {
@@ -389,12 +230,7 @@ func CopyIn(w io.Writer, profileFile, sandboxDir, manifestOut string, force bool
 		return err
 	}
 
-	targets, err := resolveTargets(profile, sandboxDir)
-	if err != nil {
-		return err
-	}
-	// depsync-style roots+deps resolve to additional copy jobs.
-	targets = append(targets, resolveDeps(profile, sandboxDir, w)...)
+	targets := resolveDeps(profile, sandboxDir, w)
 
 	manifest := []ManifestEntry{}
 	pulled, kept := 0, 0
@@ -470,13 +306,6 @@ func exists(p string) bool {
 	return err == nil
 }
 
-func orDefault(s, def string) string {
-	if s == "" {
-		return def
-	}
-	return s
-}
-
 func cwd() string {
 	d, err := os.Getwd()
 	if err != nil {
@@ -494,8 +323,8 @@ func mustAbs(p string) string {
 	return abs
 }
 
-// absJoin joins base and p (p may be absolute, in which case it wins, matching
-// path.resolve semantics) and returns an absolute path.
+// absJoin joins base and p (p may be absolute, in which case it wins) and
+// returns an absolute path.
 func absJoin(base, p string) string {
 	if filepath.IsAbs(p) {
 		return filepath.Clean(p)

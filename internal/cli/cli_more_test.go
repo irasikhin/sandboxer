@@ -63,24 +63,24 @@ func TestRunDiffAndPush(t *testing.T) {
 	requireExec(t, "diff")
 	project := t.TempDir()
 	t.Setenv("SANDBOXER_IN_CONTAINER", "")
-	dep := filepath.Join(t.TempDir(), "lib")
-	if err := os.MkdirAll(dep, 0o755); err != nil {
+	depRoot := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(depRoot, "lib"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(dep, "d.txt"), []byte("v1\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(depRoot, "lib", "d.txt"), []byte("v1\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	cfg := filepath.Join(project, "sandboxer.yaml")
-	yaml := "name: feat\nmainSrc: " + project + "\nsrcs:\n  - from: " + dep + "\n    to: vendor\n    mode: rw\n"
+	cfg := filepath.Join(t.TempDir(), "p.yaml")
+	yaml := "name: feat\nroots: [" + depRoot + "]\ndeps:\n  - lib\n"
 	if err := os.WriteFile(cfg, []byte(yaml), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if code, _, errs := run("create", "--config", cfg); code != 0 {
+	if code, _, errs := run("create", "--src", project, "--config", cfg); code != 0 {
 		t.Fatalf("create: %d %s", code, errs)
 	}
 
 	// Edit the pulled copy.
-	copyF := filepath.Join(project, ".sandboxer", "feat", "vendor", "d.txt")
+	copyF := filepath.Join(project, ".sandboxer", "feat", "lib", "d.txt")
 	if err := os.WriteFile(copyF, []byte("edited\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -88,11 +88,11 @@ func TestRunDiffAndPush(t *testing.T) {
 	if code, out, _ := run("diff", "feat", "--src", project); code != 0 || !strings.Contains(out, "edited") {
 		t.Errorf("diff = (%d, %q)", code, out)
 	}
-	// push returns the rw src to its origin.
-	if code, _, errs := run("push", "--config", cfg); code != 0 {
+	// push returns the rw dep to its origin.
+	if code, _, errs := run("push", "--src", project, "--config", cfg); code != 0 {
 		t.Errorf("push = %d, %s", code, errs)
 	}
-	if got, _ := os.ReadFile(filepath.Join(dep, "d.txt")); string(got) != "edited\n" {
+	if got, _ := os.ReadFile(filepath.Join(depRoot, "lib", "d.txt")); string(got) != "edited\n" {
 		t.Errorf("origin not updated by push: %q", got)
 	}
 }

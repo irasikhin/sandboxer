@@ -1,7 +1,7 @@
 # sandboxer
 
 [![CI](https://github.com/irasikhin/sandboxer/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/irasikhin/sandboxer/actions/workflows/ci.yml?query=branch%3Amain)
-[![Coverage](https://img.shields.io/badge/coverage-92.0%25-brightgreen.svg)](#testing)
+[![Coverage](https://img.shields.io/badge/coverage-91.9%25-brightgreen.svg)](#testing)
 [![Go](https://img.shields.io/badge/Go-1.24+-00ADD8?logo=go)](https://go.dev/)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
@@ -16,20 +16,19 @@ drives.
 ## How it works
 
 A **sandbox** is a directory under `.sandboxer/<slug>/` holding exactly the
-sources you list in `srcs` — **nothing is copied by default**. The agent runs
-inside that directory (isolated by the backend); read-write sources are pushed
-back to their origins when you're done. No git is involved.
+`deps` you list — **nothing is copied by default**. The agent runs inside that
+directory (isolated by the backend); the copies are pushed back to their origins
+when you're done. No git is involved.
 
-- **Sandbox** — the directory `.sandboxer/<slug>/`. It contains only what `srcs`
-  pulled in; an empty `srcs` means an empty sandbox.
+- **Sandbox** — the directory `.sandboxer/<slug>/`. It contains only what `deps`
+  pulled in; no `deps` means an empty sandbox.
 - **slug** — a short sandbox name (`feat`, `bugfix-auth`, …), set at `create`.
-- **srcs / deps** — what to copy into the sandbox, and the single source of its
-  contents. Either explicit `srcs` (`from`/`to`, or `root` + `name`/`glob`/`regex`),
-  or a depsync-style `roots` + `deps`: each `dep` is located by **path suffix**
-  under the `roots` and copied flat to `<sandbox>/<dep>`.
-- **pull / push** — `sandboxer pull` copies the `srcs` in, keeping a target
-  that already exists unless `--force`; `sandboxer push` copies read-write
-  entries back over their origins (always overwriting, like depsync).
+- **roots / deps** — the single source of a sandbox's contents: each `dep` is
+  located by **path suffix** under the `roots` and copied flat to
+  `<sandbox>/<dep>` (depsync-style).
+- **pull / push** — `sandboxer pull` copies the `deps` in, keeping a target that
+  already exists unless `--force`; `sandboxer push` copies them back over their
+  origins (always overwriting, like depsync).
 
 Two isolation backends:
 
@@ -56,11 +55,11 @@ Or grab a [pre-built binary](https://github.com/irasikhin/sandboxer/releases)
 ## Quick start
 
 ```bash
-sandboxer create --config sandboxer.yaml  # create a sandbox, pull its srcs in
+sandboxer create --config sandboxer.yaml  # create a sandbox, pull its deps in
 sandboxer enter  feat                     # interactive shell inside it (agents on PATH)
 sandboxer exec   feat -- claude           # run an agent/command inside it
-sandboxer diff   feat                     # show what changed vs the srcs' origins
-sandboxer push   feat                     # copy read-write srcs back to their origins
+sandboxer diff   feat                     # show what changed vs the deps' origins
+sandboxer push   feat                     # copy the deps back to their origins
 sandboxer list                            # status of all sandboxes
 sandboxer rm     feat                     # delete the sandbox
 ```
@@ -84,37 +83,27 @@ Scalars come from **flags** and `SANDBOXER_*` env vars:
 | egress domains | `--allow-domains a,b` | `SANDBOXER_DOMAINS` |
 | image | — | `SANDBOXER_IMAGE` (default `sandboxer-toolbox:latest`) |
 
-Structured fields (dependency vendoring `srcs`, `extraMounts`, `env`) live in an
-**optional** `sandboxer.yaml` (auto-discovered in the cwd, or `--config <file>`).
-See `examples/sandboxer.yaml` and `examples/with-deps.yaml`.
+Structured fields (`roots`/`deps`, `extraMounts`, `env`) live in an **optional**
+`sandboxer.yaml` (auto-discovered in the cwd, or `--config <file>`). See
+`examples/sandboxer.yaml` and `examples/with-deps.yaml`.
 
 ```yaml
 name: feature-x
-mainSrc: .
 backend: native
 agent: claude
 network:
   allowedDomains: [api.anthropic.com, registry.npmjs.org, github.com]
-srcs:
-  - { from: /abs/shared-lib, to: vendor/shared-lib, mode: rw }   # rw: returned to its source path on push
-  - { root: /abs/schemas, glob: "**/*.proto", to: proto, mode: ro }
-```
-
-Or the depsync-style form — search `deps` by path suffix under `roots`, copied
-flat to `<sandbox>/<dep>`:
-
-```yaml
-name: feature-x
-roots: [/abs/monorepo, /abs/shared]
+roots: [/abs/monorepo, /abs/shared]   # where to search
 deps:
   - some_module          # any dir/file named some_module
   - src/lib/util.go      # any path ending with src/lib/util.go
 ```
 
-`srcs`/`deps` are pulled into the sandbox (`sandboxer pull`) — an already-present
-target is kept unless `--force`. `rw` entries (and all `deps`) are copied back to
-their origins (`sandboxer push`), always overwriting. The copy preserves symlinks
-and file modes and replaces the destination wholesale (depsync semantics).
+`deps` are located by **path suffix** under `roots` and pulled into the sandbox
+(`sandboxer pull`), copied flat to `<sandbox>/<dep>`. An already-present target
+is kept unless `--force`. They are copied back to their origins (`sandboxer
+push`), always overwriting. The copy preserves symlinks and file modes and
+replaces the destination wholesale (depsync semantics).
 
 ## Egress allowlist (container backend)
 
@@ -157,7 +146,7 @@ go tool cover -func=cov.out | tail -1         # total coverage
 go tool cover -html=cov.out -o cov.html       # browseable report
 ```
 
-Current coverage: **92.0%** total. Per package:
+Current coverage: **91.9%** total. Per package:
 
 | Package             | Coverage |
 | ------------------- | -------- |
@@ -169,7 +158,7 @@ Current coverage: **92.0%** total. Per package:
 | `internal/registry` | 94.1%    |
 | `internal/cli`      | 91.3%    |
 | `internal/proxy`    | 90.3%    |
-| `internal/srcs`     | 88.9%    |
+| `internal/srcs`     | 87.2%    |
 | `internal/sandbox`  | 88.8%    |
 
 Backend tests use fake engine/agent stubs on `PATH`, so they run without

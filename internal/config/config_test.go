@@ -82,19 +82,14 @@ func TestLoadAndJSONRoundTrip(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "sandboxer.yaml")
 	yaml := `name: feature-x
-mainSrc: .
 backend: podman
 agent: claude
 network:
   allowedDomains: [api.anthropic.com, registry.npmjs.org]
-srcs:
-  - from: /abs/lib
-    to: vendor/lib
-    mode: rw
-  - root: /abs/schemas
-    glob: "**/*.proto"
-    to: proto
-    mode: ro
+roots: [/abs/monorepo, /abs/shared]
+deps:
+  - shared-lib
+  - src/lib/util.go
 `
 	if err := os.WriteFile(path, []byte(yaml), 0o644); err != nil {
 		t.Fatal(err)
@@ -109,15 +104,18 @@ srcs:
 	if len(p.Network.AllowedDomains) != 2 {
 		t.Errorf("domains: %v", p.Network.AllowedDomains)
 	}
-	if len(p.Srcs) != 2 || p.Srcs[0].From != "/abs/lib" || p.Srcs[1].Glob != "**/*.proto" {
-		t.Errorf("srcs: %+v", p.Srcs)
+	if len(p.Roots) != 2 || p.Roots[0] != "/abs/monorepo" {
+		t.Errorf("roots: %v", p.Roots)
+	}
+	if len(p.Deps) != 2 || p.Deps[1] != "src/lib/util.go" {
+		t.Errorf("deps: %v", p.Deps)
 	}
 	// JSON serialization uses camelCase keys the srcs package and container read.
 	b, err := p.JSON()
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{`"mainSrc"`, `"allowedDomains"`, `"from"`, `"glob"`} {
+	for _, want := range []string{`"roots"`, `"deps"`, `"allowedDomains"`} {
 		if !strings.Contains(string(b), want) {
 			t.Errorf("JSON missing %s:\n%s", want, b)
 		}

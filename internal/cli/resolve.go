@@ -78,7 +78,7 @@ func resolveTarget(f commonFlags, pos string) (*target, error) {
 		prof = p
 		profJSON, _ = p.JSON()
 		slug = p.Name
-		root = firstNonEmpty(f.src, p.MainSrc, ".")
+		root = firstNonEmpty(f.src, getwd())
 		if slug == "" {
 			return nil, errors.New("profile has no name")
 		}

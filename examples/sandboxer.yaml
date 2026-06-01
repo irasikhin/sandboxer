@@ -4,13 +4,8 @@
 # one explicitly: `sandboxer create --config path/feat.yaml`, or positionally
 # `sandboxer create feat.yaml`).
 
-# Sandbox name (slug). Drives the working copy at .sandboxer/<name> and the
-# branch sandbox/<name>.
+# Sandbox name (slug). Drives the working directory at .sandboxer/<name>.
 name: feature-x
-
-# Project root that gets rsync-copied into the sandbox. Defaults to the
-# profile's directory.
-mainSrc: .
 
 # Isolation backend:
 #   native            — Claude Code's own /sandbox (bubblewrap); agent must be claude.
@@ -28,6 +23,13 @@ agent: claude
 # native /sandbox.
 network:
   allowedDomains: [api.anthropic.com, registry.npmjs.org, github.com]
+
+# Sandbox content: deps are searched by path suffix under roots, copied into
+# the sandbox and (rw) pushed back with `sandboxer push`. Nothing is copied
+# unless listed here.
+# roots: [.]
+# deps:
+#   - src/lib
 
 # Which agents' credentials to bind into the container (container backends
 # only). Defaults to every agent in the registry; narrow it to avoid mounting

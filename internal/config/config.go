@@ -16,20 +16,6 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// Src is one dependency-vendoring entry: either EXPLICIT (From/To/Mode) or a
-// MATCHER (Root + Name|Glob|Regex, optional Depth). It is pulled into the
-// sandbox and, when rw, pushed back to its origin.
-type Src struct {
-	From  string `yaml:"from,omitempty"  json:"from,omitempty"`
-	To    string `yaml:"to,omitempty"    json:"to,omitempty"`
-	Mode  string `yaml:"mode,omitempty"  json:"mode,omitempty"`
-	Root  string `yaml:"root,omitempty"  json:"root,omitempty"`
-	Name  string `yaml:"name,omitempty"  json:"name,omitempty"`
-	Glob  string `yaml:"glob,omitempty"  json:"glob,omitempty"`
-	Regex string `yaml:"regex,omitempty" json:"regex,omitempty"`
-	Depth int    `yaml:"depth,omitempty" json:"depth,omitempty"`
-}
-
 // Mount is an extra bind mount for the container backend.
 type Mount struct {
 	Source string `yaml:"source" json:"source"`
@@ -50,10 +36,11 @@ type Proxy struct {
 }
 
 // Profile is a sandbox configuration. All fields are optional; an empty profile
-// is valid (everything then comes from flags/env/defaults).
+// is valid (everything then comes from flags/env/defaults). The sandbox content
+// is driven by roots+deps (depsync-style): deps are searched by path suffix
+// under roots and copied into the sandbox.
 type Profile struct {
 	Name        string            `yaml:"name,omitempty"        json:"name,omitempty"`
-	MainSrc     string            `yaml:"mainSrc,omitempty"     json:"mainSrc,omitempty"`
 	Backend     string            `yaml:"backend,omitempty"     json:"backend,omitempty"`
 	Agent       string            `yaml:"agent,omitempty"       json:"agent,omitempty"`
 	Model       string            `yaml:"model,omitempty"       json:"model,omitempty"`
@@ -61,7 +48,6 @@ type Profile struct {
 	Proxy       Proxy             `yaml:"proxy,omitempty"       json:"proxy,omitempty"`
 	Agents      []string          `yaml:"agents,omitempty"      json:"agents,omitempty"`
 	Egress      *bool             `yaml:"egress,omitempty"      json:"egress,omitempty"`
-	Srcs        []Src             `yaml:"srcs,omitempty"        json:"srcs,omitempty"`
 	Roots       []string          `yaml:"roots,omitempty"       json:"roots,omitempty"`
 	Deps        []string          `yaml:"deps,omitempty"        json:"deps,omitempty"`
 	ExtraMounts []Mount           `yaml:"extraMounts,omitempty" json:"extraMounts,omitempty"`
