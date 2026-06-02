@@ -10,6 +10,31 @@ commit messages with that in mind. See [CONTRIBUTING.md](./CONTRIBUTING.md).
 
 ## [Unreleased]
 
+### Changed
+
+- Sandbox content is now **deps-only**: each `dep` is located by path suffix
+  under the configured `roots` and copied into `.sandboxer/<slug>/`
+  (depsync-style), replacing the wholesale rsync copy of the project. Use
+  `sandboxer pull` / `push` to move deps in and back.
+- `sandboxer run` auto-discovers `sandboxer.yaml` in the cwd (like the lifecycle
+  commands) when `--config` is omitted, so both entry points resolve a profile
+  identically.
+- `--mem` / `--cpu` / `--wall` now also apply to the container backend
+  (`--memory` / `--cpus` / an in-container `timeout`), not only the native
+  backend — the `run` banner's limits are now enforced on both.
+
+### Removed
+
+- The old `srcs` / `mainSrc` config — use `roots` + `deps`.
+
+### Fixed
+
+- Root `--help` no longer describes the removed git / rsync / `mainSrc` model.
+- The native backend now errors for an agent without an OS sandbox (anything but
+  `claude`) instead of silently running it un-sandboxed on the host.
+- `run`, `exec` and `create` now ship `--help` examples; `list`/`diff` output is
+  tidier (ellipsis on truncation, no empty diff sections).
+
 ## [0.3.0] — 2026-06-01
 
 ### Changed

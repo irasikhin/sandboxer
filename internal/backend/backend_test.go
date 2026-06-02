@@ -398,3 +398,37 @@ func TestContainerRunPodman(t *testing.T) {
 		t.Errorf("podman engine should set --userns=keep-id:\n%s", log)
 	}
 }
+
+func TestContainerRunLimits(t *testing.T) {
+	requireExec(t, "sh")
+	dir := t.TempDir()
+	logPath := filepath.Join(dir, "calls.log")
+	engine := filepath.Join(dir, "engine")
+	writeEngineScript(t, engine, logPath)
+
+	code, err := Run(RunOpts{
+		Engine: engine, Image: "img", Dest: t.TempDir(), Slug: "s",
+		RT: config.Runtime{}, NoEgress: true,
+		Mem: "2G", CPU: "100%", Wall: "30",
+		Args:  []string{"bash", "-lc", "true"},
+		Stdin: strings.NewReader(""), Stdout: &bytes.Buffer{}, Stderr: &bytes.Buffer{},
+	})
+	if err != nil || code != 0 {
+		t.Fatalf("Run = (%d,%v)", code, err)
+	}
+	s, _ := os.ReadFile(logPath)
+	for _, want := range []string{"--memory 2G", "--cpus 1", "timeout --signal=TERM 30"} {
+		if !strings.Contains(string(s), want) {
+			t.Errorf("limit flag %q missing from engine argv:\n%s", want, s)
+		}
+	}
+}
+
+func TestCPUsFromQuota(t *testing.T) {
+	cases := map[string]string{"": "", "100%": "1", "50%": "0.5", "150%": "1.5", "2": "2", "bad%": ""}
+	for in, want := range cases {
+		if got := cpusFromQuota(in); got != want {
+			t.Errorf("cpusFromQuota(%q) = %q, want %q", in, got, want)
+		}
+	}
+}

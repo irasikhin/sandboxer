@@ -55,7 +55,7 @@ Or grab a [pre-built binary](https://github.com/irasikhin/sandboxer/releases)
 ## Quick start
 
 ```bash
-sandboxer create --config sandboxer.yaml  # create a sandbox, pull its deps in
+sandboxer create feat                     # create a sandbox named "feat" (deps come from a profile)
 sandboxer enter  feat                     # interactive shell inside it (agents on PATH)
 sandboxer exec   feat -- claude           # run an agent/command inside it
 sandboxer diff   feat                     # show what changed vs the deps' origins
@@ -63,6 +63,10 @@ sandboxer push   feat                     # copy the deps back to their origins
 sandboxer list                            # status of all sandboxes
 sandboxer rm     feat                     # delete the sandbox
 ```
+
+To pull deps in, a profile must list them: drop a `sandboxer.yaml` in the cwd
+(auto-discovered) or pass `--config`; the sandbox slug then comes from the
+profile's `name:`.
 
 Run a batch of autonomous agents — one sandbox per task:
 
@@ -152,11 +156,11 @@ Current coverage: **91.9%** total. Per package:
 | ------------------- | -------- |
 | `cmd/sandboxer`     | 100.0%   |
 | `internal/config`   | 100.0%   |
-| `internal/backend`  | 94.9%    |
-| `internal/runner`   | 94.7%    |
+| `internal/backend`  | 95.3%    |
+| `internal/runner`   | 94.2%    |
 | `internal/egress`   | 94.3%    |
 | `internal/registry` | 94.1%    |
-| `internal/cli`      | 91.3%    |
+| `internal/cli`      | 90.9%    |
 | `internal/proxy`    | 90.3%    |
 | `internal/srcs`     | 87.2%    |
 | `internal/sandbox`  | 88.8%    |

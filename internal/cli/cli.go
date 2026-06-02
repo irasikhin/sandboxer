@@ -75,11 +75,12 @@ func register(factory func() *cobra.Command) {
 
 const rootLong = `sandboxer — config-driven isolated sandboxes for coding agents.
 
-A sandbox is a SEPARATE COPY of the project (rsync of mainSrc) on a git branch
-sandbox/<slug>. The agent runs inside an isolation backend:
-  • podman/docker (default): toolbox image with all agents; network/proxy/creds
-    are wired per-config; any agent (claude/codex/opencode/crush/aider/pi/…).
+A sandbox is a directory under .sandboxer/<slug>/ holding only the deps you list
+(each located by path suffix under your roots and copied in); nothing is copied by
+default and no git is involved. The agent runs inside an isolation backend:
+  • podman/docker (default): toolbox image with the agents baked in; network,
+    proxy and credentials are wired per-config (claude/codex/opencode/crush/…).
   • native (claude only): Claude Code's own /sandbox (--settings '{sandbox…}').
 
 Config: flags + SANDBOXER_* env, with an optional sandboxer.yaml profile for
-structured fields (srcs vendoring, extraMounts, env).`
+structured fields (roots/deps, extraMounts, env).`

@@ -84,3 +84,20 @@ func TestLoadMissingFile(t *testing.T) {
 		t.Error("Load of missing file should error")
 	}
 }
+
+func TestValidateNative(t *testing.T) {
+	// Native backend is fine for claude (has an OS sandbox) and rejected for an
+	// agent that doesn't; any container backend is always allowed.
+	if err := ValidateNative(Runtime{Backend: "native", Agent: "claude"}); err != nil {
+		t.Errorf("native+claude should be allowed: %v", err)
+	}
+	if err := ValidateNative(Runtime{Backend: "native", Agent: "codex"}); err == nil {
+		t.Error("native+codex should be rejected (no OS sandbox)")
+	}
+	if err := ValidateNative(Runtime{Backend: "podman", Agent: "codex"}); err != nil {
+		t.Errorf("container backend should not be gated: %v", err)
+	}
+	if err := ValidateNative(Runtime{Backend: "native", Agent: "nope"}); err == nil {
+		t.Error("native+unknown-agent should surface the registry error")
+	}
+}

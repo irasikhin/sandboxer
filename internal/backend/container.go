@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"strconv"
+	"strings"
 
 	"github.com/irasikhin/sandboxer/internal/config"
 	"github.com/irasikhin/sandboxer/internal/egress"
@@ -26,6 +27,9 @@ type RunOpts struct {
 	Ephemeral       bool   // copy creds into EphDir instead of binding host dirs
 	EphDir          string // temp dir for ephemeral creds (required if Ephemeral)
 	NoEgress        bool   // SANDBOXER_NO_EGRESS
+	Mem             string // memory cap → --memory (e.g. 2G); empty = unlimited
+	CPU             string // CPU cap → --cpus (accepts a float or systemd "100%")
+	Wall            string // wall-clock timeout in seconds; empty = none
 	Args            []string
 	Stdin           io.Reader
 	Stdout          io.Writer
@@ -69,6 +73,13 @@ func Run(o RunOpts) (int, error) {
 	if o.Engine == "podman" {
 		args = append(args, "--userns=keep-id")
 	}
+	// Resource limits (the banner advertises these on every backend).
+	if o.Mem != "" {
+		args = append(args, "--memory", o.Mem)
+	}
+	if cpus := cpusFromQuota(o.CPU); cpus != "" {
+		args = append(args, "--cpus", cpus)
+	}
 	if eg.Active() {
 		url := eg.ProxyURL()
 		args = append(args, "--network", eg.Net(),
@@ -99,6 +110,11 @@ func Run(o RunOpts) (int, error) {
 	args = append(args, originMounts(o.ManifestPath)...)
 	args = append(args, extraMountsAndEnv(o.Profile)...)
 	args = append(args, o.Image)
+	// Wall-clock timeout: wrap the in-container command with `timeout` (coreutils,
+	// present in the toolbox image), mirroring the native backend's wrapLimits.
+	if o.Wall != "" {
+		args = append(args, "timeout", "--signal=TERM", o.Wall)
+	}
 	args = append(args, o.Args...)
 
 	cmd := exec.Command(o.Engine, args...)
@@ -120,6 +136,24 @@ func exitCode(err error) int {
 		return ee.ExitCode()
 	}
 	return 1
+}
+
+// cpusFromQuota converts a CPU limit to the engine's --cpus value. It accepts a
+// systemd-style quota ("100%", "150%") and converts it to a core count ("1",
+// "1.5"); a plain value (already a core count like "1.5") is passed through. An
+// empty or unparseable input yields "" (no limit).
+func cpusFromQuota(s string) string {
+	if s == "" {
+		return ""
+	}
+	if pct, ok := strings.CutSuffix(s, "%"); ok {
+		n, err := strconv.ParseFloat(pct, 64)
+		if err != nil {
+			return ""
+		}
+		return strconv.FormatFloat(n/100, 'f', -1, 64)
+	}
+	return s
 }
 
 func isTerminal(v any) bool {

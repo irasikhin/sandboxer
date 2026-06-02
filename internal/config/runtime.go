@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/irasikhin/sandboxer/internal/registry"
@@ -64,6 +65,24 @@ func ResolveRuntime(p *Profile, d Defaults, baseDomains, baseModel string, f Ove
 
 // DomainsCSV joins the resolved allowlist back to a comma-separated string.
 func (r Runtime) DomainsCSV() string { return strings.Join(r.Domains, ",") }
+
+// ValidateNative rejects the native backend for an agent that has no OS sandbox.
+// The native backend's isolation is entirely Claude Code's own /sandbox, injected
+// only for agents whose registry entry sets nativeSandbox (claude). Any other
+// agent would run un-sandboxed on the host FS, so we fail fast instead.
+func ValidateNative(rt Runtime) error {
+	if rt.Backend != "native" {
+		return nil
+	}
+	a, err := registry.Get(rt.Agent)
+	if err != nil {
+		return err
+	}
+	if !a.NativeSandbox {
+		return fmt.Errorf("native backend has no OS sandbox for %q — it would run un-sandboxed on the host; use --backend podman|docker (or --agent claude)", rt.Agent)
+	}
+	return nil
+}
 
 func splitCSV(s string) []string {
 	if strings.TrimSpace(s) == "" {

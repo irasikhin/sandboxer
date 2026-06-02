@@ -27,13 +27,13 @@ type commonFlags struct {
 // bindExisting registers the flags used by enter/exec/pull/push/show/diff/rm.
 func bindExisting(cmd *cobra.Command, f *commonFlags) {
 	fl := cmd.Flags()
-	fl.StringVar(&f.src, "src", "", "project root (default: cwd or profile mainSrc)")
+	fl.StringVar(&f.src, "src", "", "project root (default: cwd)")
 	fl.StringVar(&f.config, "config", "", "profile file (sandboxer.yaml)")
 	fl.StringVarP(&f.sandbox, "sandbox", "S", "", "sandbox slug")
 	fl.StringVar(&f.model, "model", "", "model override")
 	fl.StringVar(&f.agent, "agent", "", "agent override")
 	fl.StringVar(&f.backend, "backend", "", "backend: native | podman | docker")
-	fl.StringVar(&f.domains, "allow-domains", "", "egress allowlist (csv)")
+	fl.StringVar(&f.domains, "allow-domains", "", "egress allowlist, csv (e.g. api.anthropic.com,github.com)")
 }
 
 // target is a resolved (base, slug, profile) tuple.

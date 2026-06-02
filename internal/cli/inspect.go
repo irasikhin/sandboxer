@@ -103,6 +103,9 @@ func newDiffCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			if _, err := exec.LookPath("diff"); err != nil {
+				fmt.Fprintln(cmd.ErrOrStderr(), "sandboxer: diff(1) not found on PATH — cannot show changes")
+			}
 			out := cmd.OutOrStdout()
 			only := ""
 			if p := posArg(args); p != "" {
@@ -112,8 +115,9 @@ func newDiffCmd() *cobra.Command {
 				if only != "" && slug != only {
 					continue
 				}
-				fmt.Fprintf(out, "===== %s =====\n", slug)
+				// Only print a section when there is an actual change.
 				if d := sandboxDiff(base, slug); d != "" {
+					fmt.Fprintf(out, "===== %s =====\n", slug)
 					fmt.Fprint(out, d)
 				}
 			}
@@ -205,8 +209,9 @@ func dumpFile(out interface{ Write([]byte) (int, error) }, path string) bool {
 }
 
 func truncate(s string, n int) string {
-	if len(s) <= n {
+	r := []rune(s)
+	if len(r) <= n {
 		return s
 	}
-	return s[:n]
+	return string(r[:n-1]) + "…"
 }

@@ -33,7 +33,7 @@ type Task struct {
 
 // Options configures a batch run.
 type Options struct {
-	Src        string // project root (overrides profile mainSrc)
+	Src        string // project root (default: cwd)
 	ConfigPath string // optional YAML profile
 	TasksFile  string // tasks file (default <root>/sandboxer.tasks)
 	Overrides  config.Overrides
@@ -100,6 +100,9 @@ func Run(o Options) (Result, error) {
 	}
 	rt := config.ResolveRuntime(profile, o.Defaults, base.Domains, base.Model, o.Overrides)
 
+	if err := config.ValidateNative(rt); err != nil {
+		return Result{}, err
+	}
 	agent, err := registry.Get(rt.Agent)
 	if err != nil {
 		return Result{}, err
@@ -252,6 +255,9 @@ func (s launchSpec) runContainer(dest, acmd, outPath, errPath string) int {
 		Ephemeral:       true,
 		EphDir:          ephDir,
 		NoEgress:        os.Getenv("SANDBOXER_NO_EGRESS") == "1",
+		Mem:             s.mem,
+		CPU:             s.cpu,
+		Wall:            s.wall,
 		Args:            []string{"bash", "-lc", acmd},
 		Stdout:          of,
 		Stderr:          ef,

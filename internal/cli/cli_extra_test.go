@@ -166,3 +166,36 @@ func TestRmAllNonexistent(t *testing.T) {
 		t.Errorf("rm-all nonexistent = (%d, %q)", code, out)
 	}
 }
+
+func TestRunNativeNonClaudeRejected(t *testing.T) {
+	t.Setenv("SANDBOXER_IN_CONTAINER", "")
+	project := t.TempDir()
+	if err := os.WriteFile(filepath.Join(project, "sandboxer.tasks"), []byte("[a]\ndo a\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	code, _, errs := run("run", "--src", project, "--backend", "native", "--agent", "codex")
+	if code != 1 || !strings.Contains(errs, "native backend has no OS sandbox") {
+		t.Errorf("native+codex run = (%d, %q), want exit 1 with the guard message", code, errs)
+	}
+}
+
+func TestRunAutoDiscoversProfile(t *testing.T) {
+	t.Setenv("SANDBOXER_IN_CONTAINER", "")
+	project := t.TempDir()
+	t.Chdir(project)
+	// A native profile in the cwd must be picked up without --config; otherwise the
+	// default (podman) backend would be used and the banner would not say native.
+	if err := os.WriteFile("sandboxer.yaml", []byte("name: disco\nbackend: native\nagent: claude\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile("sandboxer.tasks", []byte("[a]\ndo a\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	code, out, errs := run("run", "--dry-run")
+	if code != 0 {
+		t.Fatalf("run = %d, %s", code, errs)
+	}
+	if !strings.Contains(out, "backend=native") {
+		t.Errorf("auto-discovered sandboxer.yaml not applied (want backend=native):\n%s", out)
+	}
+}

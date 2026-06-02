@@ -24,7 +24,7 @@ func init() {
 func newRmCmd() *cobra.Command {
 	var f commonFlags
 	cmd := &cobra.Command{
-		Use:   "rm <slug>",
+		Use:   "rm [slug]",
 		Short: "Remove a sandbox and its state",
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -107,6 +107,14 @@ func newUseCmd() *cobra.Command {
 	return cmd
 }
 
+// orDash renders an empty cell as "-" so the table reads cleanly.
+func orDash(s string) string {
+	if s == "" {
+		return "-"
+	}
+	return s
+}
+
 func newAgentsCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "agents",
@@ -114,6 +122,7 @@ func newAgentsCmd() *cobra.Command {
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			tw := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 2, ' ', 0)
+			fmt.Fprintln(tw, "AGENT\tBIN\tSANDBOX\tIMAGE\tAUTH DIRS\tENV")
 			for _, name := range registry.Names() {
 				a, _ := registry.Get(name)
 				var dirs []string
@@ -128,8 +137,8 @@ func newAgentsCmd() *cobra.Command {
 				if a.Image != nil && !*a.Image {
 					image = "no"
 				}
-				fmt.Fprintf(tw, "%s\tbin=%s\tsandbox=%s\timage=%s\tauth: %s\tenv: %s\n",
-					name, a.Bin, sandboxKind, image, strings.Join(dirs, " "), strings.Join(a.AuthEnv, ","))
+				fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\n",
+					name, a.Bin, sandboxKind, image, orDash(strings.Join(dirs, " ")), orDash(strings.Join(a.AuthEnv, ",")))
 			}
 			return tw.Flush()
 		},

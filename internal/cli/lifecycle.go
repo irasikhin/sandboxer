@@ -21,7 +21,12 @@ func newCreateCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "create [slug|profile.yaml]",
 		Short: "Create a sandbox and pull its srcs (nothing else is copied)",
-		Args:  cobra.MaximumNArgs(1),
+		Example: `  # named sandbox (empty unless a profile lists deps)
+  sandboxer create feat
+
+  # from a profile — slug comes from the profile's name:
+  sandboxer create ./sandboxer.yaml`,
+		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			t, err := resolveTarget(f, posArg(args))
 			if err != nil {
@@ -77,6 +82,9 @@ func newEnterCmd() *cobra.Command {
 				}
 			}
 			rt := t.runtime(f)
+			if err := config.ValidateNative(rt); err != nil {
+				return err
+			}
 			errOut := cmd.ErrOrStderr()
 			if rt.Backend == "native" {
 				fmt.Fprintf(errOut, "sandboxer: shell in copy %s (backend=native; OS sandbox only when running 'claude --settings').\n", dest)
@@ -114,6 +122,11 @@ func newExecCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "exec [slug] -- <cmd...>",
 		Short: "Run a command inside the sandbox",
+		Example: `  # run a one-off command (note the -- separator)
+  sandboxer exec feat -- npm test
+
+  # launch an agent inside the sandbox
+  sandboxer exec feat -- claude`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			pos, rest := splitDash(cmd, args)
 			if len(rest) == 0 {
@@ -128,6 +141,9 @@ func newExecCmd() *cobra.Command {
 				return fmt.Errorf("no sandbox %q (create it: sandboxer create)", t.slug)
 			}
 			rt := t.runtime(f)
+			if err := config.ValidateNative(rt); err != nil {
+				return err
+			}
 			if rt.Backend == "native" {
 				code, err := backend.NativeExec(dest, rt, rest, cmd.InOrStdin(), cmd.OutOrStdout(), cmd.ErrOrStderr())
 				pushDeps(t, cmd)
@@ -164,8 +180,8 @@ func newExecCmd() *cobra.Command {
 	return cmd
 }
 
-// pushDeps pushes rw dependencies back to their origins (if a manifest exists).
-// The sandbox copy itself is returned to the source with `sandboxer return`.
+// pushDeps pushes rw dependencies back to their origins (if a manifest exists),
+// the same copy-back that `sandboxer push` performs.
 func pushDeps(t *target, cmd *cobra.Command) {
 	mf := t.base.ManifestPath(t.slug)
 	if fileExists(mf) {

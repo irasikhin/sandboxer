@@ -44,11 +44,15 @@ func TestIsYAML(t *testing.T) {
 }
 
 func TestTruncate(t *testing.T) {
-	if truncate("hello", 3) != "hel" {
-		t.Error("truncate should cut to n")
+	if got := truncate("hello", 3); got != "he…" {
+		t.Errorf("truncate should cut to n with an ellipsis, got %q", got)
 	}
 	if truncate("hi", 5) != "hi" {
 		t.Error("truncate should leave short strings")
+	}
+	// Truncation is rune-aware: it must not split a multi-byte rune.
+	if got := truncate("héllo", 3); got != "hé…" {
+		t.Errorf("truncate should be rune-safe, got %q", got)
 	}
 }
 
