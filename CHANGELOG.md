@@ -10,6 +10,17 @@ commit messages with that in mind. See [CONTRIBUTING.md](./CONTRIBUTING.md).
 
 ## [Unreleased]
 
+### Added
+
+- **Named profiles.** `-f`/`--config` now accepts a file, a *directory* of
+  profiles, or the *name* of a profile in a global store
+  (`~/.config/sandboxer/profiles/`; override with `$SANDBOXER_PROFILES`, follows
+  `$XDG_CONFIG_HOME`). A profile's name is its file's base name unless an
+  explicit `name:` overrides it. A bare positional that matches a stored profile
+  is used as that profile; otherwise it stays a plain slug, so existing
+  `create <slug>` usage is unchanged. New `sandboxer profiles` lists the store
+  (or a `-f <dir>`). See `examples/profiles/`.
+
 ### Changed
 
 - Sandbox content is now **deps-only**: each `dep` is located by path suffix
@@ -27,6 +38,16 @@ commit messages with that in mind. See [CONTRIBUTING.md](./CONTRIBUTING.md).
 
 - The old `srcs` / `mainSrc` config — use `roots` + `deps`.
 
+### Security
+
+- The container egress allowlist now **fails closed**: if the allowlist is
+  required but the proxy can't start (or no domains are allowed), the run is
+  refused instead of silently falling back to an open bridge network.
+- `SANDBOXER_NO_EGRESS=1` is now honoured by `enter`/`exec` too (previously only
+  the batch `run`), matching the documented behaviour.
+- `deps` that are absolute or contain `../` are refused instead of letting a
+  pull write outside the sandbox.
+
 ### Fixed
 
 - Root `--help` no longer describes the removed git / rsync / `mainSrc` model.
@@ -34,6 +55,13 @@ commit messages with that in mind. See [CONTRIBUTING.md](./CONTRIBUTING.md).
   `claude`) instead of silently running it un-sandboxed on the host.
 - `run`, `exec` and `create` now ship `--help` examples; `list`/`diff` output is
   tidier (ellipsis on truncation, no empty diff sections).
+- The automatic copy-back after `enter`/`exec` no longer swallows push errors,
+  and `enter` now propagates the container's exit code (like `exec`).
+- A corrupt dependency manifest now fails `push`/`diff` instead of silently
+  restoring nothing; a `dep` with multiple matches lists the alternatives.
+- `sandboxer run` reports the number of sandboxes that actually launched, and
+  rejects a malformed `--mem`/`--cpu`/`--wall` up front instead of failing
+  asynchronously inside a worker.
 
 ## [0.3.0] — 2026-06-01
 

@@ -3,7 +3,9 @@ package cli
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
+	"sort"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -28,7 +30,7 @@ type commonFlags struct {
 func bindExisting(cmd *cobra.Command, f *commonFlags) {
 	fl := cmd.Flags()
 	fl.StringVar(&f.src, "src", "", "project root (default: cwd)")
-	fl.StringVar(&f.config, "config", "", "profile file (sandboxer.yaml)")
+	fl.StringVarP(&f.config, "config", "f", "", "profile: a file, a directory of profiles, or a named profile (store: ~/.config/sandboxer/profiles)")
 	fl.StringVarP(&f.sandbox, "sandbox", "S", "", "sandbox slug")
 	fl.StringVar(&f.model, "model", "", "model override")
 	fl.StringVar(&f.agent, "agent", "", "agent override")
@@ -44,27 +46,95 @@ type target struct {
 	json    []byte          // profile JSON when loaded from a file (for storing)
 }
 
-// resolveProfileFile mirrors the bash precedence: --config, else a positional
-// *.yaml file, else an auto-discovered sandboxer.yaml in the cwd. It returns
-// the chosen file (or "") and the leftover positional.
-func resolveProfileFile(configPath, pos string) (string, string) {
+// resolveProfileFile selects the profile to load and returns it together with
+// the leftover positional and any resolution error. Precedence:
+//
+//	-f/--config FILE   → that file (the positional is kept as a slug override)
+//	-f/--config DIR    → the profile the positional names inside DIR
+//	-f/--config NAME   → a named profile from the global store
+//	positional NAME    → a named profile from the global store
+//	positional *.yaml  → that file
+//	./sandboxer.yaml   → auto-discovered in the cwd
+//
+// Anything else leaves the positional as a bare slug ("", pos).
+func resolveProfileFile(configPath, pos string) (string, string, error) {
 	if configPath != "" {
-		return configPath, pos
+		if isDir(configPath) {
+			file, err := selectFromDir(configPath, pos)
+			return file, "", err
+		}
+		// Not an existing file and not a *.yaml path → try the named store.
+		if !fileExists(configPath) && !isYAML(configPath) {
+			file, err := config.FindProfile(config.ProfilesDir(), configPath)
+			if err != nil {
+				return "", pos, err
+			}
+			if file != "" {
+				return file, pos, nil
+			}
+		}
+		return configPath, pos, nil
+	}
+	if pos != "" && !isYAML(pos) {
+		file, err := config.FindProfile(config.ProfilesDir(), pos)
+		if err != nil {
+			return "", pos, err
+		}
+		if file != "" {
+			return file, "", nil
+		}
 	}
 	if pos != "" && isYAML(pos) && fileExists(pos) {
-		return pos, ""
+		return pos, "", nil
 	}
 	if pos == "" && !inContainer() && fileExists("sandboxer.yaml") {
-		return "sandboxer.yaml", ""
+		return "sandboxer.yaml", "", nil
 	}
-	return "", pos
+	return "", pos, nil
+}
+
+// selectFromDir picks a profile by name from a directory of profiles. An empty
+// name is allowed only when the directory holds exactly one profile; otherwise
+// it errors with the available names.
+func selectFromDir(dir, name string) (string, error) {
+	refs := config.ListProfilesIn(dir)
+	if len(refs) == 0 {
+		return "", fmt.Errorf("no profiles (*.yaml) in %s", dir)
+	}
+	if name == "" {
+		if len(refs) == 1 {
+			return refs[0].Path, nil
+		}
+		return "", fmt.Errorf("name a profile in %s (have: %s)", dir, profileNames(refs))
+	}
+	file, err := config.FindProfile(dir, name)
+	if err != nil {
+		return "", err
+	}
+	if file == "" {
+		return "", fmt.Errorf("no profile %q in %s (have: %s)", name, dir, profileNames(refs))
+	}
+	return file, nil
+}
+
+// profileNames renders the sorted profile names for an error/listing message.
+func profileNames(refs []config.ProfileRef) string {
+	names := make([]string, len(refs))
+	for i, r := range refs {
+		names[i] = r.Name
+	}
+	sort.Strings(names)
+	return strings.Join(names, ", ")
 }
 
 // resolveTarget reproduces the bash resolve_target + base resolution: it picks
 // the profile (if any), the project root and the sandbox slug, and loads the
 // base state.
 func resolveTarget(f commonFlags, pos string) (*target, error) {
-	file, pos := resolveProfileFile(f.config, pos)
+	file, pos, err := resolveProfileFile(f.config, pos)
+	if err != nil {
+		return nil, err
+	}
 
 	var prof *config.Profile
 	var profJSON []byte
@@ -76,8 +146,12 @@ func resolveTarget(f commonFlags, pos string) (*target, error) {
 			return nil, err
 		}
 		prof = p
-		profJSON, _ = p.JSON()
-		slug = p.Name
+		// An unnamed profile takes its slug from the file's base name.
+		if prof.Name == "" {
+			prof.Name = config.ProfileName(file, nil)
+		}
+		profJSON, _ = prof.JSON()
+		slug = prof.Name
 		root = firstNonEmpty(f.src, getwd())
 		if slug == "" {
 			return nil, errors.New("profile has no name")
@@ -139,6 +213,11 @@ func isYAML(p string) bool {
 func fileExists(p string) bool {
 	_, err := os.Stat(p)
 	return err == nil
+}
+
+func isDir(p string) bool {
+	fi, err := os.Stat(p)
+	return err == nil && fi.IsDir()
 }
 
 func getwd() string {

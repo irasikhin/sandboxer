@@ -161,25 +161,62 @@ func TestSplitDash(t *testing.T) {
 
 func TestResolveProfileFile(t *testing.T) {
 	t.Setenv("SANDBOXER_IN_CONTAINER", "")
-	if file, pos := resolveProfileFile("cfg.yaml", "leftover"); file != "cfg.yaml" || pos != "leftover" {
-		t.Errorf("config precedence = (%q,%q)", file, pos)
+	// Hermetic store: an empty dir until a case populates it.
+	store := t.TempDir()
+	t.Setenv("SANDBOXER_PROFILES", store)
+
+	must := func(label, wantFile, wantPos, gotFile, gotPos string, err error) {
+		t.Helper()
+		if err != nil {
+			t.Fatalf("%s: unexpected error: %v", label, err)
+		}
+		if gotFile != wantFile || gotPos != wantPos {
+			t.Errorf("%s = (%q,%q), want (%q,%q)", label, gotFile, gotPos, wantFile, wantPos)
+		}
 	}
+
+	// -f *.yaml wins; the positional is kept as a slug override.
+	f, p, err := resolveProfileFile("cfg.yaml", "leftover")
+	must("config precedence", "cfg.yaml", "leftover", f, p, err)
+
 	dir := t.TempDir()
 	t.Chdir(dir)
 	if err := os.WriteFile("p.yaml", []byte("name: x\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if file, pos := resolveProfileFile("", "p.yaml"); file != "p.yaml" || pos != "" {
-		t.Errorf("positional yaml = (%q,%q)", file, pos)
-	}
+	f, p, err = resolveProfileFile("", "p.yaml")
+	must("positional yaml", "p.yaml", "", f, p, err)
+
 	if err := os.WriteFile("sandboxer.yaml", []byte("name: y\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if file, pos := resolveProfileFile("", ""); file != "sandboxer.yaml" || pos != "" {
-		t.Errorf("auto-discovery = (%q,%q)", file, pos)
+	f, p, err = resolveProfileFile("", "")
+	must("auto-discovery", "sandboxer.yaml", "", f, p, err)
+
+	// A bare positional naming nothing stays a slug.
+	f, p, err = resolveProfileFile("", "slug")
+	must("non-yaml positional", "", "slug", f, p, err)
+
+	// A named profile from the global store, by positional and by -f NAME.
+	web := filepath.Join(store, "web.yaml")
+	if err := os.WriteFile(web, []byte("name: web\nbackend: native\nagent: claude\n"), 0o644); err != nil {
+		t.Fatal(err)
 	}
-	if file, pos := resolveProfileFile("", "slug"); file != "" || pos != "slug" {
-		t.Errorf("non-yaml positional = (%q,%q)", file, pos)
+	f, p, err = resolveProfileFile("", "web")
+	must("store by positional", web, "", f, p, err)
+	f, p, err = resolveProfileFile("web", "")
+	must("store by -f name", web, "", f, p, err)
+
+	// -f DIR selects by name; an unknown name errors with the listing.
+	envs := t.TempDir()
+	api := filepath.Join(envs, "api.yaml")
+	if err := os.WriteFile(api, []byte("name: api\nbackend: podman\nagent: opencode\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	f, p, err = resolveProfileFile(envs, "api")
+	must("dir by name", api, "", f, p, err)
+	if _, _, err := resolveProfileFile(envs, "nope"); err == nil {
+		t.Error("unknown profile in -f dir should error")
 	}
 }
 
@@ -205,6 +242,9 @@ func requireExec(t *testing.T, names ...string) {
 func newProject(t *testing.T) string {
 	t.Helper()
 	t.Setenv("SANDBOXER_IN_CONTAINER", "")
+	// Isolate the global profile store so a bare slug never resolves to a
+	// host-installed named profile.
+	t.Setenv("SANDBOXER_PROFILES", t.TempDir())
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "f.txt"), []byte("v1\n"), 0o644); err != nil {
 		t.Fatal(err)

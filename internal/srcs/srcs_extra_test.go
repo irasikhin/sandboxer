@@ -66,6 +66,56 @@ func TestDepsMultiMatchAndDefaultRoot(t *testing.T) {
 	}
 }
 
+// TestCopyInRefusesEscapingDep: an absolute dep, or one with ../ segments,
+// must never be copied outside the sandbox.
+func TestCopyInRefusesEscapingDep(t *testing.T) {
+	base := t.TempDir()
+	root := filepath.Join(base, "root")
+	writeFile(t, filepath.Join(root, "etc", "hosts"), "rootfile\n")
+	outside := filepath.Join(base, "outside.txt") // absolute, outside the sandbox
+	writeFile(t, outside, "keep\n")
+
+	sandbox := filepath.Join(base, "sandbox")
+	manifest := filepath.Join(base, "m.json")
+	pf := writeProfile(t, base, Profile{
+		Roots: []string{root},
+		Deps:  []string{outside, "../escape.txt", "etc/hosts"},
+	})
+
+	var out bytes.Buffer
+	if err := CopyIn(&out, pf, sandbox, manifest, false); err != nil {
+		t.Fatalf("CopyIn: %v", err)
+	}
+	if !strings.Contains(out.String(), "outside the sandbox") {
+		t.Errorf("expected an escape SKIP, got: %q", out.String())
+	}
+	// The absolute origin must be untouched and not pulled in.
+	if got := readFile(t, outside); got != "keep\n" {
+		t.Errorf("absolute dep origin was modified: %q", got)
+	}
+	if exists(filepath.Join(base, "escape.txt")) {
+		t.Error("../escape.txt was created outside the sandbox")
+	}
+	// The legitimate (in-sandbox) dep still lands.
+	if got := readFile(t, filepath.Join(sandbox, "etc", "hosts")); got != "rootfile\n" {
+		t.Errorf("legit dep not copied: %q", got)
+	}
+}
+
+// TestCopyOutCorruptManifest: a present-but-corrupt manifest fails the push
+// rather than silently restoring nothing.
+func TestCopyOutCorruptManifest(t *testing.T) {
+	bad := filepath.Join(t.TempDir(), "m.json")
+	writeFile(t, bad, "not json")
+	if err := CopyOut(&bytes.Buffer{}, bad); err == nil {
+		t.Error("CopyOut on a corrupt manifest should error")
+	}
+	// A missing manifest is still a no-op (push of nothing succeeds).
+	if err := CopyOut(&bytes.Buffer{}, filepath.Join(t.TempDir(), "missing.json")); err != nil {
+		t.Errorf("CopyOut on a missing manifest should not error: %v", err)
+	}
+}
+
 func TestCopyEntry(t *testing.T) {
 	// Missing src errors.
 	if err := copyEntry(filepath.Join(t.TempDir(), "nope"), filepath.Join(t.TempDir(), "dst")); err == nil {
@@ -115,13 +165,13 @@ func TestCopyEntrySymlink(t *testing.T) {
 }
 
 func TestManifestIO(t *testing.T) {
-	if readManifest(filepath.Join(t.TempDir(), "missing")) != nil {
-		t.Error("missing manifest should read as nil")
+	if m, err := readManifest(filepath.Join(t.TempDir(), "missing")); m != nil || err != nil {
+		t.Errorf("missing manifest = (%v,%v), want (nil,nil)", m, err)
 	}
 	bad := filepath.Join(t.TempDir(), "bad.json")
 	writeFile(t, bad, "not json")
-	if readManifest(bad) != nil {
-		t.Error("garbage manifest should read as nil")
+	if _, err := readManifest(bad); err == nil {
+		t.Error("garbage manifest should be reported as an error")
 	}
 	out := filepath.Join(t.TempDir(), "m.json")
 	if err := writeManifest(out, nil); err != nil {

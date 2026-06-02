@@ -60,6 +60,71 @@ func TestSmallHelpers(t *testing.T) {
 	}
 }
 
+func TestValidateLimits(t *testing.T) {
+	for _, c := range []struct{ m, cpu, w string }{
+		{"", "", ""}, {"512M", "100%", "1800"}, {"2G", "1.5", "30s"}, {"1g", "50%", "5m"},
+	} {
+		if err := validateLimits(c.m, c.cpu, c.w); err != nil {
+			t.Errorf("validateLimits(%q,%q,%q) unexpected error: %v", c.m, c.cpu, c.w, err)
+		}
+	}
+	for _, c := range []struct{ m, cpu, w string }{
+		{"lots", "", ""}, {"", "fast", ""}, {"", "", "soon"}, {"", "2x", ""}, {"2GB!", "", ""},
+	} {
+		if err := validateLimits(c.m, c.cpu, c.w); err == nil {
+			t.Errorf("validateLimits(%q,%q,%q) expected an error", c.m, c.cpu, c.w)
+		}
+	}
+}
+
+// TestRunBadLimitFailsFast: a malformed limit is rejected before any sandbox is
+// created.
+func TestRunBadLimitFailsFast(t *testing.T) {
+	_, err := Run(Options{
+		Src: t.TempDir(), Mem: "lots",
+		Defaults: config.Defaults{Agent: "claude", Backend: "native"},
+		Stdout:   &bytes.Buffer{}, Stderr: &bytes.Buffer{},
+	})
+	if err == nil || !strings.Contains(err.Error(), "invalid --mem") {
+		t.Errorf("bad --mem should fail fast, got %v", err)
+	}
+}
+
+// TestRunCountsLaunched: Result.Count reflects the sandboxes that actually
+// launched, not the number of tasks, when one fails to be created.
+func TestRunCountsLaunched(t *testing.T) {
+	root := t.TempDir()
+	state := filepath.Join(root, config.StateDirName)
+	if err := os.MkdirAll(filepath.Join(state, "_meta"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// Plant a regular file where the "bad" sandbox dir must go, so MakeSandbox
+	// fails for that one task only.
+	if err := os.WriteFile(filepath.Join(state, "bad"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	tasks := filepath.Join(root, "sandboxer.tasks")
+	if err := os.WriteFile(tasks, []byte("[ok]\ndo a thing\n[bad]\ndo another\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var out, errb bytes.Buffer
+	res, err := Run(Options{
+		Src: root, TasksFile: tasks, Keep: true, DryRun: true,
+		Defaults: config.Defaults{Agent: "claude", Backend: "native"},
+		Stdout:   &out, Stderr: &errb,
+	})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if res.Count != 1 {
+		t.Errorf("Count = %d, want 1 (one sandbox failed to create)", res.Count)
+	}
+	if !strings.Contains(errb.String(), "make sandbox bad") {
+		t.Errorf("missing failure note for the bad sandbox: %q", errb.String())
+	}
+}
+
 func TestWrapLimits(t *testing.T) {
 	// No mem/cpu/wall → just nice.
 	s := launchSpec{nice: 7, slug: "x"}

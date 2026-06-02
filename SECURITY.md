@@ -24,8 +24,14 @@ sandboxer is a workflow tool for running coding agents in isolation, not a
 hardened security boundary. Understand the model before trusting it:
 
 - **Separate working copy.** sandboxer isolates a coding agent in a *separate
-  copy* of the repository on a dedicated git branch, so the agent's changes
-  never touch your live working tree until you review and push them back.
+  directory* containing only the `deps` you list, so the agent's changes never
+  touch their origins until you review (`sandboxer diff`) and copy them back
+  (`sandboxer push`). No git is involved.
+
+- **Push overwrites the origin.** `sandboxer push` (and the automatic copy-back
+  after `enter`/`exec`) replaces each origin *wholesale* with the sandbox copy,
+  with no merge and no signature check — an out-of-band edit to the origin is
+  lost. Run `sandboxer diff` before pushing to see what will change.
 
 - **Container backend.** The `podman`/`docker` backend runs the agent
   unprivileged: `--user` (non-root), `--cap-drop=ALL`, and
@@ -34,9 +40,13 @@ hardened security boundary. Understand the model before trusting it:
 
 - **Egress allowlist.** The agent runs on an `--internal` network whose sole
   exit is an allowlist forward-proxy, restricting outbound network traffic to
-  the configured domains. This is a **best-effort guardrail, not a guarantee**
-  against a determined adversary — DNS tricks, abuse of an allowed domain, and
-  similar techniques can defeat it.
+  the configured domains. The container backend **fails closed**: if the
+  allowlist is required but the proxy cannot start (or no domains are allowed),
+  the run is refused rather than silently falling back to an open network.
+  Disable it deliberately with `egress: false` or `SANDBOXER_NO_EGRESS=1`. Even
+  when active it is a **best-effort guardrail, not a guarantee** against a
+  determined adversary — DNS tricks, abuse of an allowed domain, and similar
+  techniques can defeat it.
 
 - **Credentials.** Agent auth-config directories and API-key environment
   variables are bind-mounted or passed ephemerally into the sandbox. Treat the

@@ -1,0 +1,13 @@
+# A named profile. Drop this under ~/.config/sandboxer/profiles/ (or any
+# directory you point at with `-f <dir>`) and use it by name:
+#
+#   sandboxer create web
+#   sandboxer create web -f ./examples/profiles
+#
+# The profile's name is this file's base name (web) unless an explicit `name:`
+# overrides it. The sandbox slug is that name.
+name: web
+backend: native
+agent: claude
+network:
+  allowedDomains: [api.anthropic.com, registry.npmjs.org, github.com]

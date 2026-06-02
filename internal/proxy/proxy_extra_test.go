@@ -8,6 +8,29 @@ import (
 	"testing"
 )
 
+// TestAllowedIPAndIPv6 pins down the allowlist's behaviour for IP literals: a
+// raw IP never matches a domain allowlist (no DNS round-trip can launder it
+// in), while an explicitly allowed IP literal — including bracketed IPv6 with a
+// port — matches itself.
+func TestAllowedIPAndIPv6(t *testing.T) {
+	domains := []string{"example.com"}
+	if Allowed(domains, "93.184.216.34:443") {
+		t.Error("direct IPv4 must not match a domain allowlist")
+	}
+	if Allowed(domains, "[2606:2800:220:1:248:1893:25c8:1946]:443") {
+		t.Error("direct IPv6 must not match a domain allowlist")
+	}
+	if !Allowed([]string{"::1"}, "[::1]:443") {
+		t.Error("explicitly allowed bracketed IPv6 (with port) should match")
+	}
+	if !Allowed([]string{"::1"}, "::1") {
+		t.Error("explicitly allowed bare IPv6 literal should match")
+	}
+	if Allowed([]string{"::1"}, "[2606::1]:443") {
+		t.Error("a different IPv6 must not match")
+	}
+}
+
 func TestTargetHost(t *testing.T) {
 	if got := targetHost(&http.Request{URL: &url.URL{Host: "u.com:443"}, Host: "h.com"}); got != "u.com:443" {
 		t.Errorf("targetHost prefers URL.Host, got %q", got)

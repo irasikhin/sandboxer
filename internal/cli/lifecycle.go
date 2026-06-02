@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"os"
 
 	"github.com/spf13/cobra"
 
@@ -19,13 +20,19 @@ func init() {
 func newCreateCmd() *cobra.Command {
 	var f commonFlags
 	cmd := &cobra.Command{
-		Use:   "create [slug|profile.yaml]",
+		Use:   "create [slug|profile|file.yaml]",
 		Short: "Create a sandbox and pull its srcs (nothing else is copied)",
 		Example: `  # named sandbox (empty unless a profile lists deps)
   sandboxer create feat
 
-  # from a profile — slug comes from the profile's name:
-  sandboxer create ./sandboxer.yaml`,
+  # from a profile file — slug comes from the profile's name:
+  sandboxer create ./sandboxer.yaml
+
+  # from a named profile in the store (~/.config/sandboxer/profiles)
+  sandboxer create web
+
+  # pick a profile out of a directory
+  sandboxer create web -f ./envs`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			t, err := resolveTarget(f, posArg(args))
@@ -55,7 +62,7 @@ func newCreateCmd() *cobra.Command {
 	}
 	fl := cmd.Flags()
 	fl.StringVar(&f.src, "src", "", "project root")
-	fl.StringVar(&f.config, "config", "", "profile file (sandboxer.yaml)")
+	fl.StringVarP(&f.config, "config", "f", "", "profile: a file, a directory of profiles, or a named profile (store: ~/.config/sandboxer/profiles)")
 	fl.StringVar(&f.domains, "allow-domains", "", "egress allowlist (csv)")
 	return cmd
 }
@@ -86,30 +93,35 @@ func newEnterCmd() *cobra.Command {
 				return err
 			}
 			errOut := cmd.ErrOrStderr()
+			var runErr error
+			code := 0
 			if rt.Backend == "native" {
 				fmt.Fprintf(errOut, "sandboxer: shell in copy %s (backend=native; OS sandbox only when running 'claude --settings').\n", dest)
-				if err := backend.NativeEnter(dest, rt, cmd.InOrStdin(), cmd.OutOrStdout(), errOut); err != nil {
-					return silentErr{err}
-				}
+				runErr = backend.NativeEnter(dest, rt, cmd.InOrStdin(), cmd.OutOrStdout(), errOut)
 			} else {
 				engine, err := backend.DetectEngine(config.LoadDefaults())
 				if err != nil {
 					return err
 				}
 				fmt.Fprintf(errOut, "sandboxer: interactive shell in container (%s %s). Agents in PATH.\n", engine, config.LoadDefaults().Image)
-				_, err = backend.Run(backend.RunOpts{
+				code, runErr = backend.Run(backend.RunOpts{
 					Engine: engine, Image: config.LoadDefaults().Image, Dest: dest, Slug: t.slug,
 					RT: rt, Profile: t.profile,
 					ProfileJSONPath: t.base.ProfileJSONPath(t.slug), ManifestPath: t.base.ManifestPath(t.slug),
 					Interactive: true, Args: []string{"bash", "-l"},
-					Stdin: cmd.InOrStdin(), Stdout: cmd.OutOrStdout(), Stderr: errOut,
+					NoEgress: noEgress(),
+					Stdin:    cmd.InOrStdin(), Stdout: cmd.OutOrStdout(), Stderr: errOut,
 				})
-				if err != nil {
-					return err
-				}
 			}
+			// Always return the rw srcs, even when the shell/run failed.
 			pushDeps(t, cmd)
 			fmt.Fprintf(errOut, "sandboxer: done in %s. Return rw srcs: sandboxer push %s\n", dest, t.slug)
+			if runErr != nil {
+				return silentErr{runErr}
+			}
+			if code != 0 {
+				return silentErr{fmt.Errorf("shell exited %d", code)}
+			}
 			return nil
 		},
 	}
@@ -164,7 +176,8 @@ func newExecCmd() *cobra.Command {
 				RT: rt, Profile: t.profile,
 				ProfileJSONPath: t.base.ProfileJSONPath(t.slug), ManifestPath: t.base.ManifestPath(t.slug),
 				Interactive: true, Args: rest,
-				Stdin: cmd.InOrStdin(), Stdout: cmd.OutOrStdout(), Stderr: cmd.ErrOrStderr(),
+				NoEgress: noEgress(),
+				Stdin:    cmd.InOrStdin(), Stdout: cmd.OutOrStdout(), Stderr: cmd.ErrOrStderr(),
 			})
 			pushDeps(t, cmd)
 			if err != nil {
@@ -181,13 +194,20 @@ func newExecCmd() *cobra.Command {
 }
 
 // pushDeps pushes rw dependencies back to their origins (if a manifest exists),
-// the same copy-back that `sandboxer push` performs.
+// the same copy-back that `sandboxer push` performs. A failure is surfaced (not
+// swallowed) so the user never believes work was returned when it wasn't.
 func pushDeps(t *target, cmd *cobra.Command) {
 	mf := t.base.ManifestPath(t.slug)
 	if fileExists(mf) {
-		_ = srcs.CopyOut(cmd.ErrOrStderr(), mf)
+		if err := srcs.CopyOut(cmd.ErrOrStderr(), mf); err != nil {
+			fmt.Fprintf(cmd.ErrOrStderr(), "sandboxer: push failed: %v\n", err)
+		}
 	}
 }
+
+// noEgress reports whether the egress allowlist is disabled via the environment
+// (parity with the batch runner, which honours the same switch).
+func noEgress() bool { return os.Getenv("SANDBOXER_NO_EGRESS") == "1" }
 
 // splitDash separates the optional positional before `--` from the command
 // after it.

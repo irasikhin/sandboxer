@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -59,6 +60,9 @@ type Result struct {
 // Run resolves the project, expands the tasks file, creates a sandbox per task
 // and launches the agents in parallel.
 func Run(o Options) (Result, error) {
+	if err := validateLimits(o.Mem, o.CPU, o.Wall); err != nil {
+		return Result{}, err
+	}
 	var profile *config.Profile
 	root := o.Src
 	if o.ConfigPath != "" {
@@ -127,6 +131,7 @@ func Run(o Options) (Result, error) {
 
 	sem := make(chan struct{}, max(1, o.MaxP))
 	var wg sync.WaitGroup
+	launched := 0
 	for _, t := range tasks {
 		if profileJSON != nil {
 			_ = base.WriteProfileJSON(t.Slug, profileJSON)
@@ -135,6 +140,7 @@ func Run(o Options) (Result, error) {
 			fmt.Fprintf(o.Stderr, "sandboxer: make sandbox %s: %v\n", t.Slug, err)
 			continue
 		}
+		launched++
 		wg.Add(1)
 		sem <- struct{}{}
 		go func(t Task) {
@@ -161,7 +167,30 @@ func Run(o Options) (Result, error) {
 	}
 	wg.Wait()
 	fmt.Fprintln(o.Stdout, "sandboxer: all agents finished.")
-	return Result{Root: base.Src, Count: len(tasks)}, nil
+	return Result{Root: base.Src, Count: launched}, nil
+}
+
+var (
+	memRe  = regexp.MustCompile(`^[0-9]+(\.[0-9]+)?[bBkKmMgGtT]?$`)
+	cpuRe  = regexp.MustCompile(`^[0-9]+(\.[0-9]+)?%?$`)
+	wallRe = regexp.MustCompile(`^[0-9]+(\.[0-9]+)?[smhd]?$`)
+)
+
+// validateLimits rejects malformed --mem/--cpu/--wall up front instead of
+// letting the container engine or systemd-run fail asynchronously inside a
+// worker goroutine (where the error is easy to miss). Empty values mean "no
+// limit" and always pass.
+func validateLimits(mem, cpu, wall string) error {
+	if mem != "" && !memRe.MatchString(mem) {
+		return fmt.Errorf("invalid --mem %q (want a size like 512M or 2G)", mem)
+	}
+	if cpu != "" && !cpuRe.MatchString(cpu) {
+		return fmt.Errorf("invalid --cpu %q (want a core count like 1.5 or a percentage like 100%%)", cpu)
+	}
+	if wall != "" && !wallRe.MatchString(wall) {
+		return fmt.Errorf("invalid --wall %q (want seconds like 1800, optionally suffixed s/m/h/d)", wall)
+	}
+	return nil
 }
 
 type launchSpec struct {

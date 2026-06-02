@@ -32,11 +32,15 @@ func newRunCmd() *cobra.Command {
   sandboxer run tasks.txt --mem 2G --cpu 100% --wall 1800`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			// Match the lifecycle commands: when no --config is given, pick up a
-			// sandboxer.yaml from the cwd so `run` and `create` resolve identically.
-			if configPath == "" {
-				configPath, _ = resolveProfileFile("", "")
+			// Resolve -f/--config the same way the lifecycle commands do: a file, a
+			// directory of profiles, a named profile from the store, or (when unset)
+			// an auto-discovered ./sandboxer.yaml. The single resolved profile
+			// applies to every task in the batch.
+			file, _, err := resolveProfileFile(configPath, "")
+			if err != nil {
+				return err
 			}
+			configPath = file
 			res, err := runner.Run(runner.Options{
 				Src:        src,
 				ConfigPath: configPath,
@@ -67,7 +71,7 @@ func newRunCmd() *cobra.Command {
 	}
 	fl := cmd.Flags()
 	fl.StringVar(&src, "src", "", "project root")
-	fl.StringVar(&configPath, "config", "", "profile file (sandboxer.yaml)")
+	fl.StringVarP(&configPath, "config", "f", "", "profile: a file, a directory of profiles, or a named profile (store: ~/.config/sandboxer/profiles)")
 	fl.StringVar(&model, "model", "", "model override")
 	fl.StringVar(&agent, "agent", "", "agent override")
 	fl.StringVar(&backend, "backend", "", "backend: native | podman | docker")

@@ -18,9 +18,19 @@ jobs:
           go-version: "1.24"
           cache: true
       - run: go build ./cmd/sandboxer
+      # Cross-build the other release target so arch-specific breakage is caught
+      # here, not only at release time.
+      - name: Cross-build (linux/arm64)
+        run: GOOS=linux GOARCH=arm64 go build ./...
       - run: go test ./... -coverprofile=coverage.out
       - name: Coverage summary
         run: go tool cover -func=coverage.out | tail -1
+      - name: Coverage gate
+        run: |
+          total=$(go tool cover -func=coverage.out | awk '/^total:/ {sub(/%/,"",$3); print $3}')
+          echo "total coverage: ${total}%"
+          awk -v t="$total" 'BEGIN { exit (t+0 >= 90.0) ? 0 : 1 }' \
+            || { echo "::error::total coverage ${total}% is below the 90% gate"; exit 1; }
       - run: go vet ./...
       - uses: actions/upload-artifact@v4
         with:

@@ -87,17 +87,25 @@ func resolveDeps(p Profile, sandboxDir string, w io.Writer) []target {
 	}
 	var out []target
 	for _, dep := range p.Deps {
+		dest := absJoin(sandboxDir, dep)
+		// Never let a dep (absolute, or one with ../ segments) land outside the
+		// sandbox — that would have copy_in write over arbitrary host paths.
+		if !within(sandboxDir, dest) {
+			fmt.Fprintf(w, "  SKIP  %s — refusing to copy outside the sandbox (absolute or ../ path)\n", dep)
+			continue
+		}
 		matches := searchDep(roots, dep)
 		switch {
 		case len(matches) == 0:
 			fmt.Fprintf(w, "  SKIP  %s — not found under roots\n", dep)
 			continue
 		case len(matches) > 1:
-			fmt.Fprintf(w, "  WARN  %s — %d matches, using %s\n", dep, len(matches), matches[0])
+			fmt.Fprintf(w, "  WARN  %s — %d matches under roots, using %s (others: %s)\n",
+				dep, len(matches), matches[0], strings.Join(matches[1:], ", "))
 		}
 		out = append(out, target{
 			Origin: matches[0],
-			Dest:   absJoin(sandboxDir, dep),
+			Dest:   dest,
 			Mode:   "rw",
 		})
 	}
@@ -191,18 +199,22 @@ func copyFile(src, dst string, perm os.FileMode, mtime time.Time) error {
 	return os.Chtimes(dst, mtime, mtime)
 }
 
-// readManifest loads a manifest, tolerating a missing or garbage file (returns
-// an empty slice).
-func readManifest(file string) []ManifestEntry {
+// readManifest loads a manifest. A missing file is not an error (it reads as an
+// empty manifest), but a present-but-corrupt file is reported so a push can't
+// silently no-op and claim success.
+func readManifest(file string) ([]ManifestEntry, error) {
 	data, err := os.ReadFile(file)
 	if err != nil {
-		return nil
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
 	}
 	var m []ManifestEntry
 	if err := json.Unmarshal(data, &m); err != nil {
-		return nil
+		return nil, fmt.Errorf("manifest %s is corrupt: %w", file, err)
 	}
-	return m
+	return m, nil
 }
 
 // writeManifest writes the manifest as indented JSON.
@@ -272,7 +284,10 @@ func CopyIn(w io.Writer, profileFile, sandboxDir, manifestOut string, force bool
 // origins, always overwriting (like depsync's push). An entry whose sandbox
 // copy is missing is skipped. Progress is reported to w.
 func CopyOut(w io.Writer, manifestFile string) error {
-	manifest := readManifest(manifestFile)
+	manifest, err := readManifest(manifestFile)
+	if err != nil {
+		return err
+	}
 	back, missing := 0, 0
 	for i := range manifest {
 		e := &manifest[i]
@@ -304,6 +319,16 @@ func CopyOut(w io.Writer, manifestFile string) error {
 func exists(p string) bool {
 	_, err := os.Lstat(p)
 	return err == nil
+}
+
+// within reports whether target resolves inside base, rejecting absolute paths
+// that escape it and any ../ traversal.
+func within(base, target string) bool {
+	rel, err := filepath.Rel(base, target)
+	if err != nil {
+		return false
+	}
+	return rel == "." || (rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)))
 }
 
 func cwd() string {

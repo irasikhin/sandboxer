@@ -41,15 +41,23 @@ type RunOpts struct {
 // code.
 func Run(o RunOpts) (int, error) {
 	var eg *egress.Egress
-	// Egress allowlist: only when not disabled, the profile allows it, there is
-	// no upstream proxy holding the boundary, and we have domains to allow.
-	if !o.NoEgress && o.RT.Egress && o.RT.HTTPProxy == "" && o.RT.HTTPSProxy == "" && len(o.RT.Domains) > 0 {
+	// Egress allowlist is required unless explicitly disabled (NoEgress /
+	// egress: false) or an upstream proxy is holding the boundary. When it is
+	// required we fail closed: we never silently fall back to an open bridge
+	// network, because that would drop the isolation the caller asked for.
+	egressRequired := !o.NoEgress && o.RT.Egress && o.RT.HTTPProxy == "" && o.RT.HTTPSProxy == ""
+	if egressRequired {
+		if len(o.RT.Domains) == 0 {
+			return 0, fmt.Errorf("egress allowlist is enabled but no domains are allowed — " +
+				"set --allow-domains / network.allowedDomains, or disable egress " +
+				"(egress: false, or SANDBOXER_NO_EGRESS=1)")
+		}
 		e, err := egress.Up(o.Engine, o.Image, o.Slug, o.RT.Domains, o.Stderr)
 		if err != nil {
-			fmt.Fprintln(o.Stderr, "sandboxer: egress: allowlist proxy failed to start — container WITHOUT network isolation (bridge)")
-		} else {
-			eg = e
+			return 0, fmt.Errorf("egress allowlist proxy failed to start: %w — "+
+				"refusing to run on an open network (disable with egress: false or SANDBOXER_NO_EGRESS=1)", err)
 		}
+		eg = e
 	}
 	defer eg.Down()
 

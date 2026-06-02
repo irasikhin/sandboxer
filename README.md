@@ -1,7 +1,7 @@
 # sandboxer
 
 [![CI](https://github.com/irasikhin/sandboxer/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/irasikhin/sandboxer/actions/workflows/ci.yml?query=branch%3Amain)
-[![Coverage](https://img.shields.io/badge/coverage-91.9%25-brightgreen.svg)](#testing)
+[![Coverage](https://img.shields.io/badge/coverage-92.2%25-brightgreen.svg)](#testing)
 [![Go](https://img.shields.io/badge/Go-1.24+-00ADD8?logo=go)](https://go.dev/)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
@@ -65,8 +65,10 @@ sandboxer rm     feat                     # delete the sandbox
 ```
 
 To pull deps in, a profile must list them: drop a `sandboxer.yaml` in the cwd
-(auto-discovered) or pass `--config`; the sandbox slug then comes from the
-profile's `name:`.
+(auto-discovered), pass one with `-f` (a file, a directory of profiles, or a
+[named profile](#named-profiles) from `~/.config/sandboxer/profiles/`), or refer
+to a stored profile by name; the sandbox slug then comes from the profile's
+`name:`.
 
 Run a batch of autonomous agents — one sandbox per task:
 
@@ -88,8 +90,11 @@ Scalars come from **flags** and `SANDBOXER_*` env vars:
 | image | — | `SANDBOXER_IMAGE` (default `sandboxer-toolbox:latest`) |
 
 Structured fields (`roots`/`deps`, `extraMounts`, `env`) live in an **optional**
-`sandboxer.yaml` (auto-discovered in the cwd, or `--config <file>`). See
-`examples/sandboxer.yaml` and `examples/with-deps.yaml`.
+`sandboxer.yaml`. Point at it with `-f`/`--config`, which accepts a **file**, a
+**directory** of profiles, or the **name** of a profile in the store (see
+[Named profiles](#named-profiles)); with nothing given, a `sandboxer.yaml` in
+the cwd is auto-discovered. See `examples/sandboxer.yaml`,
+`examples/with-deps.yaml` and `examples/profiles/`.
 
 ```yaml
 name: feature-x
@@ -108,6 +113,33 @@ deps:
 is kept unless `--force`. They are copied back to their origins (`sandboxer
 push`), always overwriting. The copy preserves symlinks and file modes and
 replaces the destination wholesale (depsync semantics).
+
+> ⚠️ `push` (and the automatic copy-back after `enter`/`exec`) **overwrites each
+> origin wholesale** — there is no merge and no signature check, so an
+> out-of-band edit to an origin is lost. Run `sandboxer diff` first to see what
+> will change. A `dep` that resolves to multiple paths uses the first match
+> (the others are listed); absolute or `../` deps are refused.
+
+### Named profiles
+
+Keep reusable profiles as files and select them by **name** instead of by path.
+A profile's name is its file's base name (`web.yaml` → `web`) unless the file
+sets an explicit `name:`, which wins. There are three sources, in precedence
+order:
+
+```bash
+sandboxer create ./feat.yaml          # an explicit file
+sandboxer create api  -f ./envs        # the profile named "api" inside a directory
+sandboxer create web                   # a named profile from the global store
+sandboxer profiles                     # list the store; `profiles -f ./envs` lists a dir
+```
+
+The global store is **`~/.config/sandboxer/profiles/`** (override with
+`$SANDBOXER_PROFILES`, or it follows `$XDG_CONFIG_HOME`). A bare positional that
+matches a stored profile is used as that profile (its `name:` becomes the slug);
+otherwise it stays a plain sandbox slug, so existing `create feat` usage is
+unchanged. `-f`/`--config` works the same on `create`, `enter`, `exec`, `show`
+and `run`.
 
 ## Egress allowlist (container backend)
 
@@ -150,19 +182,19 @@ go tool cover -func=cov.out | tail -1         # total coverage
 go tool cover -html=cov.out -o cov.html       # browseable report
 ```
 
-Current coverage: **91.9%** total. Per package:
+Current coverage: **92.2%** total. Per package:
 
 | Package             | Coverage |
 | ------------------- | -------- |
 | `cmd/sandboxer`     | 100.0%   |
-| `internal/config`   | 100.0%   |
-| `internal/backend`  | 95.3%    |
-| `internal/runner`   | 94.2%    |
+| `internal/config`   | 99.0%    |
+| `internal/backend`  | 96.0%    |
+| `internal/runner`   | 95.6%    |
 | `internal/egress`   | 94.3%    |
 | `internal/registry` | 94.1%    |
 | `internal/cli`      | 90.9%    |
 | `internal/proxy`    | 90.3%    |
-| `internal/srcs`     | 87.2%    |
+| `internal/srcs`     | 87.0%    |
 | `internal/sandbox`  | 88.8%    |
 
 Backend tests use fake engine/agent stubs on `PATH`, so they run without
