@@ -7,8 +7,105 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/irasikhin/sandboxer/internal/config"
 	"github.com/irasikhin/sandboxer/internal/sandbox"
 )
+
+// TestRunAutoScaffold: create with no config writes a default sandboxer.yaml
+// into the project root, announces it, and applies it (name = slug); opting out
+// keeps the no-profile path.
+func TestRunAutoScaffold(t *testing.T) {
+	t.Setenv("SANDBOXER_IN_CONTAINER", "")
+	t.Setenv("SANDBOXER_PROFILES", t.TempDir())
+
+	project := t.TempDir()
+	code, _, errs := run("create", "feat", "--src", project)
+	if code != 0 {
+		t.Fatalf("create = %d (%q)", code, errs)
+	}
+	if !strings.Contains(errs, "scaffolded a default") {
+		t.Errorf("auto-scaffold was not announced: %q", errs)
+	}
+	scaffold := filepath.Join(project, "sandboxer.yaml")
+	doc, err := config.LoadDocument(scaffold)
+	if err != nil {
+		t.Fatalf("auto-scaffold did not parse: %v", err)
+	}
+	if p, _ := doc.Select(""); p.Name != "feat" {
+		t.Errorf("scaffold name should match the slug, got %+v", p)
+	}
+
+	// Opt-out: no file written.
+	t.Setenv("SANDBOXER_NO_SCAFFOLD", "1")
+	other := t.TempDir()
+	if code, _, _ := run("create", "x", "--src", other); code != 0 {
+		t.Fatal("create with opt-out failed")
+	}
+	if fileExists(filepath.Join(other, "sandboxer.yaml")) {
+		t.Error("SANDBOXER_NO_SCAFFOLD=1 should skip scaffolding")
+	}
+}
+
+// TestRunInit covers scaffolding a starter sandboxer.yaml: it parses, refuses to
+// clobber an existing file, and --force rewrites it.
+func TestRunInit(t *testing.T) {
+	t.Setenv("SANDBOXER_IN_CONTAINER", "")
+	t.Chdir(t.TempDir())
+
+	if code, out, errs := run("init", "demo"); code != 0 || !strings.Contains(out, "wrote sandboxer.yaml") {
+		t.Fatalf("init = (%d, %q, %q)", code, out, errs)
+	}
+	doc, err := config.LoadDocument("sandboxer.yaml")
+	if err != nil {
+		t.Fatalf("scaffold did not parse: %v", err)
+	}
+	p, err := doc.Select("")
+	if err != nil || p.Name != "demo" || p.Agent == "" || p.Backend == "" {
+		t.Errorf("scaffold profile wrong: %+v (err %v)", p, err)
+	}
+	// Refuses to overwrite without --force.
+	if code, _, errs := run("init"); code != 1 || !strings.Contains(errs, "already exists") {
+		t.Errorf("init over existing = (%d, %q), want refusal", code, errs)
+	}
+	// --force rewrites.
+	if code, _, errs := run("init", "other", "--force"); code != 0 {
+		t.Errorf("init --force = %d (%q)", code, errs)
+	}
+	doc2, _ := config.LoadDocument("sandboxer.yaml")
+	if p2, _ := doc2.Select(""); p2.Name != "other" {
+		t.Errorf("--force did not rewrite name: %+v", p2)
+	}
+}
+
+// TestConfigLine checks the resolved-settings banner that create/enter/exec/show
+// print so the user always sees what config was actually used.
+func TestConfigLine(t *testing.T) {
+	t.Setenv("SANDBOXER_NO_EGRESS", "")
+
+	// Defaults, no profile: egress on with a domain count, profile=none.
+	rt := config.Runtime{Agent: "claude", Backend: "native", Egress: true, Domains: []string{"a.com", "b.com"}}
+	line := configLine(rt, "feat", nil)
+	for _, want := range []string{"feat —", "agent=claude", "backend=native", "model=default", "egress=on (2 domains)", "profile=none", "deps=0"} {
+		if !strings.Contains(line, want) {
+			t.Errorf("configLine missing %q in %q", want, line)
+		}
+	}
+
+	// With a named profile and deps; egress off when not enabled.
+	prof := &config.Profile{Name: "web", Deps: []string{"x", "y"}}
+	line2 := configLine(config.Runtime{Agent: "opencode", Backend: "podman", Model: "gpt-5"}, "web", prof)
+	for _, want := range []string{"profile=web", "deps=2", "egress=off", "model=gpt-5"} {
+		if !strings.Contains(line2, want) {
+			t.Errorf("configLine (profile) missing %q in %q", want, line2)
+		}
+	}
+
+	// Disabled via env is called out explicitly.
+	t.Setenv("SANDBOXER_NO_EGRESS", "1")
+	if l := configLine(rt, "feat", nil); !strings.Contains(l, "SANDBOXER_NO_EGRESS") {
+		t.Errorf("configLine should note env-disabled egress: %q", l)
+	}
+}
 
 func TestSilentErr(t *testing.T) {
 	if (silentErr{errors.New("boom")}).Error() != "boom" {

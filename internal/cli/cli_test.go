@@ -245,6 +245,9 @@ func newProject(t *testing.T) string {
 	// Isolate the global profile store so a bare slug never resolves to a
 	// host-installed named profile.
 	t.Setenv("SANDBOXER_PROFILES", t.TempDir())
+	// These tests drive explicit flows; opt out of auto-scaffolding so a bare
+	// create/enter keeps its no-profile semantics (TestRunAutoScaffold covers it).
+	t.Setenv("SANDBOXER_NO_SCAFFOLD", "1")
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "f.txt"), []byte("v1\n"), 0o644); err != nil {
 		t.Fatal(err)

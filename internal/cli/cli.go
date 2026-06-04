@@ -83,4 +83,11 @@ default and no git is involved. The agent runs inside an isolation backend:
   • native (claude only): Claude Code's own /sandbox (--settings '{sandbox…}').
 
 Config: flags + SANDBOXER_* env, with an optional sandboxer.yaml profile for
-structured fields (roots/deps, extraMounts, env).`
+structured fields (roots/deps, extraMounts, env). A profile file can hold one
+profile or several under a profiles: map (pick a section with 'create <name>').
+
+Tips:
+  • 'sandboxer use <slug>' sets an active sandbox so you can omit the slug after.
+  • Outbound traffic is restricted to an egress allowlist
+    (network.allowedDomains / --allow-domains; disable with SANDBOXER_NO_EGRESS=1).
+  • Each create/enter/exec prints the resolved agent/backend/model/egress it used.`

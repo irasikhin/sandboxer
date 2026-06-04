@@ -10,6 +10,28 @@ commit messages with that in mind. See [CONTRIBUTING.md](./CONTRIBUTING.md).
 
 ## [Unreleased]
 
+### Added
+
+- **`sandboxer init`** scaffolds a commented `sandboxer.yaml` (seeded with the
+  effective defaults) so there's a concrete config to edit instead of relying on
+  silent defaults; refuses to clobber an existing file without `--force`.
+- **Auto-scaffold.** `create`/`enter` in a project with no config now write (and
+  announce) a default `sandboxer.yaml` and use it for the run, instead of
+  falling back to silent defaults. An explicit `-f`, an existing config, or
+  `SANDBOXER_NO_SCAFFOLD=1` skip it.
+
+### Changed
+
+- **Runtime transparency.** `create`/`enter`/`exec` (and `show`) now print the
+  resolved settings they use — `agent`, `backend`, `model`, egress status,
+  profile source, dep count — so it's never a mystery what config applied. First
+  creation of the `.sandboxer/` state tree is announced, the misleading
+  post-run "push" hint is replaced with the actual copy-back result, and the
+  remaining user-facing `srcs` wording is now `deps`.
+- Root `--help` surfaces the active-sandbox (`use`), multi-profile and egress
+  features; `pull`/`push` gained examples showing the idempotent-vs-overwrite
+  asymmetry.
+
 ## [0.5.0] — 2026-06-04
 
 ### Added

@@ -58,6 +58,7 @@ Or grab a [pre-built binary](https://github.com/irasikhin/sandboxer/releases)
 ## Quick start
 
 ```bash
+sandboxer init                            # scaffold a commented sandboxer.yaml to edit (optional)
 sandboxer create feat                     # create a sandbox named "feat" (deps come from a profile)
 sandboxer enter  feat                     # interactive shell inside it (agents on PATH)
 sandboxer exec   feat -- claude           # run an agent/command inside it
@@ -90,6 +91,9 @@ Scalars come from **flags** and `SANDBOXER_*` env vars:
 | backend | `--backend` | `SANDBOXER_BACKEND` (default `podman`) |
 | model | `--model` | `SANDBOXER_MODEL` |
 | egress domains | `--allow-domains a,b` | `SANDBOXER_DOMAINS` |
+| disable egress | — | `SANDBOXER_NO_EGRESS=1` |
+| skip auto-scaffold | — | `SANDBOXER_NO_SCAFFOLD=1` (create/enter writes a default `sandboxer.yaml` otherwise) |
+| container engine | — | `SANDBOXER_ENGINE` (default: auto-detect podman→docker) |
 | image | — | `SANDBOXER_IMAGE` (default `sandboxer-toolbox:latest`) |
 
 Structured fields (`roots`/`deps`, `extraMounts`, `env`) live in an **optional**

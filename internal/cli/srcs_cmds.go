@@ -19,7 +19,12 @@ func newPullCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "pull [slug]",
 		Short: "Copy dependency origins into the sandbox (skip locally modified; --force overwrites)",
-		Args:  cobra.MaximumNArgs(1),
+		Example: `  # pull deps in; idempotent — existing files are kept
+  sandboxer pull feat
+
+  # re-pull, overwriting local edits in the sandbox
+  sandboxer pull feat --force`,
+		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			out := cmd.OutOrStdout()
 			if inContainer() {
@@ -50,7 +55,10 @@ func newPushCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "push [slug]",
 		Short: "Copy rw dependencies from the sandbox back to their origins",
-		Args:  cobra.MaximumNArgs(1),
+		Example: `  # return rw deps to their origins — OVERWRITES each origin wholesale
+  # (run 'sandboxer diff' first to see what will change)
+  sandboxer push feat`,
+		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			out := cmd.OutOrStdout()
 			if inContainer() {

@@ -66,7 +66,7 @@ func printList(cmd *cobra.Command, base *sandbox.Base) {
 	fmt.Fprintln(out, "* = active (use). enter <s> | exec <s> -- cmd | diff [s] | push [s] | rm <s>")
 }
 
-// sandboxDiff shows what changed in a sandbox's pulled srcs versus their
+// sandboxDiff shows what changed in a sandbox's pulled deps versus their
 // origins (one `diff -ruN` per manifest entry). Empty when there is no manifest.
 func sandboxDiff(base *sandbox.Base, slug string) string {
 	data, err := os.ReadFile(base.ManifestPath(slug))
@@ -96,7 +96,7 @@ func newDiffCmd() *cobra.Command {
 	var src string
 	cmd := &cobra.Command{
 		Use:   "diff [slug]",
-		Short: "Show what changed in a sandbox's srcs versus their origins",
+		Short: "Show what changed in a sandbox's deps versus their origins",
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			base, err := baseOnly(src)
@@ -147,6 +147,7 @@ func newShowCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			fmt.Fprintln(out, configLine(t.runtime(f), t.slug, t.profile))
 			fmt.Fprintf(out, "== profile (%s) ==\n", t.slug)
 			if !dumpFile(out, t.base.ProfileJSONPath(t.slug)) {
 				fmt.Fprintln(out, "(no profile)")

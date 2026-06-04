@@ -3,13 +3,24 @@ package cli
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"github.com/spf13/cobra"
 
 	"github.com/irasikhin/sandboxer/internal/backend"
 	"github.com/irasikhin/sandboxer/internal/config"
+	"github.com/irasikhin/sandboxer/internal/sandbox"
 	"github.com/irasikhin/sandboxer/internal/srcs"
 )
+
+// announceFreshState prints a one-time notice when this command initialised the
+// .sandboxer state tree, so the auto-created directory is never a surprise.
+func announceFreshState(cmd *cobra.Command, fresh bool, root string) {
+	if fresh {
+		fmt.Fprintf(cmd.ErrOrStderr(), "sandboxer: initialized state in %s\n",
+			filepath.Join(root, config.StateDirName))
+	}
+}
 
 func init() {
 	register(newCreateCmd)
@@ -21,7 +32,7 @@ func newCreateCmd() *cobra.Command {
 	var f commonFlags
 	cmd := &cobra.Command{
 		Use:   "create [slug|profile|file.yaml]",
-		Short: "Create a sandbox and pull its srcs (nothing else is copied)",
+		Short: "Create a sandbox and pull its deps (nothing else is copied)",
 		Example: `  # named sandbox (empty unless a profile lists deps)
   sandboxer create feat
 
@@ -35,10 +46,15 @@ func newCreateCmd() *cobra.Command {
   sandboxer create web -f ./envs`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := maybeAutoScaffold(cmd, &f, posArg(args)); err != nil {
+				return err
+			}
+			fresh := !sandbox.RunEnvExists(firstNonEmpty(f.src, getwd()))
 			t, err := resolveTarget(f, posArg(args))
 			if err != nil {
 				return err
 			}
+			announceFreshState(cmd, fresh, t.base.Src)
 			if f.domains != "" {
 				if err := t.base.SetDomains(f.domains); err != nil {
 					return err
@@ -51,6 +67,10 @@ func newCreateCmd() *cobra.Command {
 			}
 			if err := t.base.MakeSandbox(t.slug, cmd.ErrOrStderr()); err != nil {
 				return err
+			}
+			fmt.Fprintln(cmd.ErrOrStderr(), configLine(t.runtime(f), t.slug, t.profile))
+			if t.profile == nil {
+				fmt.Fprintln(cmd.ErrOrStderr(), "sandboxer: no profile — scaffold one with 'sandboxer init', then re-create")
 			}
 			out := cmd.OutOrStdout()
 			fmt.Fprintf(out, "sandbox %q created: %s\n", t.slug, t.base.SandboxDir(t.slug))
@@ -74,10 +94,15 @@ func newEnterCmd() *cobra.Command {
 		Short: "Open an interactive shell inside the sandbox",
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := maybeAutoScaffold(cmd, &f, posArg(args)); err != nil {
+				return err
+			}
+			fresh := !sandbox.RunEnvExists(firstNonEmpty(f.src, getwd()))
 			t, err := resolveTarget(f, posArg(args))
 			if err != nil {
 				return err
 			}
+			announceFreshState(cmd, fresh, t.base.Src)
 			dest := t.base.SandboxDir(t.slug)
 			if !fileExists(dest) {
 				fmt.Fprintf(cmd.ErrOrStderr(), "sandbox %q does not exist — creating\n", t.slug)
@@ -95,6 +120,7 @@ func newEnterCmd() *cobra.Command {
 				return err
 			}
 			errOut := cmd.ErrOrStderr()
+			fmt.Fprintln(errOut, configLine(rt, t.slug, t.profile))
 			var runErr error
 			code := 0
 			if rt.Backend == "native" {
@@ -115,9 +141,10 @@ func newEnterCmd() *cobra.Command {
 					Stdin:    cmd.InOrStdin(), Stdout: cmd.OutOrStdout(), Stderr: errOut,
 				})
 			}
-			// Always return the rw srcs, even when the shell/run failed.
+			// Always return rw deps, even when the shell/run failed. pushDeps (via
+			// srcs.CopyOut) prints what it actually returned, so we just note we're done.
 			pushErr := pushDeps(t, cmd)
-			fmt.Fprintf(errOut, "sandboxer: done in %s. Return rw srcs: sandboxer push %s\n", dest, t.slug)
+			fmt.Fprintf(errOut, "sandboxer: done in %s\n", dest)
 			if runErr != nil {
 				return silentErr{runErr}
 			}
@@ -161,6 +188,7 @@ func newExecCmd() *cobra.Command {
 			if err := config.ValidateNative(rt); err != nil {
 				return err
 			}
+			fmt.Fprintln(cmd.ErrOrStderr(), configLine(rt, t.slug, t.profile))
 			if rt.Backend == "native" {
 				code, err := backend.NativeExec(dest, rt, rest, cmd.InOrStdin(), cmd.OutOrStdout(), cmd.ErrOrStderr())
 				pushErr := pushDeps(t, cmd)

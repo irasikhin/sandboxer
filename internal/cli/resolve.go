@@ -208,6 +208,33 @@ func (t *target) runtime(f commonFlags) config.Runtime {
 		config.Overrides{Model: f.model, Agent: f.agent, Backend: f.backend, Domains: f.domains})
 }
 
+// configLine summarises the resolved settings so a command always tells the user
+// what is actually in effect — which agent/backend/model, the egress status, the
+// profile source and the dependency count — instead of leaving them to infer the
+// silent defaults. Printed to stderr by create/enter/exec.
+func configLine(rt config.Runtime, slug string, prof *config.Profile) string {
+	egress := "off"
+	switch {
+	case noEgress():
+		egress = "off (SANDBOXER_NO_EGRESS)"
+	case rt.HTTPProxy != "" || rt.HTTPSProxy != "":
+		egress = "upstream-proxy"
+	case rt.Egress:
+		egress = fmt.Sprintf("on (%d domains)", len(rt.Domains))
+	}
+	profile, deps := "none (defaults)", 0
+	if prof != nil {
+		if prof.Name != "" {
+			profile = prof.Name
+		} else {
+			profile = "(unnamed)"
+		}
+		deps = len(prof.Deps)
+	}
+	return fmt.Sprintf("sandboxer: %s — agent=%s backend=%s model=%s egress=%s profile=%s deps=%d",
+		slug, rt.Agent, rt.Backend, firstNonEmpty(rt.Model, "default"), egress, profile, deps)
+}
+
 // loadStoredProfile reads the profile.json saved for a sandbox (nil if absent).
 func loadStoredProfile(base *sandbox.Base, slug string) *config.Profile {
 	data, err := os.ReadFile(base.ProfileJSONPath(slug))
