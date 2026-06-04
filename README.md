@@ -123,6 +123,38 @@ replaces the destination wholesale (depsync semantics).
 > will change. A `dep` that resolves to multiple paths uses the first match
 > (the others are listed); absolute or `../` deps are refused.
 
+### Multiple profiles in one file
+
+Instead of one profile per file, a `sandboxer.yaml` can hold many under a
+`profiles:` map. A shared **`defaults:`** block is auto-applied under every
+profile (a profile's own fields win; `env` merges key-by-key). To inherit from
+*another profile*, use plain **YAML anchors** — anchor one (`&api`) and merge it
+into another (`<<: *api`); no special key is needed, and the node's own fields
+win over the merge. `default:` names the one used when you don't name a section.
+The flat one-profile form above still works. See `examples/multi-profile.yaml`.
+
+```yaml
+defaults:
+  agent: claude
+  network:
+    allowedDomains: [api.anthropic.com, github.com]
+
+profiles:
+  api: &api                # sandboxer create api
+    backend: native
+    model: opus
+    deps: [shared/proto]
+  api-prod:                # sandboxer create api-prod
+    <<: *api               # inherit api (anchor) + defaults, then override
+    env: { NODE_ENV: production }
+
+default: api               # sandboxer create   (no name → api)
+```
+
+`sandboxer create <name>` selects the section by name (that name becomes the
+sandbox slug); a name that matches no section falls back to the store / a plain
+slug. A batch `sandboxer run` uses the `default:` (or sole) profile.
+
 ### Named profiles
 
 Keep reusable profiles as files and select them by **name** instead of by path.

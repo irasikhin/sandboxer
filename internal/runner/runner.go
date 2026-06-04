@@ -70,9 +70,15 @@ func Run(o Options) (Result, error) {
 	var profile *config.Profile
 	root := o.Src
 	if o.ConfigPath != "" {
-		p, err := config.Load(o.ConfigPath)
+		doc, err := config.LoadDocument(o.ConfigPath)
 		if err != nil {
 			return Result{}, fmt.Errorf("load profile %s: %w", o.ConfigPath, err)
+		}
+		// A batch run uses the file's default (or sole) profile; a multi-profile
+		// file with several sections and no `default:` is an error here.
+		p, err := doc.Select("")
+		if err != nil {
+			return Result{}, fmt.Errorf("profile %s: %w", o.ConfigPath, err)
 		}
 		profile = p
 		if o.Overrides.Agent == "" && p.Agent != "" {

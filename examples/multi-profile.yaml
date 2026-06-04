@@ -1,0 +1,48 @@
+# Several environments in one file (multi-profile form).
+#
+# A file with a top-level `profiles:` map holds many named profiles instead of
+# one. Inheritance:
+#   - `defaults:`   a shared base auto-applied to every profile;
+#   - YAML anchors  to inherit from another profile: anchor one (`&api`) and
+#                   merge it into another (`<<: *api`) — a native YAML feature,
+#                   no special key. The node's own fields win over the merge.
+# A profile's own fields win over defaults; `env` merges key-by-key. `default:`
+# names the profile used when you don't name one.
+#
+# Pick a profile by its section name:
+#   sandboxer create web        # the `web` profile
+#   sandboxer create api-prod   # inherits api (anchor) + defaults
+#   sandboxer create            # the `default:` profile (web)
+#
+# (The original flat one-profile-per-file form still works — see sandboxer.yaml.)
+
+defaults:
+  agent: claude
+  network:
+    allowedDomains: [api.anthropic.com, github.com, registry.npmjs.org]
+  env:
+    NODE_ENV: development
+
+profiles:
+  # Frontend: container backend, pulls the shared UI lib.
+  web:
+    backend: podman
+    roots: [.]
+    deps:
+      - shared/ui
+
+  # Backend API base: native backend, a bigger model, its own dep.
+  api: &api
+    backend: native
+    model: opus
+    roots: [.]
+    deps:
+      - shared/proto
+
+  # Production variant: inherit api via the anchor, change only env.
+  api-prod:
+    <<: *api
+    env:
+      NODE_ENV: production   # overrides the shared default; api's fields stay inherited
+
+default: web

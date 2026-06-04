@@ -75,6 +75,11 @@ func resolveProfileFile(configPath, pos string) (string, string, error) {
 		}
 		return configPath, pos, nil
 	}
+	// A bare positional first tries to name a section of the project's
+	// multi-profile sandboxer.yaml (project-local wins over the global store).
+	if pos != "" && !isYAML(pos) && !inContainer() && config.FileHasSection("sandboxer.yaml", pos) {
+		return "sandboxer.yaml", pos, nil
+	}
 	if pos != "" && !isYAML(pos) {
 		file, err := config.FindProfile(config.ProfilesDir(), pos)
 		if err != nil {
@@ -141,18 +146,30 @@ func resolveTarget(f commonFlags, pos string) (*target, error) {
 	var slug, root string
 
 	if file != "" {
-		p, err := config.Load(file)
+		doc, err := config.LoadDocument(file)
 		if err != nil {
 			return nil, err
 		}
-		prof = p
-		// An unnamed profile takes its slug from the file's base name.
-		if prof.Name == "" {
-			prof.Name = config.ProfileName(file, nil)
+		root = firstNonEmpty(f.src, getwd())
+		if doc.Multi() {
+			// Multi-profile file: the positional (or default:) names the section,
+			// and that section name is the slug.
+			p, err := doc.Select(pos)
+			if err != nil {
+				return nil, err
+			}
+			prof = p
+			slug = p.Name
+		} else {
+			// Flat file: exactly one profile; the slug is its (file-derived) name.
+			p, err := doc.Select("")
+			if err != nil {
+				return nil, err
+			}
+			prof = p
+			slug = p.Name
 		}
 		profJSON, _ = prof.JSON()
-		slug = prof.Name
-		root = firstNonEmpty(f.src, getwd())
 		if slug == "" {
 			return nil, errors.New("profile has no name")
 		}

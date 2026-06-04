@@ -10,6 +10,17 @@ commit messages with that in mind. See [CONTRIBUTING.md](./CONTRIBUTING.md).
 
 ## [Unreleased]
 
+### Added
+
+- **Multi-profile files.** A `sandboxer.yaml` may now hold several named
+  profiles under a `profiles:` map instead of one profile per file. A shared
+  `defaults:` block is auto-applied under every profile (own fields win; `env`
+  merges key-by-key); inheritance between profiles uses plain YAML anchors
+  (`&api` / `<<: *api`), no special key. `default:` names the profile used when
+  none is given. `sandboxer create <name>` selects a section by name; a batch
+  run uses the default/sole profile. The flat one-profile-per-file form is
+  unchanged. See `examples/multi-profile.yaml`.
+
 ## [0.4.0] — 2026-06-04
 
 ### Added

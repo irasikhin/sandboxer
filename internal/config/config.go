@@ -54,12 +54,20 @@ type Profile struct {
 	Env         map[string]string `yaml:"env,omitempty"         json:"env,omitempty"`
 }
 
-// Load reads and parses a YAML profile from disk.
+// Load reads and parses a single flat YAML profile from disk. Multi-profile
+// documents (a `profiles:` map) are handled by LoadDocument; Load is the flat
+// path used by the named-profile store, where one file is one profile.
 func Load(file string) (*Profile, error) {
 	data, err := os.ReadFile(file)
 	if err != nil {
 		return nil, err
 	}
+	return decodeProfile(data)
+}
+
+// decodeProfile strictly decodes one profile from YAML bytes (unknown fields are
+// rejected, catching typos). Shared by Load and the flat path of LoadDocument.
+func decodeProfile(data []byte) (*Profile, error) {
 	var p Profile
 	dec := yaml.NewDecoder(strings.NewReader(string(data)))
 	dec.KnownFields(true)

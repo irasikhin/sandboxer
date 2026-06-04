@@ -204,6 +204,47 @@ func TestRunNativeNonClaudeRejected(t *testing.T) {
 	}
 }
 
+// TestRunMultiProfileSelect: a project sandboxer.yaml with a profiles: map —
+// `create` picks the default section, `create <name>` picks that section, and
+// the section inherits the shared defaults.
+func TestRunMultiProfileSelect(t *testing.T) {
+	t.Setenv("SANDBOXER_IN_CONTAINER", "")
+	t.Setenv("SANDBOXER_PROFILES", t.TempDir()) // isolate the global store
+	project := t.TempDir()
+	t.Chdir(project)
+	body := `defaults:
+  agent: claude
+  network:
+    allowedDomains: [api.anthropic.com]
+profiles:
+  web:
+    backend: podman
+  api:
+    backend: native
+    model: opus
+default: web
+`
+	if err := os.WriteFile("sandboxer.yaml", []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// No name → the default section (web).
+	if code, out, errs := run("create"); code != 0 || !strings.Contains(out, `"web"`) {
+		t.Fatalf("create default = (%d, %q, %q)", code, out, errs)
+	}
+	// Named section → api, inheriting defaults' agent + domains.
+	if code, out, errs := run("create", "api"); code != 0 || !strings.Contains(out, `"api"`) {
+		t.Fatalf("create api = (%d, %q, %q)", code, out, errs)
+	}
+	pj, _ := os.ReadFile(filepath.Join(project, ".sandboxer", "_meta", "api.profile.json"))
+	s := string(pj)
+	for _, want := range []string{`"backend": "native"`, `"model": "opus"`, `"agent": "claude"`, "api.anthropic.com"} {
+		if !strings.Contains(s, want) {
+			t.Errorf("api profile.json missing %q in:\n%s", want, s)
+		}
+	}
+}
+
 func TestRunAutoDiscoversProfile(t *testing.T) {
 	t.Setenv("SANDBOXER_IN_CONTAINER", "")
 	project := t.TempDir()
