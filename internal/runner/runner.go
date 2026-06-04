@@ -52,9 +52,13 @@ type Options struct {
 }
 
 // Result reports where the batch ran so the caller can print the summary list.
+// Failed counts tasks that never produced a clean run — agents that exited
+// non-zero plus sandboxes that failed to materialise — so the caller can exit
+// non-zero instead of masking a partial batch behind a success code.
 type Result struct {
-	Root  string
-	Count int
+	Root   string
+	Count  int // sandboxes launched
+	Failed int // launched agents that exited non-zero + make-sandbox failures
 }
 
 // Run resolves the project, expands the tasks file, creates a sandbox per task
@@ -131,13 +135,19 @@ func Run(o Options) (Result, error) {
 
 	sem := make(chan struct{}, max(1, o.MaxP))
 	var wg sync.WaitGroup
+	var mu sync.Mutex
 	launched := 0
+	makeFailed := 0  // sandboxes that never materialised
+	agentFailed := 0 // launched agents that exited non-zero (written under mu)
 	for _, t := range tasks {
 		if profileJSON != nil {
-			_ = base.WriteProfileJSON(t.Slug, profileJSON)
+			if err := base.WriteProfileJSON(t.Slug, profileJSON); err != nil {
+				fmt.Fprintf(o.Stderr, "sandboxer: write profile %s: %v\n", t.Slug, err)
+			}
 		}
 		if err := base.MakeSandbox(t.Slug, o.Stdout); err != nil {
 			fmt.Fprintf(o.Stderr, "sandboxer: make sandbox %s: %v\n", t.Slug, err)
+			makeFailed++
 			continue
 		}
 		launched++
@@ -162,12 +172,17 @@ func Run(o Options) (Result, error) {
 				dry:     o.DryRun,
 				stderr:  o.Stderr,
 			}
-			la.run()
+			if rc := la.run(); rc != 0 {
+				mu.Lock()
+				agentFailed++
+				mu.Unlock()
+			}
 		}(t)
 	}
 	wg.Wait()
-	fmt.Fprintln(o.Stdout, "sandboxer: all agents finished.")
-	return Result{Root: base.Src, Count: launched}, nil
+	failed := makeFailed + agentFailed
+	fmt.Fprintf(o.Stdout, "sandboxer: all agents finished — %d ok, %d failed.\n", launched-agentFailed, failed)
+	return Result{Root: base.Src, Count: launched, Failed: failed}, nil
 }
 
 var (
@@ -210,7 +225,10 @@ type launchSpec struct {
 	stderr  io.Writer
 }
 
-func (s launchSpec) run() {
+// run executes one agent and returns its exit code (0 = success). The code is
+// also persisted to the meta file; the caller aggregates it for the batch's
+// overall exit status.
+func (s launchSpec) run() int {
 	meta := s.base.MetaFilePath(s.slug)
 	_ = os.WriteFile(meta, []byte("exit=RUNNING\nsecs=0\n"), 0o644)
 	full := preamble + "\n" + s.prompt
@@ -231,16 +249,19 @@ func (s launchSpec) run() {
 	}
 	secs := int(time.Since(start).Seconds())
 	_ = os.WriteFile(meta, []byte(fmt.Sprintf("exit=%d\nsecs=%d\n", rc, secs)), 0o644)
+	return rc
 }
 
 func (s launchSpec) runNative(dest, acmd, outPath, errPath string) int {
 	of, err := os.Create(outPath)
 	if err != nil {
+		fmt.Fprintf(s.stderr, "sandboxer: %s: create log %s: %v\n", s.slug, outPath, err)
 		return 1
 	}
 	defer of.Close()
 	ef, err := os.Create(errPath)
 	if err != nil {
+		fmt.Fprintf(s.stderr, "sandboxer: %s: create log %s: %v\n", s.slug, errPath, err)
 		return 1
 	}
 	defer ef.Close()
@@ -258,20 +279,26 @@ func (s launchSpec) runNative(dest, acmd, outPath, errPath string) int {
 func (s launchSpec) runContainer(dest, acmd, outPath, errPath string) int {
 	of, err := os.Create(outPath)
 	if err != nil {
+		fmt.Fprintf(s.stderr, "sandboxer: %s: create log %s: %v\n", s.slug, outPath, err)
 		return 1
 	}
 	defer of.Close()
 	ef, err := os.Create(errPath)
 	if err != nil {
+		fmt.Fprintf(s.stderr, "sandboxer: %s: create log %s: %v\n", s.slug, errPath, err)
 		return 1
 	}
 	defer ef.Close()
-	ephDir, _ := os.MkdirTemp("", "sbx-eph-")
+	ephDir, err := os.MkdirTemp("", "sbx-eph-")
+	if err != nil {
+		fmt.Fprintf(s.stderr, "sandboxer: %s: create ephemeral creds dir: %v\n", s.slug, err)
+		return 1
+	}
 	defer func() { _ = os.RemoveAll(ephDir) }()
 
 	crt := s.rt
 	crt.AuthAgents = []string{s.rt.Agent} // only the chosen agent's creds
-	rc, _ := backend.Run(backend.RunOpts{
+	rc, err := backend.Run(backend.RunOpts{
 		Engine:          s.engine,
 		Image:           s.image,
 		Dest:            dest,
@@ -291,6 +318,12 @@ func (s launchSpec) runContainer(dest, acmd, outPath, errPath string) int {
 		Stdout:          of,
 		Stderr:          ef,
 	})
+	if err != nil {
+		// Setup failures (egress proxy, credential copy, …) previously vanished
+		// here — surface them and count the task as failed.
+		fmt.Fprintf(s.stderr, "sandboxer: %s: %v\n", s.slug, err)
+		return 1
+	}
 	return rc
 }
 

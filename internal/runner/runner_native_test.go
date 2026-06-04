@@ -55,6 +55,47 @@ func TestRunNative(t *testing.T) {
 	}
 }
 
+// TestRunNativeAgentFailureAggregated: when agents exit non-zero, the batch
+// reports them in Result.Failed (so the CLI can exit non-zero) while still
+// recording each per-agent exit in its meta file.
+func TestRunNativeAgentFailureAggregated(t *testing.T) {
+	requireExec(t, "bash", "nice", "sh")
+
+	bin := t.TempDir()
+	writeScript(t, filepath.Join(bin, "claude"), "exit 3\n") // every agent fails
+	t.Setenv("PATH", bin+":"+os.Getenv("PATH"))
+
+	root := t.TempDir()
+	writeTasks(t, root) // alpha, beta
+
+	var out, errb bytes.Buffer
+	res, err := Run(Options{
+		Src:      root,
+		Defaults: config.Defaults{Agent: "claude", Backend: "native"},
+		MaxP:     2,
+		Stdout:   &out,
+		Stderr:   &errb,
+	})
+	if err != nil {
+		t.Fatalf("Run native: %v\n%s", err, errb.String())
+	}
+	if res.Count != 2 {
+		t.Fatalf("Count = %d, want 2", res.Count)
+	}
+	if res.Failed != 2 {
+		t.Errorf("Failed = %d, want 2 (both agents exited non-zero)", res.Failed)
+	}
+	if !strings.Contains(out.String(), "0 ok, 2 failed") {
+		t.Errorf("summary line missing failure tally: %q", out.String())
+	}
+	for _, slug := range []string{"alpha", "beta"} {
+		meta, _ := os.ReadFile(filepath.Join(root, config.StateDirName, "_meta", slug+".meta"))
+		if !strings.Contains(string(meta), "exit=3") {
+			t.Errorf("meta for %s = %q (want exit=3)", slug, meta)
+		}
+	}
+}
+
 // TestRunContainer drives a non-dry container run with a fake `podman` engine,
 // covering launchSpec.runContainer.
 func TestRunContainer(t *testing.T) {

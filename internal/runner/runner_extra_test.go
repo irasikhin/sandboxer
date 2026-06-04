@@ -120,6 +120,9 @@ func TestRunCountsLaunched(t *testing.T) {
 	if res.Count != 1 {
 		t.Errorf("Count = %d, want 1 (one sandbox failed to create)", res.Count)
 	}
+	if res.Failed != 1 {
+		t.Errorf("Failed = %d, want 1 (the sandbox that could not be created)", res.Failed)
+	}
 	if !strings.Contains(errb.String(), "make sandbox bad") {
 		t.Errorf("missing failure note for the bad sandbox: %q", errb.String())
 	}

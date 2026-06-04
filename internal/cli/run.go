@@ -1,6 +1,8 @@
 package cli
 
 import (
+	"fmt"
+
 	"github.com/spf13/cobra"
 
 	"github.com/irasikhin/sandboxer/internal/config"
@@ -66,6 +68,12 @@ func newRunCmd() *cobra.Command {
 				return err
 			}
 			printList(cmd, base)
+			if res.Failed > 0 {
+				// The per-agent diagnostics and the summary line are already on
+				// stderr/stdout; just carry the non-zero exit so scripts and CI
+				// see the partial failure instead of a green run.
+				return silentErr{fmt.Errorf("%d task(s) failed", res.Failed)}
+			}
 			return nil
 		},
 	}

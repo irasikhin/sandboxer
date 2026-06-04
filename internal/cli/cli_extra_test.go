@@ -161,6 +161,31 @@ func TestRunBatchDryRun(t *testing.T) {
 	}
 }
 
+// TestRunBatchFailingAgentExitsNonzero: a batch where the agent exits non-zero
+// must propagate a non-zero process exit (so scripts/CI see the failure), with
+// the ok/failed tally on stdout.
+func TestRunBatchFailingAgentExitsNonzero(t *testing.T) {
+	requireExec(t, "bash", "nice", "sh")
+	t.Setenv("SANDBOXER_IN_CONTAINER", "")
+	bin := t.TempDir()
+	if err := os.WriteFile(filepath.Join(bin, "claude"), []byte("#!/bin/sh\nexit 5\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+":"+os.Getenv("PATH"))
+
+	project := t.TempDir()
+	if err := os.WriteFile(filepath.Join(project, "sandboxer.tasks"), []byte("[alpha]\ndo a\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	code, out, errs := run("run", "--src", project, "--backend", "native")
+	if code != 1 {
+		t.Fatalf("failing batch exit = %d, want 1\nout:%s\nerr:%s", code, out, errs)
+	}
+	if !strings.Contains(out, "0 ok, 1 failed") {
+		t.Errorf("missing failure tally on stdout: %q", out)
+	}
+}
+
 func TestRmAllNonexistent(t *testing.T) {
 	if code, out, _ := run("rm-all", filepath.Join(t.TempDir(), "sub")); code != 0 || !strings.Contains(out, "removed") {
 		t.Errorf("rm-all nonexistent = (%d, %q)", code, out)
