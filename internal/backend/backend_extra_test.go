@@ -72,6 +72,26 @@ func TestContainerRunEgressFailRefuses(t *testing.T) {
 	}
 }
 
+// TestWarnIfImageMissing: a present image is silent; a missing one prints the
+// build hint; degenerate inputs are no-ops.
+func TestWarnIfImageMissing(t *testing.T) {
+	requireExec(t, "true", "false")
+	var buf bytes.Buffer
+	// `true` ignores args and exits 0 → image treated as present → no warning.
+	warnIfImageMissing("true", "img", &buf)
+	if buf.Len() != 0 {
+		t.Errorf("present image should not warn, got %q", buf.String())
+	}
+	// `false` exits non-zero → image treated as missing → actionable hint.
+	buf.Reset()
+	warnIfImageMissing("false", "sandboxer-toolbox:latest", &buf)
+	if !strings.Contains(buf.String(), "nix run .#build-image") {
+		t.Errorf("missing image should print build hint, got %q", buf.String())
+	}
+	// nil writer / empty fields must not panic and must stay silent.
+	warnIfImageMissing("", "", nil)
+}
+
 // TestContainerRunEgressNoDomains: egress on with an empty allowlist is a
 // misconfiguration, not an open-network run.
 func TestContainerRunEgressNoDomains(t *testing.T) {

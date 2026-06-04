@@ -40,6 +40,11 @@ type RunOpts struct {
 // and (when applicable) the egress allowlist. It returns the container exit
 // code.
 func Run(o RunOpts) (int, error) {
+	// Surface a missing toolbox image early (before egress, whose sidecar uses
+	// the same image) so the user gets an actionable hint instead of an opaque
+	// pull error from the engine.
+	warnIfImageMissing(o.Engine, o.Image, o.Stderr)
+
 	var eg *egress.Egress
 	// Egress allowlist is required unless explicitly disabled (NoEgress /
 	// egress: false) or an upstream proxy is holding the boundary. When it is
@@ -114,7 +119,11 @@ func Run(o RunOpts) (int, error) {
 	if csv := o.RT.DomainsCSV(); csv != "" {
 		args = append(args, "--env", "SANDBOXER_ALLOW_DOMAINS="+csv)
 	}
-	args = append(args, authFlags(o.RT.AuthAgents, o.Ephemeral, o.EphDir)...)
+	af, err := authFlags(o.RT.AuthAgents, o.Ephemeral, o.EphDir)
+	if err != nil {
+		return 0, fmt.Errorf("credential setup failed: %w", err)
+	}
+	args = append(args, af...)
 	args = append(args, originMounts(o.ManifestPath)...)
 	args = append(args, extraMountsAndEnv(o.Profile)...)
 	args = append(args, o.Image)
@@ -129,8 +138,31 @@ func Run(o RunOpts) (int, error) {
 	cmd.Stdin = o.Stdin
 	cmd.Stdout = o.Stdout
 	cmd.Stderr = o.Stderr
-	err := cmd.Run()
+	err = cmd.Run()
 	return exitCode(err), nil
+}
+
+// warnIfImageMissing prints an actionable hint when the toolbox image is not
+// present locally. It does not block — a published image can still be
+// auto-pulled by the engine — but for the bundled sandboxer-toolbox:latest
+// (built locally, never published) it turns an opaque pull error into a clear
+// "build the image" message.
+func warnIfImageMissing(engine, image string, w io.Writer) {
+	if w == nil || engine == "" || image == "" {
+		return
+	}
+	if imageExists(engine, image) {
+		return
+	}
+	fmt.Fprintf(w, "sandboxer: image %q not found locally — the engine will try to pull it.\n"+
+		"  build the bundled toolbox image with: nix run .#build-image\n", image)
+}
+
+// imageExists reports whether the engine has the image locally. `image inspect`
+// is supported by both docker and podman and exits non-zero when the image is
+// absent.
+func imageExists(engine, image string) bool {
+	return exec.Command(engine, "image", "inspect", image).Run() == nil
 }
 
 // exitCode maps a command error to a process exit code (0 success, the child's

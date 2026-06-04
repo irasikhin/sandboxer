@@ -165,7 +165,11 @@ func TestAuthFlags(t *testing.T) {
 	// Ensure the optional/other dirs are absent so they're skipped.
 	t.Setenv("CLAUDE_CODE_OAUTH_TOKEN", "")
 
-	got := strings.Join(authFlags([]string{"claude"}, false, ""), " ")
+	af, err := authFlags([]string{"claude"}, false, "")
+	if err != nil {
+		t.Fatalf("authFlags: %v", err)
+	}
+	got := strings.Join(af, " ")
 	wantVol := filepath.Join(home, ".claude") + ":" + filepath.Join(home, ".claude") + ":rw"
 	if !strings.Contains(got, wantVol) {
 		t.Errorf("authFlags missing creds volume %q in %q", wantVol, got)
@@ -178,8 +182,8 @@ func TestAuthFlags(t *testing.T) {
 		t.Errorf("non-existent optional dir leaked: %q", got)
 	}
 	// An unknown agent is skipped silently.
-	if a := authFlags([]string{"nope"}, false, ""); a != nil {
-		t.Errorf("unknown agent should yield nil, got %v", a)
+	if a, err := authFlags([]string{"nope"}, false, ""); err != nil || a != nil {
+		t.Errorf("unknown agent should yield nil, got %v (err %v)", a, err)
 	}
 }
 
@@ -195,7 +199,11 @@ func TestAuthFlagsEphemeral(t *testing.T) {
 	}
 	ephDir := filepath.Join(t.TempDir(), "eph")
 
-	got := strings.Join(authFlags([]string{"claude"}, true, ephDir), " ")
+	af, err := authFlags([]string{"claude"}, true, ephDir)
+	if err != nil {
+		t.Fatalf("authFlags ephemeral: %v", err)
+	}
+	got := strings.Join(af, " ")
 	ephClaude := filepath.Join(ephDir, ".claude")
 	if !strings.Contains(got, ephClaude+":"+ephClaude+":rw") {
 		t.Errorf("ephemeral mount not pointed at copy: %q", got)

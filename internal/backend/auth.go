@@ -15,8 +15,10 @@ import (
 // authFlags builds the --volume/--env args that bind each agent's credentials
 // into the container. With ephemeral=true (headless runs), config dirs are
 // copied into ephDir and mounted read-write from there, so a run can't mutate
-// the real host credentials.
-func authFlags(authAgents []string, ephemeral bool, ephDir string) []string {
+// the real host credentials. It fails closed: if an ephemeral credential copy
+// can't be set up, it returns an error rather than letting the run proceed
+// unauthenticated (or mounting a nonexistent path).
+func authFlags(authAgents []string, ephemeral bool, ephDir string) ([]string, error) {
 	home, _ := os.UserHomeDir()
 	var out []string
 	for _, name := range authAgents {
@@ -31,9 +33,13 @@ func authFlags(authAgents []string, ephemeral bool, ephDir string) []string {
 			}
 			mode := dir.Mode
 			if ephemeral {
-				_ = os.MkdirAll(ephDir, 0o700)
+				if err := os.MkdirAll(ephDir, 0o700); err != nil {
+					return nil, fmt.Errorf("prepare ephemeral creds dir for %s: %w", name, err)
+				}
 				// cp -a preserves perms/symlinks, matching the bash.
-				_ = exec.Command("cp", "-a", p, ephDir+"/").Run()
+				if err := exec.Command("cp", "-a", p, ephDir+"/").Run(); err != nil {
+					return nil, fmt.Errorf("copy %s creds %s: %w", name, p, err)
+				}
 				p = filepath.Join(ephDir, filepath.Base(p))
 				mode = "rw"
 			}
@@ -45,7 +51,7 @@ func authFlags(authAgents []string, ephemeral bool, ephDir string) []string {
 			}
 		}
 	}
-	return out
+	return out, nil
 }
 
 // originMounts binds the origins of vendored dependencies back into the
