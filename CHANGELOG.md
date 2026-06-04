@@ -10,6 +10,8 @@ commit messages with that in mind. See [CONTRIBUTING.md](./CONTRIBUTING.md).
 
 ## [Unreleased]
 
+## [0.6.0] — 2026-06-04
+
 ### Added
 
 - **`sandboxer init`** scaffolds a commented `sandboxer.yaml` (seeded with the
@@ -138,6 +140,7 @@ commit messages with that in mind. See [CONTRIBUTING.md](./CONTRIBUTING.md).
 - Config-driven multi-agent sandboxes (Bash implementation): native + podman/docker backends, egress allowlist, Nix profiles.
 
 [Unreleased]: https://github.com/irasikhin/sandboxer/compare/v0.3.0...HEAD
+[0.6.0]: https://github.com/irasikhin/sandboxer/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/irasikhin/sandboxer/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/irasikhin/sandboxer/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/irasikhin/sandboxer/compare/v0.2.0...v0.3.0
