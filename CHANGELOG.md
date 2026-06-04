@@ -47,6 +47,12 @@ commit messages with that in mind. See [CONTRIBUTING.md](./CONTRIBUTING.md).
   the batch `run`), matching the documented behaviour.
 - `deps` that are absolute or contain `../` are refused instead of letting a
   pull write outside the sandbox.
+- Container credential setup now **fails closed**: a failed ephemeral copy of an
+  agent's config aborts the run instead of proceeding unauthenticated (or
+  mounting a missing path).
+- `SECURITY.md` now documents two surprising-but-intentional behaviours: a
+  configured upstream proxy *replaces* the egress allowlist, and the `native`
+  backend inherits the full host environment (secrets included).
 
 ### Fixed
 
@@ -55,13 +61,18 @@ commit messages with that in mind. See [CONTRIBUTING.md](./CONTRIBUTING.md).
   `claude`) instead of silently running it un-sandboxed on the host.
 - `run`, `exec` and `create` now ship `--help` examples; `list`/`diff` output is
   tidier (ellipsis on truncation, no empty diff sections).
-- The automatic copy-back after `enter`/`exec` no longer swallows push errors,
-  and `enter` now propagates the container's exit code (like `exec`).
+- The automatic copy-back after `enter`/`exec` now **exits non-zero when the
+  push fails** (previously it only printed the error), so a failed return of
+  work can't masquerade as success; `enter` also propagates the container's exit
+  code (like `exec`).
 - A corrupt dependency manifest now fails `push`/`diff` instead of silently
   restoring nothing; a `dep` with multiple matches lists the alternatives.
-- `sandboxer run` reports the number of sandboxes that actually launched, and
-  rejects a malformed `--mem`/`--cpu`/`--wall` up front instead of failing
-  asynchronously inside a worker.
+- `sandboxer run` now **exits non-zero when any agent fails** (or a sandbox
+  can't be created) and prints an `N ok, M failed` tally, instead of reporting
+  success for a partial batch. Worker log-creation and container setup failures
+  (egress, credentials) are surfaced and counted rather than silently dropped.
+  It still reports the number of sandboxes that launched and rejects a malformed
+  `--mem`/`--cpu`/`--wall` up front instead of failing asynchronously.
 
 ## [0.3.0] — 2026-06-01
 

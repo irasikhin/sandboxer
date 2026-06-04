@@ -2,9 +2,10 @@
 
 ## Supported Versions
 
-sandboxer is pre-1.0; the CLI flags, config schema, and on-disk layout may
-still change between minor versions. Security fixes are provided for the
-latest release only.
+sandboxer is pre-1.0; the CLI flags and on-disk layout may still change between
+minor versions (the `sandboxer.yaml` schema has settled on `roots`+`deps` and is
+treated as stable through 0.x). Security fixes are provided for the latest
+release only.
 
 ## Reporting a Vulnerability
 
@@ -48,6 +49,13 @@ hardened security boundary. Understand the model before trusting it:
   determined adversary — DNS tricks, abuse of an allowed domain, and similar
   techniques can defeat it.
 
+  > **A configured upstream proxy replaces the allowlist.** If you set
+  > `proxy.http`/`proxy.https` (e.g. a corporate proxy), sandboxer assumes that
+  > proxy is the egress boundary and does **not** start the allowlist sidecar —
+  > outbound traffic is governed by your proxy's policy, not by
+  > `network.allowedDomains`. Don't set an upstream proxy expecting the domain
+  > allowlist to also apply.
+
 - **Credentials.** Agent auth-config directories and API-key environment
   variables are bind-mounted or passed ephemerally into the sandbox. Treat the
   sandbox as having full access to whatever credentials you give it; only wire
@@ -55,7 +63,12 @@ hardened security boundary. Understand the model before trusting it:
 
 - **Native backend.** The `native` backend relies on Claude Code's own
   `/sandbox` (bubblewrap) for OS-level isolation; its containment is only as
-  strong as that mechanism.
+  strong as that mechanism. Unlike the container backend (which starts from a
+  clean, explicit environment), the native backend runs the agent as your host
+  user and **inherits your full shell environment** — every `AWS_*`, `GITHUB_*`,
+  `*_TOKEN`, etc. in your environment is visible to the agent. Run native only
+  from an environment scrubbed of secrets the task doesn't need, or use a
+  container backend.
 
 - **Not a multi-tenant boundary.** sandboxer is **not** a hardened
   multi-tenant isolation layer. Do not run untrusted or malicious agents and

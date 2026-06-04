@@ -10,8 +10,11 @@ single sandbox — each fully isolated, on your **local Linux machine**. A Go CL
 shipped as a static binary, `go install`, or a Nix flake. Human designs, AI
 drives.
 
-> ⚠️ **Pre-1.0.** CLI flags, the config schema, and the on-disk `.sandboxer/`
-> layout may change between minor versions until 1.0.
+> ⚠️ **Pre-1.0.** CLI flags and the on-disk `.sandboxer/` layout may change
+> between minor versions until 1.0. The **`sandboxer.yaml` schema has settled**
+> on `roots`+`deps` and is treated as stable through 0.x (the shipped
+> `examples/` are CI-verified against the strict parser); any future change will
+> be called out in the changelog.
 
 ## How it works
 
