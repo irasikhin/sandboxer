@@ -22,7 +22,9 @@ jobs:
       # here, not only at release time.
       - name: Cross-build (linux/arm64)
         run: GOOS=linux GOARCH=arm64 go build ./...
-      - run: go test ./... -coverprofile=coverage.out
+      # -race guards the parallel batch runner (the worker pool + failure
+      # aggregation); cgo is available on the runner so the detector links.
+      - run: go test ./... -race -coverprofile=coverage.out
       - name: Coverage summary
         run: go tool cover -func=coverage.out | tail -1
       - name: Coverage gate
