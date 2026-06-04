@@ -97,6 +97,47 @@ func TestRunDiffAndPush(t *testing.T) {
 	}
 }
 
+// TestRunExecPushFailureExitsNonzero: if the post-exec copy-back fails, the
+// command must exit non-zero (not silently report success) so the user never
+// believes work was returned when it wasn't.
+func TestRunExecPushFailureExitsNonzero(t *testing.T) {
+	requireExec(t, "true")
+	project := t.TempDir()
+	t.Setenv("SANDBOXER_IN_CONTAINER", "")
+	depRoot := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(depRoot, "sub", "lib"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(depRoot, "sub", "lib", "d.txt"), []byte("v1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg := filepath.Join(t.TempDir(), "p.yaml")
+	yaml := "name: feat\nbackend: native\nagent: claude\nroots: [" + depRoot + "]\ndeps:\n  - sub/lib\n"
+	if err := os.WriteFile(cfg, []byte(yaml), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if code, _, errs := run("create", "--src", project, "--config", cfg); code != 0 {
+		t.Fatalf("create: %d %s", code, errs)
+	}
+	// Replace the origin's parent directory (depRoot/sub) with a regular file:
+	// the copy-back's MkdirAll(parent-of-origin) then fails with ENOTDIR — a
+	// perms-independent way to fail the push (works even when tests run as root).
+	if err := os.RemoveAll(filepath.Join(depRoot, "sub")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(depRoot, "sub"), []byte("blocker\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	code, _, errs := run("exec", "--src", project, "--config", cfg, "--backend", "native", "--", "true")
+	if code != 1 {
+		t.Fatalf("exec with failing push exit = %d, want 1\nerr:%s", code, errs)
+	}
+	if !strings.Contains(errs, "push failed") {
+		t.Errorf("missing push-failed diagnostic on stderr: %q", errs)
+	}
+}
+
 func TestRunProxyMode(t *testing.T) {
 	if code, _, _ := run("_proxy", "--listen", "127.0.0.1:-1"); code != 1 {
 		t.Errorf("_proxy bad addr exit = %d, want 1", code)

@@ -82,7 +82,9 @@ func newEnterCmd() *cobra.Command {
 			if !fileExists(dest) {
 				fmt.Fprintf(cmd.ErrOrStderr(), "sandbox %q does not exist — creating\n", t.slug)
 				if t.json != nil {
-					_ = t.base.WriteProfileJSON(t.slug, t.json)
+					if err := t.base.WriteProfileJSON(t.slug, t.json); err != nil {
+						return err
+					}
 				}
 				if err := t.base.MakeSandbox(t.slug, cmd.ErrOrStderr()); err != nil {
 					return err
@@ -114,13 +116,16 @@ func newEnterCmd() *cobra.Command {
 				})
 			}
 			// Always return the rw srcs, even when the shell/run failed.
-			pushDeps(t, cmd)
+			pushErr := pushDeps(t, cmd)
 			fmt.Fprintf(errOut, "sandboxer: done in %s. Return rw srcs: sandboxer push %s\n", dest, t.slug)
 			if runErr != nil {
 				return silentErr{runErr}
 			}
 			if code != 0 {
 				return silentErr{fmt.Errorf("shell exited %d", code)}
+			}
+			if pushErr != nil {
+				return silentErr{pushErr}
 			}
 			return nil
 		},
@@ -158,12 +163,15 @@ func newExecCmd() *cobra.Command {
 			}
 			if rt.Backend == "native" {
 				code, err := backend.NativeExec(dest, rt, rest, cmd.InOrStdin(), cmd.OutOrStdout(), cmd.ErrOrStderr())
-				pushDeps(t, cmd)
+				pushErr := pushDeps(t, cmd)
 				if err != nil {
 					return err
 				}
 				if code != 0 {
 					return silentErr{fmt.Errorf("command exited %d", code)}
+				}
+				if pushErr != nil {
+					return silentErr{pushErr}
 				}
 				return nil
 			}
@@ -179,12 +187,15 @@ func newExecCmd() *cobra.Command {
 				NoEgress: noEgress(),
 				Stdin:    cmd.InOrStdin(), Stdout: cmd.OutOrStdout(), Stderr: cmd.ErrOrStderr(),
 			})
-			pushDeps(t, cmd)
+			pushErr := pushDeps(t, cmd)
 			if err != nil {
 				return err
 			}
 			if code != 0 {
 				return silentErr{fmt.Errorf("command exited %d", code)}
+			}
+			if pushErr != nil {
+				return silentErr{pushErr}
 			}
 			return nil
 		},
@@ -194,15 +205,19 @@ func newExecCmd() *cobra.Command {
 }
 
 // pushDeps pushes rw dependencies back to their origins (if a manifest exists),
-// the same copy-back that `sandboxer push` performs. A failure is surfaced (not
-// swallowed) so the user never believes work was returned when it wasn't.
-func pushDeps(t *target, cmd *cobra.Command) {
+// the same copy-back that `sandboxer push` performs. The error is returned (not
+// just printed) so the caller can exit non-zero — otherwise the user could
+// believe work was returned when the copy-back actually failed.
+func pushDeps(t *target, cmd *cobra.Command) error {
 	mf := t.base.ManifestPath(t.slug)
-	if fileExists(mf) {
-		if err := srcs.CopyOut(cmd.ErrOrStderr(), mf); err != nil {
-			fmt.Fprintf(cmd.ErrOrStderr(), "sandboxer: push failed: %v\n", err)
-		}
+	if !fileExists(mf) {
+		return nil
 	}
+	if err := srcs.CopyOut(cmd.ErrOrStderr(), mf); err != nil {
+		fmt.Fprintf(cmd.ErrOrStderr(), "sandboxer: push failed: %v\n", err)
+		return err
+	}
+	return nil
 }
 
 // noEgress reports whether the egress allowlist is disabled via the environment
