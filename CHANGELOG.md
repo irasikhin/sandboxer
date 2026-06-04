@@ -10,6 +10,8 @@ commit messages with that in mind. See [CONTRIBUTING.md](./CONTRIBUTING.md).
 
 ## [Unreleased]
 
+## [0.4.0] — 2026-06-04
+
 ### Added
 
 - **Named profiles.** `-f`/`--config` now accepts a file, a *directory* of
@@ -101,5 +103,6 @@ commit messages with that in mind. See [CONTRIBUTING.md](./CONTRIBUTING.md).
 - Config-driven multi-agent sandboxes (Bash implementation): native + podman/docker backends, egress allowlist, Nix profiles.
 
 [Unreleased]: https://github.com/irasikhin/sandboxer/compare/v0.3.0...HEAD
+[0.4.0]: https://github.com/irasikhin/sandboxer/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/irasikhin/sandboxer/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/irasikhin/sandboxer/compare/v0.0.0...v0.2.0
