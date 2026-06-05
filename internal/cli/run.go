@@ -67,7 +67,7 @@ func newRunCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			printList(cmd, base)
+			printList(cmd, base, false)
 			if res.Failed > 0 {
 				// The per-agent diagnostics and the summary line are already on
 				// stderr/stdout; just carry the non-zero exit so scripts and CI

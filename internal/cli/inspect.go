@@ -30,6 +30,7 @@ func baseOnly(src string) (*sandbox.Base, error) {
 
 func newListCmd() *cobra.Command {
 	var src string
+	var wide bool
 	cmd := &cobra.Command{
 		Use:     "list",
 		Aliases: []string{"status"},
@@ -40,15 +41,16 @@ func newListCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			printList(cmd, base)
+			printList(cmd, base, wide)
 			return nil
 		},
 	}
 	cmd.Flags().StringVar(&src, "src", "", "project root")
+	cmd.Flags().BoolVarP(&wide, "wide", "w", false, "show full sandbox names (no truncation)")
 	return cmd
 }
 
-func printList(cmd *cobra.Command, base *sandbox.Base) {
+func printList(cmd *cobra.Command, base *sandbox.Base, wide bool) {
 	out := cmd.OutOrStdout()
 	cur := base.Current()
 	fmt.Fprintf(out, "%-2s %-16s %-9s %-5s %s\n", "", "SANDBOX", "EXIT", "SEC", "RESULT")
@@ -59,8 +61,13 @@ func printList(cmd *cobra.Command, base *sandbox.Base) {
 		if slug == cur {
 			marker = "*"
 		}
+		slugDisp, resDisp := slug, res
+		if !wide {
+			slugDisp = truncate(slug, 16)
+			resDisp = truncate(res, 50)
+		}
 		fmt.Fprintf(out, "%-2s %-16s %-9s %-5s %s\n",
-			marker, truncate(slug, 16), exit, secs, truncate(res, 50))
+			marker, slugDisp, exit, secs, resDisp)
 	}
 	fmt.Fprintln(out)
 	fmt.Fprintln(out, "* = active (use). enter <s> | exec <s> -- cmd | diff [s] | push [s] | rm <s>")
