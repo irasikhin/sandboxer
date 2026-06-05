@@ -200,8 +200,26 @@ flake reads it too, to build the image). Adding an agent = one entry.
 
 ## Toolbox image
 
+The container backend runs the agents inside the bundled `sandboxer-toolbox:latest`
+image. Build it with **only docker/podman** — no nix on your machine:
+
 ```bash
-nix run .#build-image   # build an OCI image with the agents + binary, load into podman/docker
+sandboxer build-image      # build + load the toolbox image (docker/podman only)
+```
+
+It drives an ephemeral, public `nixos/nix` container that builds a minimal OCI
+image (agents from [llm-agents.nix](https://github.com/numtide/llm-agents.nix);
+the sandboxer binary injected by copy) and loads it into your engine. It is clean
+by default — the builder container and the `nixos/nix` image it pulled are removed
+afterward, leaving only the toolbox image; pass `--cache` to keep a nix-store
+volume for faster rebuilds, `--keep-builder` to keep the `nixos/nix` image.
+
+`create`/`enter`/`exec`/`run` **auto-build** the image on first use when it's
+missing (disable with `SANDBOXER_NO_AUTOBUILD=1`). Inspect or hand-run the
+container config with `sandboxer compose <slug>` (or `--print-run`).
+
+```bash
+nix run .#build-image   # maintainer/dev equivalent (requires nix on the host)
 ```
 
 ## Docs

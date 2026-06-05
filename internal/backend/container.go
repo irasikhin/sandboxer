@@ -11,6 +11,7 @@ import (
 
 	"github.com/irasikhin/sandboxer/internal/config"
 	"github.com/irasikhin/sandboxer/internal/egress"
+	"github.com/irasikhin/sandboxer/internal/toolbox"
 )
 
 // RunOpts configures a single container invocation.
@@ -40,10 +41,13 @@ type RunOpts struct {
 // and (when applicable) the egress allowlist. It returns the container exit
 // code.
 func Run(o RunOpts) (int, error) {
-	// Surface a missing toolbox image early (before egress, whose sidecar uses
-	// the same image) so the user gets an actionable hint instead of an opaque
-	// pull error from the engine.
-	warnIfImageMissing(o.Engine, o.Image, o.Stderr)
+	// Make sure the toolbox image is present before anything else (egress's
+	// sidecar uses the same image). The bundled default is never published, so
+	// a missing one is auto-built instead of letting the engine attempt a
+	// doomed pull and drop the user back to the host shell.
+	if err := ensureImage(o); err != nil {
+		return 0, err
+	}
 
 	var eg *egress.Egress
 	// Egress allowlist is required unless explicitly disabled (NoEgress /
@@ -66,6 +70,32 @@ func Run(o RunOpts) (int, error) {
 	}
 	defer eg.Down()
 
+	egNet, egProxyURL := "", ""
+	if eg.Active() {
+		egNet, egProxyURL = eg.Net(), eg.ProxyURL()
+	}
+	args, err := runArgs(o, egNet, egProxyURL)
+	if err != nil {
+		return 0, err
+	}
+
+	cmd := exec.Command(o.Engine, args...)
+	cmd.Stdin = o.Stdin
+	cmd.Stdout = o.Stdout
+	cmd.Stderr = o.Stderr
+	return exitCode(cmd.Run()), nil
+}
+
+// RunArgv returns the engine `run` argv that Run would execute for o, without an
+// active egress sidecar (the allowlist proxy is created dynamically at run time).
+// It is the seam used by `sandboxer compose` to show/emit the run configuration.
+func RunArgv(o RunOpts) ([]string, error) { return runArgs(o, "", "") }
+
+// runArgs assembles the engine `run` argv. egNet/egProxyURL carry the egress
+// sidecar's network name and proxy URL when the allowlist proxy is active (both
+// "" otherwise). Kept identical to the original inline construction so Run's
+// behavior is unchanged.
+func runArgs(o RunOpts, egNet, egProxyURL string) ([]string, error) {
 	home, _ := os.UserHomeDir()
 	userns := strconv.Itoa(os.Getuid()) + ":" + strconv.Itoa(os.Getgid())
 
@@ -93,11 +123,10 @@ func Run(o RunOpts) (int, error) {
 	if cpus := cpusFromQuota(o.CPU); cpus != "" {
 		args = append(args, "--cpus", cpus)
 	}
-	if eg.Active() {
-		url := eg.ProxyURL()
-		args = append(args, "--network", eg.Net(),
-			"--env", "HTTP_PROXY="+url, "--env", "http_proxy="+url,
-			"--env", "HTTPS_PROXY="+url, "--env", "https_proxy="+url,
+	if egNet != "" {
+		args = append(args, "--network", egNet,
+			"--env", "HTTP_PROXY="+egProxyURL, "--env", "http_proxy="+egProxyURL,
+			"--env", "HTTPS_PROXY="+egProxyURL, "--env", "https_proxy="+egProxyURL,
 			"--env", "NO_PROXY=localhost,127.0.0.1", "--env", "no_proxy=localhost,127.0.0.1")
 	}
 	if o.ProfileJSONPath != "" && pathExists(o.ProfileJSONPath) {
@@ -121,7 +150,7 @@ func Run(o RunOpts) (int, error) {
 	}
 	af, err := authFlags(o.RT.AuthAgents, o.Ephemeral, o.EphDir)
 	if err != nil {
-		return 0, fmt.Errorf("credential setup failed: %w", err)
+		return nil, fmt.Errorf("credential setup failed: %w", err)
 	}
 	args = append(args, af...)
 	args = append(args, originMounts(o.ManifestPath)...)
@@ -133,29 +162,46 @@ func Run(o RunOpts) (int, error) {
 		args = append(args, "timeout", "--signal=TERM", o.Wall)
 	}
 	args = append(args, o.Args...)
-
-	cmd := exec.Command(o.Engine, args...)
-	cmd.Stdin = o.Stdin
-	cmd.Stdout = o.Stdout
-	cmd.Stderr = o.Stderr
-	err = cmd.Run()
-	return exitCode(err), nil
+	return args, nil
 }
 
-// warnIfImageMissing prints an actionable hint when the toolbox image is not
-// present locally. It does not block — a published image can still be
-// auto-pulled by the engine — but for the bundled sandboxer-toolbox:latest
-// (built locally, never published) it turns an opaque pull error into a clear
-// "build the image" message.
-func warnIfImageMissing(engine, image string, w io.Writer) {
-	if w == nil || engine == "" || image == "" {
-		return
+// Test seams: overridable so ensureImage can be unit-tested without a real
+// engine or a multi-minute nix build.
+var (
+	imageExists = ImageExists
+	buildImage  = toolbox.BuildImage
+)
+
+// ensureImage guarantees o.Image is present before the run. The bundled default
+// image is never published: when it is missing we auto-build it (unless
+// SANDBOXER_NO_AUTOBUILD is set, in which case we fail fast with a build hint).
+// A custom SANDBOXER_IMAGE is assumed to be a real, pullable reference and is
+// left to the engine to fetch as before.
+func ensureImage(o RunOpts) error {
+	if o.Engine == "" || o.Image == "" || imageExists(o.Engine, o.Image) {
+		return nil
 	}
-	if ImageExists(engine, image) {
-		return
+	if o.Image != config.DefaultImage {
+		return nil // custom image: let the engine pull it
 	}
-	fmt.Fprintf(w, "sandboxer: image %q not found locally — the engine will try to pull it.\n"+
-		"  build the bundled toolbox image with: nix run .#build-image\n", image)
+	if os.Getenv("SANDBOXER_NO_AUTOBUILD") != "" {
+		return fmt.Errorf("toolbox image %q is not present and is built locally "+
+			"(never published) — build it with:\n  sandboxer build-image", o.Image)
+	}
+	if o.Stderr != nil {
+		fmt.Fprintf(o.Stderr, "sandboxer: toolbox image %q not found — building it now "+
+			"(one-time, several minutes; disable with SANDBOXER_NO_AUTOBUILD=1)…\n", o.Image)
+	}
+	if err := buildImage(toolbox.BuildOpts{
+		Engine: o.Engine, Image: o.Image,
+		Stdout: o.Stderr, Stderr: o.Stderr,
+	}); err != nil {
+		return fmt.Errorf("%w — build manually with: sandboxer build-image", err)
+	}
+	if !imageExists(o.Engine, o.Image) {
+		return fmt.Errorf("toolbox image %q still missing after build — try: sandboxer build-image", o.Image)
+	}
+	return nil
 }
 
 // ImageExists reports whether the engine has the image locally. `image inspect`

@@ -47,7 +47,7 @@ Run this after a fresh install or when something isn't working.`,
 					fmt.Fprintf(tw, "toolbox image %s\t✓\tpresent\n", image)
 					ok++
 				} else {
-					fmt.Fprintf(tw, "toolbox image %s\t⚠\tnot found — build with: nix run .#build-image\n", image)
+					fmt.Fprintf(tw, "toolbox image %s\t⚠\tnot found — build with: sandboxer build-image\n", image)
 					warn++
 				}
 			}
