@@ -193,7 +193,11 @@ func resolveTarget(f commonFlags, pos string) (*target, error) {
 		}
 	}
 	if slug == "" {
-		return nil, errors.New("no sandbox selected: give <slug>, -S <slug>, or `sandboxer use <slug>` (list: sandboxer list)")
+		agents := base.Agents()
+		if len(agents) > 0 {
+			return nil, fmt.Errorf("no sandbox selected (have: %s) — give <slug>, -S <slug>, or `sandboxer use <slug>`", strings.Join(agents, ", "))
+		}
+		return nil, errors.New("no sandbox selected — give <slug>, -S <slug>, or `sandboxer use <slug>` (create one: sandboxer create)")
 	}
 	slug = config.Sanitize(slug)
 
