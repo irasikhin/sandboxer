@@ -10,6 +10,13 @@ commit messages with that in mind. See [CONTRIBUTING.md](./CONTRIBUTING.md).
 
 ## [Unreleased]
 
+## [0.10.0] — 2026-06-05
+
+### Added
+
+- include existing sandbox names in 'no sandbox selected' error (3794735)
+
+
 ## [0.9.1] — 2026-06-05
 
 ### Fixed
@@ -185,3 +192,4 @@ commit messages with that in mind. See [CONTRIBUTING.md](./CONTRIBUTING.md).
 [0.8.0]: https://github.com/irasikhin/sandboxer/compare/v0.7.0...v0.8.0
 [0.9.0]: https://github.com/irasikhin/sandboxer/compare/v0.8.0...v0.9.0
 [0.9.1]: https://github.com/irasikhin/sandboxer/compare/v0.9.0...v0.9.1
+[0.10.0]: https://github.com/irasikhin/sandboxer/compare/v0.9.1...v0.10.0
