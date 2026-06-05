@@ -88,7 +88,7 @@ Scalars come from **flags** and `SANDBOXER_*` env vars:
 | Setting | Flag | Env |
 |---------|------|-----|
 | agent | `--agent` | `SANDBOXER_AGENT` (default `claude`) |
-| backend | `--backend` | `SANDBOXER_BACKEND` (default `podman`) |
+| backend | `--backend` | `SANDBOXER_BACKEND` (default `podman`; `native\|podman\|docker` — `podman`/`docker` pin that engine when installed, else fall back to whichever is) |
 | model | `--model` | `SANDBOXER_MODEL` |
 | egress domains | `--allow-domains a,b` | `SANDBOXER_DOMAINS` |
 | disable egress | — | `SANDBOXER_NO_EGRESS=1` |

@@ -128,15 +128,17 @@ func Run(o Options) (Result, error) {
 	}
 
 	engine := ""
+	backendShown := rt.Backend
 	if rt.Backend != "native" {
-		engine, err = backend.DetectEngine(o.Defaults)
+		engine, err = backend.ResolveEngine(rt.Backend, o.Defaults)
 		if err != nil {
 			return Result{}, err
 		}
+		backendShown = engine
 	}
 
 	fmt.Fprintf(o.Stdout, "sandboxer: src=%s agent=%s backend=%s model=%s parallel=%d%s%s\n",
-		base.Src, rt.Agent, rt.Backend, orDefault(rt.Model, "default"), o.MaxP,
+		base.Src, rt.Agent, backendShown, orDefault(rt.Model, "default"), o.MaxP,
 		dryTag(o.DryRun), limitsTag(o.Mem, o.CPU, o.Wall))
 
 	sem := make(chan struct{}, max(1, o.MaxP))

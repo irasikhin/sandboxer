@@ -147,7 +147,8 @@ func newShowCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			fmt.Fprintln(out, configLine(t.runtime(f), t.slug, t.profile))
+			rtShow := t.runtime(f)
+			fmt.Fprintln(out, configLine(rtShow, t.slug, t.profile, backendLabel(rtShow)))
 			fmt.Fprintf(out, "== profile (%s) ==\n", t.slug)
 			if !dumpFile(out, t.base.ProfileJSONPath(t.slug)) {
 				fmt.Fprintln(out, "(no profile)")

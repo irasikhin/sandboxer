@@ -239,6 +239,52 @@ func TestDetectEngine(t *testing.T) {
 	}
 }
 
+func TestResolveEngine(t *testing.T) {
+	// SANDBOXER_ENGINE wins regardless of the requested backend.
+	if e, err := ResolveEngine("docker", config.Defaults{Engine: "custom"}); err != nil || e != "custom" {
+		t.Errorf("explicit engine = %q, %v; want custom", e, err)
+	}
+
+	bin := t.TempDir()
+	t.Setenv("PATH", bin)
+	for _, name := range []string{"podman", "docker"} {
+		if err := os.WriteFile(filepath.Join(bin, name), []byte("#!/bin/sh\n"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// An explicitly requested, installed engine is honored even though podman
+	// would otherwise win the auto-detect — the --backend choice must pin it.
+	if e, err := ResolveEngine("docker", config.Defaults{}); err != nil || e != "docker" {
+		t.Errorf("backend=docker (both installed) = %q, %v; want docker", e, err)
+	}
+	if e, err := ResolveEngine("podman", config.Defaults{}); err != nil || e != "podman" {
+		t.Errorf("backend=podman (both installed) = %q, %v; want podman", e, err)
+	}
+
+	// A requested-but-missing engine falls back to whatever is installed, so the
+	// default "podman" still works on a docker-only host.
+	dockerOnly := t.TempDir()
+	t.Setenv("PATH", dockerOnly)
+	if err := os.WriteFile(filepath.Join(dockerOnly, "docker"), []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if e, err := ResolveEngine("podman", config.Defaults{}); err != nil || e != "docker" {
+		t.Errorf("backend=podman on docker-only host = %q, %v; want docker fallback", e, err)
+	}
+	// EngineLabel never errors and reflects that fallback; native passes through.
+	if l := EngineLabel("podman", config.Defaults{}); l != "docker" {
+		t.Errorf("EngineLabel(podman) on docker-only = %q; want docker", l)
+	}
+	if l := EngineLabel("native", config.Defaults{}); l != "native" {
+		t.Errorf("EngineLabel(native) = %q; want native", l)
+	}
+	// With no engine installed, EngineLabel returns the requested backend as-is.
+	t.Setenv("PATH", t.TempDir())
+	if l := EngineLabel("podman", config.Defaults{}); l != "podman" {
+		t.Errorf("EngineLabel(podman) with no engine = %q; want podman", l)
+	}
+}
+
 // --- native backend ---------------------------------------------------------
 
 func TestNativeExecGeneric(t *testing.T) {

@@ -84,7 +84,7 @@ func TestConfigLine(t *testing.T) {
 
 	// Defaults, no profile: egress on with a domain count, profile=none.
 	rt := config.Runtime{Agent: "claude", Backend: "native", Egress: true, Domains: []string{"a.com", "b.com"}}
-	line := configLine(rt, "feat", nil)
+	line := configLine(rt, "feat", nil, "native")
 	for _, want := range []string{"feat —", "agent=claude", "backend=native", "model=default", "egress=on (2 domains)", "profile=none", "deps=0"} {
 		if !strings.Contains(line, want) {
 			t.Errorf("configLine missing %q in %q", want, line)
@@ -93,7 +93,7 @@ func TestConfigLine(t *testing.T) {
 
 	// With a named profile and deps; egress off when not enabled.
 	prof := &config.Profile{Name: "web", Deps: []string{"x", "y"}}
-	line2 := configLine(config.Runtime{Agent: "opencode", Backend: "podman", Model: "gpt-5"}, "web", prof)
+	line2 := configLine(config.Runtime{Agent: "opencode", Backend: "podman", Model: "gpt-5"}, "web", prof, "podman")
 	for _, want := range []string{"profile=web", "deps=2", "egress=off", "model=gpt-5"} {
 		if !strings.Contains(line2, want) {
 			t.Errorf("configLine (profile) missing %q in %q", want, line2)
@@ -102,7 +102,7 @@ func TestConfigLine(t *testing.T) {
 
 	// Disabled via env is called out explicitly.
 	t.Setenv("SANDBOXER_NO_EGRESS", "1")
-	if l := configLine(rt, "feat", nil); !strings.Contains(l, "SANDBOXER_NO_EGRESS") {
+	if l := configLine(rt, "feat", nil, "native"); !strings.Contains(l, "SANDBOXER_NO_EGRESS") {
 		t.Errorf("configLine should note env-disabled egress: %q", l)
 	}
 }

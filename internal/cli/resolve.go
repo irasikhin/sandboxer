@@ -10,6 +10,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/irasikhin/sandboxer/internal/backend"
 	"github.com/irasikhin/sandboxer/internal/config"
 	"github.com/irasikhin/sandboxer/internal/sandbox"
 )
@@ -208,11 +209,21 @@ func (t *target) runtime(f commonFlags) config.Runtime {
 		config.Overrides{Model: f.model, Agent: f.agent, Backend: f.backend, Domains: f.domains})
 }
 
+// backendLabel reports the backend to show in the banner: for a container
+// backend it is the engine that will actually be used (podman→docker auto-
+// detect, an explicitly requested engine honored when installed) rather than the
+// raw configured value, so the banner can never claim "podman" while docker
+// runs. native is shown as-is.
+func backendLabel(rt config.Runtime) string {
+	return backend.EngineLabel(rt.Backend, config.LoadDefaults())
+}
+
 // configLine summarises the resolved settings so a command always tells the user
 // what is actually in effect — which agent/backend/model, the egress status, the
 // profile source and the dependency count — instead of leaving them to infer the
-// silent defaults. Printed to stderr by create/enter/exec.
-func configLine(rt config.Runtime, slug string, prof *config.Profile) string {
+// silent defaults. backendShown is the engine label (see backendLabel) so the
+// reported backend matches what runs. Printed to stderr by create/enter/exec.
+func configLine(rt config.Runtime, slug string, prof *config.Profile, backendShown string) string {
 	egress := "off"
 	switch {
 	case noEgress():
@@ -232,7 +243,7 @@ func configLine(rt config.Runtime, slug string, prof *config.Profile) string {
 		deps = len(prof.Deps)
 	}
 	return fmt.Sprintf("sandboxer: %s — agent=%s backend=%s model=%s egress=%s profile=%s deps=%d",
-		slug, rt.Agent, rt.Backend, firstNonEmpty(rt.Model, "default"), egress, profile, deps)
+		slug, rt.Agent, backendShown, firstNonEmpty(rt.Model, "default"), egress, profile, deps)
 }
 
 // loadStoredProfile reads the profile.json saved for a sandbox (nil if absent).

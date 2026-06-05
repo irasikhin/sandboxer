@@ -68,7 +68,8 @@ func newCreateCmd() *cobra.Command {
 			if err := t.base.MakeSandbox(t.slug, cmd.ErrOrStderr()); err != nil {
 				return err
 			}
-			fmt.Fprintln(cmd.ErrOrStderr(), configLine(t.runtime(f), t.slug, t.profile))
+			rtCreate := t.runtime(f)
+			fmt.Fprintln(cmd.ErrOrStderr(), configLine(rtCreate, t.slug, t.profile, backendLabel(rtCreate)))
 			if t.profile == nil {
 				fmt.Fprintln(cmd.ErrOrStderr(), "sandboxer: no profile — scaffold one with 'sandboxer init', then re-create")
 			}
@@ -120,14 +121,14 @@ func newEnterCmd() *cobra.Command {
 				return err
 			}
 			errOut := cmd.ErrOrStderr()
-			fmt.Fprintln(errOut, configLine(rt, t.slug, t.profile))
+			fmt.Fprintln(errOut, configLine(rt, t.slug, t.profile, backendLabel(rt)))
 			var runErr error
 			code := 0
 			if rt.Backend == "native" {
 				fmt.Fprintf(errOut, "sandboxer: shell in copy %s (backend=native; OS sandbox only when running 'claude --settings').\n", dest)
 				runErr = backend.NativeEnter(dest, rt, cmd.InOrStdin(), cmd.OutOrStdout(), errOut)
 			} else {
-				engine, err := backend.DetectEngine(config.LoadDefaults())
+				engine, err := backend.ResolveEngine(rt.Backend, config.LoadDefaults())
 				if err != nil {
 					return err
 				}
@@ -188,7 +189,7 @@ func newExecCmd() *cobra.Command {
 			if err := config.ValidateNative(rt); err != nil {
 				return err
 			}
-			fmt.Fprintln(cmd.ErrOrStderr(), configLine(rt, t.slug, t.profile))
+			fmt.Fprintln(cmd.ErrOrStderr(), configLine(rt, t.slug, t.profile, backendLabel(rt)))
 			if rt.Backend == "native" {
 				code, err := backend.NativeExec(dest, rt, rest, cmd.InOrStdin(), cmd.OutOrStdout(), cmd.ErrOrStderr())
 				pushErr := pushDeps(t, cmd)
@@ -203,7 +204,7 @@ func newExecCmd() *cobra.Command {
 				}
 				return nil
 			}
-			engine, err := backend.DetectEngine(config.LoadDefaults())
+			engine, err := backend.ResolveEngine(rt.Backend, config.LoadDefaults())
 			if err != nil {
 				return err
 			}
