@@ -1,15 +1,15 @@
-# Пример tasks-файла для `sandboxer run`.
-# Формат: [slug] на отдельной строке, далее — промпт (можно многострочный) до следующего [slug].
-# Строки, начинающиеся с #, игнорируются.
+# Example tasks file for `sandboxer run`.
+# Format: [slug] on its own line, then the prompt (multi-line ok) until the next [slug].
+# Lines starting with # are ignored.
 
 [add-multiply]
-Добавь в src/calc.js функцию multiply(a, b) и тест в tests/calc.test.js.
-Запусти `npm test`, добейся зелёных тестов.
+Add a multiply(a, b) function to src/calc.js and a test in tests/calc.test.js.
+Run `npm test`, get green tests.
 
 [docs-api]
-В README.md добавь раздел "## API" с описанием всех экспортируемых функций из src/calc.js.
-Код не меняй.
+Add an "## API" section to README.md describing all exported functions from src/calc.js.
+Don't change the code.
 
 [validate-args]
-Отрефактори add и subtract в src/calc.js: бросать TypeError, если аргумент не число.
-Добавь тест на ошибку. Запусти `npm test`, добейся зелёных тестов.
+Refactor add and subtract in src/calc.js: throw TypeError if an argument is not a number.
+Add an error test. Run `npm test`, get green tests.
