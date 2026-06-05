@@ -151,17 +151,17 @@ func warnIfImageMissing(engine, image string, w io.Writer) {
 	if w == nil || engine == "" || image == "" {
 		return
 	}
-	if imageExists(engine, image) {
+	if ImageExists(engine, image) {
 		return
 	}
 	fmt.Fprintf(w, "sandboxer: image %q not found locally — the engine will try to pull it.\n"+
 		"  build the bundled toolbox image with: nix run .#build-image\n", image)
 }
 
-// imageExists reports whether the engine has the image locally. `image inspect`
+// ImageExists reports whether the engine has the image locally. `image inspect`
 // is supported by both docker and podman and exits non-zero when the image is
 // absent.
-func imageExists(engine, image string) bool {
+func ImageExists(engine, image string) bool {
 	return exec.Command(engine, "image", "inspect", image).Run() == nil
 }
 

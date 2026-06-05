@@ -345,6 +345,23 @@ default: web
 	}
 }
 
+func TestDoctor(t *testing.T) {
+	t.Setenv("SANDBOXER_IN_CONTAINER", "")
+	t.Setenv("SANDBOXER_PROFILES", t.TempDir())
+
+	code, out, _ := run("doctor")
+	if code != 0 {
+		t.Fatalf("doctor = %d", code)
+	}
+	// Always reports the agent catalog (at least claude).
+	if !strings.Contains(out, "claude") {
+		t.Errorf("doctor output missing 'claude':\n%s", out)
+	}
+	if !strings.Contains(out, "ok") {
+		t.Errorf("doctor output missing ok tally:\n%s", out)
+	}
+}
+
 func TestRunAutoDiscoversProfile(t *testing.T) {
 	t.Setenv("SANDBOXER_IN_CONTAINER", "")
 	project := t.TempDir()
