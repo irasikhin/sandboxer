@@ -10,6 +10,13 @@ commit messages with that in mind. See [CONTRIBUTING.md](./CONTRIBUTING.md).
 
 ## [Unreleased]
 
+## [0.8.0] — 2026-06-05
+
+### Added
+
+- add --dry-run to push so users can preview overwrites (360db2d)
+
+
 ## [0.7.0] — 2026-06-05
 
 ### Added
@@ -161,3 +168,4 @@ commit messages with that in mind. See [CONTRIBUTING.md](./CONTRIBUTING.md).
 [0.2.0]: https://github.com/irasikhin/sandboxer/compare/v0.0.0...v0.2.0
 [0.6.1]: https://github.com/irasikhin/sandboxer/compare/v0.6.0...v0.6.1
 [0.7.0]: https://github.com/irasikhin/sandboxer/compare/v0.6.1...v0.7.0
+[0.8.0]: https://github.com/irasikhin/sandboxer/compare/v0.7.0...v0.8.0
