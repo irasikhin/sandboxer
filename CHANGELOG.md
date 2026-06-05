@@ -10,6 +10,13 @@ commit messages with that in mind. See [CONTRIBUTING.md](./CONTRIBUTING.md).
 
 ## [Unreleased]
 
+## [0.15.0] — 2026-06-05
+
+### Added
+
+- build the toolbox image with only docker/podman (no host nix) (198006a)
+
+
 ## [0.14.0] — 2026-06-05
 
 ### Added
@@ -233,3 +240,4 @@ commit messages with that in mind. See [CONTRIBUTING.md](./CONTRIBUTING.md).
 [0.13.0]: https://github.com/irasikhin/sandboxer/compare/v0.12.0...v0.13.0
 [0.13.1]: https://github.com/irasikhin/sandboxer/compare/v0.13.0...v0.13.1
 [0.14.0]: https://github.com/irasikhin/sandboxer/compare/v0.13.1...v0.14.0
+[0.15.0]: https://github.com/irasikhin/sandboxer/compare/v0.14.0...v0.15.0
