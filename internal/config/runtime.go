@@ -31,7 +31,9 @@ type Overrides struct {
 
 // ResolveRuntime applies the precedence flags > profile > base(run.env)/defaults.
 // baseDomains and baseModel come from run.env (themselves seeded from defaults).
-func ResolveRuntime(p *Profile, d Defaults, baseDomains, baseModel string, f Overrides) Runtime {
+// Returns an error when a configured domain fails validation (e.g. a typo that
+// would silently deny the agent's traffic).
+func ResolveRuntime(p *Profile, d Defaults, baseDomains, baseModel string, f Overrides) (Runtime, error) {
 	if p == nil {
 		p = &Profile{}
 	}
@@ -50,6 +52,9 @@ func ResolveRuntime(p *Profile, d Defaults, baseDomains, baseModel string, f Ove
 		domains = baseDomains
 	}
 	rt.Domains = splitCSV(domains)
+	if err := ValidateDomains(rt.Domains); err != nil {
+		return Runtime{}, err
+	}
 
 	rt.Model = firstNonEmpty(f.Model, p.Model, baseModel)
 	rt.Agent = firstNonEmpty(f.Agent, p.Agent, d.Agent)
@@ -60,11 +65,36 @@ func ResolveRuntime(p *Profile, d Defaults, baseDomains, baseModel string, f Ove
 	} else {
 		rt.AuthAgents = registry.Names()
 	}
-	return rt
+	return rt, nil
 }
 
 // DomainsCSV joins the resolved allowlist back to a comma-separated string.
 func (r Runtime) DomainsCSV() string { return strings.Join(r.Domains, ",") }
+
+// ValidateDomains checks each domain for common typos (missing dot, spaces,
+// protocol prefix, path components). It returns nil for an empty list and the
+// first invalid domain found together with a hint.
+func ValidateDomains(domains []string) error {
+	for _, d := range domains {
+		d = strings.TrimSpace(d)
+		if d == "" {
+			continue
+		}
+		if strings.Contains(d, " ") {
+			return fmt.Errorf("invalid domain %q — contains whitespace", d)
+		}
+		if strings.HasPrefix(d, "http://") || strings.HasPrefix(d, "https://") {
+			return fmt.Errorf("invalid domain %q — give a hostname, not a URL", d)
+		}
+		if strings.Contains(d, "/") {
+			return fmt.Errorf("invalid domain %q — give a hostname, not a path", d)
+		}
+		if !strings.Contains(d, ".") {
+			return fmt.Errorf("invalid domain %q — missing dot (did you mean something like %s.com?)", d, d)
+		}
+	}
+	return nil
+}
 
 // ValidateNative rejects the native backend for an agent that has no OS sandbox.
 // The native backend's isolation is entirely Claude Code's own /sandbox, injected

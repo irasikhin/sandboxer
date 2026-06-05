@@ -59,12 +59,18 @@ func TestDomainsCSV(t *testing.T) {
 func TestResolveRuntimeAuthAgents(t *testing.T) {
 	// Explicit agents list is carried verbatim.
 	p := &Profile{Agents: []string{"claude", "codex"}}
-	rt := ResolveRuntime(p, Defaults{}, "", "", Overrides{})
+	rt, err := ResolveRuntime(p, Defaults{}, "", "", Overrides{})
+	if err != nil {
+		t.Fatal(err)
+	}
 	if !slices.Equal(rt.AuthAgents, []string{"claude", "codex"}) {
 		t.Errorf("AuthAgents = %v", rt.AuthAgents)
 	}
 	// No agents list → the full registry.
-	rt2 := ResolveRuntime(&Profile{}, Defaults{}, "", "", Overrides{})
+	rt2, err := ResolveRuntime(&Profile{}, Defaults{}, "", "", Overrides{})
+	if err != nil {
+		t.Fatal(err)
+	}
 	if !slices.Equal(rt2.AuthAgents, registry.Names()) {
 		t.Errorf("AuthAgents fallback = %v, want registry.Names()", rt2.AuthAgents)
 	}
@@ -72,8 +78,11 @@ func TestResolveRuntimeAuthAgents(t *testing.T) {
 
 func TestResolveRuntimeDomainsPrecedence(t *testing.T) {
 	// Flag CSV wins and is trimmed/split.
-	rt := ResolveRuntime(&Profile{Network: Network{AllowedDomains: []string{"p.com"}}},
+	rt, err := ResolveRuntime(&Profile{Network: Network{AllowedDomains: []string{"p.com"}}},
 		Defaults{}, "base.com", "", Overrides{Domains: "a.com, , b.com"})
+	if err != nil {
+		t.Fatal(err)
+	}
 	if !slices.Equal(rt.Domains, []string{"a.com", "b.com"}) {
 		t.Errorf("flag domains = %v", rt.Domains)
 	}
@@ -99,5 +108,32 @@ func TestValidateNative(t *testing.T) {
 	}
 	if err := ValidateNative(Runtime{Backend: "native", Agent: "nope"}); err == nil {
 		t.Error("native+unknown-agent should surface the registry error")
+	}
+}
+
+func TestValidateDomains(t *testing.T) {
+	// Valid domains pass.
+	if err := ValidateDomains([]string{"api.anthropic.com", "github.com"}); err != nil {
+		t.Errorf("valid domains should pass: %v", err)
+	}
+	// Empty list is fine.
+	if err := ValidateDomains(nil); err != nil {
+		t.Error("nil domains should pass")
+	}
+	// Missing dot.
+	if err := ValidateDomains([]string{"localhost"}); err == nil {
+		t.Error("localhost should fail (missing dot)")
+	}
+	// Whitespace.
+	if err := ValidateDomains([]string{"api .com"}); err == nil {
+		t.Error("spaces should fail")
+	}
+	// URL prefix.
+	if err := ValidateDomains([]string{"https://api.example.com"}); err == nil {
+		t.Error("URL prefix should fail")
+	}
+	// Path.
+	if err := ValidateDomains([]string{"api.example.com/v1"}); err == nil {
+		t.Error("path should fail")
 	}
 }

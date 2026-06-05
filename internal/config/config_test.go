@@ -34,7 +34,10 @@ func TestResolveRuntimePrecedence(t *testing.T) {
 	d := Defaults{Agent: "claude", Backend: "podman"}
 
 	// Flag override beats profile; profile beats base/defaults.
-	rt := ResolveRuntime(p, d, "base.com", "bm", Overrides{Agent: "crush"})
+	rt, err := ResolveRuntime(p, d, "base.com", "bm", Overrides{Agent: "crush"})
+	if err != nil {
+		t.Fatal(err)
+	}
 	if rt.Agent != "crush" {
 		t.Errorf("agent: flag should win, got %q", rt.Agent)
 	}
@@ -55,7 +58,10 @@ func TestResolveRuntimePrecedence(t *testing.T) {
 	}
 
 	// Nil profile, no overrides → defaults + base domains.
-	rt2 := ResolveRuntime(nil, d, "base.com,two.com", "bm", Overrides{})
+	rt2, err := ResolveRuntime(nil, d, "base.com,two.com", "bm", Overrides{})
+	if err != nil {
+		t.Fatal(err)
+	}
 	if rt2.Agent != "claude" {
 		t.Errorf("agent default = %q", rt2.Agent)
 	}

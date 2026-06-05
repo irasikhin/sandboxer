@@ -208,7 +208,7 @@ func resolveTarget(f commonFlags, pos string) (*target, error) {
 }
 
 // runtime resolves the effective settings for a target using the flag overrides.
-func (t *target) runtime(f commonFlags) config.Runtime {
+func (t *target) runtime(f commonFlags) (config.Runtime, error) {
 	return config.ResolveRuntime(t.profile, config.LoadDefaults(), t.base.Domains, t.base.Model,
 		config.Overrides{Model: f.model, Agent: f.agent, Backend: f.backend, Domains: f.domains})
 }

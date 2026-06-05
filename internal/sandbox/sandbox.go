@@ -105,6 +105,9 @@ func (b *Base) WriteProfileJSON(slug string, data []byte) error {
 
 // SetDomains rewrites the DOMAINS line in run.env.
 func (b *Base) SetDomains(domains string) error {
+	if err := config.ValidateDomains(strings.Split(domains, ",")); err != nil {
+		return err
+	}
 	runEnv := filepath.Join(b.metaDir(), "run.env")
 	env, err := parseEnvFile(runEnv)
 	if err != nil {

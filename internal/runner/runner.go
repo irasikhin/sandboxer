@@ -112,7 +112,10 @@ func Run(o Options) (Result, error) {
 			return Result{}, err
 		}
 	}
-	rt := config.ResolveRuntime(profile, o.Defaults, base.Domains, base.Model, o.Overrides)
+	rt, err := config.ResolveRuntime(profile, o.Defaults, base.Domains, base.Model, o.Overrides)
+	if err != nil {
+		return Result{}, err
+	}
 
 	if err := config.ValidateNative(rt); err != nil {
 		return Result{}, err

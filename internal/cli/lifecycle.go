@@ -71,7 +71,10 @@ func newCreateCmd() *cobra.Command {
 			if err := t.base.MakeSandbox(t.slug, cmd.ErrOrStderr()); err != nil {
 				return err
 			}
-			rtCreate := t.runtime(f)
+			rtCreate, err := t.runtime(f)
+			if err != nil {
+				return err
+			}
 			fmt.Fprintln(cmd.ErrOrStderr(), configLine(rtCreate, t.slug, t.profile, backendLabel(rtCreate)))
 			out := cmd.OutOrStdout()
 			fmt.Fprintf(out, "sandbox %q created: %s\n", t.slug, t.base.SandboxDir(t.slug))
@@ -116,7 +119,10 @@ func newEnterCmd() *cobra.Command {
 					return err
 				}
 			}
-			rt := t.runtime(f)
+			rt, rtErr := t.runtime(f)
+			if rtErr != nil {
+				return rtErr
+			}
 			if err := config.ValidateNative(rt); err != nil {
 				return err
 			}
@@ -190,7 +196,10 @@ func newExecCmd() *cobra.Command {
 			if !fileExists(dest) {
 				return fmt.Errorf("no sandbox %q (create it: sandboxer create)", t.slug)
 			}
-			rt := t.runtime(f)
+			rt, rtErr := t.runtime(f)
+			if rtErr != nil {
+				return rtErr
+			}
 			if err := config.ValidateNative(rt); err != nil {
 				return err
 			}
