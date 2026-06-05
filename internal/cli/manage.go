@@ -44,11 +44,18 @@ func newRmCmd() *cobra.Command {
 }
 
 func newRmAllCmd() *cobra.Command {
+	var force bool
 	cmd := &cobra.Command{
 		Use:   "rm-all [src]",
 		Short: "Remove the entire .sandboxer state directory",
-		Args:  cobra.MaximumNArgs(1),
+		Long: `Remove the entire .sandboxer state directory — all sandboxes, logs and metadata
+for the project. Requires --force to protect against accidental deletion;
+use 'sandboxer rm <slug>' to remove a single sandbox instead.`,
+		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if !force {
+				return fmt.Errorf("rm-all requires --force; use 'sandboxer rm <slug>' to remove a single sandbox")
+			}
 			src := firstNonEmpty(posArg(args), getwd())
 			abs, err := filepath.Abs(src)
 			if err != nil {
@@ -62,6 +69,7 @@ func newRmAllCmd() *cobra.Command {
 			return nil
 		},
 	}
+	cmd.Flags().BoolVar(&force, "force", false, "required to confirm deletion")
 	return cmd
 }
 

@@ -284,7 +284,7 @@ func TestRunBatchFailingAgentExitsNonzero(t *testing.T) {
 }
 
 func TestRmAllNonexistent(t *testing.T) {
-	if code, out, _ := run("rm-all", filepath.Join(t.TempDir(), "sub")); code != 0 || !strings.Contains(out, "removed") {
+	if code, out, _ := run("rm-all", "--force", filepath.Join(t.TempDir(), "sub")); code != 0 || !strings.Contains(out, "removed") {
 		t.Errorf("rm-all nonexistent = (%d, %q)", code, out)
 	}
 }

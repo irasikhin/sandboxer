@@ -299,11 +299,15 @@ func TestRunLifecycle(t *testing.T) {
 	if code, out, _ := run("rm", "feat", "--src", project); code != 0 || !strings.Contains(out, "removed") {
 		t.Errorf("rm = (%d, %q)", code, out)
 	}
-	if code, out, _ := run("rm-all", project); code != 0 || !strings.Contains(out, "removed") {
+	if code, out, _ := run("rm-all", "--force", project); code != 0 || !strings.Contains(out, "removed") {
 		t.Errorf("rm-all = (%d, %q)", code, out)
 	}
 	if _, err := os.Stat(filepath.Join(project, ".sandboxer")); !os.IsNotExist(err) {
 		t.Error(".sandboxer should be gone after rm-all")
+	}
+	// rm-all without --force is rejected.
+	if code, _, errs := run("rm-all", project); code != 1 || !strings.Contains(errs, "--force") {
+		t.Errorf("rm-all without --force = (%d, %q); want error mentioning --force", code, errs)
 	}
 }
 
