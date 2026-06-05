@@ -345,6 +345,21 @@ default: web
 	}
 }
 
+func TestCompletion(t *testing.T) {
+	for _, sh := range []string{"bash", "zsh", "fish"} {
+		code, out, _ := run("completion", sh)
+		if code != 0 || out == "" {
+			t.Errorf("completion %s = (%d, empty=%v)", sh, code, out == "")
+		}
+	}
+	if code, _, _ := run("completion", "nope"); code != 1 {
+		t.Errorf("completion nope = %d, want 1", code)
+	}
+	if code, _, _ := run("completion"); code != 1 {
+		t.Errorf("completion (no arg) = %d, want 1", code)
+	}
+}
+
 func TestDoctor(t *testing.T) {
 	t.Setenv("SANDBOXER_IN_CONTAINER", "")
 	t.Setenv("SANDBOXER_PROFILES", t.TempDir())
