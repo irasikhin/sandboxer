@@ -60,6 +60,9 @@ func newCreateCmd() *cobra.Command {
 					return err
 				}
 			}
+			if t.profile == nil {
+				return fmt.Errorf("no profile for %q — scaffold one with 'sandboxer init', then re-create", t.slug)
+			}
 			if t.json != nil {
 				if err := t.base.WriteProfileJSON(t.slug, t.json); err != nil {
 					return err
@@ -70,9 +73,6 @@ func newCreateCmd() *cobra.Command {
 			}
 			rtCreate := t.runtime(f)
 			fmt.Fprintln(cmd.ErrOrStderr(), configLine(rtCreate, t.slug, t.profile, backendLabel(rtCreate)))
-			if t.profile == nil {
-				fmt.Fprintln(cmd.ErrOrStderr(), "sandboxer: no profile — scaffold one with 'sandboxer init', then re-create")
-			}
 			out := cmd.OutOrStdout()
 			fmt.Fprintf(out, "sandbox %q created: %s\n", t.slug, t.base.SandboxDir(t.slug))
 			fmt.Fprintf(out, "enter:  sandboxer enter %s\n", t.slug)

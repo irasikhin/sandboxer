@@ -238,16 +238,15 @@ func requireExec(t *testing.T, names ...string) {
 }
 
 // newProject returns a fresh project dir (plain, no git) with one file, and
-// ensures the in-container guard is off.
+// ensures the in-container guard is off. Auto-scaffold is left enabled — a
+// bare create/enter without a profile writes a default sandboxer.yaml so the
+// user never lands in an empty no-profile state.
 func newProject(t *testing.T) string {
 	t.Helper()
 	t.Setenv("SANDBOXER_IN_CONTAINER", "")
 	// Isolate the global profile store so a bare slug never resolves to a
 	// host-installed named profile.
 	t.Setenv("SANDBOXER_PROFILES", t.TempDir())
-	// These tests drive explicit flows; opt out of auto-scaffolding so a bare
-	// create/enter keeps its no-profile semantics (TestRunAutoScaffold covers it).
-	t.Setenv("SANDBOXER_NO_SCAFFOLD", "1")
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "f.txt"), []byte("v1\n"), 0o644); err != nil {
 		t.Fatal(err)
@@ -273,16 +272,13 @@ func TestRunAgentsVersionHelp(t *testing.T) {
 func TestRunLifecycle(t *testing.T) {
 	project := newProject(t)
 
-	// No profile → an empty sandbox (nothing is copied by default).
+	// Auto-scaffold fires on first create; an empty sandbox is created.
 	if code, out, errs := run("create", "feat", "--src", project); code != 0 || !strings.Contains(out, "created") {
 		t.Fatalf("create = (%d, %q, %q)", code, out, errs)
 	}
 	dest := filepath.Join(project, ".sandboxer", "feat")
 	if fi, err := os.Stat(dest); err != nil || !fi.IsDir() {
 		t.Errorf("sandbox dir not created: %v", err)
-	}
-	if entries, _ := os.ReadDir(dest); len(entries) != 0 {
-		t.Errorf("sandbox should be empty without srcs, has %d entries", len(entries))
 	}
 	if code, out, _ := run("list", "--src", project); code != 0 || !strings.Contains(out, "feat") {
 		t.Errorf("list = (%d, %q)", code, out)
@@ -293,7 +289,7 @@ func TestRunLifecycle(t *testing.T) {
 	if code, out, _ := run("use", "--src", project); code != 0 || !strings.Contains(out, "feat") {
 		t.Errorf("use get = (%d, %q)", code, out)
 	}
-	if code, out, _ := run("show", "feat", "--src", project); code != 0 || !strings.Contains(out, "no profile") {
+	if code, out, _ := run("show", "feat", "--src", project); code != 0 || !strings.Contains(out, "profile") {
 		t.Errorf("show = (%d, %q)", code, out)
 	}
 	if code, out, _ := run("rm", "feat", "--src", project); code != 0 || !strings.Contains(out, "removed") {

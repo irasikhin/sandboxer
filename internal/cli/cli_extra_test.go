@@ -35,11 +35,11 @@ func TestRunAutoScaffold(t *testing.T) {
 		t.Errorf("scaffold name should match the slug, got %+v", p)
 	}
 
-	// Opt-out: no file written.
+	// Opt-out: no file written, and create without a profile is refused.
 	t.Setenv("SANDBOXER_NO_SCAFFOLD", "1")
 	other := t.TempDir()
-	if code, _, _ := run("create", "x", "--src", other); code != 0 {
-		t.Fatal("create with opt-out failed")
+	if code, _, errs := run("create", "x", "--src", other); code != 1 || !strings.Contains(errs, "no profile") {
+		t.Fatalf("create with opt-out and no profile = (%d, %q); want 'no profile' error", code, errs)
 	}
 	if fileExists(filepath.Join(other, "sandboxer.yaml")) {
 		t.Error("SANDBOXER_NO_SCAFFOLD=1 should skip scaffolding")
@@ -162,14 +162,17 @@ func TestRunEnterExecNative(t *testing.T) {
 
 func TestRunPullPushNoProfile(t *testing.T) {
 	project := newProject(t)
+	// Auto-scaffold fires and creates a profile; create succeeds.
 	if code, _, _ := run("create", "feat", "--src", project); code != 0 {
 		t.Fatal("create failed")
 	}
-	if code, _, errs := run("pull", "feat", "--src", project); code != 1 || !strings.Contains(errs, "no profile") {
-		t.Errorf("pull without profile = (%d, %q)", code, errs)
+	// Pull works because a profile exists (auto-scaffolded with no deps).
+	if code, out, _ := run("pull", "feat", "--src", project); code != 0 {
+		t.Errorf("pull after auto-scaffold = (%d, %q)", code, out)
 	}
-	if code, _, errs := run("push", "feat", "--src", project); code != 1 || !strings.Contains(errs, "no manifest") {
-		t.Errorf("push without manifest = (%d, %q)", code, errs)
+	// Push succeeds with 0 rw entries (an empty manifest was created).
+	if code, out, _ := run("push", "feat", "--src", project); code != 0 || !strings.Contains(out, "0 rw entries") {
+		t.Errorf("push (empty profile) = (%d, %q)", code, out)
 	}
 }
 
