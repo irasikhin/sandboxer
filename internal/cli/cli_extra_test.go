@@ -152,7 +152,7 @@ func TestRunEnterExecNative(t *testing.T) {
 	if code, _, _ := run("exec", "feat", "--src", project, "--backend", "native", "--", "sh", "-c", "exit 5"); code != 1 {
 		t.Errorf("exec non-zero exit code = %d, want 1", code)
 	}
-	if code, _, errs := run("exec", "feat", "--src", project, "--backend", "native"); code != 1 || !strings.Contains(errs, "command after --") {
+	if code, _, errs := run("exec", "feat", "--src", project, "--backend", "native"); code != 1 || !strings.Contains(errs, "no command to run") {
 		t.Errorf("exec without -- = (%d, %q)", code, errs)
 	}
 	if code, _, errs := run("exec", "missing", "--src", project, "--backend", "native", "--", "true"); code != 1 || !strings.Contains(errs, "no sandbox") {

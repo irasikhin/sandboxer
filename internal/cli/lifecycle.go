@@ -175,7 +175,12 @@ func newExecCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			pos, rest := splitDash(cmd, args)
 			if len(rest) == 0 {
-				return fmt.Errorf("give a command after --: sandboxer exec <slug> -- <cmd...>")
+				hint := "use -- before the command, e.g.: sandboxer exec feat -- npm test"
+				if pos != "" && cmd.ArgsLenAtDash() < 0 && len(args) > 1 {
+					// The user likely wrote 'sandboxer exec feat npm test' (no --).
+					return fmt.Errorf("no command to run — %s", hint)
+				}
+				return fmt.Errorf("no command to run — %s", hint)
 			}
 			t, err := resolveTarget(f, pos)
 			if err != nil {
