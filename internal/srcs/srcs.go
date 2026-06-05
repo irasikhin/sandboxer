@@ -282,11 +282,16 @@ func CopyIn(w io.Writer, profileFile, sandboxDir, manifestOut string, force bool
 
 // CopyOut pushes the rw entries of a manifest from the sandbox back over their
 // origins, always overwriting (like depsync's push). An entry whose sandbox
-// copy is missing is skipped. Progress is reported to w.
-func CopyOut(w io.Writer, manifestFile string) error {
+// copy is missing is skipped. When dryRun is true, the changes are only
+// reported — no files are touched. Progress is reported to w.
+func CopyOut(w io.Writer, manifestFile string, dryRun bool) error {
 	manifest, err := readManifest(manifestFile)
 	if err != nil {
 		return err
+	}
+	action := "PUSH"
+	if dryRun {
+		action = "WOULD-PUSH"
 	}
 	back, missing := 0, 0
 	for i := range manifest {
@@ -299,10 +304,12 @@ func CopyOut(w io.Writer, manifestFile string) error {
 			missing++
 			continue
 		}
-		if err := copyEntry(e.SandboxPath, e.Origin); err != nil {
-			return err
+		fmt.Fprintf(w, "  %s %s -> %s\n", action, e.SandboxPath, e.Origin)
+		if !dryRun {
+			if err := copyEntry(e.SandboxPath, e.Origin); err != nil {
+				return err
+			}
 		}
-		fmt.Fprintf(w, "  PUSH  %s -> %s\n", e.SandboxPath, e.Origin)
 		back++
 	}
 
@@ -310,7 +317,11 @@ func CopyOut(w io.Writer, manifestFile string) error {
 	if missing > 0 {
 		tail = fmt.Sprintf(" (%d missing)", missing)
 	}
-	fmt.Fprintf(w, "push: %d rw entries restored%s\n", back, tail)
+	summary := fmt.Sprintf("push: %d rw entries restored%s", back, tail)
+	if dryRun {
+		summary = fmt.Sprintf("push (dry-run): %d rw entries would be restored%s", back, tail)
+	}
+	fmt.Fprintln(w, summary)
 	return nil
 }
 

@@ -64,7 +64,7 @@ func TestRoundTrip(t *testing.T) {
 	// Modify the copy, then push back over the origin.
 	writeFile(t, dest, "modified\n")
 	out.Reset()
-	if err := CopyOut(&out, manifest); err != nil {
+	if err := CopyOut(&out, manifest, false); err != nil {
 		t.Fatalf("CopyOut: %v", err)
 	}
 	if got := readFile(t, filepath.Join(root, "pkg", "file.txt")); got != "modified\n" {
@@ -117,7 +117,7 @@ func TestPullKeepPushOverwrite(t *testing.T) {
 	writeFile(t, dest, "sandbox-edit\n")
 	writeFile(t, originFile, "external-edit\n")
 	out.Reset()
-	if err := CopyOut(&out, manifest); err != nil {
+	if err := CopyOut(&out, manifest, false); err != nil {
 		t.Fatalf("CopyOut: %v", err)
 	}
 	if !strings.Contains(out.String(), "PUSH") {

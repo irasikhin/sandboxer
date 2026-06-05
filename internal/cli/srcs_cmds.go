@@ -52,17 +52,20 @@ func newPullCmd() *cobra.Command {
 
 func newPushCmd() *cobra.Command {
 	var f commonFlags
+	var dryRun bool
 	cmd := &cobra.Command{
 		Use:   "push [slug]",
 		Short: "Copy rw dependencies from the sandbox back to their origins",
-		Example: `  # return rw deps to their origins — OVERWRITES each origin wholesale
-  # (run 'sandboxer diff' first to see what will change)
+		Example: `  # preview what would be overwritten (no files touched)
+  sandboxer push feat --dry-run
+
+  # return rw deps to their origins — OVERWRITES each origin wholesale
   sandboxer push feat`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			out := cmd.OutOrStdout()
 			if inContainer() {
-				return srcs.CopyOut(out, "/run/sandboxer/manifest.json")
+				return srcs.CopyOut(out, "/run/sandboxer/manifest.json", dryRun)
 			}
 			t, err := resolveTarget(f, posArg(args))
 			if err != nil {
@@ -72,9 +75,10 @@ func newPushCmd() *cobra.Command {
 			if !fileExists(mf) {
 				return fmt.Errorf("sandbox %q has no manifest (nothing to return)", t.slug)
 			}
-			return srcs.CopyOut(out, mf)
+			return srcs.CopyOut(out, mf, dryRun)
 		},
 	}
 	bindExisting(cmd, &f)
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "show what would be pushed without changing files")
 	return cmd
 }

@@ -242,7 +242,7 @@ func pushDeps(t *target, cmd *cobra.Command) error {
 	if !fileExists(mf) {
 		return nil
 	}
-	if err := srcs.CopyOut(cmd.ErrOrStderr(), mf); err != nil {
+	if err := srcs.CopyOut(cmd.ErrOrStderr(), mf, false); err != nil {
 		fmt.Fprintf(cmd.ErrOrStderr(), "sandboxer: push failed: %v\n", err)
 		return err
 	}

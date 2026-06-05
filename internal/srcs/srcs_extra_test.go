@@ -107,11 +107,11 @@ func TestCopyInRefusesEscapingDep(t *testing.T) {
 func TestCopyOutCorruptManifest(t *testing.T) {
 	bad := filepath.Join(t.TempDir(), "m.json")
 	writeFile(t, bad, "not json")
-	if err := CopyOut(&bytes.Buffer{}, bad); err == nil {
+	if err := CopyOut(&bytes.Buffer{}, bad, false); err == nil {
 		t.Error("CopyOut on a corrupt manifest should error")
 	}
 	// A missing manifest is still a no-op (push of nothing succeeds).
-	if err := CopyOut(&bytes.Buffer{}, filepath.Join(t.TempDir(), "missing.json")); err != nil {
+	if err := CopyOut(&bytes.Buffer{}, filepath.Join(t.TempDir(), "missing.json"), false); err != nil {
 		t.Errorf("CopyOut on a missing manifest should not error: %v", err)
 	}
 }
@@ -236,7 +236,7 @@ func TestCopyOutOverwriteAndMissing(t *testing.T) {
 	}
 
 	var buf bytes.Buffer
-	if err := CopyOut(&buf, manifest); err != nil {
+	if err := CopyOut(&buf, manifest, false); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(buf.String(), "missing") {
@@ -244,5 +244,37 @@ func TestCopyOutOverwriteAndMissing(t *testing.T) {
 	}
 	if got := readFile(t, origin); got != "from-sandbox\n" {
 		t.Errorf("origin after push = %q, want from-sandbox (overwritten)", got)
+	}
+}
+
+func TestCopyOutDryRun(t *testing.T) {
+	base := t.TempDir()
+	origin := filepath.Join(base, "origin.txt")
+	writeFile(t, origin, "v1\n")
+
+	sandboxFile := filepath.Join(base, "modified.txt")
+	writeFile(t, sandboxFile, "v2\n")
+
+	manifest := filepath.Join(base, "manifest.json")
+	entries := []ManifestEntry{
+		{Mode: "rw", Origin: origin, SandboxPath: sandboxFile},
+	}
+	if err := writeManifest(manifest, entries); err != nil {
+		t.Fatal(err)
+	}
+
+	var buf bytes.Buffer
+	if err := CopyOut(&buf, manifest, true); err != nil {
+		t.Fatal(err)
+	}
+	// The origin must NOT be changed.
+	if got := readFile(t, origin); got != "v1\n" {
+		t.Errorf("origin after dry-run push = %q, want v1 (unchanged)", got)
+	}
+	if !strings.Contains(buf.String(), "WOULD-PUSH") {
+		t.Errorf("dry-run output = %q, want WOULD-PUSH", buf.String())
+	}
+	if !strings.Contains(buf.String(), "dry-run") {
+		t.Errorf("dry-run summary = %q, want 'dry-run' mention", buf.String())
 	}
 }
