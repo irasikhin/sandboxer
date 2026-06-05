@@ -10,6 +10,13 @@ commit messages with that in mind. See [CONTRIBUTING.md](./CONTRIBUTING.md).
 
 ## [Unreleased]
 
+## [0.7.0] — 2026-06-05
+
+### Added
+
+- require --force for rm-all to prevent accidental deletion (3d102da)
+
+
 ## [0.6.1] — 2026-06-05
 
 ### Fixed
@@ -153,3 +160,4 @@ commit messages with that in mind. See [CONTRIBUTING.md](./CONTRIBUTING.md).
 [0.3.0]: https://github.com/irasikhin/sandboxer/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/irasikhin/sandboxer/compare/v0.0.0...v0.2.0
 [0.6.1]: https://github.com/irasikhin/sandboxer/compare/v0.6.0...v0.6.1
+[0.7.0]: https://github.com/irasikhin/sandboxer/compare/v0.6.1...v0.7.0
