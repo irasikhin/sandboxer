@@ -10,6 +10,13 @@ commit messages with that in mind. See [CONTRIBUTING.md](./CONTRIBUTING.md).
 
 ## [Unreleased]
 
+## [0.14.0] — 2026-06-05
+
+### Added
+
+- validate domain format in allowlist to catch typos early (b0ae686)
+
+
 ## [0.13.1] — 2026-06-05
 
 ### Docs
@@ -225,3 +232,4 @@ commit messages with that in mind. See [CONTRIBUTING.md](./CONTRIBUTING.md).
 [0.12.0]: https://github.com/irasikhin/sandboxer/compare/v0.11.0...v0.12.0
 [0.13.0]: https://github.com/irasikhin/sandboxer/compare/v0.12.0...v0.13.0
 [0.13.1]: https://github.com/irasikhin/sandboxer/compare/v0.13.0...v0.13.1
+[0.14.0]: https://github.com/irasikhin/sandboxer/compare/v0.13.1...v0.14.0
