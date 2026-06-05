@@ -10,6 +10,13 @@ commit messages with that in mind. See [CONTRIBUTING.md](./CONTRIBUTING.md).
 
 ## [Unreleased]
 
+## [0.6.1] — 2026-06-05
+
+### Fixed
+
+- honor explicit --backend choice when that engine is installed (3eee62c)
+
+
 ## [0.6.0] — 2026-06-04
 
 ### Added
@@ -145,3 +152,4 @@ commit messages with that in mind. See [CONTRIBUTING.md](./CONTRIBUTING.md).
 [0.4.0]: https://github.com/irasikhin/sandboxer/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/irasikhin/sandboxer/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/irasikhin/sandboxer/compare/v0.0.0...v0.2.0
+[0.6.1]: https://github.com/irasikhin/sandboxer/compare/v0.6.0...v0.6.1
