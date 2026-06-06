@@ -10,6 +10,13 @@ commit messages with that in mind. See [CONTRIBUTING.md](./CONTRIBUTING.md).
 
 ## [Unreleased]
 
+## [0.15.1] — 2026-06-06
+
+### Tests
+
+- add real end-to-end integration suite and coverage audit (2eae11d)
+
+
 ## [0.15.0] — 2026-06-05
 
 ### Added
@@ -241,3 +248,4 @@ commit messages with that in mind. See [CONTRIBUTING.md](./CONTRIBUTING.md).
 [0.13.1]: https://github.com/irasikhin/sandboxer/compare/v0.13.0...v0.13.1
 [0.14.0]: https://github.com/irasikhin/sandboxer/compare/v0.13.1...v0.14.0
 [0.15.0]: https://github.com/irasikhin/sandboxer/compare/v0.14.0...v0.15.0
+[0.15.1]: https://github.com/irasikhin/sandboxer/compare/v0.15.0...v0.15.1
