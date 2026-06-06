@@ -14,7 +14,7 @@ pre-commit install
 pre-commit install --hook-type commit-msg
 
 # Manual runs
-go test ./...                   # unit + integration tests
+go test ./...                   # unit tests (integration suite: -tags integration)
 go vet ./...                    # static analysis
 golangci-lint run ./...         # full lint suite (config in .golangci.yml)
 nix flake check                 # Nix flake evaluation + checks
@@ -22,6 +22,33 @@ nix build .#sandboxer --no-link # Nix package build
 pre-commit run --all-files      # all hooks at once
 go build ./cmd/sandboxer        # local binary
 ```
+
+### Integration tests (opt-in, not run in CI)
+
+The default `go test ./...` runs only the in-process unit tests. A separate
+real end-to-end suite, behind the `integration` build tag, drives a **real**
+container engine (podman or docker), real networks and the real egress proxy —
+only the coding agent is stubbed (the proprietary `claude`/`codex` binaries are
+never invoked). Run it explicitly, inside `nix develop`:
+
+```bash
+scripts/itest.sh                                   # whole suite (./...)
+scripts/itest.sh ./internal/egress/                # one package
+go test -tags integration -count=1 ./...           # equivalent to the script
+
+# Pin the engine when both are installed but only one has images pulled:
+SANDBOXER_ITEST_ENGINE=docker scripts/itest.sh ./internal/egress/
+```
+
+Each test skips cleanly when its prerequisite is missing — no usable engine, no
+pre-pulled smoke image (`docker pull alpine`), or (for the sidecar tests) no
+toolbox image — so a partial environment never fails the run. The few tests that
+need the toolbox image build it only when `SANDBOXER_ITEST_BUILD_IMAGE=1`.
+
+These tests are **not** part of CI or the 90% coverage gate: the tag excludes
+them from the normal build, so they contribute neither lines nor coverage. The
+mapping of every exported function to its unit/integration coverage lives in
+[`docs/test-coverage-audit.md`](docs/test-coverage-audit.md).
 
 ## Code quality tools
 
