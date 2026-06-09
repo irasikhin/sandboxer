@@ -5,20 +5,17 @@ on:
     tags:
       - "v*"
 
+# Single job: build both arches and publish in one go. Passing the archives
+# between a build job and a publish job needs upload-/download-artifact, which
+# requires the forge's Actions artifact storage — unavailable on our runner, so
+# every release build died at the upload step and `publish` never ran. Building
+# and publishing in one job removes that dependency entirely.
 permissions:
-  contents: read
+  contents: write
 
 jobs:
-  build:
+  release:
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - goos: linux
-            goarch: amd64
-          - goos: linux
-            goarch: arm64
     steps:
       - uses: actions/checkout@v4
 
@@ -37,49 +34,29 @@ jobs:
           fi
 
       - name: Test
-        if: matrix.goarch == 'amd64' && matrix.goos == 'linux'
         run: go test ./...
 
-      - name: Build ${{ matrix.goos }}/${{ matrix.goarch }}
+      - name: Build release archives (linux amd64 + arm64)
         env:
           CGO_ENABLED: "0"
-          GOOS: ${{ matrix.goos }}
-          GOARCH: ${{ matrix.goarch }}
         run: |
           mkdir -p dist
-          out="sandboxer-${GITHUB_REF_NAME}-${GOOS}-${GOARCH}"
-          go build -trimpath \
-            -ldflags "-s -w -X main.version=${GITHUB_REF_NAME}" \
-            -o "dist/${out}/sandboxer" ./cmd/sandboxer
-          cp README.md CHANGELOG.md LICENSE "dist/${out}/" 2>/dev/null || true
-          tar -czf "dist/${out}.tar.gz" -C dist "${out}"
-          (cd dist && sha256sum "${out}.tar.gz" > "${out}.tar.gz.sha256")
-          if [ "$GOOS" = "linux" ] && [ "$GOARCH" = "amd64" ]; then
-            "dist/${out}/sandboxer" --version
-            "dist/${out}/sandboxer" --help >/dev/null
-          fi
-          rm -rf "dist/${out}"
-
-      - name: Upload artifacts
-        uses: actions/upload-artifact@v7
-        with:
-          name: sandboxer-${{ matrix.goos }}-${{ matrix.goarch }}
-          path: dist/*
-          retention-days: 7
-
-  publish:
-    needs: build
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Download all artifacts
-        uses: actions/download-artifact@v8
-        with:
-          path: dist
-          merge-multiple: true
+          for pair in linux/amd64 linux/arm64; do
+            export GOOS="${pair%/*}" GOARCH="${pair#*/}"
+            out="sandboxer-${GITHUB_REF_NAME}-${GOOS}-${GOARCH}"
+            go build -trimpath \
+              -ldflags "-s -w -X main.version=${GITHUB_REF_NAME}" \
+              -o "dist/${out}/sandboxer" ./cmd/sandboxer
+            cp README.md CHANGELOG.md LICENSE "dist/${out}/" 2>/dev/null || true
+            tar -czf "dist/${out}.tar.gz" -C dist "${out}"
+            (cd dist && sha256sum "${out}.tar.gz" > "${out}.tar.gz.sha256")
+            # Smoke-test the host-native (amd64) binary only.
+            if [ "$GOOS" = "linux" ] && [ "$GOARCH" = "amd64" ]; then
+              "dist/${out}/sandboxer" --version
+              "dist/${out}/sandboxer" --help >/dev/null
+            fi
+            rm -rf "dist/${out}"
+          done
 
       - name: Extract changelog section for this tag
         run: |
@@ -96,8 +73,8 @@ jobs:
             echo "_(no changelog section authored for this release)_" > release-notes.md
           fi
 
-      - name: Publish GitHub Release
-        uses: softprops/action-gh-release@v3
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
         with:
           files: |
             dist/*.tar.gz
