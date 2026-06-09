@@ -47,6 +47,16 @@ func TestAllowed(t *testing.T) {
 			t.Errorf("Allowed([], %q) = true, want false", host)
 		}
 	}
+
+	// Empty/whitespace entries in the allowlist are skipped, not treated as a
+	// wildcard: a real entry alongside them still gates correctly.
+	mixed := []string{"", "   ", "example.com"}
+	if !Allowed(mixed, "example.com") {
+		t.Error("Allowed(mixed-with-blanks, example.com) = false, want true")
+	}
+	if Allowed(mixed, "other.org") {
+		t.Error("blank allowlist entries must not match arbitrary hosts")
+	}
 }
 
 // hostOf extracts the bare host (no port) from a server URL.

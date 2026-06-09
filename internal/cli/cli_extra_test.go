@@ -358,6 +358,100 @@ func TestDoctor(t *testing.T) {
 	}
 }
 
+// TestDoctorPopulated exercises the branches that need a populated environment:
+// an agent found via its auth env var (not a config dir), a non-empty profile
+// store, and a parseable config file in cwd.
+func TestDoctorPopulated(t *testing.T) {
+	// given: empty HOME (no agent auth-config dirs match) but a creds env var set,
+	// a profile store holding one profile, and a valid config in cwd.
+	t.Setenv("SANDBOXER_IN_CONTAINER", "")
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("ANTHROPIC_API_KEY", "test-key") // claude → found via AuthEnv
+
+	pd := t.TempDir()
+	if err := os.WriteFile(filepath.Join(pd, "demo.yaml"), []byte("name: demo\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("SANDBOXER_PROFILES", pd)
+
+	cwd := t.TempDir()
+	t.Chdir(cwd)
+	if err := os.WriteFile(config.ConfigFileName, []byte("name: x\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// when
+	code, out, _ := run("doctor")
+
+	// then
+	if code != 0 {
+		t.Fatalf("doctor = %d", code)
+	}
+	if !strings.Contains(out, "profile(s)") {
+		t.Errorf("doctor output missing populated profile-store line:\n%s", out)
+	}
+	if !strings.Contains(out, "parses ok") {
+		t.Errorf("doctor output missing config-parses-ok line:\n%s", out)
+	}
+}
+
+// TestDoctorConfigParseError covers the warn branch for an unparseable config
+// file in cwd.
+func TestDoctorConfigParseError(t *testing.T) {
+	// given: a malformed config file in cwd
+	t.Setenv("SANDBOXER_IN_CONTAINER", "")
+	t.Setenv("SANDBOXER_PROFILES", t.TempDir())
+	t.Chdir(t.TempDir())
+	if err := os.WriteFile(config.ConfigFileName, []byte("name: [unterminated\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// when
+	code, out, _ := run("doctor")
+
+	// then: doctor never hard-fails, but the config line must NOT report "parses ok"
+	if code != 0 {
+		t.Fatalf("doctor = %d", code)
+	}
+	if !strings.Contains(out, config.ConfigFileName+" in cwd") {
+		t.Errorf("doctor output missing config-in-cwd line:\n%s", out)
+	}
+	if strings.Contains(out, "parses ok") {
+		t.Errorf("invalid config should not report 'parses ok':\n%s", out)
+	}
+}
+
+// TestDoctorNoEngine covers the "no container engine" branch by running doctor
+// with an empty PATH so engine detection finds nothing.
+func TestDoctorNoEngine(t *testing.T) {
+	t.Setenv("SANDBOXER_IN_CONTAINER", "")
+	t.Setenv("SANDBOXER_PROFILES", t.TempDir())
+	t.Setenv("PATH", "") // no podman/docker discoverable
+
+	code, out, _ := run("doctor")
+	if code != 0 {
+		t.Fatalf("doctor = %d", code)
+	}
+	if !strings.Contains(out, "container engine") || !strings.Contains(out, "⚠") {
+		t.Errorf("doctor should warn about the missing engine:\n%s", out)
+	}
+}
+
+func TestExpandHome(t *testing.T) {
+	const home = "/home/u"
+	cases := []struct{ in, want string }{
+		{"~", home},
+		{"~/.claude", home + "/.claude"},
+		{"/etc/abs", "/etc/abs"},
+		{"relative/path", "relative/path"},
+	}
+	for _, c := range cases {
+		if got := expandHome(c.in, home); got != c.want {
+			t.Errorf("expandHome(%q, %q) = %q, want %q", c.in, home, got, c.want)
+		}
+	}
+}
+
 func TestRunAutoDiscoversProfile(t *testing.T) {
 	t.Setenv("SANDBOXER_IN_CONTAINER", "")
 	project := t.TempDir()
