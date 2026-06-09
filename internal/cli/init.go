@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -87,6 +88,7 @@ func maybeAutoScaffold(cmd *cobra.Command, f *commonFlags, pos string) error {
 // defaults (so it reflects the user's environment) and the common knobs left as
 // hints to fill in.
 func starterProfile(name string, d config.Defaults) string {
+	domains := strings.ReplaceAll(d.Domains, ",", ", ")
 	return fmt.Sprintf(`# sandboxer profile — edit to taste. Auto-discovered when you run sandboxer
 # in this directory (no -f needed). Full reference: examples/ in the repo.
 
@@ -100,9 +102,11 @@ backend: %s
 agent: %s
 
 # Egress allowlist: the ONLY domains the sandbox may reach (everything else is
-# blocked). Trim to what your task needs.
+# blocked). Seeded with the effective defaults (SANDBOXER_DOMAINS or the built-in
+# set — AI APIs + the common package registries: npm, PyPI, Maven, Gradle,
+# crates, Go, RubyGems, GitHub). Trim to what your task needs.
 network:
-  allowedDomains: [api.anthropic.com, github.com, registry.npmjs.org]
+  allowedDomains: [%s]
 
 # Sandbox content. Nothing is copied unless listed here: each dep is located by
 # path suffix under roots, copied INTO the sandbox, and pushed back with
@@ -116,5 +120,5 @@ network:
 #   - { source: /data/cache, target: /data/cache, mode: rw }
 # env:
 #   NODE_ENV: development
-`, name, d.Backend, d.Agent)
+`, name, d.Backend, d.Agent, domains)
 }
