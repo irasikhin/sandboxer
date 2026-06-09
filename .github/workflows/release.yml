@@ -73,10 +73,25 @@ jobs:
             echo "_(no changelog section authored for this release)_" > release-notes.md
           fi
 
-      - name: Publish release
-        uses: softprops/action-gh-release@v2
-        with:
-          files: |
-            dist/*.tar.gz
-            dist/*.tar.gz.sha256
-          body_path: release-notes.md
+      # Publish via the Forgejo release API directly. softprops/action-gh-release
+      # speaks GitHub's API shape and does not work against this Forgejo instance;
+      # a couple of curl calls do. node is always present in the job image, so we
+      # use it to build/parse JSON without depending on jq.
+      - name: Publish release (Forgejo API)
+        env:
+          TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          api="${GITHUB_SERVER_URL}/api/v1/repos/${GITHUB_REPOSITORY}"
+          body=$(node -e 'process.stdout.write(JSON.stringify({tag_name:process.env.GITHUB_REF_NAME,name:process.env.GITHUB_REF_NAME,body:require("fs").readFileSync("release-notes.md","utf8"),draft:false,prerelease:false}))')
+          rid=$(curl -fsS -X POST -H "Authorization: token ${TOKEN}" -H "Content-Type: application/json" \
+            --data "${body}" "${api}/releases" \
+            | node -e 'let d="";process.stdin.on("data",c=>d+=c).on("end",()=>console.log(JSON.parse(d).id))')
+          echo "Created release ${GITHUB_REF_NAME} (id ${rid})"
+          for f in dist/*.tar.gz dist/*.tar.gz.sha256; do
+            echo "  uploading $(basename "$f")"
+            curl -fsS -X POST -H "Authorization: token ${TOKEN}" \
+              -F "attachment=@${f}" \
+              "${api}/releases/${rid}/assets?name=$(basename "$f")" >/dev/null
+          done
+          echo "Published ${GITHUB_REF_NAME}"
