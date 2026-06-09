@@ -10,6 +10,22 @@ commit messages with that in mind. See [CONTRIBUTING.md](./CONTRIBUTING.md).
 
 ## [Unreleased]
 
+## [0.17.0] — 2026-06-09
+
+> **BREAKING:** the native backend is removed — sandboxer is container-only now.
+> `backend: native`, `--backend native` and `SANDBOXER_BACKEND=native` are
+> rejected; use `podman` or `docker`. The `--nice` flag and `SANDBOXER_NICE` env
+> var are removed too (host niceness was native-only).
+
+### Removed
+
+- the native backend — sandboxer now runs every agent in a podman/docker container (fce071c)
+
+### Docs
+
+- adopt vendored Go skills + CLAUDE.md (df4ce6a)
+
+
 ## [0.16.0] — 2026-06-09
 
 > **BREAKING:** the auto-discovered project config is now `.sandboxer.yaml`
@@ -262,3 +278,4 @@ commit messages with that in mind. See [CONTRIBUTING.md](./CONTRIBUTING.md).
 [0.15.0]: https://github.com/irasikhin/sandboxer/compare/v0.14.0...v0.15.0
 [0.15.1]: https://github.com/irasikhin/sandboxer/compare/v0.15.0...v0.15.1
 [0.16.0]: https://github.com/irasikhin/sandboxer/compare/v0.15.1...v0.16.0
+[0.17.0]: https://github.com/irasikhin/sandboxer/compare/v0.16.0...v0.17.0
