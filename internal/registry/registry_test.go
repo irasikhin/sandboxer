@@ -20,7 +20,7 @@ func TestGetUnknown(t *testing.T) {
 	}
 }
 
-func TestClaudeHeadlessRendersSettingsAndModel(t *testing.T) {
+func TestClaudeHeadlessRendersModel(t *testing.T) {
 	a, err := Get("claude")
 	if err != nil {
 		t.Fatal(err)
@@ -30,13 +30,16 @@ func TestClaudeHeadlessRendersSettingsAndModel(t *testing.T) {
 		"claude -p 'do the thing'",
 		"--permission-mode bypassPermissions",
 		"--model 'sonnet'",
-		"--settings '{\"sandbox\":{",
-		"api.anthropic.com",
 		"--output-format json",
 	} {
 		if !strings.Contains(cmd, want) {
 			t.Errorf("headless cmd missing %q\ngot: %s", want, cmd)
 		}
+	}
+	// The native /sandbox --settings flag was removed with the native backend;
+	// egress is enforced by the container proxy, not a per-command settings blob.
+	if strings.Contains(cmd, "--settings") {
+		t.Errorf("headless cmd must not carry --settings; got: %s", cmd)
 	}
 }
 

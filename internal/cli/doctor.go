@@ -3,7 +3,6 @@ package cli
 import (
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"text/tabwriter"
 
@@ -52,15 +51,6 @@ Run this after a fresh install or when something isn't working.`,
 				}
 			}
 
-			// Native backend.
-			if _, err := exec.LookPath("claude"); err == nil {
-				fmt.Fprintf(tw, "native backend\t✓\tclaude found on PATH\n")
-				ok++
-			} else {
-				fmt.Fprintf(tw, "native backend\t⚠\tclaude not on PATH (native backend won't work)\n")
-				warn++
-			}
-
 			// Agent credentials — check config dirs and env vars for each agent.
 			for _, name := range registry.Names() {
 				a, _ := registry.Get(name)
@@ -84,8 +74,8 @@ Run this after a fresh install or when something isn't working.`,
 				if !found {
 					status = "⚠ (no creds found)"
 				}
-				fmt.Fprintf(tw, "agent %s\t%s\tbin=%s native-sandbox=%v image=%v\n",
-					name, status, a.Bin, a.NativeSandbox, a.Image == nil || *a.Image)
+				fmt.Fprintf(tw, "agent %s\t%s\tbin=%s image=%v\n",
+					name, status, a.Bin, a.Image == nil || *a.Image)
 			}
 
 			// Profile store.

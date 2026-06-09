@@ -3,47 +3,12 @@ package runner
 import (
 	"bytes"
 	"os"
-	"os/exec"
 	"path/filepath"
-	"slices"
 	"strings"
 	"testing"
 
 	"github.com/irasikhin/sandboxer/internal/config"
 )
-
-func requireExec(t *testing.T, names ...string) {
-	t.Helper()
-	for _, n := range names {
-		if _, err := exec.LookPath(n); err != nil {
-			t.Skipf("%s not available", n)
-		}
-	}
-}
-
-// --- pure helpers -----------------------------------------------------------
-
-func TestExitCode(t *testing.T) {
-	requireExec(t, "sh")
-	if exitCode(nil) != 0 {
-		t.Error("nil → 0")
-	}
-	if c := exitCode(exec.Command("sh", "-c", "exit 4").Run()); c != 4 {
-		t.Errorf("exit 4 → %d", c)
-	}
-	if c := exitCode(exec.Command(filepath.Join(t.TempDir(), "nope")).Run()); c != 1 {
-		t.Errorf("start failure → %d, want 1", c)
-	}
-}
-
-func TestPosixQuote(t *testing.T) {
-	if got := posixQuote("a b"); got != "'a b'" {
-		t.Errorf("posixQuote = %q", got)
-	}
-	if got := posixQuote("it's"); got != `'it'\''s'` {
-		t.Errorf("posixQuote with apostrophe = %q", got)
-	}
-}
 
 func TestSmallHelpers(t *testing.T) {
 	if orDefault("", "def") != "def" || orDefault("x", "def") != "x" {
@@ -82,7 +47,7 @@ func TestValidateLimits(t *testing.T) {
 func TestRunBadLimitFailsFast(t *testing.T) {
 	_, err := Run(Options{
 		Src: t.TempDir(), Mem: "lots",
-		Defaults: config.Defaults{Agent: "claude", Backend: "native"},
+		Defaults: config.Defaults{Agent: "claude", Backend: "docker"},
 		Stdout:   &bytes.Buffer{}, Stderr: &bytes.Buffer{},
 	})
 	if err == nil || !strings.Contains(err.Error(), "invalid --mem") {
@@ -111,7 +76,7 @@ func TestRunCountsLaunched(t *testing.T) {
 	var out, errb bytes.Buffer
 	res, err := Run(Options{
 		Src: root, TasksFile: tasks, Keep: true, DryRun: true,
-		Defaults: config.Defaults{Agent: "claude", Backend: "native"},
+		Defaults: config.Defaults{Agent: "claude", Backend: "docker"},
 		Stdout:   &out, Stderr: &errb,
 	})
 	if err != nil {
@@ -125,47 +90,6 @@ func TestRunCountsLaunched(t *testing.T) {
 	}
 	if !strings.Contains(errb.String(), "make sandbox bad") {
 		t.Errorf("missing failure note for the bad sandbox: %q", errb.String())
-	}
-}
-
-func TestWrapLimits(t *testing.T) {
-	// No mem/cpu/wall → just nice.
-	s := launchSpec{nice: 7, slug: "x"}
-	got := s.wrapLimits([]string{"echo", "hi"})
-	want := []string{"nice", "-n", "7", "echo", "hi"}
-	if !slices.Equal(got, want) {
-		t.Errorf("wrapLimits default = %v, want %v", got, want)
-	}
-	// Wall + timeout available → timeout prefix before nice.
-	if _, err := exec.LookPath("timeout"); err == nil {
-		s2 := launchSpec{nice: 5, wall: "30", slug: "x"}
-		got2 := s2.wrapLimits([]string{"echo"})
-		if len(got2) < 3 || got2[0] != "timeout" || got2[1] != "--signal=TERM" || got2[2] != "30" {
-			t.Errorf("wrapLimits wall = %v, want timeout prefix", got2)
-		}
-		if !slices.Contains(got2, "nice") {
-			t.Errorf("wrapLimits wall should still nice: %v", got2)
-		}
-	}
-}
-
-func TestWrapLimitsSystemd(t *testing.T) {
-	// With mem/cpu set and a (fake) systemd-run plus XDG_RUNTIME_DIR available,
-	// the systemd-run --scope wrapper is used.
-	bin := t.TempDir()
-	writeScript(t, filepath.Join(bin, "systemd-run"), "exit 0\n")
-	t.Setenv("PATH", bin+":"+os.Getenv("PATH"))
-	t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
-
-	s := launchSpec{nice: 10, slug: "x", mem: "2G", cpu: "50%"}
-	got := strings.Join(s.wrapLimits([]string{"bash", "-c", "cmd"}), " ")
-	for _, want := range []string{
-		"systemd-run --user --scope", "MemoryMax=2G", "CPUQuota=50%",
-		"TasksMax=1024", "nice -n 10", "bash -c cmd",
-	} {
-		if !strings.Contains(got, want) {
-			t.Errorf("wrapLimits systemd missing %q in %q", want, got)
-		}
 	}
 }
 
@@ -184,7 +108,7 @@ func TestRunWithProfile(t *testing.T) {
 	res, err := Run(Options{
 		Src:        root,
 		ConfigPath: cfg,
-		Defaults:   config.Defaults{Agent: "claude", Backend: "native"},
+		Defaults:   config.Defaults{Agent: "claude", Backend: "docker"},
 		Overrides:  config.Overrides{Domains: "y.com"},
 		DryRun:     true,
 		Stdout:     &out,
@@ -224,7 +148,7 @@ func TestRunDryRun(t *testing.T) {
 	var out, errb bytes.Buffer
 	res, err := Run(Options{
 		Src:      root,
-		Defaults: config.Defaults{Agent: "claude", Backend: "native"},
+		Defaults: config.Defaults{Agent: "claude", Backend: "docker"},
 		Image:    "img",
 		MaxP:     2,
 		DryRun:   true,
@@ -257,7 +181,7 @@ func TestRunDryRun(t *testing.T) {
 }
 
 func TestRunMissingTasksFile(t *testing.T) {
-	if _, err := Run(Options{Src: t.TempDir(), Defaults: config.Defaults{Agent: "claude", Backend: "native"}, Stdout: &bytes.Buffer{}, Stderr: &bytes.Buffer{}}); err == nil {
+	if _, err := Run(Options{Src: t.TempDir(), Defaults: config.Defaults{Agent: "claude", Backend: "docker"}, Stdout: &bytes.Buffer{}, Stderr: &bytes.Buffer{}}); err == nil {
 		t.Error("missing tasks file should error")
 	}
 }
@@ -267,7 +191,7 @@ func TestRunNoTasks(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, "sandboxer.tasks"), []byte("# only comments\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	_, err := Run(Options{Src: root, Defaults: config.Defaults{Agent: "claude", Backend: "native"}, Stdout: &bytes.Buffer{}, Stderr: &bytes.Buffer{}})
+	_, err := Run(Options{Src: root, Defaults: config.Defaults{Agent: "claude", Backend: "docker"}, Stdout: &bytes.Buffer{}, Stderr: &bytes.Buffer{}})
 	if err == nil || !strings.Contains(err.Error(), "no tasks") {
 		t.Errorf("empty tasks should error with 'no tasks', got %v", err)
 	}
@@ -276,7 +200,7 @@ func TestRunNoTasks(t *testing.T) {
 func TestRunUnknownAgent(t *testing.T) {
 	root := t.TempDir()
 	writeTasks(t, root)
-	_, err := Run(Options{Src: root, Defaults: config.Defaults{Agent: "nope", Backend: "native"}, Stdout: &bytes.Buffer{}, Stderr: &bytes.Buffer{}})
+	_, err := Run(Options{Src: root, Defaults: config.Defaults{Agent: "nope", Backend: "docker"}, Stdout: &bytes.Buffer{}, Stderr: &bytes.Buffer{}})
 	if err == nil || !strings.Contains(err.Error(), "unknown agent") {
 		t.Errorf("unknown agent should error, got %v", err)
 	}
@@ -302,7 +226,7 @@ func TestRunBadProfile(t *testing.T) {
 	if err := os.WriteFile(bad, []byte("name: x\nbogus: 1\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	_, err := Run(Options{ConfigPath: bad, Defaults: config.Defaults{Agent: "claude", Backend: "native"}, Stdout: &bytes.Buffer{}, Stderr: &bytes.Buffer{}})
+	_, err := Run(Options{ConfigPath: bad, Defaults: config.Defaults{Agent: "claude", Backend: "docker"}, Stdout: &bytes.Buffer{}, Stderr: &bytes.Buffer{}})
 	if err == nil || !strings.Contains(err.Error(), "load profile") {
 		t.Errorf("bad profile should error, got %v", err)
 	}

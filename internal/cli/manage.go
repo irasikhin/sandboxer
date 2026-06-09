@@ -130,23 +130,19 @@ func newAgentsCmd() *cobra.Command {
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			tw := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 2, ' ', 0)
-			fmt.Fprintln(tw, "AGENT\tBIN\tSANDBOX\tIMAGE\tAUTH DIRS\tENV")
+			fmt.Fprintln(tw, "AGENT\tBIN\tIMAGE\tAUTH DIRS\tENV")
 			for _, name := range registry.Names() {
 				a, _ := registry.Get(name)
 				var dirs []string
 				for _, d := range a.AuthConfigDirs {
 					dirs = append(dirs, d.Path)
 				}
-				sandboxKind := "-"
-				if a.NativeSandbox {
-					sandboxKind = "native"
-				}
 				image := "yes"
 				if a.Image != nil && !*a.Image {
 					image = "no"
 				}
-				fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\n",
-					name, a.Bin, sandboxKind, image, orDash(strings.Join(dirs, " ")), orDash(strings.Join(a.AuthEnv, ",")))
+				fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n",
+					name, a.Bin, image, orDash(strings.Join(dirs, " ")), orDash(strings.Join(a.AuthEnv, ",")))
 			}
 			return tw.Flush()
 		},

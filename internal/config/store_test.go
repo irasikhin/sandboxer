@@ -46,7 +46,7 @@ func TestListAndFindProfile(t *testing.T) {
 		}
 	}
 	// web.yaml has no name: → effective name is its stem "web".
-	write("web.yaml", "backend: native\nagent: claude\n")
+	write("web.yaml", "backend: docker\nagent: claude\n")
 	// prod.yaml sets name: api → effective name "api" (stem is overridden).
 	write("prod.yaml", "name: api\nbackend: podman\nagent: opencode\n")
 	// a non-YAML file is ignored, a malformed profile is skipped, and a

@@ -28,14 +28,10 @@ func TestImageExists(t *testing.T) {
 	}
 }
 
-// TestEngineLabel covers EngineLabel's three branches directly (it was only
-// asserted indirectly inside TestResolveEngine): native passthrough, the
-// explicit-engine win, and the no-engine-installed fallback to the configured
-// backend.
+// TestEngineLabel covers EngineLabel's branches directly (it was only asserted
+// indirectly inside TestResolveEngine): the explicit-engine win, and the
+// no-engine-installed fallback to the configured backend.
 func TestEngineLabel(t *testing.T) {
-	if got := EngineLabel("native", config.Defaults{}); got != "native" {
-		t.Errorf("EngineLabel(native) = %q, want native", got)
-	}
 	// SANDBOXER_ENGINE (Defaults.Engine) wins outright, so the label echoes it.
 	if got := EngineLabel("podman", config.Defaults{Engine: "customengine"}); got != "customengine" {
 		t.Errorf("EngineLabel with explicit engine = %q, want customengine", got)

@@ -160,7 +160,7 @@ func runArgs(o RunOpts, egNet, egProxyURL string) ([]string, error) {
 	args = append(args, extraMountsAndEnv(o.Profile)...)
 	args = append(args, o.Image)
 	// Wall-clock timeout: wrap the in-container command with `timeout` (coreutils,
-	// present in the toolbox image), mirroring the native backend's wrapLimits.
+	// present in the toolbox image).
 	if o.Wall != "" {
 		args = append(args, "timeout", "--signal=TERM", o.Wall)
 	}

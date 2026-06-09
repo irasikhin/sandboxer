@@ -93,7 +93,7 @@ func starterProfile(name string, d config.Defaults) string {
 # Sandbox name (slug); drives .sandboxer/<name>/.
 name: %s
 
-# Isolation backend: native (claude only) | podman | docker.
+# Isolation backend: podman | docker.
 backend: %s
 
 # Coding agent — see: sandboxer agents.

@@ -35,7 +35,6 @@ type Defaults struct {
 	Image       string
 	Engine      string
 	MaxParallel int
-	Nice        int
 	Mem         string
 	CPU         string
 	Wall        string
@@ -51,7 +50,6 @@ func LoadDefaults() Defaults {
 		Image:       envOr("SANDBOXER_IMAGE", DefaultImage),
 		Engine:      os.Getenv("SANDBOXER_ENGINE"),
 		MaxParallel: envInt("SANDBOXER_MAX_PARALLEL", 4),
-		Nice:        envInt("SANDBOXER_NICE", 10),
 		Mem:         os.Getenv("SANDBOXER_MEM"),
 		CPU:         os.Getenv("SANDBOXER_CPU"),
 		Wall:        os.Getenv("SANDBOXER_WALL"),

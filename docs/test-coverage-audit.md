@@ -65,8 +65,8 @@ container variant — a real engine writing through the rw bind mount.
 | `srcs` (`CopyIn`/`CopyOut`) | Already real-fs in `srcs_test.go`; also exercised end-to-end by the lifecycle tests. |
 | `sandbox` (`ResolveBase`/`MakeSandbox`/…) | Already real-fs; exercised by the lifecycle tests. |
 | `config` (`ResolveRuntime`/`ValidateDomains`/`Load*`/`Sanitize`/…) | Pure logic, fully unit-tested; no external-process path. |
-| `registry` (`Get`/`Names`/`HeadlessCmd`/`SettingsJSON`/…) | Pure; `SettingsJSON` is additionally exercised through the real claude argv in `TestNativeExec_RealClaudeWrapping_StubBinary`. |
-| `runner` (`Run`) | Extensively tested with the native stub and stub engine. A real-container variant is **not** added: `runner.Run`'s container branch is thin orchestration over `backend.Run`, which now has direct real-path coverage. |
+| `registry` (`Get`/`Names`/`HeadlessCmd`/…) | Pure command-template rendering; fully unit-tested. |
+| `runner` (`Run`) | Extensively tested with a stub engine and dry-run. A real-container variant is **not** added: `runner.Run`'s container branch is thin orchestration over `backend.Run`, which now has direct real-path coverage. |
 | `toolbox` (`BuildImage`) | Fake-engine unit test; the real multi-minute nix build runs only under `SANDBOXER_ITEST_BUILD_IMAGE=1` (documented, not run by default). |
 
 ## Helper package

@@ -123,35 +123,28 @@ func newEnterCmd() *cobra.Command {
 			if rtErr != nil {
 				return rtErr
 			}
-			if err := config.ValidateNative(rt); err != nil {
+			if err := config.ValidateBackend(rt); err != nil {
 				return err
 			}
 			errOut := cmd.ErrOrStderr()
 			fmt.Fprintln(errOut, configLine(rt, t.slug, t.profile, backendLabel(rt)))
-			var runErr error
-			code := 0
-			if rt.Backend == "native" {
-				fmt.Fprintf(errOut, "sandboxer: shell in copy %s (backend=native; OS sandbox only when running 'claude --settings').\n", dest)
-				runErr = backend.NativeEnter(dest, rt, cmd.InOrStdin(), cmd.OutOrStdout(), errOut)
-			} else {
-				engine, err := backend.ResolveEngine(rt.Backend, config.LoadDefaults())
-				if err != nil {
-					return err
-				}
-				if err := t.base.EnsureHome(t.slug); err != nil {
-					return err
-				}
-				fmt.Fprintf(errOut, "sandboxer: interactive shell in container (%s %s). Agents in PATH.\n", engine, config.LoadDefaults().Image)
-				code, runErr = backend.Run(backend.RunOpts{
-					Engine: engine, Image: config.LoadDefaults().Image, Dest: dest, Slug: t.slug,
-					HomeDir: t.base.HomeDir(t.slug),
-					RT:      rt, Profile: t.profile,
-					ProfileJSONPath: t.base.ProfileJSONPath(t.slug), ManifestPath: t.base.ManifestPath(t.slug),
-					Interactive: true, Args: []string{"bash", "-l"},
-					NoEgress: noEgress(),
-					Stdin:    cmd.InOrStdin(), Stdout: cmd.OutOrStdout(), Stderr: errOut,
-				})
+			engine, err := backend.ResolveEngine(rt.Backend, config.LoadDefaults())
+			if err != nil {
+				return err
 			}
+			if err := t.base.EnsureHome(t.slug); err != nil {
+				return err
+			}
+			fmt.Fprintf(errOut, "sandboxer: interactive shell in container (%s %s). Agents in PATH.\n", engine, config.LoadDefaults().Image)
+			code, runErr := backend.Run(backend.RunOpts{
+				Engine: engine, Image: config.LoadDefaults().Image, Dest: dest, Slug: t.slug,
+				HomeDir: t.base.HomeDir(t.slug),
+				RT:      rt, Profile: t.profile,
+				ProfileJSONPath: t.base.ProfileJSONPath(t.slug), ManifestPath: t.base.ManifestPath(t.slug),
+				Interactive: true, Args: []string{"bash", "-l"},
+				NoEgress: noEgress(),
+				Stdin:    cmd.InOrStdin(), Stdout: cmd.OutOrStdout(), Stderr: errOut,
+			})
 			// Always return rw deps, even when the shell/run failed. pushDeps (via
 			// srcs.CopyOut) prints what it actually returned, so we just note we're done.
 			pushErr := pushDeps(t, cmd)
@@ -204,24 +197,10 @@ func newExecCmd() *cobra.Command {
 			if rtErr != nil {
 				return rtErr
 			}
-			if err := config.ValidateNative(rt); err != nil {
+			if err := config.ValidateBackend(rt); err != nil {
 				return err
 			}
 			fmt.Fprintln(cmd.ErrOrStderr(), configLine(rt, t.slug, t.profile, backendLabel(rt)))
-			if rt.Backend == "native" {
-				code, err := backend.NativeExec(dest, rt, rest, cmd.InOrStdin(), cmd.OutOrStdout(), cmd.ErrOrStderr())
-				pushErr := pushDeps(t, cmd)
-				if err != nil {
-					return err
-				}
-				if code != 0 {
-					return silentErr{fmt.Errorf("command exited %d", code)}
-				}
-				if pushErr != nil {
-					return silentErr{pushErr}
-				}
-				return nil
-			}
 			engine, err := backend.ResolveEngine(rt.Backend, config.LoadDefaults())
 			if err != nil {
 				return err

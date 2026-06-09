@@ -1,7 +1,6 @@
-// Package backend runs an agent inside an isolation backend: the native Claude
-// Code /sandbox, or a podman/docker container built from the toolbox image
-// (with credential bind-mounts, dependency origin mounts and the egress
-// allowlist).
+// Package backend runs an agent inside a podman/docker container built from the
+// toolbox image, with a per-sandbox isolated home, dependency origin mounts and
+// the egress allowlist.
 package backend
 
 import (
@@ -11,8 +10,7 @@ import (
 	"github.com/irasikhin/sandboxer/internal/config"
 )
 
-// ResolveEngine picks the container engine to invoke for a resolved (non-native)
-// backend. Precedence:
+// ResolveEngine picks the container engine to invoke. Precedence:
 //
 //   - SANDBOXER_ENGINE (d.Engine) wins outright;
 //   - an explicitly requested engine (be == "podman"|"docker") is honored when
@@ -37,8 +35,8 @@ func ResolveEngine(be string, d config.Defaults) (string, error) {
 	if hasExec("docker") {
 		return "docker", nil
 	}
-	return "", errors.New("need podman or docker for the container backend " +
-		"(NixOS: virtualisation.podman.enable), or use backend=native (claude only)")
+	return "", errors.New("need podman or docker " +
+		"(NixOS: virtualisation.podman.enable)")
 }
 
 // DetectEngine resolves the engine with no explicit backend preference (the
@@ -46,13 +44,10 @@ func ResolveEngine(be string, d config.Defaults) (string, error) {
 func DetectEngine(d config.Defaults) (string, error) { return ResolveEngine("", d) }
 
 // EngineLabel reports, best-effort, the engine ResolveEngine would pick, for the
-// summary banner so it matches what runs. It never errors: "native" is returned
-// as-is, and with no engine installed it returns be unchanged so the banner
-// still names the configured backend.
+// summary banner so it matches what runs. It never errors: with no engine
+// installed it returns be unchanged so the banner still names the configured
+// backend.
 func EngineLabel(be string, d config.Defaults) string {
-	if be == "native" {
-		return be
-	}
 	if e, err := ResolveEngine(be, d); err == nil {
 		return e
 	}

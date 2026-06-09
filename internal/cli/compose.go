@@ -38,8 +38,8 @@ is therefore documented rather than reproduced here.`,
 			if err != nil {
 				return err
 			}
-			if rt.Backend == "native" {
-				return fmt.Errorf("compose applies to the container backend only (this sandbox is backend=native)")
+			if err := config.ValidateBackend(rt); err != nil {
+				return err
 			}
 			engine, err := backend.ResolveEngine(rt.Backend, config.LoadDefaults())
 			if err != nil {

@@ -1,4 +1,4 @@
-// Package proxy implements a native egress allowlist forward-proxy.
+// Package proxy implements an egress allowlist forward-proxy.
 //
 // It replaces a previously used gost sidecar. The proxy behaves as an HTTP
 // forward-proxy: only hosts matching the allowlist (a configured domain itself

@@ -15,14 +15,13 @@ func TestLoadDefaultsFromEnv(t *testing.T) {
 	t.Setenv("SANDBOXER_IMAGE", "img:1")
 	t.Setenv("SANDBOXER_ENGINE", "docker")
 	t.Setenv("SANDBOXER_MAX_PARALLEL", "9")
-	t.Setenv("SANDBOXER_NICE", "3")
 	t.Setenv("SANDBOXER_MEM", "2G")
 	t.Setenv("SANDBOXER_CPU", "50%")
 	t.Setenv("SANDBOXER_WALL", "60")
 
 	d := LoadDefaults()
 	if d.Model != "m" || d.Agent != "crush" || d.Backend != "docker" || d.Domains != "a.com" ||
-		d.Image != "img:1" || d.Engine != "docker" || d.MaxParallel != 9 || d.Nice != 3 ||
+		d.Image != "img:1" || d.Engine != "docker" || d.MaxParallel != 9 ||
 		d.Mem != "2G" || d.CPU != "50%" || d.Wall != "60" {
 		t.Errorf("LoadDefaults from env = %+v", d)
 	}
@@ -36,14 +35,13 @@ func TestLoadDefaultsBareAndBadInt(t *testing.T) {
 		t.Setenv(k, "")
 	}
 	t.Setenv("SANDBOXER_MAX_PARALLEL", "not-an-int") // falls back to default
-	t.Setenv("SANDBOXER_NICE", "")
 
 	d := LoadDefaults()
 	if d.Agent != "claude" || d.Backend != "podman" || d.Domains != DefaultDomains || d.Image != DefaultImage {
 		t.Errorf("bare defaults = %+v", d)
 	}
-	if d.MaxParallel != 4 || d.Nice != 10 {
-		t.Errorf("MaxParallel=%d Nice=%d, want 4/10", d.MaxParallel, d.Nice)
+	if d.MaxParallel != 4 {
+		t.Errorf("MaxParallel=%d, want 4", d.MaxParallel)
 	}
 }
 
@@ -94,20 +92,20 @@ func TestLoadMissingFile(t *testing.T) {
 	}
 }
 
-func TestValidateNative(t *testing.T) {
-	// Native backend is fine for claude (has an OS sandbox) and rejected for an
-	// agent that doesn't; any container backend is always allowed.
-	if err := ValidateNative(Runtime{Backend: "native", Agent: "claude"}); err != nil {
-		t.Errorf("native+claude should be allowed: %v", err)
+func TestValidateBackend(t *testing.T) {
+	// The container backends and an empty (auto-detect) value are accepted.
+	for _, be := range []string{"", "auto", "podman", "docker"} {
+		if err := ValidateBackend(Runtime{Backend: be}); err != nil {
+			t.Errorf("backend %q should be allowed: %v", be, err)
+		}
 	}
-	if err := ValidateNative(Runtime{Backend: "native", Agent: "codex"}); err == nil {
-		t.Error("native+codex should be rejected (no OS sandbox)")
+	// The removed native backend gets a clear migration error.
+	if err := ValidateBackend(Runtime{Backend: "native"}); err == nil {
+		t.Error("native backend should be rejected (removed)")
 	}
-	if err := ValidateNative(Runtime{Backend: "podman", Agent: "codex"}); err != nil {
-		t.Errorf("container backend should not be gated: %v", err)
-	}
-	if err := ValidateNative(Runtime{Backend: "native", Agent: "nope"}); err == nil {
-		t.Error("native+unknown-agent should surface the registry error")
+	// Any other value is rejected too.
+	if err := ValidateBackend(Runtime{Backend: "qemu"}); err == nil {
+		t.Error("unknown backend should be rejected")
 	}
 }
 

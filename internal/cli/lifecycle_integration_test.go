@@ -39,16 +39,16 @@ func writeLifecycleProfile(t *testing.T, backend, root string) string {
 	return p
 }
 
-// TestLifecycle_Native_CreateDiffPushExec drives the full lifecycle on the
-// native backend (no engine needed): create vendors the dep, an edit shows up in
-// a real diff(1), push returns it to the origin, and exec runs a command in the
-// sandbox and auto-pushes the change back. Exercises srcs.CopyIn/CopyOut, the
-// diff command and NativeExec for real.
-func TestLifecycle_Native_CreateDiffPushExec(t *testing.T) {
-	requireExec(t, "sh", "diff")
+// TestLifecycle_CreateDiffPush drives the engine-free part of the lifecycle:
+// create vendors the dep, an edit shows up in a real diff(1), and push returns it
+// to the origin. Exercises srcs.CopyIn/CopyOut and the diff command for real (the
+// exec + auto-push round-trip needs a real container — see
+// TestLifecycle_Container_ExecPush).
+func TestLifecycle_CreateDiffPush(t *testing.T) {
+	requireExec(t, "diff")
 	project := newProject(t)
 	root, originFile := writeDepFixture(t)
-	cfg := writeLifecycleProfile(t, "native", root)
+	cfg := writeLifecycleProfile(t, "podman", root)
 
 	// 1. create → dep vendored into the sandbox copy; manifest written.
 	if code, out, errs := run("create", "--src", project, "--config", cfg); code != 0 {
@@ -76,14 +76,6 @@ func TestLifecycle_Native_CreateDiffPushExec(t *testing.T) {
 	}
 	if b, _ := os.ReadFile(originFile); string(b) != "DIFFED\n" {
 		t.Fatalf("origin after push = %q, want DIFFED", b)
-	}
-
-	// 4. exec runs in the sandbox and auto-pushes back to the origin.
-	if code, _, errs := run("exec", "feat", "--src", project, "--", "sh", "-c", "printf EXECED > mylib/d.txt"); code != 0 {
-		t.Fatalf("exec = %d\n%s", code, errs)
-	}
-	if b, _ := os.ReadFile(originFile); string(b) != "EXECED" {
-		t.Fatalf("origin after exec auto-push = %q, want EXECED", b)
 	}
 }
 

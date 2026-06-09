@@ -96,22 +96,20 @@ func ValidateDomains(domains []string) error {
 	return nil
 }
 
-// ValidateNative rejects the native backend for an agent that has no OS sandbox.
-// The native backend's isolation is entirely Claude Code's own /sandbox, injected
-// only for agents whose registry entry sets nativeSandbox (claude). Any other
-// agent would run un-sandboxed on the host FS, so we fail fast instead.
-func ValidateNative(rt Runtime) error {
-	if rt.Backend != "native" {
+// ValidateBackend rejects an unsupported isolation backend. sandboxer runs every
+// agent inside a podman/docker container; an empty value means auto-detect the
+// engine. The native (host /sandbox) backend was removed — a stale
+// "backend: native" gets a clear migration error instead of silently running a
+// container.
+func ValidateBackend(rt Runtime) error {
+	switch rt.Backend {
+	case "", "auto", "podman", "docker":
 		return nil
+	case "native":
+		return fmt.Errorf("the native backend was removed — sandboxer is container-only now; use backend: podman or docker")
+	default:
+		return fmt.Errorf("unknown backend %q — use podman or docker", rt.Backend)
 	}
-	a, err := registry.Get(rt.Agent)
-	if err != nil {
-		return err
-	}
-	if !a.NativeSandbox {
-		return fmt.Errorf("native backend has no OS sandbox for %q — it would run un-sandboxed on the host; use --backend podman|docker (or --agent claude)", rt.Agent)
-	}
-	return nil
 }
 
 func splitCSV(s string) []string {

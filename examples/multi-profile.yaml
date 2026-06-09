@@ -31,9 +31,9 @@ profiles:
     deps:
       - shared/ui
 
-  # Backend API base: native backend, a bigger model, its own dep.
+  # Backend API base: docker engine, a bigger model, its own dep.
   api: &api
-    backend: native
+    backend: docker
     model: opus
     roots: [.]
     deps:

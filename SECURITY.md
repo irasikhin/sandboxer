@@ -68,14 +68,11 @@ hardened security boundary. Understand the model before trusting it:
   having full access to whatever credentials you give it; only wire in the
   agents (and keys) you actually need for the task.
 
-- **Native backend.** The `native` backend relies on Claude Code's own
-  `/sandbox` (bubblewrap) for OS-level isolation; its containment is only as
-  strong as that mechanism. Unlike the container backend (which starts from a
-  clean, explicit environment), the native backend runs the agent as your host
-  user and **inherits your full shell environment** — every `AWS_*`, `GITHUB_*`,
-  `*_TOKEN`, etc. in your environment is visible to the agent. Run native only
-  from an environment scrubbed of secrets the task doesn't need, or use a
-  container backend.
+- **Container environment.** The agent runs in a podman/docker container that
+  starts from a clean, explicit environment: it does **not** inherit your host
+  shell, so an `AWS_*` / `GITHUB_*` / `*_TOKEN` left in your environment is not
+  visible to the agent unless you wire it in (an agent's API-key env vars are
+  passed through only when you have set them — see Credentials above).
 
 - **Not a multi-tenant boundary.** sandboxer is **not** a hardened
   multi-tenant isolation layer. Do not run untrusted or malicious agents and

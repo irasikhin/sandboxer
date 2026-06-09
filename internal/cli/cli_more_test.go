@@ -39,8 +39,8 @@ func TestRunEnterExecContainer(t *testing.T) {
 func TestRunEnterAutoCreate(t *testing.T) {
 	requireExec(t, "sh")
 	project := newProject(t)
-	t.Setenv("SHELL", "true")
-	if code, _, errs := run("enter", "fresh", "--src", project, "--backend", "native"); code != 0 {
+	fakePodman(t)
+	if code, _, errs := run("enter", "fresh", "--src", project, "--backend", "podman"); code != 0 {
 		t.Fatalf("enter auto-create = %d, %s", code, errs)
 	}
 	if _, err := os.Stat(filepath.Join(project, ".sandboxer", "fresh")); err != nil {
@@ -101,9 +101,10 @@ func TestRunDiffAndPush(t *testing.T) {
 // command must exit non-zero (not silently report success) so the user never
 // believes work was returned when it wasn't.
 func TestRunExecPushFailureExitsNonzero(t *testing.T) {
-	requireExec(t, "true")
+	requireExec(t, "sh")
 	project := t.TempDir()
 	t.Setenv("SANDBOXER_IN_CONTAINER", "")
+	fakePodman(t) // the container "runs" and exits 0; only the copy-back fails
 	depRoot := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(depRoot, "sub", "lib"), 0o755); err != nil {
 		t.Fatal(err)
@@ -112,7 +113,7 @@ func TestRunExecPushFailureExitsNonzero(t *testing.T) {
 		t.Fatal(err)
 	}
 	cfg := filepath.Join(t.TempDir(), "p.yaml")
-	yaml := "name: feat\nbackend: native\nagent: claude\nroots: [" + depRoot + "]\ndeps:\n  - sub/lib\n"
+	yaml := "name: feat\nbackend: podman\nagent: claude\nroots: [" + depRoot + "]\ndeps:\n  - sub/lib\n"
 	if err := os.WriteFile(cfg, []byte(yaml), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -129,7 +130,7 @@ func TestRunExecPushFailureExitsNonzero(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	code, _, errs := run("exec", "--src", project, "--config", cfg, "--backend", "native", "--", "true")
+	code, _, errs := run("exec", "--src", project, "--config", cfg, "--backend", "podman", "--", "true")
 	if code != 1 {
 		t.Fatalf("exec with failing push exit = %d, want 1\nerr:%s", code, errs)
 	}

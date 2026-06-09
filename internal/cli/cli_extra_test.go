@@ -83,9 +83,9 @@ func TestConfigLine(t *testing.T) {
 	t.Setenv("SANDBOXER_NO_EGRESS", "")
 
 	// Defaults, no profile: egress on with a domain count, profile=none.
-	rt := config.Runtime{Agent: "claude", Backend: "native", Egress: true, Domains: []string{"a.com", "b.com"}}
-	line := configLine(rt, "feat", nil, "native")
-	for _, want := range []string{"feat —", "agent=claude", "backend=native", "model=default", "egress=on (2 domains)", "profile=none", "deps=0"} {
+	rt := config.Runtime{Agent: "claude", Backend: "docker", Egress: true, Domains: []string{"a.com", "b.com"}}
+	line := configLine(rt, "feat", nil, "docker")
+	for _, want := range []string{"feat —", "agent=claude", "backend=docker", "model=default", "egress=on (2 domains)", "profile=none", "deps=0"} {
 		if !strings.Contains(line, want) {
 			t.Errorf("configLine missing %q in %q", want, line)
 		}
@@ -102,7 +102,7 @@ func TestConfigLine(t *testing.T) {
 
 	// Disabled via env is called out explicitly.
 	t.Setenv("SANDBOXER_NO_EGRESS", "1")
-	if l := configLine(rt, "feat", nil, "native"); !strings.Contains(l, "SANDBOXER_NO_EGRESS") {
+	if l := configLine(rt, "feat", nil, "docker"); !strings.Contains(l, "SANDBOXER_NO_EGRESS") {
 		t.Errorf("configLine should note env-disabled egress: %q", l)
 	}
 }
@@ -135,27 +135,19 @@ func TestLoadStoredProfile(t *testing.T) {
 	}
 }
 
-func TestRunEnterExecNative(t *testing.T) {
-	requireExec(t, "sh")
+// TestExecErrorPaths covers exec's two early failures, which are reported before
+// any container engine is touched (so they need no docker/podman installed).
+func TestExecErrorPaths(t *testing.T) {
 	project := newProject(t)
-	t.Setenv("SHELL", "true") // NativeEnter runs $SHELL; `true` exits 0
-
 	if code, _, errs := run("create", "feat", "--src", project); code != 0 {
 		t.Fatalf("create: %d %s", code, errs)
 	}
-	if code, _, errs := run("enter", "feat", "--src", project, "--backend", "native"); code != 0 {
-		t.Errorf("enter native = %d, %s", code, errs)
-	}
-	if code, _, errs := run("exec", "feat", "--src", project, "--backend", "native", "--", "sh", "-c", "exit 0"); code != 0 {
-		t.Errorf("exec ok = %d, %s", code, errs)
-	}
-	if code, _, _ := run("exec", "feat", "--src", project, "--backend", "native", "--", "sh", "-c", "exit 5"); code != 1 {
-		t.Errorf("exec non-zero exit code = %d, want 1", code)
-	}
-	if code, _, errs := run("exec", "feat", "--src", project, "--backend", "native"); code != 1 || !strings.Contains(errs, "no command to run") {
+	// exec without -- → "no command to run".
+	if code, _, errs := run("exec", "feat", "--src", project, "--backend", "docker"); code != 1 || !strings.Contains(errs, "no command to run") {
 		t.Errorf("exec without -- = (%d, %q)", code, errs)
 	}
-	if code, _, errs := run("exec", "missing", "--src", project, "--backend", "native", "--", "true"); code != 1 || !strings.Contains(errs, "no sandbox") {
+	// exec on a missing sandbox → "no sandbox".
+	if code, _, errs := run("exec", "missing", "--src", project, "--backend", "docker", "--", "true"); code != 1 || !strings.Contains(errs, "no sandbox") {
 		t.Errorf("exec missing sandbox = (%d, %q)", code, errs)
 	}
 }
@@ -252,37 +244,12 @@ func TestRunBatchDryRun(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(project, "sandboxer.tasks"), []byte("[alpha]\ndo a\n\n[beta]\ndo b\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	code, out, errs := run("run", "--src", project, "--dry-run", "--backend", "native")
+	code, out, errs := run("run", "--src", project, "--dry-run", "--backend", "docker")
 	if code != 0 {
 		t.Fatalf("run batch = %d, %s", code, errs)
 	}
 	if !strings.Contains(out, "alpha") || !strings.Contains(out, "beta") {
 		t.Errorf("run batch list output missing slugs:\n%s", out)
-	}
-}
-
-// TestRunBatchFailingAgentExitsNonzero: a batch where the agent exits non-zero
-// must propagate a non-zero process exit (so scripts/CI see the failure), with
-// the ok/failed tally on stdout.
-func TestRunBatchFailingAgentExitsNonzero(t *testing.T) {
-	requireExec(t, "bash", "nice", "sh")
-	t.Setenv("SANDBOXER_IN_CONTAINER", "")
-	bin := t.TempDir()
-	if err := os.WriteFile(filepath.Join(bin, "claude"), []byte("#!/bin/sh\nexit 5\n"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("PATH", bin+":"+os.Getenv("PATH"))
-
-	project := t.TempDir()
-	if err := os.WriteFile(filepath.Join(project, "sandboxer.tasks"), []byte("[alpha]\ndo a\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	code, out, errs := run("run", "--src", project, "--backend", "native")
-	if code != 1 {
-		t.Fatalf("failing batch exit = %d, want 1\nout:%s\nerr:%s", code, out, errs)
-	}
-	if !strings.Contains(out, "0 ok, 1 failed") {
-		t.Errorf("missing failure tally on stdout: %q", out)
 	}
 }
 
@@ -292,15 +259,17 @@ func TestRmAllNonexistent(t *testing.T) {
 	}
 }
 
-func TestRunNativeNonClaudeRejected(t *testing.T) {
+// TestRunBackendNativeRejected: the removed native backend is rejected with a
+// clear migration message instead of silently running a container.
+func TestRunBackendNativeRejected(t *testing.T) {
 	t.Setenv("SANDBOXER_IN_CONTAINER", "")
 	project := t.TempDir()
 	if err := os.WriteFile(filepath.Join(project, "sandboxer.tasks"), []byte("[a]\ndo a\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	code, _, errs := run("run", "--src", project, "--backend", "native", "--agent", "codex")
-	if code != 1 || !strings.Contains(errs, "native backend has no OS sandbox") {
-		t.Errorf("native+codex run = (%d, %q), want exit 1 with the guard message", code, errs)
+	code, _, errs := run("run", "--src", project, "--backend", "native")
+	if code != 1 || !strings.Contains(errs, "native backend was removed") {
+		t.Errorf("native run = (%d, %q), want exit 1 with the removal message", code, errs)
 	}
 }
 
@@ -320,7 +289,7 @@ profiles:
   web:
     backend: podman
   api:
-    backend: native
+    backend: docker
     model: opus
 default: web
 `
@@ -338,7 +307,7 @@ default: web
 	}
 	pj, _ := os.ReadFile(filepath.Join(project, ".sandboxer", "_meta", "api.profile.json"))
 	s := string(pj)
-	for _, want := range []string{`"backend": "native"`, `"model": "opus"`, `"agent": "claude"`, "api.anthropic.com"} {
+	for _, want := range []string{`"backend": "docker"`, `"model": "opus"`, `"agent": "claude"`, "api.anthropic.com"} {
 		if !strings.Contains(s, want) {
 			t.Errorf("api profile.json missing %q in:\n%s", want, s)
 		}
@@ -381,9 +350,9 @@ func TestRunAutoDiscoversProfile(t *testing.T) {
 	t.Setenv("SANDBOXER_IN_CONTAINER", "")
 	project := t.TempDir()
 	t.Chdir(project)
-	// A native profile in the cwd must be picked up without --config; otherwise the
-	// default (podman) backend would be used and the banner would not say native.
-	if err := os.WriteFile(config.ConfigFileName, []byte("name: disco\nbackend: native\nagent: claude\n"), 0o644); err != nil {
+	// A docker profile in the cwd must be picked up without --config; otherwise the
+	// default (podman) backend would be used and the banner would not say docker.
+	if err := os.WriteFile(config.ConfigFileName, []byte("name: disco\nbackend: docker\nagent: claude\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile("sandboxer.tasks", []byte("[a]\ndo a\n"), 0o644); err != nil {
@@ -393,7 +362,7 @@ func TestRunAutoDiscoversProfile(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("run = %d, %s", code, errs)
 	}
-	if !strings.Contains(out, "backend=native") {
-		t.Errorf("auto-discovered %s not applied (want backend=native):\n%s", config.ConfigFileName, out)
+	if !strings.Contains(out, "backend=docker") {
+		t.Errorf("auto-discovered %s not applied (want backend=docker):\n%s", config.ConfigFileName, out)
 	}
 }

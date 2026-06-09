@@ -17,7 +17,7 @@ func writeFile(t *testing.T, dir, name, body string) string {
 
 func TestLoadDocumentFlat(t *testing.T) {
 	dir := t.TempDir()
-	p := writeFile(t, dir, "feat.yaml", "backend: native\nagent: claude\n")
+	p := writeFile(t, dir, "feat.yaml", "backend: docker\nagent: claude\n")
 	d, err := LoadDocument(p)
 	if err != nil {
 		t.Fatal(err)
@@ -30,7 +30,7 @@ func TestLoadDocumentFlat(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Name falls back to the file base name.
-	if prof.Name != "feat" || prof.Backend != "native" {
+	if prof.Name != "feat" || prof.Backend != "docker" {
 		t.Errorf("flat select = %+v", prof)
 	}
 }
@@ -49,7 +49,7 @@ profiles:
     backend: podman
     deps: [shared/ui]
   api:
-    backend: native
+    backend: docker
     model: opus
     env:
       LOG: debug
@@ -84,7 +84,7 @@ default: web
 	if err != nil {
 		t.Fatal(err)
 	}
-	if api.Backend != "native" || api.Model != "opus" {
+	if api.Backend != "docker" || api.Model != "opus" {
 		t.Errorf("api own fields wrong: %+v", api)
 	}
 	if api.Agent != "claude" || len(api.Network.AllowedDomains) != 1 {
@@ -106,7 +106,7 @@ default: web
 func TestSelectSoleAndAmbiguous(t *testing.T) {
 	dir := t.TempDir()
 	// One section, no default: -> selectable with an empty name.
-	sole := writeFile(t, dir, "one.yaml", "profiles:\n  only:\n    backend: native\n")
+	sole := writeFile(t, dir, "one.yaml", "profiles:\n  only:\n    backend: docker\n")
 	d, err := LoadDocument(sole)
 	if err != nil {
 		t.Fatal(err)
@@ -116,7 +116,7 @@ func TestSelectSoleAndAmbiguous(t *testing.T) {
 	}
 
 	// Two sections, no default: -> empty name is ambiguous.
-	two := writeFile(t, dir, "two.yaml", "profiles:\n  a: {backend: native}\n  b: {backend: podman}\n")
+	two := writeFile(t, dir, "two.yaml", "profiles:\n  a: {backend: docker}\n  b: {backend: podman}\n")
 	d2, err := LoadDocument(two)
 	if err != nil {
 		t.Fatal(err)
@@ -145,7 +145,7 @@ defaults:
   network: { allowedDomains: [a.com] }
 profiles:
   api: &api
-    backend: native
+    backend: docker
     model: opus
     env: { TIER: base }
   api-prod:
@@ -164,7 +164,7 @@ profiles:
 	if prod.Agent != "claude" || len(prod.Network.AllowedDomains) != 1 {
 		t.Errorf("api-prod should inherit defaults agent/domains: %+v", prod)
 	}
-	if prod.Backend != "native" || prod.Model != "opus" {
+	if prod.Backend != "docker" || prod.Model != "opus" {
 		t.Errorf("api-prod should inherit api's fields via the anchor: %+v", prod)
 	}
 	// The anchor merge is lower priority than the node's own keys.

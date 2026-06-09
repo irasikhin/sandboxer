@@ -201,7 +201,7 @@ func TestResolveProfileFile(t *testing.T) {
 
 	// A named profile from the global store, by positional and by -f NAME.
 	web := filepath.Join(store, "web.yaml")
-	if err := os.WriteFile(web, []byte("name: web\nbackend: native\nagent: claude\n"), 0o644); err != nil {
+	if err := os.WriteFile(web, []byte("name: web\nbackend: docker\nagent: claude\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	f, p, err = resolveProfileFile("", "web")

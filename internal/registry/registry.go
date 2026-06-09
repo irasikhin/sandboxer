@@ -2,9 +2,8 @@
 //
 // The data lives in agents/registry.json (embedded here, and also read by the
 // Nix flake via builtins.fromJSON for the toolbox image). Each agent declares
-// how to launch it (command templates), whether it understands Claude Code's
-// native /sandbox, which host config dirs/env carry its credentials, and the
-// llm-agents package name used to bake it into the image.
+// how to launch it (command templates), which host config dirs/env carry its
+// credentials, and the llm-agents package name used to bake it into the image.
 package registry
 
 import (
@@ -32,7 +31,6 @@ type Agent struct {
 	Bin            string    `json:"bin"`
 	Interactive    string    `json:"interactive"`
 	Headless       string    `json:"headless"`
-	NativeSandbox  bool      `json:"nativeSandbox"`
 	AuthConfigDirs []AuthDir `json:"authConfigDirs"`
 	AuthEnv        []string  `json:"authEnv"`
 	NixPackage     string    `json:"nixPackage"`
@@ -70,7 +68,7 @@ func Get(name string) (Agent, error) {
 }
 
 // HeadlessCmd renders the agent's headless command as a shell string suitable
-// for `bash -c` (native) or `bash -lc` inside the container.
+// for `bash -lc` inside the container.
 func (a Agent) HeadlessCmd(model string, domains []string, task string) string {
 	return a.render(a.Headless, model, domains, task)
 }
@@ -80,11 +78,7 @@ func (a Agent) InteractiveCmd(model string, domains []string) string {
 	return a.render(a.Interactive, model, domains, "")
 }
 
-func (a Agent) render(tmpl, model string, domains []string, task string) string {
-	sflag := ""
-	if a.NativeSandbox {
-		sflag = "--settings " + shellQuote(SettingsJSON(domains))
-	}
+func (a Agent) render(tmpl, model string, _ []string, task string) string {
 	mflag := ""
 	if model != "" {
 		mflag = "--model " + shellQuote(model)
@@ -94,7 +88,6 @@ func (a Agent) render(tmpl, model string, domains []string, task string) string 
 		tq = shellQuote(task)
 	}
 	r := strings.NewReplacer(
-		"{settingsFlag}", sflag,
 		"{modelFlag}", mflag,
 		"{task}", tq,
 	)
@@ -109,27 +102,4 @@ func shellQuote(s string) string {
 		return "''"
 	}
 	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
-}
-
-// SettingsJSON builds the Claude Code `--settings` payload that enables the
-// native sandbox with the given egress allowlist.
-func SettingsJSON(domains []string) string {
-	if domains == nil {
-		domains = []string{}
-	}
-	payload := map[string]any{
-		"sandbox": map[string]any{
-			"enabled":                  true,
-			"autoAllowBashIfSandboxed": true,
-			"network": map[string]any{
-				"allowedDomains": domains,
-			},
-		},
-	}
-	b, err := json.Marshal(payload)
-	if err != nil {
-		// The payload is static-shaped; marshaling cannot fail in practice.
-		return `{"sandbox":{"enabled":true}}`
-	}
-	return string(b)
 }

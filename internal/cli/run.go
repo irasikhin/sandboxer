@@ -17,7 +17,7 @@ func newRunCmd() *cobra.Command {
 		src, configPath             string
 		model, agent, backend, doms string
 		mem, cpu, wall              string
-		maxp, nice                  int
+		maxp                        int
 		keep, dry                   bool
 	)
 	d := config.LoadDefaults()
@@ -51,7 +51,6 @@ func newRunCmd() *cobra.Command {
 				Defaults:   d,
 				Image:      d.Image,
 				MaxP:       maxp,
-				Nice:       nice,
 				Mem:        mem,
 				CPU:        cpu,
 				Wall:       wall,
@@ -82,13 +81,12 @@ func newRunCmd() *cobra.Command {
 	fl.StringVarP(&configPath, "config", "f", "", "profile: a file, a directory of profiles, or a named profile (store: ~/.config/sandboxer/profiles)")
 	fl.StringVar(&model, "model", "", "model override")
 	fl.StringVar(&agent, "agent", "", "agent override")
-	fl.StringVar(&backend, "backend", "", "backend: native | podman | docker")
+	fl.StringVar(&backend, "backend", "", "backend: podman | docker")
 	fl.StringVar(&doms, "allow-domains", "", "egress allowlist, csv (e.g. api.anthropic.com,github.com)")
 	fl.IntVar(&maxp, "max-parallel", d.MaxParallel, "max concurrent agents")
-	fl.IntVar(&nice, "nice", d.Nice, "nice level for agents")
-	fl.StringVar(&mem, "mem", d.Mem, "per-agent memory cap, e.g. 2G (native: MemoryMax; container: --memory)")
-	fl.StringVar(&cpu, "cpu", d.CPU, "per-agent CPU cap, e.g. 100% or 1.5 (native: CPUQuota; container: --cpus)")
-	fl.StringVar(&wall, "wall", d.Wall, "per-agent wall-clock timeout in seconds (both backends)")
+	fl.StringVar(&mem, "mem", d.Mem, "per-agent memory cap, e.g. 2G (--memory)")
+	fl.StringVar(&cpu, "cpu", d.CPU, "per-agent CPU cap, e.g. 100% or 1.5 (--cpus)")
+	fl.StringVar(&wall, "wall", d.Wall, "per-agent wall-clock timeout in seconds")
 	fl.BoolVar(&keep, "keep", false, "keep existing .sandboxer state")
 	fl.BoolVar(&dry, "dry-run", false, "do not run agents; just create sandboxes")
 	return cmd

@@ -8,7 +8,7 @@ name: integ
 
 # Container toolbox: image with the agents (nix run .#build-image). Any agent,
 # not just claude. (codex is Rust and is not baked into the image due to build
-# time; use it on the native backend instead.)
+# time; bring your own / BYO image for it.)
 backend: podman
 agent: opencode
 model: gpt-5

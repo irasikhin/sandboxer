@@ -61,23 +61,6 @@ func TestIsTerminal(t *testing.T) {
 	}
 }
 
-func TestProxyEnv(t *testing.T) {
-	rt := config.Runtime{HTTPProxy: "http://p", HTTPSProxy: "https://p", NoProxy: "localhost"}
-	got := strings.Join(ProxyEnv(rt), " ")
-	for _, want := range []string{
-		"HTTP_PROXY=http://p", "http_proxy=http://p",
-		"HTTPS_PROXY=https://p", "https_proxy=https://p",
-		"NO_PROXY=localhost", "no_proxy=localhost",
-	} {
-		if !strings.Contains(got, want) {
-			t.Errorf("ProxyEnv missing %q in %q", want, got)
-		}
-	}
-	if env := ProxyEnv(config.Runtime{}); env != nil {
-		t.Errorf("empty runtime ProxyEnv = %v, want nil", env)
-	}
-}
-
 func TestPathExists(t *testing.T) {
 	f := filepath.Join(t.TempDir(), "f")
 	if pathExists(f) {
@@ -233,96 +216,14 @@ func TestResolveEngine(t *testing.T) {
 	if e, err := ResolveEngine("podman", config.Defaults{}); err != nil || e != "docker" {
 		t.Errorf("backend=podman on docker-only host = %q, %v; want docker fallback", e, err)
 	}
-	// EngineLabel never errors and reflects that fallback; native passes through.
+	// EngineLabel never errors and reflects that fallback.
 	if l := EngineLabel("podman", config.Defaults{}); l != "docker" {
 		t.Errorf("EngineLabel(podman) on docker-only = %q; want docker", l)
-	}
-	if l := EngineLabel("native", config.Defaults{}); l != "native" {
-		t.Errorf("EngineLabel(native) = %q; want native", l)
 	}
 	// With no engine installed, EngineLabel returns the requested backend as-is.
 	t.Setenv("PATH", t.TempDir())
 	if l := EngineLabel("podman", config.Defaults{}); l != "podman" {
 		t.Errorf("EngineLabel(podman) with no engine = %q; want podman", l)
-	}
-}
-
-// --- native backend ---------------------------------------------------------
-
-func TestNativeExecGeneric(t *testing.T) {
-	requireExec(t, "sh")
-	dest := t.TempDir()
-	rt := config.Runtime{HTTPProxy: "http://p"}
-
-	if code, err := NativeExec(dest, rt, nil, nil, nil, nil); code != 2 || err == nil {
-		t.Errorf("empty args = (%d,%v), want (2, error)", code, err)
-	}
-
-	var out bytes.Buffer
-	code, err := NativeExec(dest, rt, []string{"sh", "-c", "exit 0"}, strings.NewReader(""), &out, &out)
-	if code != 0 || err != nil {
-		t.Errorf("exit 0 cmd = (%d,%v)", code, err)
-	}
-	code, _ = NativeExec(dest, rt, []string{"sh", "-c", "exit 3"}, strings.NewReader(""), &out, &out)
-	if code != 3 {
-		t.Errorf("exit 3 cmd = %d, want 3", code)
-	}
-
-	// Runs in dest with the proxy env injected.
-	_, err = NativeExec(dest, rt, []string{"sh", "-c", `echo "$PWD $HTTP_PROXY" > marker`}, strings.NewReader(""), &out, &out)
-	if err != nil {
-		t.Fatal(err)
-	}
-	data, _ := os.ReadFile(filepath.Join(dest, "marker"))
-	if !strings.Contains(string(data), dest) || !strings.Contains(string(data), "http://p") {
-		t.Errorf("command did not run in dest with proxy env: %q", data)
-	}
-}
-
-func TestNativeExecClaudeWrapping(t *testing.T) {
-	requireExec(t, "sh")
-	bin := t.TempDir()
-	logPath := filepath.Join(t.TempDir(), "claude.log")
-	writeEngineScript(t, filepath.Join(bin, "claude"), logPath)
-	t.Setenv("PATH", bin+":"+os.Getenv("PATH"))
-
-	rt := config.Runtime{Model: "sonnet", Domains: []string{"api.anthropic.com"}}
-	code, err := NativeExec(t.TempDir(), rt, []string{"claude", "hello"}, strings.NewReader(""), &bytes.Buffer{}, &bytes.Buffer{})
-	if err != nil || code != 0 {
-		t.Fatalf("NativeExec claude = (%d,%v)", code, err)
-	}
-	log, _ := os.ReadFile(logPath)
-	s := string(log)
-	for _, want := range []string{"--settings", "allowedDomains", "api.anthropic.com", "--model sonnet", "hello"} {
-		if !strings.Contains(s, want) {
-			t.Errorf("claude invocation missing %q in %q", want, s)
-		}
-	}
-}
-
-func TestNativeEnter(t *testing.T) {
-	requireExec(t, "sh")
-	dest := t.TempDir()
-	marker := filepath.Join(t.TempDir(), "shell.log")
-	shell := filepath.Join(t.TempDir(), "shell")
-	script := "#!/bin/sh\nprintf '%s\\n%s\\n' \"$PWD\" \"$HTTP_PROXY\" > \"" + marker + "\"\n"
-	if err := os.WriteFile(shell, []byte(script), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("SHELL", shell)
-
-	if err := NativeEnter(dest, config.Runtime{HTTPProxy: "http://p"}, strings.NewReader(""), &bytes.Buffer{}, &bytes.Buffer{}); err != nil {
-		t.Fatalf("NativeEnter: %v", err)
-	}
-	data, _ := os.ReadFile(marker)
-	if !strings.Contains(string(data), dest) || !strings.Contains(string(data), "http://p") {
-		t.Errorf("shell did not run in dest with proxy env: %q", data)
-	}
-
-	// A failing shell surfaces an error.
-	t.Setenv("SHELL", "false")
-	if err := NativeEnter(dest, config.Runtime{}, strings.NewReader(""), &bytes.Buffer{}, &bytes.Buffer{}); err == nil {
-		t.Error("a non-zero shell exit should be returned as an error")
 	}
 }
 

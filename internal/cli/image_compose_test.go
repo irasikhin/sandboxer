@@ -113,9 +113,9 @@ func TestComposeCommand(t *testing.T) {
 		t.Errorf("print-run missing run command:\n%s", out2)
 	}
 
-	// Native backend has no container → compose refuses.
+	// The removed native backend is rejected.
 	if code, _, errs := run("compose", "feat", "--src", project, "--backend", "native"); code != 1 ||
-		!strings.Contains(errs, "container backend only") {
+		!strings.Contains(errs, "native backend was removed") {
 		t.Errorf("compose native = (%d, %q)", code, errs)
 	}
 }

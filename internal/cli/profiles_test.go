@@ -14,7 +14,7 @@ func TestCreateFromNamedProfile(t *testing.T) {
 	project := newProject(t) // also points SANDBOXER_PROFILES at an empty temp dir
 	store := os.Getenv("SANDBOXER_PROFILES")
 	if err := os.WriteFile(filepath.Join(store, "web.yaml"),
-		[]byte("name: web\nbackend: native\nagent: claude\n"), 0o644); err != nil {
+		[]byte("name: web\nbackend: docker\nagent: claude\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	code, out, errs := run("create", "web", "--src", project)
@@ -35,7 +35,7 @@ func TestCreateFromProfileDir(t *testing.T) {
 	project := newProject(t)
 	envs := t.TempDir()
 	if err := os.WriteFile(filepath.Join(envs, "api.yaml"),
-		[]byte("name: api\nbackend: native\nagent: claude\n"), 0o644); err != nil {
+		[]byte("name: api\nbackend: docker\nagent: claude\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if code, out, errs := run("create", "api", "-f", envs, "--src", project); code != 0 || !strings.Contains(out, "api") {
@@ -78,7 +78,7 @@ func TestProfilesCommand(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("SANDBOXER_PROFILES", dir)
 	if err := os.WriteFile(filepath.Join(dir, "web.yaml"),
-		[]byte("name: web\nbackend: native\nagent: claude\n"), 0o644); err != nil {
+		[]byte("name: web\nbackend: docker\nagent: claude\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	// Lists the global store.

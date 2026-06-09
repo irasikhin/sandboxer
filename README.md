@@ -33,18 +33,15 @@ when you're done. No git is involved.
   already exists unless `--force`; `sandboxer push` copies them back over their
   origins (always overwriting, like depsync).
 
-Two isolation backends:
-
-- **native** — Claude Code's own `/sandbox` (bubblewrap; OS-level FS + network).
-  `claude` only, zero install.
-- **podman / docker** (default) — a toolbox container with the agents baked in
-  (claude, opencode, crush, aider, pi, gemini). Any of them; network, proxy and
-  credentials are wired per config.
+Isolation backend — a **podman / docker** container built from a toolbox image
+with the agents baked in (claude, opencode, crush, aider, pi, gemini). Any of
+them; each sandbox gets its own isolated home, and network, proxy and
+credentials are wired per config.
 
 ## Install
 
-Linux only. `claude` (for native) and the container engine are **not bundled** —
-they come from the host.
+Linux only. The container engine (podman or docker) is **not bundled** — it
+comes from the host.
 
 ```bash
 nix run    github:irasikhin/sandboxer -- help                   # try without installing
@@ -88,7 +85,7 @@ Scalars come from **flags** and `SANDBOXER_*` env vars:
 | Setting | Flag | Env |
 |---------|------|-----|
 | agent | `--agent` | `SANDBOXER_AGENT` (default `claude`) |
-| backend | `--backend` | `SANDBOXER_BACKEND` (default `podman`; `native\|podman\|docker` — `podman`/`docker` pin that engine when installed, else fall back to whichever is) |
+| backend | `--backend` | `SANDBOXER_BACKEND` (default `podman`; `podman\|docker` pins that engine when installed, else falls back to whichever is) |
 | model | `--model` | `SANDBOXER_MODEL` |
 | egress domains | `--allow-domains a,b` | `SANDBOXER_DOMAINS` |
 | disable egress | — | `SANDBOXER_NO_EGRESS=1` |
@@ -105,7 +102,7 @@ the cwd is auto-discovered. See `examples/.sandboxer.yaml`,
 
 ```yaml
 name: feature-x
-backend: native
+backend: podman
 agent: claude
 network:
   allowedDomains: [api.anthropic.com, registry.npmjs.org, github.com]
@@ -145,7 +142,7 @@ defaults:
 
 profiles:
   api: &api                # sandboxer create api
-    backend: native
+    backend: docker
     model: opus
     deps: [shared/proto]
   api-prod:                # sandboxer create api-prod
@@ -255,8 +252,8 @@ Current coverage: **92.2%** total. Per package:
 | `internal/sandbox`  | 88.8%    |
 
 Backend tests use fake engine/agent stubs on `PATH`, so they run without
-containers or touching real credentials; the few tests that shell out (native
-`enter`/`exec`, `diff`) skip gracefully when the tool is absent.
+containers or touching real credentials; the few tests that shell out (`diff`,
+real-engine integration) skip gracefully when the tool/engine is absent.
 
 ## License
 

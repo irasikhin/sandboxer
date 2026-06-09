@@ -77,10 +77,10 @@ const rootLong = `sandboxer — config-driven isolated sandboxes for coding agen
 
 A sandbox is a directory under .sandboxer/<slug>/ holding only the deps you list
 (each located by path suffix under your roots and copied in); nothing is copied by
-default and no git is involved. The agent runs inside an isolation backend:
-  • podman/docker (default): toolbox image with the agents baked in; network,
-    proxy and credentials are wired per-config (claude/codex/opencode/crush/…).
-  • native (claude only): Claude Code's own /sandbox (--settings '{sandbox…}').
+default and no git is involved. The agent runs inside a podman/docker container
+built from the toolbox image (the agents baked in: claude/codex/opencode/crush/…);
+each sandbox has its own isolated home, and network, proxy and credentials are
+wired per-config.
 
 Config: flags + SANDBOXER_* env, with an optional .sandboxer.yaml profile for
 structured fields (roots/deps, extraMounts, env). A profile file can hold one

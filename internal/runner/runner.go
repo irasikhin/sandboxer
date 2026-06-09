@@ -8,10 +8,8 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -41,7 +39,6 @@ type Options struct {
 	Defaults   config.Defaults
 	Image      string
 	MaxP       int
-	Nice       int
 	Mem        string
 	CPU        string
 	Wall       string
@@ -117,7 +114,7 @@ func Run(o Options) (Result, error) {
 		return Result{}, err
 	}
 
-	if err := config.ValidateNative(rt); err != nil {
+	if err := config.ValidateBackend(rt); err != nil {
 		return Result{}, err
 	}
 	agent, err := registry.Get(rt.Agent)
@@ -130,9 +127,11 @@ func Run(o Options) (Result, error) {
 		profileJSON, _ = profile.JSON()
 	}
 
+	// A dry run never launches a container, so it does not need an engine
+	// installed — resolve one only for a real run.
 	engine := ""
 	backendShown := rt.Backend
-	if rt.Backend != "native" {
+	if !o.DryRun {
 		engine, err = backend.ResolveEngine(rt.Backend, o.Defaults)
 		if err != nil {
 			return Result{}, err
@@ -176,7 +175,6 @@ func Run(o Options) (Result, error) {
 				engine:  engine,
 				image:   o.Image,
 				profile: profile,
-				nice:    o.Nice,
 				mem:     o.Mem,
 				cpu:     o.CPU,
 				wall:    o.Wall,
@@ -228,7 +226,6 @@ type launchSpec struct {
 	engine  string
 	image   string
 	profile *config.Profile
-	nice    int
 	mem     string
 	cpu     string
 	wall    string
@@ -253,38 +250,12 @@ func (s launchSpec) run() int {
 	switch {
 	case s.dry:
 		_ = os.WriteFile(outPath, []byte(`{"result":"(dry-run)"}`), 0o644)
-	case s.rt.Backend == "native":
-		rc = s.runNative(dest, acmd, outPath, errPath)
 	default:
 		rc = s.runContainer(dest, acmd, outPath, errPath)
 	}
 	secs := int(time.Since(start).Seconds())
 	_ = os.WriteFile(meta, []byte(fmt.Sprintf("exit=%d\nsecs=%d\n", rc, secs)), 0o644)
 	return rc
-}
-
-func (s launchSpec) runNative(dest, acmd, outPath, errPath string) int {
-	of, err := os.Create(outPath)
-	if err != nil {
-		fmt.Fprintf(s.stderr, "sandboxer: %s: create log %s: %v\n", s.slug, outPath, err)
-		return 1
-	}
-	defer of.Close()
-	ef, err := os.Create(errPath)
-	if err != nil {
-		fmt.Fprintf(s.stderr, "sandboxer: %s: create log %s: %v\n", s.slug, errPath, err)
-		return 1
-	}
-	defer ef.Close()
-
-	script := "cd " + posixQuote(dest) + " || exit 97\n" + acmd
-	argv := s.wrapLimits([]string{"bash", "-c", script})
-	cmd := exec.Command(argv[0], argv[1:]...)
-	cmd.Dir = dest
-	cmd.Env = append(os.Environ(), backend.ProxyEnv(s.rt)...)
-	cmd.Stdout = of
-	cmd.Stderr = ef
-	return exitCode(cmd.Run())
 }
 
 func (s launchSpec) runContainer(dest, acmd, outPath, errPath string) int {
@@ -335,30 +306,6 @@ func (s launchSpec) runContainer(dest, acmd, outPath, errPath string) int {
 	return rc
 }
 
-// wrapLimits prepends resource-limit wrappers to argv: systemd-run --user
-// --scope for memory/CPU (when a user manager is available), else nice + an
-// optional wall-clock timeout.
-func (s launchSpec) wrapLimits(argv []string) []string {
-	nice := []string{"nice", "-n", strconv.Itoa(s.nice)}
-	if (s.mem != "" || s.cpu != "") && hasExec("systemd-run") && os.Getenv("XDG_RUNTIME_DIR") != "" {
-		unit := "sandboxer-" + config.Sanitize(s.slug) + "-" + strconv.Itoa(os.Getpid())
-		sr := []string{"systemd-run", "--user", "--scope", "--quiet", "--collect", "--unit", unit}
-		if s.mem != "" {
-			sr = append(sr, "-p", "MemoryMax="+s.mem)
-		}
-		if s.cpu != "" {
-			sr = append(sr, "-p", "CPUQuota="+s.cpu)
-		}
-		sr = append(sr, "-p", "TasksMax=1024")
-		return append(append(sr, nice...), argv...)
-	}
-	var pre []string
-	if s.wall != "" && hasExec("timeout") {
-		pre = append(pre, "timeout", "--signal=TERM", s.wall)
-	}
-	return append(append(pre, nice...), argv...)
-}
-
 // parseTasksFile splits a tasks file into [slug] sections (the bash
 // parse_tasks): lines starting with # are comments; a `[name]` header starts a
 // new section whose body is the following lines until the next header.
@@ -398,26 +345,6 @@ func parseTasksFile(file string) ([]Task, error) {
 	}
 	emit()
 	return tasks, sc.Err()
-}
-
-func exitCode(err error) int {
-	if err == nil {
-		return 0
-	}
-	var ee *exec.ExitError
-	if errors.As(err, &ee) {
-		return ee.ExitCode()
-	}
-	return 1
-}
-
-func hasExec(name string) bool {
-	_, err := exec.LookPath(name)
-	return err == nil
-}
-
-func posixQuote(s string) string {
-	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
 
 func orDefault(s, def string) string {
