@@ -34,10 +34,11 @@ jobs:
           awk -v t="$total" 'BEGIN { exit (t+0 >= 90.0) ? 0 : 1 }' \
             || { echo "::error::total coverage ${total}% is below the 90% gate"; exit 1; }
       - run: go vet ./...
-      - uses: actions/upload-artifact@v4
-        with:
-          name: coverage-profile
-          path: coverage.out
+      # The coverage total is printed by the "Coverage summary" step above; we
+      # deliberately do NOT upload coverage.out as an artifact. This forge's
+      # runner has no Actions artifact storage, so actions/upload-artifact fails
+      # and reddens the whole job even when tests and the gate pass. Nothing
+      # downstream consumes the profile, so there is nothing to upload.
 
   lint:
     runs-on: ubuntu-latest
