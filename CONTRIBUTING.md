@@ -3,6 +3,12 @@
 Thanks for taking the time. This project follows a small set of conventions to
 make releases reliable; please skim before opening a PR.
 
+> **Conventions live as skills.** The engineering rules below are formalized as vendored
+> [praxis](https://git.rgband.ru/rgband/praxis) skills — see [`CLAUDE.md`](CLAUDE.md) and `.claude/skills/`
+> (gitignored; `praxis sync` materializes them from the committed `praxis.toml`). The skills are canonical;
+> this guide mirrors the essentials for human contributors browsing the repo. Agents should read the skills,
+> not duplicate them.
+
 ## Local setup
 
 ```bash
@@ -183,8 +189,9 @@ Before pushing the release tag, verify:
 
 ## Style
 
-* Run `gofmt` (your editor probably does). Keep imports in the standard
-  stdlib / third-party / local (`github.com/irasikhin/sandboxer`) groups.
-* Prefer small, narrow types over large structs that grow over time.
-* New flags must be wired into the CLI command structs and documented via
-  their struct tags — the help text is generated from them.
+Go style and formatting are owned by the `lang-go-style` and `build-go-tooling` skills (see
+[`CLAUDE.md`](CLAUDE.md)): `gofmt`/`goimports` with stdlib / third-party / local
+(`github.com/irasikhin/sandboxer`) import groups, small narrow types, accept-interfaces / return-structs.
+
+Repo-specific: new flags are wired into the cobra command structs and documented via their struct tags — the
+help text is generated from them.

@@ -1,0 +1,51 @@
+{
+  "source": {
+    "repo": "",
+    "ref": "",
+    "commit": "local"
+  },
+  "skills": {
+    "arch-go-cli": {
+      "hash": "857533bf91adb80e2e9d748136972c58cbfbea0e07a29e82ed98893009b676d0"
+    },
+    "build-go-tooling": {
+      "hash": "9da8f5d5d7e166b1143deb644fc7ce54a9150f8cb152f3b92c067a21b190428b"
+    },
+    "ci-github-binary-release": {
+      "hash": "c349c3fdc5926e75cb5dd226f999ee89162885b0a4aa048b44e93ee16b8f6ede"
+    },
+    "flow-incremental-pr": {
+      "hash": "33b79e3c1a59d542f3ad36a0ad4177953b483ab054caf712ee540b38405aaa5a"
+    },
+    "flow-root-cause": {
+      "hash": "8ccdf084bdd2504e3613022a5d2374fad1d94496421902331b95bb834036b436"
+    },
+    "lang-go-error-handling": {
+      "hash": "ec67c7ceebc6041d9b0d223aee6512ccb2ef756f0feee8cd600544abff5887c2"
+    },
+    "lang-go-style": {
+      "hash": "1c186863e923f06ce2ed2f2f14dcea05db6372727fc3257d4367cdd1df344cd5"
+    },
+    "lang-go-testing": {
+      "hash": "438cda5a7e7c2712343d85bed507fb07a87efcc32ca4f65754495cf559f54e8e"
+    },
+    "proc-branch-pr-workflow": {
+      "hash": "278e9b6e7ef0bca4a0f21197ca0841c0066d0169da2fec9644d5b15b4f702546"
+    },
+    "proc-conventional-commits": {
+      "hash": "0f0c1e6890cefe405ed792bd10bd2f9b9d43ab2d4d95c6b9810a11a306293823"
+    },
+    "proc-doc-as-code": {
+      "hash": "cd3e8c90edf069feef61ad37a95fec604df4b7c2582371ef645af4486eebe1b5"
+    },
+    "proc-repo-hygiene": {
+      "hash": "817417a8203f8b4e39989b2c7265a59ccc964f2c7ee831219d900887353c577a"
+    },
+    "proc-security-posture": {
+      "hash": "371c069370d4ab0a4fbe48fe6b2c69a64e4c909cdf3027d6edca7adc5309db0a"
+    },
+    "proc-skill-single-source": {
+      "hash": "20846e2c7b902578c342f81b529f6409b8bff3ea7df1dd4276776351847b3237"
+    }
+  }
+}

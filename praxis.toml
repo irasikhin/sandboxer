@@ -1,0 +1,8 @@
+skills = ["arch-go-cli", "lang-go", "build-go", "ci-github-binary-release", "proc-conventional-commits", "proc-branch-pr-workflow", "proc-repo-hygiene", "proc-doc-as-code", "proc-security-posture", "proc-skill-single-source", "flow-incremental-pr", "flow-root-cause"]
+
+[source]
+  repo = ""
+  ref = ""
+
+[targets]
+  claude = ".claude/skills"
