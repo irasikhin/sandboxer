@@ -6,6 +6,7 @@
     "nativeSandbox": true,
     "authConfigDirs": [
       { "path": "~/.claude", "mode": "rw" },
+      { "path": "~/.claude.json", "mode": "rw" },
       { "path": "~/.config/anthropic", "mode": "rw", "optional": true }
     ],
     "authEnv": ["ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_BASE_URL"],

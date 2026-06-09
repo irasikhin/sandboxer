@@ -55,7 +55,7 @@ type target struct {
 //	-f/--config NAME   → a named profile from the global store
 //	positional NAME    → a named profile from the global store
 //	positional *.yaml  → that file
-//	./sandboxer.yaml   → auto-discovered in the cwd
+//	./.sandboxer.yaml  → auto-discovered in the cwd
 //
 // Anything else leaves the positional as a bare slug ("", pos).
 func resolveProfileFile(configPath, pos string) (string, string, error) {
@@ -77,9 +77,9 @@ func resolveProfileFile(configPath, pos string) (string, string, error) {
 		return configPath, pos, nil
 	}
 	// A bare positional first tries to name a section of the project's
-	// multi-profile sandboxer.yaml (project-local wins over the global store).
-	if pos != "" && !isYAML(pos) && !inContainer() && config.FileHasSection("sandboxer.yaml", pos) {
-		return "sandboxer.yaml", pos, nil
+	// multi-profile .sandboxer.yaml (project-local wins over the global store).
+	if pos != "" && !isYAML(pos) && !inContainer() && config.FileHasSection(config.ConfigFileName, pos) {
+		return config.ConfigFileName, pos, nil
 	}
 	if pos != "" && !isYAML(pos) {
 		file, err := config.FindProfile(config.ProfilesDir(), pos)
@@ -93,8 +93,8 @@ func resolveProfileFile(configPath, pos string) (string, string, error) {
 	if pos != "" && isYAML(pos) && fileExists(pos) {
 		return pos, "", nil
 	}
-	if pos == "" && !inContainer() && fileExists("sandboxer.yaml") {
-		return "sandboxer.yaml", "", nil
+	if pos == "" && !inContainer() && fileExists(config.ConfigFileName) {
+		return config.ConfigFileName, "", nil
 	}
 	return "", pos, nil
 }

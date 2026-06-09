@@ -86,7 +86,7 @@ func TestEgressDisabled(t *testing.T) {
 
 func TestLoadAndJSONRoundTrip(t *testing.T) {
 	dir := t.TempDir()
-	path := filepath.Join(dir, "sandboxer.yaml")
+	path := filepath.Join(dir, ConfigFileName)
 	yaml := `name: feature-x
 backend: podman
 agent: claude
@@ -130,7 +130,7 @@ deps:
 
 func TestExampleProfilesParse(t *testing.T) {
 	// The shipped examples must stay valid under the strict (KnownFields) schema.
-	for _, name := range []string{"sandboxer.yaml", "with-deps.yaml", "profiles/web.yaml", "profiles/api.yaml"} {
+	for _, name := range []string{".sandboxer.yaml", "with-deps.yaml", "profiles/web.yaml", "profiles/api.yaml"} {
 		path := filepath.Join("..", "..", "examples", name)
 		if _, err := os.Stat(path); err != nil {
 			t.Skipf("example %s not present", name)

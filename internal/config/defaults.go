@@ -9,6 +9,10 @@ import (
 // metadata (the bash STATE_DIR_NAME).
 const StateDirName = ".sandboxer"
 
+// ConfigFileName is the project-local profile file auto-discovered in the cwd
+// (a dotfile, so it stays out of directory listings).
+const ConfigFileName = ".sandboxer.yaml"
+
 // DefaultImage is the toolbox image reference used by the container backend.
 const DefaultImage = "sandboxer-toolbox:latest"
 

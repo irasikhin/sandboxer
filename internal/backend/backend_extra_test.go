@@ -77,7 +77,7 @@ func TestContainerRunEgressFailRefuses(t *testing.T) {
 // upstream-proxy, egress-env and wall-timeout branches without a real engine.
 func TestRunArgv(t *testing.T) {
 	argv, err := RunArgv(RunOpts{
-		Engine: "podman", Image: "img:1", Dest: "/d", Slug: "s",
+		Engine: "podman", Image: "img:1", Dest: "/d", Slug: "s", HomeDir: "/d/.home",
 		RT: config.Runtime{
 			HTTPProxy: "http://p", HTTPSProxy: "http://p", NoProxy: "x",
 			Domains: []string{"a.com"}, Egress: true,
@@ -92,6 +92,8 @@ func TestRunArgv(t *testing.T) {
 	for _, w := range []string{
 		"run --rm", "--user", "--memory 2G", "--cpus 1.5", "--userns=keep-id",
 		"HTTP_PROXY=http://p", "NO_PROXY=x", "SANDBOXER_ALLOW_DOMAINS=a.com",
+		// The isolated agent home is bound and used as $HOME.
+		"HOME=/d/.home", "/d/.home:/d/.home:rw",
 		"img:1", "timeout --signal=TERM 60", "bash -l",
 	} {
 		if !strings.Contains(s, w) {

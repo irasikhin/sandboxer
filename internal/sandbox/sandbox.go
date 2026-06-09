@@ -45,6 +45,15 @@ func ResolveBase(src string) (*Base, error) {
 	if err := os.MkdirAll(b.logsDir(), 0o755); err != nil {
 		return nil, err
 	}
+	// The state tree holds working copies and per-sandbox agent homes (which can
+	// store login tokens after an in-sandbox `claude login`). Drop a self-ignoring
+	// .gitignore so none of it can be committed into the user's repo by accident.
+	gitignore := filepath.Join(b.Dir, ".gitignore")
+	if _, err := os.Stat(gitignore); err != nil {
+		if err := os.WriteFile(gitignore, []byte("*\n"), 0o644); err != nil {
+			return nil, err
+		}
+	}
 	runEnv := filepath.Join(b.metaDir(), "run.env")
 	if _, err := os.Stat(runEnv); err != nil {
 		d := config.LoadDefaults()
@@ -65,11 +74,27 @@ func ResolveBase(src string) (*Base, error) {
 	return b, nil
 }
 
-func (b *Base) metaDir() string { return filepath.Join(b.Dir, "_meta") }
-func (b *Base) logsDir() string { return filepath.Join(b.Dir, "_logs") }
+func (b *Base) metaDir() string  { return filepath.Join(b.Dir, "_meta") }
+func (b *Base) logsDir() string  { return filepath.Join(b.Dir, "_logs") }
+func (b *Base) homeRoot() string { return filepath.Join(b.Dir, "_home") }
 
 // SandboxDir is the directory for a sandbox.
 func (b *Base) SandboxDir(slug string) string { return filepath.Join(b.Dir, slug) }
+
+// HomeDir is the sandbox's private agent home, mounted as $HOME in the
+// container. It is isolated per sandbox so an agent authenticates inside its own
+// sandbox and nothing from the host's real ~/.claude (history, tokens, MCP
+// config) is ever pulled in, and so parallel sandboxes never race on one shared
+// config file. It lives outside SandboxDir so it stays out of the agent's
+// workdir and is never pushed back to a dependency origin.
+func (b *Base) HomeDir(slug string) string { return filepath.Join(b.homeRoot(), slug) }
+
+// EnsureHome creates the sandbox's private agent home if it is missing (0700, so
+// only the owner can read the stored credentials). It is idempotent: safe to
+// call on every enter/exec, including for sandboxes created before this existed.
+func (b *Base) EnsureHome(slug string) error {
+	return os.MkdirAll(b.HomeDir(slug), 0o700)
+}
 
 // ProfileJSONPath, ManifestPath, MetaFilePath locate per-sandbox metadata files.
 func (b *Base) ProfileJSONPath(slug string) string {
@@ -128,6 +153,9 @@ func (b *Base) SetDomains(domains string) error {
 func (b *Base) MakeSandbox(slug string, w io.Writer) error {
 	dest := b.SandboxDir(slug)
 	if err := os.MkdirAll(dest, 0o755); err != nil {
+		return err
+	}
+	if err := b.EnsureHome(slug); err != nil {
 		return err
 	}
 	if pj := b.ProfileJSONPath(slug); fileExists(pj) {
@@ -212,6 +240,7 @@ func (b *Base) ClearCurrent() error {
 func (b *Base) Remove(slug string) error {
 	paths := []string{
 		b.SandboxDir(slug),
+		b.HomeDir(slug),
 		b.MetaFilePath(slug),
 		b.ProfileJSONPath(slug),
 		b.ManifestPath(slug),

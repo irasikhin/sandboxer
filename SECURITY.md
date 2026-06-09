@@ -3,7 +3,7 @@
 ## Supported Versions
 
 sandboxer is pre-1.0; the CLI flags and on-disk layout may still change between
-minor versions (the `sandboxer.yaml` schema has settled on `roots`+`deps` and is
+minor versions (the `.sandboxer.yaml` schema has settled on `roots`+`deps` and is
 treated as stable through 0.x). Security fixes are provided for the latest
 release only.
 
@@ -56,10 +56,17 @@ hardened security boundary. Understand the model before trusting it:
   > `network.allowedDomains`. Don't set an upstream proxy expecting the domain
   > allowlist to also apply.
 
-- **Credentials.** Agent auth-config directories and API-key environment
-  variables are bind-mounted or passed ephemerally into the sandbox. Treat the
-  sandbox as having full access to whatever credentials you give it; only wire
-  in the agents (and keys) you actually need for the task.
+- **Credentials (container backend).** Each sandbox has its own private agent
+  home (`.sandboxer/_home/<slug>`), mounted as `$HOME`. The host's real agent
+  config — `~/.claude`, `~/.claude.json`, tokens, project history, MCP servers —
+  is **never** mounted in, so nothing from the host leaks into the sandbox and
+  parallel sandboxes never share or race on one config. Authenticate *inside*
+  the sandbox (e.g. `claude login`); the credentials persist in that sandbox's
+  home and are isolated from every other sandbox and from the host. API-key
+  environment variables (e.g. `ANTHROPIC_API_KEY`) are passed through only when
+  you have set them on the host — an explicit opt-in. Treat the sandbox as
+  having full access to whatever credentials you give it; only wire in the
+  agents (and keys) you actually need for the task.
 
 - **Native backend.** The `native` backend relies on Claude Code's own
   `/sandbox` (bubblewrap) for OS-level isolation; its containment is only as

@@ -78,20 +78,6 @@ func TestProxyEnv(t *testing.T) {
 	}
 }
 
-func TestExpandHome(t *testing.T) {
-	cases := []struct{ in, home, want string }{
-		{"~", "/home/u", "/home/u"},
-		{"~/x", "/home/u", "/home/u/x"},
-		{"/abs", "/home/u", "/abs"},
-		{"rel/path", "/home/u", "rel/path"},
-	}
-	for _, c := range cases {
-		if got := expandHome(c.in, c.home); got != c.want {
-			t.Errorf("expandHome(%q,%q) = %q, want %q", c.in, c.home, got, c.want)
-		}
-	}
-}
-
 func TestPathExists(t *testing.T) {
 	f := filepath.Join(t.TempDir(), "f")
 	if pathExists(f) {
@@ -155,61 +141,37 @@ func TestOriginMounts(t *testing.T) {
 	}
 }
 
-func TestAuthFlags(t *testing.T) {
+func TestAuthEnvFlags(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	// A real host ~/.claude and ~/.claude.json exist — and must NOT be bound in:
+	// each sandbox uses its own isolated $HOME, nothing from the host is mounted.
 	if err := os.MkdirAll(filepath.Join(home, ".claude"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, ".claude.json"), []byte("{}"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("ANTHROPIC_API_KEY", "secret")
-	// Ensure the optional/other dirs are absent so they're skipped.
 	t.Setenv("CLAUDE_CODE_OAUTH_TOKEN", "")
 
-	af, err := authFlags([]string{"claude"}, false, "")
-	if err != nil {
-		t.Fatalf("authFlags: %v", err)
-	}
-	got := strings.Join(af, " ")
-	wantVol := filepath.Join(home, ".claude") + ":" + filepath.Join(home, ".claude") + ":rw"
-	if !strings.Contains(got, wantVol) {
-		t.Errorf("authFlags missing creds volume %q in %q", wantVol, got)
-	}
+	got := strings.Join(authEnvFlags([]string{"claude"}), " ")
+
+	// The API-key env the user set is passed through.
 	if !strings.Contains(got, "ANTHROPIC_API_KEY=secret") {
-		t.Errorf("authFlags missing auth env in %q", got)
+		t.Errorf("authEnvFlags missing auth env in %q", got)
 	}
-	// The optional, non-existent ~/.config/anthropic must not appear.
-	if strings.Contains(got, ".config/anthropic") {
-		t.Errorf("non-existent optional dir leaked: %q", got)
+	// No --volume at all: host credential dirs are never bound.
+	if strings.Contains(got, "--volume") || strings.Contains(got, ".claude") {
+		t.Errorf("authEnvFlags must not bind any host config dir, got %q", got)
+	}
+	// An empty/unset env var is not passed through.
+	if strings.Contains(got, "CLAUDE_CODE_OAUTH_TOKEN") {
+		t.Errorf("unset env var leaked: %q", got)
 	}
 	// An unknown agent is skipped silently.
-	if a, err := authFlags([]string{"nope"}, false, ""); err != nil || a != nil {
-		t.Errorf("unknown agent should yield nil, got %v (err %v)", a, err)
-	}
-}
-
-func TestAuthFlagsEphemeral(t *testing.T) {
-	requireExec(t, "cp")
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	if err := os.MkdirAll(filepath.Join(home, ".claude"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(home, ".claude", "creds"), []byte("x"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	ephDir := filepath.Join(t.TempDir(), "eph")
-
-	af, err := authFlags([]string{"claude"}, true, ephDir)
-	if err != nil {
-		t.Fatalf("authFlags ephemeral: %v", err)
-	}
-	got := strings.Join(af, " ")
-	ephClaude := filepath.Join(ephDir, ".claude")
-	if !strings.Contains(got, ephClaude+":"+ephClaude+":rw") {
-		t.Errorf("ephemeral mount not pointed at copy: %q", got)
-	}
-	if _, err := os.Stat(filepath.Join(ephClaude, "creds")); err != nil {
-		t.Errorf("creds not copied into ephemeral dir: %v", err)
+	if a := authEnvFlags([]string{"nope"}); a != nil {
+		t.Errorf("unknown agent should yield nil, got %v", a)
 	}
 }
 

@@ -55,7 +55,7 @@ profiles:
       LOG: debug
 default: web
 `
-	p := writeFile(t, dir, "sandboxer.yaml", body)
+	p := writeFile(t, dir, ConfigFileName, body)
 	d, err := LoadDocument(p)
 	if err != nil {
 		t.Fatal(err)

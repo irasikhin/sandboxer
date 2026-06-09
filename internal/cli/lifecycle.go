@@ -37,7 +37,7 @@ func newCreateCmd() *cobra.Command {
   sandboxer create feat
 
   # from a profile file — slug comes from the profile's name:
-  sandboxer create ./sandboxer.yaml
+  sandboxer create ./.sandboxer.yaml
 
   # from a named profile in the store (~/.config/sandboxer/profiles)
   sandboxer create web
@@ -138,10 +138,14 @@ func newEnterCmd() *cobra.Command {
 				if err != nil {
 					return err
 				}
+				if err := t.base.EnsureHome(t.slug); err != nil {
+					return err
+				}
 				fmt.Fprintf(errOut, "sandboxer: interactive shell in container (%s %s). Agents in PATH.\n", engine, config.LoadDefaults().Image)
 				code, runErr = backend.Run(backend.RunOpts{
 					Engine: engine, Image: config.LoadDefaults().Image, Dest: dest, Slug: t.slug,
-					RT: rt, Profile: t.profile,
+					HomeDir: t.base.HomeDir(t.slug),
+					RT:      rt, Profile: t.profile,
 					ProfileJSONPath: t.base.ProfileJSONPath(t.slug), ManifestPath: t.base.ManifestPath(t.slug),
 					Interactive: true, Args: []string{"bash", "-l"},
 					NoEgress: noEgress(),
@@ -222,9 +226,13 @@ func newExecCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			if err := t.base.EnsureHome(t.slug); err != nil {
+				return err
+			}
 			code, err := backend.Run(backend.RunOpts{
 				Engine: engine, Image: config.LoadDefaults().Image, Dest: dest, Slug: t.slug,
-				RT: rt, Profile: t.profile,
+				HomeDir: t.base.HomeDir(t.slug),
+				RT:      rt, Profile: t.profile,
 				ProfileJSONPath: t.base.ProfileJSONPath(t.slug), ManifestPath: t.base.ManifestPath(t.slug),
 				Interactive: true, Args: rest,
 				NoEgress: noEgress(),

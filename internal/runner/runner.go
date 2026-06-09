@@ -300,27 +300,24 @@ func (s launchSpec) runContainer(dest, acmd, outPath, errPath string) int {
 		return 1
 	}
 	defer ef.Close()
-	ephDir, err := os.MkdirTemp("", "sbx-eph-")
-	if err != nil {
-		fmt.Fprintf(s.stderr, "sandboxer: %s: create ephemeral creds dir: %v\n", s.slug, err)
+	if err := s.base.EnsureHome(s.slug); err != nil {
+		fmt.Fprintf(s.stderr, "sandboxer: %s: prepare agent home: %v\n", s.slug, err)
 		return 1
 	}
-	defer func() { _ = os.RemoveAll(ephDir) }()
 
 	crt := s.rt
-	crt.AuthAgents = []string{s.rt.Agent} // only the chosen agent's creds
+	crt.AuthAgents = []string{s.rt.Agent} // only the chosen agent's auth env
 	rc, err := backend.Run(backend.RunOpts{
 		Engine:          s.engine,
 		Image:           s.image,
 		Dest:            dest,
 		Slug:            s.slug,
+		HomeDir:         s.base.HomeDir(s.slug),
 		RT:              crt,
 		Profile:         s.profile,
 		ProfileJSONPath: s.base.ProfileJSONPath(s.slug),
 		ManifestPath:    s.base.ManifestPath(s.slug),
 		Interactive:     false,
-		Ephemeral:       true,
-		EphDir:          ephDir,
 		NoEgress:        os.Getenv("SANDBOXER_NO_EGRESS") == "1",
 		Mem:             s.mem,
 		CPU:             s.cpu,

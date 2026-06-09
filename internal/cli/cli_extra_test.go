@@ -11,7 +11,7 @@ import (
 	"github.com/irasikhin/sandboxer/internal/sandbox"
 )
 
-// TestRunAutoScaffold: create with no config writes a default sandboxer.yaml
+// TestRunAutoScaffold: create with no config writes a default .sandboxer.yaml
 // into the project root, announces it, and applies it (name = slug); opting out
 // keeps the no-profile path.
 func TestRunAutoScaffold(t *testing.T) {
@@ -26,7 +26,7 @@ func TestRunAutoScaffold(t *testing.T) {
 	if !strings.Contains(errs, "scaffolded a default") {
 		t.Errorf("auto-scaffold was not announced: %q", errs)
 	}
-	scaffold := filepath.Join(project, "sandboxer.yaml")
+	scaffold := filepath.Join(project, config.ConfigFileName)
 	doc, err := config.LoadDocument(scaffold)
 	if err != nil {
 		t.Fatalf("auto-scaffold did not parse: %v", err)
@@ -41,21 +41,21 @@ func TestRunAutoScaffold(t *testing.T) {
 	if code, _, errs := run("create", "x", "--src", other); code != 1 || !strings.Contains(errs, "no profile") {
 		t.Fatalf("create with opt-out and no profile = (%d, %q); want 'no profile' error", code, errs)
 	}
-	if fileExists(filepath.Join(other, "sandboxer.yaml")) {
+	if fileExists(filepath.Join(other, config.ConfigFileName)) {
 		t.Error("SANDBOXER_NO_SCAFFOLD=1 should skip scaffolding")
 	}
 }
 
-// TestRunInit covers scaffolding a starter sandboxer.yaml: it parses, refuses to
+// TestRunInit covers scaffolding a starter .sandboxer.yaml: it parses, refuses to
 // clobber an existing file, and --force rewrites it.
 func TestRunInit(t *testing.T) {
 	t.Setenv("SANDBOXER_IN_CONTAINER", "")
 	t.Chdir(t.TempDir())
 
-	if code, out, errs := run("init", "demo"); code != 0 || !strings.Contains(out, "wrote sandboxer.yaml") {
+	if code, out, errs := run("init", "demo"); code != 0 || !strings.Contains(out, "wrote "+config.ConfigFileName) {
 		t.Fatalf("init = (%d, %q, %q)", code, out, errs)
 	}
-	doc, err := config.LoadDocument("sandboxer.yaml")
+	doc, err := config.LoadDocument(config.ConfigFileName)
 	if err != nil {
 		t.Fatalf("scaffold did not parse: %v", err)
 	}
@@ -71,7 +71,7 @@ func TestRunInit(t *testing.T) {
 	if code, _, errs := run("init", "other", "--force"); code != 0 {
 		t.Errorf("init --force = %d (%q)", code, errs)
 	}
-	doc2, _ := config.LoadDocument("sandboxer.yaml")
+	doc2, _ := config.LoadDocument(config.ConfigFileName)
 	if p2, _ := doc2.Select(""); p2.Name != "other" {
 		t.Errorf("--force did not rewrite name: %+v", p2)
 	}
@@ -304,7 +304,7 @@ func TestRunNativeNonClaudeRejected(t *testing.T) {
 	}
 }
 
-// TestRunMultiProfileSelect: a project sandboxer.yaml with a profiles: map —
+// TestRunMultiProfileSelect: a project .sandboxer.yaml with a profiles: map —
 // `create` picks the default section, `create <name>` picks that section, and
 // the section inherits the shared defaults.
 func TestRunMultiProfileSelect(t *testing.T) {
@@ -324,7 +324,7 @@ profiles:
     model: opus
 default: web
 `
-	if err := os.WriteFile("sandboxer.yaml", []byte(body), 0o644); err != nil {
+	if err := os.WriteFile(config.ConfigFileName, []byte(body), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -383,7 +383,7 @@ func TestRunAutoDiscoversProfile(t *testing.T) {
 	t.Chdir(project)
 	// A native profile in the cwd must be picked up without --config; otherwise the
 	// default (podman) backend would be used and the banner would not say native.
-	if err := os.WriteFile("sandboxer.yaml", []byte("name: disco\nbackend: native\nagent: claude\n"), 0o644); err != nil {
+	if err := os.WriteFile(config.ConfigFileName, []byte("name: disco\nbackend: native\nagent: claude\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile("sandboxer.tasks", []byte("[a]\ndo a\n"), 0o644); err != nil {
@@ -394,6 +394,6 @@ func TestRunAutoDiscoversProfile(t *testing.T) {
 		t.Fatalf("run = %d, %s", code, errs)
 	}
 	if !strings.Contains(out, "backend=native") {
-		t.Errorf("auto-discovered sandboxer.yaml not applied (want backend=native):\n%s", out)
+		t.Errorf("auto-discovered %s not applied (want backend=native):\n%s", config.ConfigFileName, out)
 	}
 }

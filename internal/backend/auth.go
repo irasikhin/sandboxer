@@ -4,46 +4,28 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"os/exec"
-	"path/filepath"
-	"strings"
 
 	"github.com/irasikhin/sandboxer/internal/config"
 	"github.com/irasikhin/sandboxer/internal/registry"
 )
 
-// authFlags builds the --volume/--env args that bind each agent's credentials
-// into the container. With ephemeral=true (headless runs), config dirs are
-// copied into ephDir and mounted read-write from there, so a run can't mutate
-// the real host credentials. It fails closed: if an ephemeral credential copy
-// can't be set up, it returns an error rather than letting the run proceed
-// unauthenticated (or mounting a nonexistent path).
-func authFlags(authAgents []string, ephemeral bool, ephDir string) ([]string, error) {
-	home, _ := os.UserHomeDir()
+// authEnvFlags builds the --env args that pass each agent's auth-related
+// environment (e.g. ANTHROPIC_API_KEY) through to the container when the user
+// has set it on the host.
+//
+// It deliberately does NOT bind any host credential *directory*: each sandbox
+// has its own isolated $HOME (sandbox.Base.HomeDir), so an agent authenticates
+// inside its own sandbox (claude login, or one of these env vars) and nothing
+// from the host's real config — tokens, project history, MCP servers — is ever
+// pulled in. This also means parallel sandboxes never race on one shared
+// ~/.claude.json. Passing an env var is an explicit host action by the user, not
+// host state being mounted, so it stays opt-in here.
+func authEnvFlags(authAgents []string) []string {
 	var out []string
 	for _, name := range authAgents {
 		a, err := registry.Get(name)
 		if err != nil {
 			continue
-		}
-		for _, dir := range a.AuthConfigDirs {
-			p := expandHome(dir.Path, home)
-			if !pathExists(p) {
-				continue
-			}
-			mode := dir.Mode
-			if ephemeral {
-				if err := os.MkdirAll(ephDir, 0o700); err != nil {
-					return nil, fmt.Errorf("prepare ephemeral creds dir for %s: %w", name, err)
-				}
-				// cp -a preserves perms/symlinks, matching the bash.
-				if err := exec.Command("cp", "-a", p, ephDir+"/").Run(); err != nil {
-					return nil, fmt.Errorf("copy %s creds %s: %w", name, p, err)
-				}
-				p = filepath.Join(ephDir, filepath.Base(p))
-				mode = "rw"
-			}
-			out = append(out, "--volume", fmt.Sprintf("%s:%s:%s", p, p, mode))
 		}
 		for _, e := range a.AuthEnv {
 			if v := os.Getenv(e); v != "" {
@@ -51,7 +33,7 @@ func authFlags(authAgents []string, ephemeral bool, ephDir string) ([]string, er
 			}
 		}
 	}
-	return out, nil
+	return out
 }
 
 // originMounts binds the origins of vendored dependencies back into the
@@ -100,16 +82,6 @@ func extraMountsAndEnv(p *config.Profile) []string {
 		out = append(out, "--env", k+"="+v)
 	}
 	return out
-}
-
-func expandHome(p, home string) string {
-	if p == "~" {
-		return home
-	}
-	if strings.HasPrefix(p, "~/") {
-		return filepath.Join(home, p[2:])
-	}
-	return p
 }
 
 func pathExists(p string) bool {

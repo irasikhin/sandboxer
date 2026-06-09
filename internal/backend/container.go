@@ -20,13 +20,12 @@ type RunOpts struct {
 	Image           string
 	Dest            string // sandbox copy dir, mounted and used as workdir
 	Slug            string
+	HomeDir         string // sandbox-private agent home, mounted as $HOME (isolated per sandbox)
 	RT              config.Runtime
 	Profile         *config.Profile
 	ProfileJSONPath string // mounted ro at /run/sandboxer/profile.json if present
 	ManifestPath    string // mounted rw at /run/sandboxer/manifest.json if present
 	Interactive     bool
-	Ephemeral       bool   // copy creds into EphDir instead of binding host dirs
-	EphDir          string // temp dir for ephemeral creds (required if Ephemeral)
 	NoEgress        bool   // SANDBOXER_NO_EGRESS
 	Mem             string // memory cap → --memory (e.g. 2G); empty = unlimited
 	CPU             string // CPU cap → --cpus (accepts a float or systemd "100%")
@@ -96,7 +95,6 @@ func RunArgv(o RunOpts) ([]string, error) { return runArgs(o, "", "") }
 // "" otherwise). Kept identical to the original inline construction so Run's
 // behavior is unchanged.
 func runArgs(o RunOpts, egNet, egProxyURL string) ([]string, error) {
-	home, _ := os.UserHomeDir()
 	userns := strconv.Itoa(os.Getuid()) + ":" + strconv.Itoa(os.Getgid())
 
 	args := []string{"run", "--rm"}
@@ -110,9 +108,18 @@ func runArgs(o RunOpts, egNet, egProxyURL string) ([]string, error) {
 	args = append(args,
 		"--user", userns, "--cap-drop=ALL", "--security-opt", "no-new-privileges",
 		"--workdir", o.Dest, "--volume", o.Dest+":"+o.Dest+":rw",
-		"--env", "HOME="+home, "--env", "SANDBOXER_IN_CONTAINER=1",
+		"--env", "SANDBOXER_IN_CONTAINER=1",
 		"--env", "SANDBOXER_SLUG="+o.Slug, "--env", "SANDBOXER_SANDBOX_DIR="+o.Dest,
 	)
+	// $HOME is the sandbox-private agent home, bound at its own host path. It is
+	// isolated per sandbox (see sandbox.Base.HomeDir): the host's real home is
+	// never mounted, so no host config leaks in and the agent's atomic config
+	// rewrites (e.g. ~/.claude.json) land on a real directory rather than a
+	// bind-mounted file. The image has no /home, so there is nothing to shadow.
+	if o.HomeDir != "" {
+		args = append(args, "--env", "HOME="+o.HomeDir,
+			"--volume", o.HomeDir+":"+o.HomeDir+":rw")
+	}
 	if o.Engine == "podman" {
 		args = append(args, "--userns=keep-id")
 	}
@@ -148,11 +155,7 @@ func runArgs(o RunOpts, egNet, egProxyURL string) ([]string, error) {
 	if csv := o.RT.DomainsCSV(); csv != "" {
 		args = append(args, "--env", "SANDBOXER_ALLOW_DOMAINS="+csv)
 	}
-	af, err := authFlags(o.RT.AuthAgents, o.Ephemeral, o.EphDir)
-	if err != nil {
-		return nil, fmt.Errorf("credential setup failed: %w", err)
-	}
-	args = append(args, af...)
+	args = append(args, authEnvFlags(o.RT.AuthAgents)...)
 	args = append(args, originMounts(o.ManifestPath)...)
 	args = append(args, extraMountsAndEnv(o.Profile)...)
 	args = append(args, o.Image)

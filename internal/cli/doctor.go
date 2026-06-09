@@ -102,12 +102,12 @@ Run this after a fresh install or when something isn't working.`,
 			}
 
 			// Config file in cwd.
-			if fileExists("sandboxer.yaml") {
-				if _, err := config.LoadDocument("sandboxer.yaml"); err == nil {
-					fmt.Fprintf(tw, "sandboxer.yaml in cwd\t✓\tparses ok\n")
+			if fileExists(config.ConfigFileName) {
+				if _, err := config.LoadDocument(config.ConfigFileName); err == nil {
+					fmt.Fprintf(tw, "%s in cwd\t✓\tparses ok\n", config.ConfigFileName)
 					ok++
 				} else {
-					fmt.Fprintf(tw, "sandboxer.yaml in cwd\t⚠\t%v\n", err)
+					fmt.Fprintf(tw, "%s in cwd\t⚠\t%v\n", config.ConfigFileName, err)
 					warn++
 				}
 			}

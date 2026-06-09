@@ -36,7 +36,7 @@ func newRunCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			// Resolve -f/--config the same way the lifecycle commands do: a file, a
 			// directory of profiles, a named profile from the store, or (when unset)
-			// an auto-discovered ./sandboxer.yaml. The single resolved profile
+			// an auto-discovered ./.sandboxer.yaml. The single resolved profile
 			// applies to every task in the batch.
 			file, _, err := resolveProfileFile(configPath, "")
 			if err != nil {

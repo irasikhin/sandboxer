@@ -82,7 +82,7 @@ default and no git is involved. The agent runs inside an isolation backend:
     proxy and credentials are wired per-config (claude/codex/opencode/crush/…).
   • native (claude only): Claude Code's own /sandbox (--settings '{sandbox…}').
 
-Config: flags + SANDBOXER_* env, with an optional sandboxer.yaml profile for
+Config: flags + SANDBOXER_* env, with an optional .sandboxer.yaml profile for
 structured fields (roots/deps, extraMounts, env). A profile file can hold one
 profile or several under a profiles: map (pick a section with 'create <name>').
 

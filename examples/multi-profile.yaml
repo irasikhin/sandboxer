@@ -14,7 +14,7 @@
 #   sandboxer create api-prod   # inherits api (anchor) + defaults
 #   sandboxer create            # the `default:` profile (web)
 #
-# (The original flat one-profile-per-file form still works — see sandboxer.yaml.)
+# (The original flat one-profile-per-file form still works — see .sandboxer.yaml.)
 
 defaults:
   agent: claude

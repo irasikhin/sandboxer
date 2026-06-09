@@ -1,6 +1,6 @@
 # Minimal sandbox profile.
 #
-# sandboxer auto-discovers `sandboxer.yaml` in the current directory (or pass
+# sandboxer auto-discovers `.sandboxer.yaml` in the current directory (or pass
 # one explicitly: `sandboxer create --config path/feat.yaml`, or positionally
 # `sandboxer create feat.yaml`).
 

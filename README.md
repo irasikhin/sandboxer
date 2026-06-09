@@ -11,7 +11,7 @@ shipped as a static binary, `go install`, or a Nix flake. Human designs, AI
 drives.
 
 > ⚠️ **Pre-1.0.** CLI flags and the on-disk `.sandboxer/` layout may change
-> between minor versions until 1.0. The **`sandboxer.yaml` schema has settled**
+> between minor versions until 1.0. The **`.sandboxer.yaml` schema has settled**
 > on `roots`+`deps` and is treated as stable through 0.x (the shipped
 > `examples/` are CI-verified against the strict parser); any future change will
 > be called out in the changelog.
@@ -58,7 +58,7 @@ Or grab a [pre-built binary](https://github.com/irasikhin/sandboxer/releases)
 ## Quick start
 
 ```bash
-sandboxer init                            # scaffold a commented sandboxer.yaml to edit (optional)
+sandboxer init                            # scaffold a commented .sandboxer.yaml to edit (optional)
 sandboxer create feat                     # create a sandbox named "feat" (deps come from a profile)
 sandboxer enter  feat                     # interactive shell inside it (agents on PATH)
 sandboxer exec   feat -- claude           # run an agent/command inside it
@@ -68,7 +68,7 @@ sandboxer list                            # status of all sandboxes
 sandboxer rm     feat                     # delete the sandbox
 ```
 
-To pull deps in, a profile must list them: drop a `sandboxer.yaml` in the cwd
+To pull deps in, a profile must list them: drop a `.sandboxer.yaml` in the cwd
 (auto-discovered), pass one with `-f` (a file, a directory of profiles, or a
 [named profile](#named-profiles) from `~/.config/sandboxer/profiles/`), or refer
 to a stored profile by name; the sandbox slug then comes from the profile's
@@ -92,15 +92,15 @@ Scalars come from **flags** and `SANDBOXER_*` env vars:
 | model | `--model` | `SANDBOXER_MODEL` |
 | egress domains | `--allow-domains a,b` | `SANDBOXER_DOMAINS` |
 | disable egress | — | `SANDBOXER_NO_EGRESS=1` |
-| skip auto-scaffold | — | `SANDBOXER_NO_SCAFFOLD=1` (create/enter writes a default `sandboxer.yaml` otherwise) |
+| skip auto-scaffold | — | `SANDBOXER_NO_SCAFFOLD=1` (create/enter writes a default `.sandboxer.yaml` otherwise) |
 | container engine | — | `SANDBOXER_ENGINE` (default: auto-detect podman→docker) |
 | image | — | `SANDBOXER_IMAGE` (default `sandboxer-toolbox:latest`) |
 
 Structured fields (`roots`/`deps`, `extraMounts`, `env`) live in an **optional**
-`sandboxer.yaml`. Point at it with `-f`/`--config`, which accepts a **file**, a
+`.sandboxer.yaml`. Point at it with `-f`/`--config`, which accepts a **file**, a
 **directory** of profiles, or the **name** of a profile in the store (see
-[Named profiles](#named-profiles)); with nothing given, a `sandboxer.yaml` in
-the cwd is auto-discovered. See `examples/sandboxer.yaml`,
+[Named profiles](#named-profiles)); with nothing given, a `.sandboxer.yaml` in
+the cwd is auto-discovered. See `examples/.sandboxer.yaml`,
 `examples/with-deps.yaml` and `examples/profiles/`.
 
 ```yaml
@@ -129,7 +129,7 @@ replaces the destination wholesale (depsync semantics).
 
 ### Multiple profiles in one file
 
-Instead of one profile per file, a `sandboxer.yaml` can hold many under a
+Instead of one profile per file, a `.sandboxer.yaml` can hold many under a
 `profiles:` map. A shared **`defaults:`** block is auto-applied under every
 profile (a profile's own fields win; `env` merges key-by-key). To inherit from
 *another profile*, use plain **YAML anchors** — anchor one (`&api`) and merge it

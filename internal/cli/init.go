@@ -16,16 +16,16 @@ func newInitCmd() *cobra.Command {
 	var force bool
 	cmd := &cobra.Command{
 		Use:   "init [name]",
-		Short: "Write a starter sandboxer.yaml in the current directory",
-		Long: `Scaffold a commented sandboxer.yaml in the current directory so you have a
-concrete config to edit instead of relying on the silent defaults. It is
+		Short: "Write a starter " + config.ConfigFileName + " in the current directory",
+		Long: `Scaffold a commented ` + config.ConfigFileName + ` in the current directory so you
+have a concrete config to edit instead of relying on the silent defaults. It is
 auto-discovered by create/enter/exec/run here (no -f needed).`,
 		Example: `  sandboxer init            # name defaults to the directory
   sandboxer init web        # set the profile name
-  sandboxer init --force    # overwrite an existing sandboxer.yaml`,
+  sandboxer init --force    # overwrite an existing ` + config.ConfigFileName,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			const path = "sandboxer.yaml"
+			path := config.ConfigFileName
 			if fileExists(path) && !force {
 				return fmt.Errorf("%s already exists (use --force to overwrite)", path)
 			}
@@ -48,11 +48,11 @@ auto-discovered by create/enter/exec/run here (no -f needed).`,
 			return nil
 		},
 	}
-	cmd.Flags().BoolVar(&force, "force", false, "overwrite an existing sandboxer.yaml")
+	cmd.Flags().BoolVar(&force, "force", false, "overwrite an existing "+config.ConfigFileName)
 	return cmd
 }
 
-// maybeAutoScaffold writes a default sandboxer.yaml into the project root and
+// maybeAutoScaffold writes a default .sandboxer.yaml into the project root and
 // points this run at it when the user has no config at all — so create/enter in
 // a fresh project land on a concrete, announced profile instead of silent
 // defaults. It is a no-op (current behaviour) when an explicit -f is given, a
@@ -63,7 +63,7 @@ func maybeAutoScaffold(cmd *cobra.Command, f *commonFlags, pos string) error {
 		return nil
 	}
 	root := firstNonEmpty(f.src, getwd())
-	path := filepath.Join(root, "sandboxer.yaml")
+	path := filepath.Join(root, config.ConfigFileName)
 	if fileExists(path) {
 		return nil // a project config already exists; leave resolution as-is
 	}
@@ -78,12 +78,12 @@ func maybeAutoScaffold(cmd *cobra.Command, f *commonFlags, pos string) error {
 		return err
 	}
 	fmt.Fprintf(cmd.ErrOrStderr(),
-		"sandboxer: no sandboxer.yaml — scaffolded a default (name=%s; edit it, or set SANDBOXER_NO_SCAFFOLD=1 to skip)\n", name)
+		"sandboxer: no %s — scaffolded a default (name=%s; edit it, or set SANDBOXER_NO_SCAFFOLD=1 to skip)\n", config.ConfigFileName, name)
 	f.config = path
 	return nil
 }
 
-// starterProfile renders a commented sandboxer.yaml seeded with the effective
+// starterProfile renders a commented .sandboxer.yaml seeded with the effective
 // defaults (so it reflects the user's environment) and the common knobs left as
 // hints to fill in.
 func starterProfile(name string, d config.Defaults) string {

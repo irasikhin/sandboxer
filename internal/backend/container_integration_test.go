@@ -15,13 +15,13 @@ import (
 )
 
 // realRunOpts builds a minimal RunOpts for a real engine run: egress disabled,
-// a credential-less HOME (so authFlags binds nothing), and a throwaway sandbox
-// dir mounted rw and used as the workdir.
+// an isolated throwaway agent home mounted as $HOME, and a throwaway sandbox
+// dir mounted rw and used as the workdir. No host credentials are involved.
 func realRunOpts(t *testing.T, engine, image, dest string, args ...string) RunOpts {
 	t.Helper()
-	t.Setenv("HOME", t.TempDir())
 	return RunOpts{
 		Engine: engine, Image: image, Dest: dest, Slug: "itest",
+		HomeDir:  t.TempDir(),
 		RT:       config.Runtime{}, // Egress=false ⇒ no allowlist required
 		NoEgress: true,
 		Args:     args,
