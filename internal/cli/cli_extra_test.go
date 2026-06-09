@@ -100,6 +100,18 @@ func TestConfigLine(t *testing.T) {
 		}
 	}
 
+	// Upstream-chaining mode: allowlist stays on, chained through a parent proxy.
+	up := config.Runtime{Agent: "claude", Backend: "docker", Egress: true, UpstreamProxy: "http://p:3128", Domains: []string{"a.com"}}
+	if l := configLine(up, "feat", nil, "docker"); !strings.Contains(l, "egress=on→upstream (1 domains)") {
+		t.Errorf("configLine upstream branch: %q", l)
+	}
+
+	// Bypass-proxy mode: corporate proxy, the sidecar is off.
+	byp := config.Runtime{Agent: "claude", Backend: "docker", HTTPProxy: "http://p:3128"}
+	if l := configLine(byp, "feat", nil, "docker"); !strings.Contains(l, "egress=bypass-proxy") {
+		t.Errorf("configLine bypass branch: %q", l)
+	}
+
 	// Disabled via env is called out explicitly.
 	t.Setenv("SANDBOXER_NO_EGRESS", "1")
 	if l := configLine(rt, "feat", nil, "docker"); !strings.Contains(l, "SANDBOXER_NO_EGRESS") {

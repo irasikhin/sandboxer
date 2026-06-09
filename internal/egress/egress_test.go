@@ -36,10 +36,10 @@ func readLog(t *testing.T, path string) string {
 }
 
 func TestUpNoDomains(t *testing.T) {
-	if _, err := Up("podman", "img", "slug", nil, io.Discard); err == nil {
+	if _, err := Up("podman", "img", "slug", nil, "", io.Discard); err == nil {
 		t.Error("Up with no domains should error")
 	}
-	if _, err := Up("podman", "img", "slug", []string{}, io.Discard); err == nil {
+	if _, err := Up("podman", "img", "slug", []string{}, "", io.Discard); err == nil {
 		t.Error("Up with empty domains should error")
 	}
 }
@@ -69,7 +69,7 @@ func TestUpDownSuccess(t *testing.T) {
 	engine, logPath := fakeEngine(t)
 	t.Setenv("SBX_FAIL_ON", "")
 
-	e, err := Up(engine, "toolbox:latest", "my/slug", []string{"a.com", "b.com"}, io.Discard)
+	e, err := Up(engine, "toolbox:latest", "my/slug", []string{"a.com", "b.com"}, "", io.Discard)
 	if err != nil {
 		t.Fatalf("Up: %v", err)
 	}
@@ -108,12 +108,27 @@ func TestUpDownSuccess(t *testing.T) {
 	}
 }
 
+func TestUpWithUpstream(t *testing.T) {
+	engine, logPath := fakeEngine(t)
+	t.Setenv("SBX_FAIL_ON", "")
+
+	e, err := Up(engine, "toolbox:latest", "slug", []string{"a.com"}, "http://host.docker.internal:3128", io.Discard)
+	if err != nil {
+		t.Fatalf("Up: %v", err)
+	}
+	t.Cleanup(e.Down)
+
+	if log := readLog(t, logPath); !strings.Contains(log, "--upstream http://host.docker.internal:3128") {
+		t.Errorf("sidecar argv missing --upstream:\n%s", log)
+	}
+}
+
 func TestUpProxyFailureTearsDown(t *testing.T) {
 	engine, logPath := fakeEngine(t)
 	// Networks succeed; the proxy `run` fails, forcing Up to tear down.
 	t.Setenv("SBX_FAIL_ON", "run")
 
-	e, err := Up(engine, "img", "slug", []string{"a.com"}, io.Discard)
+	e, err := Up(engine, "img", "slug", []string{"a.com"}, "", io.Discard)
 	if err == nil {
 		t.Fatal("Up should fail when the proxy sidecar cannot start")
 	}
@@ -130,7 +145,7 @@ func TestUpNetworkFailure(t *testing.T) {
 	engine, _ := fakeEngine(t)
 	t.Setenv("SBX_FAIL_ON", "network") // first `network create` fails
 
-	e, err := Up(engine, "img", "slug", []string{"a.com"}, io.Discard)
+	e, err := Up(engine, "img", "slug", []string{"a.com"}, "", io.Discard)
 	if err == nil || e != nil {
 		t.Errorf("Up should fail and return nil when network creation fails (err=%v e=%v)", err, e)
 	}

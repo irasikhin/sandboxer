@@ -20,7 +20,7 @@ func TestUpDown_RealNetworks(t *testing.T) {
 	image := itest.EnsureToolboxImage(t, engine)
 	slug := itest.Slug("updown")
 
-	e, err := Up(engine, image, slug, []string{"example.com"}, io.Discard)
+	e, err := Up(engine, image, slug, []string{"example.com"}, "", io.Discard)
 	if err != nil {
 		t.Fatalf("Up: %v", err)
 	}
@@ -54,7 +54,7 @@ func TestUp_RealEngine_TearsDownOnSidecarFailure(t *testing.T) {
 	engine := itest.Engine(t)
 	slug := itest.Slug("sidecarfail")
 
-	e, err := Up(engine, "sandboxer-bogus-image:does-not-exist", slug, []string{"example.com"}, io.Discard)
+	e, err := Up(engine, "sandboxer-bogus-image:does-not-exist", slug, []string{"example.com"}, "", io.Discard)
 	if err == nil {
 		t.Fatal("Up should fail when the sidecar image is missing")
 	}

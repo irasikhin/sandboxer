@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"net/url"
 	"strings"
 
 	"github.com/irasikhin/sandboxer/internal/registry"
@@ -10,15 +11,16 @@ import (
 // Runtime is the fully-resolved set of effective settings for one sandbox
 // invocation (the bash load_runtime result). It carries no filesystem state.
 type Runtime struct {
-	HTTPProxy  string
-	HTTPSProxy string
-	NoProxy    string
-	Domains    []string // resolved egress allowlist
-	Model      string
-	Agent      string
-	Backend    string
-	AuthAgents []string // whose creds to bind in the container
-	Egress     bool
+	HTTPProxy     string
+	HTTPSProxy    string
+	NoProxy       string
+	UpstreamProxy string   // parent proxy the egress sidecar chains through (allowlist stays on)
+	Domains       []string // resolved egress allowlist
+	Model         string
+	Agent         string
+	Backend       string
+	AuthAgents    []string // whose creds to bind in the container
+	Egress        bool
 }
 
 // Overrides are command-line flag values; empty means "not set".
@@ -38,10 +40,14 @@ func ResolveRuntime(p *Profile, d Defaults, baseDomains, baseModel string, f Ove
 		p = &Profile{}
 	}
 	rt := Runtime{
-		HTTPProxy:  p.Proxy.HTTP,
-		HTTPSProxy: p.Proxy.HTTPS,
-		NoProxy:    p.Proxy.No,
-		Egress:     p.EgressEnabled(),
+		HTTPProxy:     p.Proxy.HTTP,
+		HTTPSProxy:    p.Proxy.HTTPS,
+		NoProxy:       p.Proxy.No,
+		UpstreamProxy: p.Proxy.Upstream,
+		Egress:        p.EgressEnabled(),
+	}
+	if err := ValidateProxy(p.Proxy); err != nil {
+		return Runtime{}, err
 	}
 
 	domains := f.Domains
@@ -109,6 +115,33 @@ func ValidateBackend(rt Runtime) error {
 		return fmt.Errorf("the native backend was removed — sandboxer is container-only now; use backend: podman or docker")
 	default:
 		return fmt.Errorf("unknown backend %q — use podman or docker", rt.Backend)
+	}
+}
+
+// ValidateProxy rejects an incoherent proxy configuration. proxy.upstream
+// (chain through the egress sidecar, allowlist enforced) and proxy.http/https
+// (bypass the sidecar, trust the corporate proxy) are opposite trust models and
+// may not be combined. An upstream URL must parse and use an http scheme — an
+// https upstream needs a TLS dial that is not implemented yet.
+func ValidateProxy(p Proxy) error {
+	if p.Upstream == "" {
+		return nil
+	}
+	if p.HTTP != "" || p.HTTPS != "" {
+		return fmt.Errorf("proxy.upstream chains through the egress allowlist and is mutually " +
+			"exclusive with proxy.http/https, which bypass it — set one or the other, not both")
+	}
+	u, err := url.Parse(p.Upstream)
+	if err != nil {
+		return fmt.Errorf("invalid proxy.upstream %q: %w", p.Upstream, err)
+	}
+	switch u.Scheme {
+	case "http":
+		return nil
+	case "https":
+		return fmt.Errorf("proxy.upstream %q uses https — only http upstream proxies are supported", p.Upstream)
+	default:
+		return fmt.Errorf("invalid proxy.upstream %q — expected an http://host:port URL", p.Upstream)
 	}
 }
 

@@ -60,7 +60,7 @@ func Run(o RunOpts) (int, error) {
 				"set --allow-domains / network.allowedDomains, or disable egress " +
 				"(egress: false, or SANDBOXER_NO_EGRESS=1)")
 		}
-		e, err := egress.Up(o.Engine, o.Image, o.Slug, o.RT.Domains, o.Stderr)
+		e, err := egress.Up(o.Engine, o.Image, o.Slug, o.RT.Domains, o.RT.UpstreamProxy, o.Stderr)
 		if err != nil {
 			return 0, fmt.Errorf("egress allowlist proxy failed to start: %w — "+
 				"refusing to run on an open network (disable with egress: false or SANDBOXER_NO_EGRESS=1)", err)
@@ -123,6 +123,15 @@ func runArgs(o RunOpts, egNet, egProxyURL string) ([]string, error) {
 	if o.Engine == "podman" {
 		args = append(args, "--userns=keep-id")
 	}
+	// Map both engines' host-gateway alias so a single hostname reaches a
+	// host-running service (e.g. a user's own proxy) from inside the container,
+	// regardless of engine: podman provides host.containers.internal and Docker
+	// Desktop provides host.docker.internal, but Linux Docker resolves neither
+	// without this. Harmless on the --internal egress network (the name just
+	// resolves to an unreachable gateway). Requires podman >= 4 / docker >= 20.10.
+	args = append(args,
+		"--add-host=host.docker.internal:host-gateway",
+		"--add-host=host.containers.internal:host-gateway")
 	// Resource limits (the banner advertises these on every backend).
 	if o.Mem != "" {
 		args = append(args, "--memory", o.Mem)

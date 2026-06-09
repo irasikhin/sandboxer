@@ -91,6 +91,8 @@ func TestRunArgv(t *testing.T) {
 	s := strings.Join(argv, " ")
 	for _, w := range []string{
 		"run --rm", "--user", "--memory 2G", "--cpus 1.5", "--userns=keep-id",
+		"--add-host=host.docker.internal:host-gateway",
+		"--add-host=host.containers.internal:host-gateway",
 		"HTTP_PROXY=http://p", "NO_PROXY=x", "SANDBOXER_ALLOW_DOMAINS=a.com",
 		// The isolated agent home is bound and used as $HOME.
 		"HOME=/d/.home", "/d/.home:/d/.home:rw",

@@ -25,8 +25,13 @@ network:
 # --internal network, sole exit via the forward-proxy). Disable with:
 # egress: false        # or set env SANDBOXER_NO_EGRESS=1
 
-# Corporate proxy, forwarded as HTTP(S)_PROXY / NO_PROXY to both backends.
-# proxy: { http: "http://proxy.corp:3128", https: "http://proxy.corp:3128", no: "localhost,127.0.0.1,.corp" }
+# Proxy — two mutually-exclusive modes (see examples/.sandboxer.yaml for detail):
+#  - http/https/no: corporate proxy the agent uses directly, BYPASSING egress.
+#    # proxy: { http: "http://proxy.corp:3128", https: "http://proxy.corp:3128", no: "localhost,127.0.0.1,.corp" }
+#  - upstream: keep the egress allowlist ON and chain through a parent proxy.
+#    # proxy: { upstream: "http://host.docker.internal:3128" }
+# Host-running proxy: use host.docker.internal / host.containers.internal — both
+# resolve on either engine.
 
 # Search roots and the deps to find under them (matched by path suffix, copied
 # flat to <sandbox>/<dep>; rw entries are pushed back on `sandboxer push`).
@@ -42,3 +47,12 @@ deps:
 #   - { source: /data/cache, target: /data/cache, mode: rw }
 # env:
 #   NPM_CONFIG_REGISTRY: "https://registry.npmjs.org/"
+#
+# Persist Maven's local repo across runs: the sandbox $HOME is ephemeral, so the
+# default ~/.m2 is thrown away each run. Bind the host ~/.m2 at a fixed path and
+# point Maven at it (Maven Central is already in the default allowlist; mode rw
+# lets Maven download-on-miss into the real host cache):
+# extraMounts:
+#   - { source: /home/me/.m2, target: /cache/.m2, mode: rw }
+# env:
+#   MAVEN_OPTS: "-Dmaven.repo.local=/cache/.m2/repository"

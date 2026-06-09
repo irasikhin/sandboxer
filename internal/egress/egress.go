@@ -33,9 +33,11 @@ func (e *Egress) ProxyURL() string { return "http://" + e.proxy + ":8888" }
 // Active reports whether the allowlist was successfully brought up.
 func (e *Egress) Active() bool { return e != nil && e.active }
 
-// Up creates the networks and starts the allowlist proxy sidecar. On any
-// failure it tears down whatever it created and returns an error.
-func Up(engine, image, slug string, domains []string, w io.Writer) (*Egress, error) {
+// Up creates the networks and starts the allowlist proxy sidecar. When upstream
+// is non-empty the sidecar chains allowed traffic through that parent proxy (the
+// allowlist is still enforced). On any failure it tears down whatever it created
+// and returns an error.
+func Up(engine, image, slug string, domains []string, upstream string, w io.Writer) (*Egress, error) {
 	if len(domains) == 0 {
 		return nil, fmt.Errorf("egress: no allowlist domains")
 	}
@@ -64,6 +66,9 @@ func Up(engine, image, slug string, domains []string, w io.Writer) (*Egress, err
 	}
 	for _, d := range domains {
 		runArgs = append(runArgs, "--allow", d)
+	}
+	if upstream != "" {
+		runArgs = append(runArgs, "--upstream", upstream)
 	}
 	if err := e.run(runArgs...); err != nil {
 		e.Down()

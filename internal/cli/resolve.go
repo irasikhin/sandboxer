@@ -233,7 +233,9 @@ func configLine(rt config.Runtime, slug string, prof *config.Profile, backendSho
 	case noEgress():
 		egress = "off (SANDBOXER_NO_EGRESS)"
 	case rt.HTTPProxy != "" || rt.HTTPSProxy != "":
-		egress = "upstream-proxy"
+		egress = "bypass-proxy"
+	case rt.UpstreamProxy != "" && rt.Egress:
+		egress = fmt.Sprintf("on→upstream (%d domains)", len(rt.Domains))
 	case rt.Egress:
 		egress = fmt.Sprintf("on (%d domains)", len(rt.Domains))
 	}

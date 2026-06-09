@@ -73,6 +73,51 @@ func TestResolveRuntimePrecedence(t *testing.T) {
 	}
 }
 
+func TestValidateProxy(t *testing.T) {
+	cases := []struct {
+		name string
+		p    Proxy
+		ok   bool
+	}{
+		{"empty", Proxy{}, true},
+		{"valid http upstream", Proxy{Upstream: "http://host.docker.internal:3128"}, true},
+		{"upstream + http rejected", Proxy{Upstream: "http://p:3128", HTTP: "http://q"}, false},
+		{"upstream + https rejected", Proxy{Upstream: "http://p:3128", HTTPS: "http://q"}, false},
+		{"https upstream rejected", Proxy{Upstream: "https://p:3128"}, false},
+		{"scheme-less upstream rejected", Proxy{Upstream: "p:3128"}, false},
+	}
+	for _, c := range cases {
+		err := ValidateProxy(c.p)
+		if (err == nil) != c.ok {
+			t.Errorf("%s: ValidateProxy err=%v, want ok=%v", c.name, err, c.ok)
+		}
+	}
+}
+
+func TestResolveRuntimeUpstreamProxy(t *testing.T) {
+	// proxy.upstream is carried into Runtime, sets no bypass env, and keeps egress on.
+	p := &Profile{Proxy: Proxy{Upstream: "http://host.docker.internal:3128"}}
+	rt, err := ResolveRuntime(p, Defaults{Agent: "claude"}, "base.com", "bm", Overrides{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rt.UpstreamProxy != "http://host.docker.internal:3128" {
+		t.Errorf("upstream not carried into Runtime: %q", rt.UpstreamProxy)
+	}
+	if rt.HTTPProxy != "" || rt.HTTPSProxy != "" {
+		t.Errorf("upstream mode must not set bypass proxy env (HTTP=%q HTTPS=%q)", rt.HTTPProxy, rt.HTTPSProxy)
+	}
+	if !rt.Egress {
+		t.Error("upstream mode must keep the egress allowlist on")
+	}
+
+	// The mutual-exclusion rule is enforced at resolve time.
+	bad := &Profile{Proxy: Proxy{Upstream: "http://p:3128", HTTP: "http://q"}}
+	if _, err := ResolveRuntime(bad, Defaults{}, "base.com", "bm", Overrides{}); err == nil {
+		t.Error("ResolveRuntime should reject proxy.upstream combined with proxy.http")
+	}
+}
+
 func TestEgressDisabled(t *testing.T) {
 	no := false
 	p := &Profile{Egress: &no}

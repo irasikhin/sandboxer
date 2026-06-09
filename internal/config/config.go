@@ -28,11 +28,21 @@ type Network struct {
 	AllowedDomains []string `yaml:"allowedDomains,omitempty" json:"allowedDomains,omitempty"`
 }
 
-// Proxy is an upstream corporate proxy passed through to the sandbox.
+// Proxy configures how the sandbox reaches the outside world through a proxy.
+//
+// HTTP/HTTPS/No are a corporate proxy forwarded to the agent as HTTP(S)_PROXY /
+// NO_PROXY: they BYPASS the egress allowlist sidecar (the agent talks to the
+// proxy directly and that proxy is trusted to police egress).
+//
+// Upstream is the opposite trust model: the egress allowlist sidecar stays on
+// and chains allowed traffic through this parent proxy, so sandboxer keeps
+// enforcing the domain allowlist AND the traffic still leaves via the proxy.
+// Upstream is mutually exclusive with HTTP/HTTPS (see ValidateProxy).
 type Proxy struct {
-	HTTP  string `yaml:"http,omitempty"  json:"http,omitempty"`
-	HTTPS string `yaml:"https,omitempty" json:"https,omitempty"`
-	No    string `yaml:"no,omitempty"    json:"no,omitempty"`
+	HTTP     string `yaml:"http,omitempty"     json:"http,omitempty"`
+	HTTPS    string `yaml:"https,omitempty"    json:"https,omitempty"`
+	No       string `yaml:"no,omitempty"       json:"no,omitempty"`
+	Upstream string `yaml:"upstream,omitempty" json:"upstream,omitempty"`
 }
 
 // Profile is a sandbox configuration. All fields are optional; an empty profile

@@ -15,9 +15,13 @@
 package proxy
 
 import (
+	"bufio"
+	"encoding/base64"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 )
@@ -71,19 +75,35 @@ func Allowed(domains []string, host string) bool {
 type Handler struct {
 	domains   []string
 	transport *http.Transport
+	// upstream, when non-nil, is a parent proxy this proxy chains every allowed
+	// request through (the allowlist is still enforced first). nil = dial origins
+	// directly.
+	upstream *url.URL
 	// dialTimeout bounds how long an upstream TCP dial may take.
 	dialTimeout time.Duration
 }
 
-// New returns a Handler enforcing the given domain allowlist.
-func New(domains []string) *Handler {
+// New returns a Handler enforcing the given domain allowlist, dialing origins
+// directly.
+func New(domains []string) *Handler { return NewWithUpstream(domains, nil) }
+
+// NewWithUpstream returns a Handler enforcing the allowlist and, when upstream
+// is non-nil, chaining every allowed request through that parent proxy. The
+// allowlist is enforced before any upstream connection is made, so chaining
+// never widens what the agent may reach.
+func NewWithUpstream(domains []string, upstream *url.URL) *Handler {
 	cp := make([]string, len(domains))
 	copy(cp, domains)
+	var proxyFn func(*http.Request) (*url.URL, error)
+	if upstream != nil {
+		proxyFn = http.ProxyURL(upstream)
+	}
 	return &Handler{
 		domains:     cp,
+		upstream:    upstream,
 		dialTimeout: 30 * time.Second,
 		transport: &http.Transport{
-			Proxy: nil,
+			Proxy: proxyFn,
 			DialContext: (&net.Dialer{
 				Timeout:   30 * time.Second,
 				KeepAlive: 30 * time.Second,
@@ -116,7 +136,9 @@ func targetHost(r *http.Request) string {
 	return r.Host
 }
 
-// handleConnect establishes a CONNECT tunnel to an allowed host.
+// handleConnect establishes a CONNECT tunnel to an allowed host. With an
+// upstream proxy configured the tunnel runs through it (CONNECT-through-CONNECT);
+// otherwise the origin is dialed directly.
 func (h *Handler) handleConnect(w http.ResponseWriter, r *http.Request) {
 	target := targetHost(r)
 	if !Allowed(h.domains, target) {
@@ -131,7 +153,7 @@ func (h *Handler) handleConnect(w http.ResponseWriter, r *http.Request) {
 		dialAddr = net.JoinHostPort(dialAddr, "443")
 	}
 
-	upstream, err := net.DialTimeout("tcp", dialAddr, h.dialTimeout)
+	upstream, pending, err := h.dialTunnel(dialAddr)
 	if err != nil {
 		http.Error(w, "502 Bad Gateway: "+err.Error(), http.StatusBadGateway)
 		return
@@ -157,6 +179,15 @@ func (h *Handler) handleConnect(w http.ResponseWriter, r *http.Request) {
 		_ = upstream.Close()
 		return
 	}
+	// Forward any bytes the upstream proxy already buffered past its own CONNECT
+	// reply — they are the first bytes of the tunneled stream.
+	if len(pending) > 0 {
+		if _, err := clientConn.Write(pending); err != nil {
+			_ = clientConn.Close()
+			_ = upstream.Close()
+			return
+		}
+	}
 
 	// Pipe both directions until either side closes, then tear everything down.
 	done := make(chan struct{}, 2)
@@ -165,6 +196,69 @@ func (h *Handler) handleConnect(w http.ResponseWriter, r *http.Request) {
 	<-done
 	_ = clientConn.Close()
 	_ = upstream.Close()
+}
+
+// dialTunnel opens the far side of a CONNECT tunnel to dialAddr. Without an
+// upstream proxy it dials the origin directly. With one it dials the upstream
+// proxy and issues a nested CONNECT, returning the live connection plus any
+// bytes the proxy buffered past its CONNECT reply (which belong to the tunnel).
+func (h *Handler) dialTunnel(dialAddr string) (net.Conn, []byte, error) {
+	if h.upstream == nil {
+		conn, err := net.DialTimeout("tcp", dialAddr, h.dialTimeout)
+		return conn, nil, err
+	}
+
+	proxyAddr := h.upstream.Host
+	if _, _, err := net.SplitHostPort(proxyAddr); err != nil {
+		proxyAddr = net.JoinHostPort(proxyAddr, "80")
+	}
+	conn, err := net.DialTimeout("tcp", proxyAddr, h.dialTimeout)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	// Authority-form request-target (CONNECT host:port) per the stdlib's own
+	// proxy tunneling: URL.Opaque carries the target verbatim.
+	connReq := &http.Request{
+		Method: http.MethodConnect,
+		URL:    &url.URL{Opaque: dialAddr},
+		Host:   dialAddr,
+		Header: make(http.Header),
+	}
+	if u := h.upstream.User; u != nil {
+		pw, _ := u.Password()
+		connReq.Header.Set("Proxy-Authorization",
+			"Basic "+base64.StdEncoding.EncodeToString([]byte(u.Username()+":"+pw)))
+	}
+
+	// Bound the CONNECT handshake so a silent upstream can't hang us; clear the
+	// deadline once the tunnel is up (it is long-lived).
+	_ = conn.SetDeadline(time.Now().Add(h.dialTimeout))
+	if err := connReq.Write(conn); err != nil {
+		_ = conn.Close()
+		return nil, nil, fmt.Errorf("upstream proxy CONNECT write: %w", err)
+	}
+	br := bufio.NewReader(conn)
+	resp, err := http.ReadResponse(br, connReq)
+	if err != nil {
+		_ = conn.Close()
+		return nil, nil, fmt.Errorf("upstream proxy CONNECT response: %w", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		_ = conn.Close()
+		return nil, nil, fmt.Errorf("upstream proxy CONNECT returned %s", resp.Status)
+	}
+	_ = conn.SetDeadline(time.Time{})
+
+	var pending []byte
+	if n := br.Buffered(); n > 0 {
+		pending = make([]byte, n)
+		if _, err := io.ReadFull(br, pending); err != nil {
+			_ = conn.Close()
+			return nil, nil, fmt.Errorf("upstream proxy CONNECT drain: %w", err)
+		}
+	}
+	return conn, pending, nil
 }
 
 // pipe copies from src to dst, signalling done when the copy finishes.
@@ -237,15 +331,30 @@ func copyHeader(dst, src http.Header) {
 }
 
 // ListenAndServe runs the allowlist proxy on addr (default ":8888") enforcing
-// the given domain allowlist. This is the entry point the `sandboxer _proxy`
-// mode is expected to call.
+// the given domain allowlist, dialing origins directly.
 func ListenAndServe(addr string, domains []string) error {
+	return ListenAndServeUpstream(addr, domains, "")
+}
+
+// ListenAndServeUpstream runs the allowlist proxy on addr (default ":8888")
+// enforcing the given domain allowlist and, when upstream is non-empty, chaining
+// every allowed request through that parent proxy. This is the entry point the
+// `sandboxer _proxy` mode calls. An invalid upstream URL is a hard error.
+func ListenAndServeUpstream(addr string, domains []string, upstream string) error {
 	if addr == "" {
 		addr = ":8888"
 	}
+	var up *url.URL
+	if upstream != "" {
+		u, err := url.Parse(upstream)
+		if err != nil {
+			return fmt.Errorf("invalid upstream proxy URL %q: %w", upstream, err)
+		}
+		up = u
+	}
 	srv := &http.Server{
 		Addr:              addr,
-		Handler:           New(domains),
+		Handler:           NewWithUpstream(domains, up),
 		ReadHeaderTimeout: 30 * time.Second,
 	}
 	return srv.ListenAndServe()
