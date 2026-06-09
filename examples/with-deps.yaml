@@ -19,7 +19,7 @@ model: gpt-5
 agents: [opencode, claude]
 
 network:
-  allowedDomains: [api.openai.com, api.anthropic.com, registry.npmjs.org, pypi.org]
+  allowedDomains: [api.openai.com, api.anthropic.com, registry.npmjs.org, pypi.org, repo.maven.apache.org, repo1.maven.org, central.sonatype.com]
 
 # Container egress is forced by the allowlist proxy by default (agent on an
 # --internal network, sole exit via the forward-proxy). Disable with:
