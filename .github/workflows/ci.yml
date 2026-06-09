@@ -53,10 +53,15 @@ jobs:
           version: v2.1.6
 
   nix:
-    runs-on: ubuntu-latest
+    # Dedicated nix lane on the Forgejo runner (rgband/infra forgejo-runner-3):
+    # the job image is nixos/nix, so nix is preinstalled — no install step. That
+    # image does not enable flakes by default, hence NIX_CONFIG. The runner caps
+    # the job container memory, so the build can't freeze the host.
+    runs-on: nix
+    env:
+      NIX_CONFIG: "experimental-features = nix-command flakes"
     steps:
       - uses: actions/checkout@v4
-      - uses: cachix/install-nix-action@v31
       - run: nix flake check --no-build
       - run: nix build .#sandboxer --no-link
 
