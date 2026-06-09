@@ -10,6 +10,18 @@ commit messages with that in mind. See [CONTRIBUTING.md](./CONTRIBUTING.md).
 
 ## [Unreleased]
 
+## [0.16.0] — 2026-06-09
+
+> **BREAKING:** the auto-discovered project config is now `.sandboxer.yaml`
+> (was `sandboxer.yaml`) — rename your file. Container/headless runs no longer
+> inherit host credentials: each sandbox has its own isolated `$HOME`, so run
+> `claude login` inside the sandbox (or set `ANTHROPIC_API_KEY`) the first time.
+
+### Added
+
+- isolate agent home per sandbox; rename config to .sandboxer.yaml (c2a581b)
+
+
 ## [0.15.1] — 2026-06-06
 
 ### Tests
@@ -249,3 +261,4 @@ commit messages with that in mind. See [CONTRIBUTING.md](./CONTRIBUTING.md).
 [0.14.0]: https://github.com/irasikhin/sandboxer/compare/v0.13.1...v0.14.0
 [0.15.0]: https://github.com/irasikhin/sandboxer/compare/v0.14.0...v0.15.0
 [0.15.1]: https://github.com/irasikhin/sandboxer/compare/v0.15.0...v0.15.1
+[0.16.0]: https://github.com/irasikhin/sandboxer/compare/v0.15.1...v0.16.0
