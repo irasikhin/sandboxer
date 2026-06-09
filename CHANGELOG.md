@@ -10,6 +10,13 @@ commit messages with that in mind. See [CONTRIBUTING.md](./CONTRIBUTING.md).
 
 ## [Unreleased]
 
+## [0.18.3] — 2026-06-09
+
+### Fixed
+
+- scaffold the full default allowlist, not a 3-domain subset (414cb6d)
+
+
 ## [0.18.2] — 2026-06-09
 
 ### Tests
@@ -310,3 +317,4 @@ commit messages with that in mind. See [CONTRIBUTING.md](./CONTRIBUTING.md).
 [0.18.0]: https://github.com/irasikhin/sandboxer/compare/v0.17.0...v0.18.0
 [0.18.1]: https://github.com/irasikhin/sandboxer/compare/v0.18.0...v0.18.1
 [0.18.2]: https://github.com/irasikhin/sandboxer/compare/v0.18.1...v0.18.2
+[0.18.3]: https://github.com/irasikhin/sandboxer/compare/v0.18.2...v0.18.3
