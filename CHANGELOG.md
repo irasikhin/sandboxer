@@ -10,6 +10,20 @@ commit messages with that in mind. See [CONTRIBUTING.md](./CONTRIBUTING.md).
 
 ## [Unreleased]
 
+## [0.18.2] — 2026-06-09
+
+### Tests
+
+- raise engine-independent coverage above the 90% gate (14bab0c)
+
+### CI
+
+- stop uploading the coverage profile artifact (a0d6708)
+- build and publish in one job (e7bab3f)
+- run the nix job on the dedicated nix runner lane (5866be8)
+- clone manually instead of actions/checkout (47fcb04)
+
+
 ## [0.18.1] — 2026-06-09
 
 ### Docs
@@ -295,3 +309,4 @@ commit messages with that in mind. See [CONTRIBUTING.md](./CONTRIBUTING.md).
 [0.17.0]: https://github.com/irasikhin/sandboxer/compare/v0.16.0...v0.17.0
 [0.18.0]: https://github.com/irasikhin/sandboxer/compare/v0.17.0...v0.18.0
 [0.18.1]: https://github.com/irasikhin/sandboxer/compare/v0.18.0...v0.18.1
+[0.18.2]: https://github.com/irasikhin/sandboxer/compare/v0.18.1...v0.18.2
