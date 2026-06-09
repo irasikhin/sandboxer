@@ -10,6 +10,13 @@ commit messages with that in mind. See [CONTRIBUTING.md](./CONTRIBUTING.md).
 
 ## [Unreleased]
 
+## [0.18.1] — 2026-06-09
+
+### Docs
+
+- include Maven Central in example allowlists (f128d64)
+
+
 ## [0.18.0] — 2026-06-09
 
 ### Added
@@ -287,3 +294,4 @@ commit messages with that in mind. See [CONTRIBUTING.md](./CONTRIBUTING.md).
 [0.16.0]: https://github.com/irasikhin/sandboxer/compare/v0.15.1...v0.16.0
 [0.17.0]: https://github.com/irasikhin/sandboxer/compare/v0.16.0...v0.17.0
 [0.18.0]: https://github.com/irasikhin/sandboxer/compare/v0.17.0...v0.18.0
+[0.18.1]: https://github.com/irasikhin/sandboxer/compare/v0.18.0...v0.18.1
