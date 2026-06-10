@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"sort"
 
 	"github.com/irasikhin/sandboxer/internal/config"
 	"github.com/irasikhin/sandboxer/internal/registry"
@@ -78,8 +79,15 @@ func extraMountsAndEnv(p *config.Profile) []string {
 		}
 		out = append(out, "--volume", fmt.Sprintf("%s:%s:%s", m.Source, m.Target, mode))
 	}
-	for k, v := range p.Env {
-		out = append(out, "--env", k+"="+v)
+	// Sorted keys: the argv is fingerprinted (ConfigHash) and shown (compose),
+	// so map iteration order must not leak into it.
+	keys := make([]string, 0, len(p.Env))
+	for k := range p.Env {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, k := range keys {
+		out = append(out, "--env", k+"="+p.Env[k])
 	}
 	return out
 }

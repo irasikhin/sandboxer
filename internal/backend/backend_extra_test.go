@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -101,6 +103,42 @@ func TestRunArgv(t *testing.T) {
 		if !strings.Contains(s, w) {
 			t.Errorf("RunArgv missing %q in:\n%s", w, s)
 		}
+	}
+}
+
+// TestRunArgvExact pins the run argv byte-for-byte: the prefix / commonArgs /
+// image / timeout split must never reorder or alter a flag (compose parses
+// this argv, and sessions fingerprint the shared block).
+func TestRunArgvExact(t *testing.T) {
+	argv, err := RunArgv(RunOpts{
+		Engine: "docker", Image: "img:1", Dest: "/d", Slug: "s", HomeDir: "/h",
+		RT:  config.Runtime{HTTPProxy: "http://p", NoProxy: "x", Domains: []string{"a.com"}},
+		Mem: "1G", CPU: "2", Wall: "30", Interactive: true,
+		Args:  []string{"echo", "hi"},
+		Stdin: strings.NewReader(""), Stdout: &bytes.Buffer{},
+	})
+	if err != nil {
+		t.Fatalf("RunArgv: %v", err)
+	}
+	userns := strconv.Itoa(os.Getuid()) + ":" + strconv.Itoa(os.Getgid())
+	want := []string{
+		"run", "--rm", "-i",
+		"--user", userns, "--cap-drop=ALL", "--security-opt", "no-new-privileges",
+		"--workdir", "/d", "--volume", "/d:/d:rw",
+		"--env", "SANDBOXER_IN_CONTAINER=1",
+		"--env", "SANDBOXER_SLUG=s", "--env", "SANDBOXER_SANDBOX_DIR=/d",
+		"--env", "HOME=/h", "--volume", "/h:/h:rw",
+		"--add-host=host.docker.internal:host-gateway",
+		"--add-host=host.containers.internal:host-gateway",
+		"--memory", "1G", "--cpus", "2",
+		"--env", "HTTP_PROXY=http://p", "--env", "http_proxy=http://p",
+		"--env", "NO_PROXY=x", "--env", "no_proxy=x",
+		"--env", "SANDBOXER_ALLOW_DOMAINS=a.com",
+		"img:1", "timeout", "--signal=TERM", "30",
+		"echo", "hi",
+	}
+	if !slices.Equal(argv, want) {
+		t.Errorf("RunArgv =\n%q\nwant\n%q", argv, want)
 	}
 }
 

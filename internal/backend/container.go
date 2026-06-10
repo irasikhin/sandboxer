@@ -21,6 +21,7 @@ type RunOpts struct {
 	Tools           []string // nixpkgs attrs baked into a per-profile image variant
 	Dest            string   // sandbox copy dir, mounted and used as workdir
 	Slug            string
+	BaseDir         string // host .sandboxer dir; names/labels the persistent session (zero value fine for one-shot runs)
 	HomeDir         string // sandbox-private agent home, mounted as $HOME (isolated per sandbox)
 	RT              config.Runtime
 	Profile         *config.Profile
@@ -96,8 +97,6 @@ func RunArgv(o RunOpts) ([]string, error) { return runArgs(o, "", "") }
 // "" otherwise). Kept identical to the original inline construction so Run's
 // behavior is unchanged.
 func runArgs(o RunOpts, egNet, egProxyURL string) ([]string, error) {
-	userns := strconv.Itoa(os.Getuid()) + ":" + strconv.Itoa(os.Getgid())
-
 	args := []string{"run", "--rm"}
 	if o.Interactive {
 		args = append(args, "-i")
@@ -106,12 +105,33 @@ func runArgs(o RunOpts, egNet, egProxyURL string) ([]string, error) {
 			args = append(args, "-t")
 		}
 	}
-	args = append(args,
+	args = append(args, commonArgs(o, egNet, egProxyURL)...)
+	args = append(args, o.Image)
+	// Wall-clock timeout: wrap the in-container command with `timeout` (coreutils,
+	// present in the toolbox image).
+	if o.Wall != "" {
+		args = append(args, "timeout", "--signal=TERM", o.Wall)
+	}
+	args = append(args, o.Args...)
+	return args, nil
+}
+
+// commonArgs assembles every engine flag shared by the one-shot `run` and the
+// persistent-session `create` paths: everything between the run-mode prefix
+// (`run --rm [-i] [-t]` vs `run -d --init --name … --label …`) and the image —
+// isolation, workdir + sandbox mounts, identity env, host-gateway aliases,
+// resource limits, proxy/egress env, credentials and the profile's extra
+// mounts/env. The flag order is part of the contract: ConfigHash fingerprints
+// this argv, so reordering a flag invalidates every existing session.
+func commonArgs(o RunOpts, egNet, egProxyURL string) []string {
+	userns := strconv.Itoa(os.Getuid()) + ":" + strconv.Itoa(os.Getgid())
+
+	args := []string{
 		"--user", userns, "--cap-drop=ALL", "--security-opt", "no-new-privileges",
-		"--workdir", o.Dest, "--volume", o.Dest+":"+o.Dest+":rw",
+		"--workdir", o.Dest, "--volume", o.Dest + ":" + o.Dest + ":rw",
 		"--env", "SANDBOXER_IN_CONTAINER=1",
-		"--env", "SANDBOXER_SLUG="+o.Slug, "--env", "SANDBOXER_SANDBOX_DIR="+o.Dest,
-	)
+		"--env", "SANDBOXER_SLUG=" + o.Slug, "--env", "SANDBOXER_SANDBOX_DIR=" + o.Dest,
+	}
 	// $HOME is the sandbox-private agent home, bound at its own host path. It is
 	// isolated per sandbox (see sandbox.Base.HomeDir): the host's real home is
 	// never mounted, so no host config leaks in and the agent's atomic config
@@ -168,14 +188,7 @@ func runArgs(o RunOpts, egNet, egProxyURL string) ([]string, error) {
 	args = append(args, authEnvFlags(o.RT.AuthAgents)...)
 	args = append(args, originMounts(o.ManifestPath)...)
 	args = append(args, extraMountsAndEnv(o.Profile)...)
-	args = append(args, o.Image)
-	// Wall-clock timeout: wrap the in-container command with `timeout` (coreutils,
-	// present in the toolbox image).
-	if o.Wall != "" {
-		args = append(args, "timeout", "--signal=TERM", o.Wall)
-	}
-	args = append(args, o.Args...)
-	return args, nil
+	return args
 }
 
 // Test seams: overridable so ensureImage can be unit-tested without a real
