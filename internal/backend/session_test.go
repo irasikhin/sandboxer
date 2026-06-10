@@ -801,6 +801,61 @@ func TestRemoveAllSessions(t *testing.T) {
 	})
 }
 
+func TestOrphanSessions(t *testing.T) {
+	requireExec(t, "sh")
+
+	t.Run("flags only the gone-base containers", func(t *testing.T) {
+		engine, logPath := sessionEngine(t)
+		alive := t.TempDir()
+		gone := filepath.Join(t.TempDir(), "deleted-project", ".sandboxer")
+		// n2 has no base label (empty line) — its slot must not shift n3's base.
+		t.Setenv("SBX_PS_OUT", "n1\nn2\nn3")
+		t.Setenv("SBX_INSPECT_OUT", alive+"\n\n"+gone)
+		got, err := OrphanSessions(engine)
+		if err != nil {
+			t.Fatalf("OrphanSessions: %v", err)
+		}
+		if !slices.Equal(got, []string{"n3"}) {
+			t.Errorf("OrphanSessions = %v, want [n3]", got)
+		}
+		lines := engineLog(t, logPath)
+		for _, want := range []string{
+			"ps -a --filter label=sandboxer.managed=true --format {{.Names}}",
+			`container inspect --format {{index .Config.Labels "sandboxer.base"}} n1 n2 n3`,
+		} {
+			if !hasLine(lines, want) {
+				t.Errorf("missing %q:\n%s", want, strings.Join(lines, "\n"))
+			}
+		}
+	})
+
+	t.Run("no sessions skips the inspect", func(t *testing.T) {
+		engine, logPath := sessionEngine(t)
+		t.Setenv("SBX_PS_OUT", "")
+		got, err := OrphanSessions(engine)
+		if err != nil || got != nil {
+			t.Fatalf("OrphanSessions = (%v, %v), want (nil, nil)", got, err)
+		}
+		if findPrefixLine(engineLog(t, logPath), "container inspect") != "" {
+			t.Error("no names, no inspect")
+		}
+	})
+
+	t.Run("engine failures surface", func(t *testing.T) {
+		engine, _ := sessionEngine(t)
+		t.Setenv("SBX_PS_FAIL", "1")
+		if _, err := OrphanSessions(engine); err == nil || !strings.Contains(err.Error(), "list sessions") {
+			t.Errorf("OrphanSessions = %v, want a list sessions error", err)
+		}
+		t.Setenv("SBX_PS_FAIL", "")
+		t.Setenv("SBX_PS_OUT", "n1")
+		t.Setenv("SBX_INSPECT_FAIL", "1")
+		if _, err := OrphanSessions(engine); err == nil || !strings.Contains(err.Error(), "inspect sessions") {
+			t.Errorf("OrphanSessions = %v, want an inspect sessions error", err)
+		}
+	})
+}
+
 func TestSessionStates(t *testing.T) {
 	requireExec(t, "sh")
 

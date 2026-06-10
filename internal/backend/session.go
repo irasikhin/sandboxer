@@ -462,6 +462,49 @@ func SessionStates(engine, baseDir string) (map[string]string, error) {
 	return states, nil
 }
 
+// OrphanSessions returns the names of sandboxer-managed session containers
+// whose recorded base directory no longer exists on this host — the project
+// was deleted behind the engine's back (rm -rf instead of `sandboxer rm`), so
+// nothing will ever match them again. Reported by doctor with a removal hint;
+// sandboxer itself never auto-removes them.
+func OrphanSessions(engine string) ([]string, error) {
+	out, err := exec.Command(engine, "ps", "-a",
+		"--filter", "label="+LabelManaged+"=true",
+		"--format", "{{.Names}}").Output()
+	if err != nil {
+		return nil, fmt.Errorf("list sessions: %w", err)
+	}
+	names := strings.Fields(string(out))
+	if len(names) == 0 {
+		return nil, nil
+	}
+	// One batched inspect: the base label per line, in argument order. Only the
+	// trailing newline is trimmed — a missing label is an EMPTY line that must
+	// keep its slot, or every base after it would shift onto the wrong name.
+	args := []string{"container", "inspect", "--format",
+		`{{index .Config.Labels "` + LabelBase + `"}}`}
+	args = append(args, names...)
+	bout, err := exec.Command(engine, args...).Output()
+	if err != nil {
+		return nil, fmt.Errorf("inspect sessions: %w", err)
+	}
+	bases := strings.Split(strings.TrimRight(string(bout), "\n"), "\n")
+	var orphans []string
+	for i, name := range names {
+		if i >= len(bases) {
+			break
+		}
+		base := strings.TrimSpace(bases[i])
+		if base == "" {
+			continue // no base label — not provably orphaned
+		}
+		if _, err := os.Stat(base); os.IsNotExist(err) {
+			orphans = append(orphans, name)
+		}
+	}
+	return orphans, nil
+}
+
 // notice prints a one-line lifecycle notice to the user's stderr (nil-safe).
 func notice(w io.Writer, msg string) {
 	if w != nil {

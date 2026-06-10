@@ -2,8 +2,10 @@ package cli
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"text/tabwriter"
 
 	"github.com/spf13/cobra"
@@ -14,6 +16,10 @@ import (
 )
 
 func init() { register(newDoctorCmd) }
+
+// sessionOrphans is the orphan-enumeration seam, overridable in tests so
+// doctor's session rows render without a real engine.
+var sessionOrphans = backend.OrphanSessions
 
 func newDoctorCmd() *cobra.Command {
 	cmd := &cobra.Command{
@@ -49,6 +55,13 @@ Run this after a fresh install or when something isn't working.`,
 					fmt.Fprintf(tw, "toolbox image %s\t⚠\tnot found — build with: sandboxer build-image\n", image)
 					warn++
 				}
+			}
+
+			// Persistent sessions: this project's running/stopped tally, plus
+			// orphans whose project dir is gone (their containers survive a
+			// bare `rm -rf` of the project).
+			if engineErr == nil {
+				reportSessions(tw, engine, &ok, &warn)
 			}
 
 			// Agent credentials — check config dirs and env vars for each agent.
@@ -110,6 +123,37 @@ Run this after a fresh install or when something isn't working.`,
 		},
 	}
 	return cmd
+}
+
+// reportSessions adds doctor's persistent-session rows: a running/stopped
+// tally for the current project, and a warning listing orphaned session
+// containers — sandboxer-managed but with their sandboxer.base directory gone
+// — together with a removal hint. The orphan probe is purely advisory, so its
+// failure is not a finding.
+func reportSessions(tw io.Writer, engine string, ok, warn *int) {
+	baseDir := filepath.Join(getwd(), config.StateDirName)
+	states, err := sessionStates(engine, baseDir)
+	if err != nil {
+		fmt.Fprintf(tw, "sessions\t⚠\t%v\n", err)
+		*warn++
+		return
+	}
+	running := 0
+	for _, st := range states {
+		if st == "running" {
+			running++
+		}
+	}
+	fmt.Fprintf(tw, "sessions\t✓\t%d running / %d stopped for this project\n",
+		running, len(states)-running)
+	*ok++
+	orphans, err := sessionOrphans(engine)
+	if err != nil || len(orphans) == 0 {
+		return
+	}
+	fmt.Fprintf(tw, "orphan sessions\t⚠\t%s — their projects are gone; remove: %s rm -f %s\n",
+		strings.Join(orphans, " "), engine, strings.Join(orphans, " "))
+	*warn++
 }
 
 func expandHome(p, home string) string {

@@ -3,15 +3,21 @@ package cli
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"strings"
 
 	"github.com/spf13/cobra"
 
+	"github.com/irasikhin/sandboxer/internal/backend"
 	"github.com/irasikhin/sandboxer/internal/config"
 	"github.com/irasikhin/sandboxer/internal/sandbox"
 )
+
+// sessionStates is the session-enumeration seam for list and doctor,
+// overridable in tests so the STATE column renders without a real engine.
+var sessionStates = backend.SessionStates
 
 func init() {
 	register(newListCmd)
@@ -53,7 +59,8 @@ func newListCmd() *cobra.Command {
 func printList(cmd *cobra.Command, base *sandbox.Base, wide bool) {
 	out := cmd.OutOrStdout()
 	cur := base.Current()
-	fmt.Fprintf(out, "%-2s %-16s %-9s %-5s %s\n", "", "SANDBOX", "EXIT", "SEC", "RESULT")
+	states := projectSessionStates(base.Dir)
+	fmt.Fprintf(out, "%-2s %-16s %-8s %-9s %-5s %s\n", "", "SANDBOX", "STATE", "EXIT", "SEC", "RESULT")
 	for _, slug := range base.Agents() {
 		exit, secs := readMeta(base.MetaFilePath(slug))
 		res := jsonResult(base.LogPath(slug, "json"))
@@ -66,11 +73,41 @@ func printList(cmd *cobra.Command, base *sandbox.Base, wide bool) {
 			slugDisp = truncate(slug, 16)
 			resDisp = truncate(res, 50)
 		}
-		fmt.Fprintf(out, "%-2s %-16s %-9s %-5s %s\n",
-			marker, slugDisp, exit, secs, resDisp)
+		fmt.Fprintf(out, "%-2s %-16s %-8s %-9s %-5s %s\n",
+			marker, slugDisp, sessionState(states, slug), exit, secs, resDisp)
 	}
 	fmt.Fprintln(out)
 	fmt.Fprintln(out, "* = active (use). enter <s> | exec <s> -- cmd | diff [s] | push [s] | rm <s>")
+}
+
+// projectSessionStates returns slug→container status for the project's
+// persistent sessions. Best-effort: any engine problem yields nil, so the
+// listing shows dashes instead of failing on an engine-less host.
+func projectSessionStates(baseDir string) map[string]string {
+	engine, err := backend.DetectEngine(config.LoadDefaults())
+	if err != nil {
+		return nil
+	}
+	states, err := sessionStates(engine, baseDir)
+	if err != nil {
+		return nil
+	}
+	return states
+}
+
+// sessionState folds an engine container status into the STATE column:
+// "running" stays, any other recorded status reads "stopped", and a sandbox
+// without a session container shows "-".
+func sessionState(states map[string]string, slug string) string {
+	st, ok := states[slug]
+	switch {
+	case !ok:
+		return "-"
+	case st == "running":
+		return "running"
+	default:
+		return "stopped"
+	}
 }
 
 // sandboxDiff shows what changed in a sandbox's pulled deps versus their
@@ -167,11 +204,63 @@ func newShowCmd() *cobra.Command {
 			if !dumpFile(out, t.base.ManifestPath(t.slug)) {
 				fmt.Fprintln(out, "(no manifest)")
 			}
+			printSessionBlock(out, t, rtShow)
 			return nil
 		},
 	}
 	bindExisting(cmd, &f)
 	return cmd
+}
+
+// printSessionBlock renders show's "== session ==" lines: the deterministic
+// session container name, its current state, and whether the config hash
+// recorded at create time still matches the profile (fresh) or the next
+// persistent enter would recreate the container (stale). Best-effort: with no
+// engine the state is unknown, never an error.
+func printSessionBlock(out io.Writer, t *target, rt config.Runtime) {
+	fmt.Fprintln(out, "== session ==")
+	name := backend.SessionName(t.slug, t.base.Dir)
+	fmt.Fprintf(out, "container: %s\n", name)
+	engine, err := backend.ResolveEngine(rt.Backend, config.LoadDefaults())
+	if err != nil {
+		fmt.Fprintln(out, "state: unknown (no container engine)")
+		return
+	}
+	info := backendInspectSession(engine, name)
+	if !info.Exists {
+		fmt.Fprintln(out, "state: none (a persistent enter creates it)")
+		return
+	}
+	state := "stopped"
+	if info.Running {
+		state = "running"
+	}
+	switch o, ok := sessionHashOpts(t, rt, engine); {
+	case !ok:
+		fmt.Fprintf(out, "state: %s\n", state)
+	case info.Hash == backendWantHash(o):
+		fmt.Fprintf(out, "state: %s (fresh)\n", state)
+	default:
+		fmt.Fprintf(out, "state: %s (stale — the profile changed; re-enter recreates it)\n", state)
+	}
+}
+
+// sessionHashOpts assembles the RunOpts SessionWantHash needs to recompute
+// the session's config hash — the same fields enter passes, minus the stdio.
+// ok=false when the image cannot be resolved, leaving freshness unjudged.
+func sessionHashOpts(t *target, rt config.Runtime, engine string) (backend.RunOpts, bool) {
+	image, tools, err := resolveImage(t.profile)
+	if err != nil {
+		return backend.RunOpts{}, false
+	}
+	return backend.RunOpts{
+		Engine: engine, Image: image, Tools: tools,
+		Dest: t.base.SandboxDir(t.slug), Slug: t.slug, BaseDir: t.base.Dir,
+		HomeDir: t.base.HomeDir(t.slug),
+		RT:      rt, Profile: t.profile,
+		ProfileJSONPath: t.base.ProfileJSONPath(t.slug), ManifestPath: t.base.ManifestPath(t.slug),
+		NoEgress: noEgress(),
+	}, true
 }
 
 func readMeta(path string) (exit, secs string) {

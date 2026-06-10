@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -9,9 +10,17 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/irasikhin/sandboxer/internal/backend"
 	"github.com/irasikhin/sandboxer/internal/config"
 	"github.com/irasikhin/sandboxer/internal/registry"
 	"github.com/irasikhin/sandboxer/internal/sandbox"
+)
+
+// Session-teardown seams beside backendRun (lifecycle.go), so rm/rm-all are
+// exercised in tests without a real engine.
+var (
+	backendRemoveSession     = backend.RemoveSession
+	backendRemoveAllSessions = backend.RemoveAllSessions
 )
 
 func init() {
@@ -32,6 +41,10 @@ func newRmCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			// The session container goes first, while the engine labels still
+			// match an existing base dir; best-effort — an engine-less host
+			// must still get its files removed.
+			removeSessionBestEffort(t, f, cmd.ErrOrStderr())
 			if err := t.base.Remove(t.slug); err != nil {
 				return err
 			}
@@ -41,6 +54,27 @@ func newRmCmd() *cobra.Command {
 	}
 	bindExisting(cmd, &f)
 	return cmd
+}
+
+// removeSessionBestEffort tears down the sandbox's persistent session
+// container (and its egress resources) before the files go. Best-effort BY
+// DESIGN: file removal must succeed on an engine-less host, so any engine
+// problem only warns — at worst a container is left behind, which doctor
+// reports as an orphan once the base dir is gone.
+func removeSessionBestEffort(t *target, f commonFlags, errOut io.Writer) {
+	rt, err := t.runtime(f)
+	if err != nil {
+		fmt.Fprintf(errOut, "sandboxer: session cleanup skipped: %v\n", err)
+		return
+	}
+	engine, err := backend.ResolveEngine(rt.Backend, config.LoadDefaults())
+	if err != nil {
+		fmt.Fprintf(errOut, "sandboxer: session cleanup skipped: %v\n", err)
+		return
+	}
+	if err := backendRemoveSession(engine, t.slug, t.base.Dir); err != nil {
+		fmt.Fprintf(errOut, "sandboxer: session cleanup failed: %v\n", err)
+	}
 }
 
 func newRmAllCmd() *cobra.Command {
@@ -62,6 +96,13 @@ use 'sandboxer rm <slug>' to remove a single sandbox instead.`,
 				return fmt.Errorf("no such directory: %s", src)
 			}
 			dir := filepath.Join(abs, config.StateDirName)
+			// Sweep the session containers labeled with this base dir first;
+			// best-effort — the state dir must go even with no engine installed.
+			if engine, err := backend.DetectEngine(config.LoadDefaults()); err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "sandboxer: session cleanup skipped: %v\n", err)
+			} else if err := backendRemoveAllSessions(engine, dir); err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "sandboxer: session cleanup failed: %v\n", err)
+			}
 			if err := os.RemoveAll(dir); err != nil {
 				return err
 			}
