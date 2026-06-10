@@ -158,7 +158,7 @@ func TestEnsureImage(t *testing.T) {
 		t.Errorf("present image: err=%v built=%v; want nil/false", err, built)
 	}
 
-	// 2. Missing CUSTOM image → nil (engine pulls), no build.
+	// 2. Missing CUSTOM image with an empty spec → nil (engine pulls), no build.
 	imageExists = func(string, string) bool { return false }
 	built = false
 	if err := ensureImage(RunOpts{Engine: "e", Image: "ghcr.io/x/y:1"}); err != nil || built {
@@ -189,7 +189,32 @@ func TestEnsureImage(t *testing.T) {
 		t.Errorf("auto-build passed wrong opts: %+v", gotOpts)
 	}
 
-	// 5. Build "succeeds" but image still absent → error.
+	// 5. Missing VARIANT image (non-empty spec) → auto-built with the spec
+	// forwarded, even though the tag is not the default image.
+	spec := toolbox.Spec{Attrs: []string{"ripgrep"}}
+	variant := spec.Tag()
+	calls = 0
+	imageExists = func(string, string) bool { calls++; return calls > 1 }
+	gotOpts = toolbox.BuildOpts{}
+	if err := ensureImage(RunOpts{Engine: "docker", Image: variant, Spec: spec, Stderr: &bytes.Buffer{}}); err != nil {
+		t.Errorf("variant auto-build: unexpected err %v", err)
+	}
+	if gotOpts.Image != variant || len(gotOpts.Spec.Attrs) != 1 || gotOpts.Spec.Attrs[0] != "ripgrep" {
+		t.Errorf("variant build passed wrong opts: %+v", gotOpts)
+	}
+
+	// 6. SANDBOXER_NO_AUTOBUILD also gates a missing variant.
+	t.Setenv("SANDBOXER_NO_AUTOBUILD", "1")
+	imageExists = func(string, string) bool { return false }
+	built = false
+	buildImage = func(toolbox.BuildOpts) error { built = true; return nil }
+	err = ensureImage(RunOpts{Engine: "e", Image: variant, Spec: spec})
+	if err == nil || !strings.Contains(err.Error(), "sandboxer build-image") || built {
+		t.Errorf("variant autobuild-disabled: err=%v built=%v; want a build-image hint, no build", err, built)
+	}
+	t.Setenv("SANDBOXER_NO_AUTOBUILD", "")
+
+	// 7. Build "succeeds" but image still absent → error.
 	imageExists = func(string, string) bool { return false }
 	buildImage = func(toolbox.BuildOpts) error { return nil }
 	if err := ensureImage(RunOpts{Engine: "e", Image: config.DefaultImage, Stderr: &bytes.Buffer{}}); err == nil {

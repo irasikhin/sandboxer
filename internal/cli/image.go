@@ -9,20 +9,21 @@ import (
 	"github.com/irasikhin/sandboxer/internal/toolbox"
 )
 
-// resolveImage picks the toolbox image for a profile. Without a `tools:` pack it
-// is the default image; with one it is a per-profile variant baked with the
-// resolved nixpkgs attrs (built on demand by the backend, cached by tool-set
-// hash). It returns the image reference and the nixpkgs attrs to hand the
-// backend so a missing variant can be built.
-func resolveImage(prof *config.Profile) (image string, tools []string, err error) {
-	if prof == nil || len(prof.Tools) == 0 {
-		return config.LoadDefaults().Image, nil, nil
-	}
-	attrs, err := registry.ResolveTools(prof.Tools)
+// resolveImage picks the toolbox image for a profile. Without image
+// customization (`tools:` / `image:`) it is the configured default image; with
+// any it is the spec's content-addressed variant tag (built on demand by the
+// backend, shared across identical customizations). It returns the image
+// reference and the resolved spec the backend needs to build a missing
+// variant.
+func resolveImage(prof *config.Profile) (string, toolbox.Spec, error) {
+	spec, err := toolbox.ResolveSpec(prof)
 	if err != nil {
-		return "", nil, err
+		return "", toolbox.Spec{}, err
 	}
-	return toolbox.ToolsImageTag(attrs), attrs, nil
+	if spec.Empty() {
+		return config.LoadDefaults().Image, spec, nil
+	}
+	return spec.Tag(), spec, nil
 }
 
 // applyMCP wires a profile's `mcp:` servers into the run: it seeds the agent's

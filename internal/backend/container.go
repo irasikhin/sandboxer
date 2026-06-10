@@ -18,8 +18,8 @@ import (
 type RunOpts struct {
 	Engine          string
 	Image           string
-	Tools           []string // nixpkgs attrs baked into a per-profile image variant
-	Dest            string   // sandbox copy dir, mounted and used as workdir
+	Spec            toolbox.Spec // image variant customization; drives the auto-build of a missing variant
+	Dest            string       // sandbox copy dir, mounted and used as workdir
 	Slug            string
 	BaseDir         string // host .sandboxer dir; names/labels the persistent session (zero value fine for one-shot runs)
 	HomeDir         string // sandbox-private agent home, mounted as $HOME (isolated per sandbox)
@@ -204,10 +204,10 @@ func ensureImage(o RunOpts) error {
 	if o.Engine == "" || o.Image == "" || imageExists(o.Engine, o.Image) {
 		return nil
 	}
-	// The default image and per-profile tool-pack variants are both built
-	// locally (never published); a truly custom SANDBOXER_IMAGE with no tools is
+	// The default image and content-addressed variants are both built locally
+	// (never published); a truly custom SANDBOXER_IMAGE with an empty spec is
 	// left for the engine to pull.
-	if o.Image != config.DefaultImage && len(o.Tools) == 0 {
+	if o.Image != config.DefaultImage && o.Spec.Empty() {
 		return nil
 	}
 	if os.Getenv("SANDBOXER_NO_AUTOBUILD") != "" {
@@ -219,7 +219,7 @@ func ensureImage(o RunOpts) error {
 			"(one-time, several minutes; disable with SANDBOXER_NO_AUTOBUILD=1)…\n", o.Image)
 	}
 	if err := buildImage(toolbox.BuildOpts{
-		Engine: o.Engine, Image: o.Image, Tools: o.Tools,
+		Engine: o.Engine, Image: o.Image, Spec: o.Spec,
 		Stdout: o.Stderr, Stderr: o.Stderr,
 	}); err != nil {
 		return fmt.Errorf("%w — build manually with: sandboxer build-image", err)

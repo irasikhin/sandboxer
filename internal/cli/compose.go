@@ -61,9 +61,17 @@ equivalent — its purpose is "run it with your own tooling".`,
 			if err != nil {
 				return err
 			}
+			// The same image resolution enter/exec use, so a tools/image
+			// profile's variant tag shows up in the printed configuration
+			// instead of the stock default.
+			image, spec, err := resolveImage(t.profile)
+			if err != nil {
+				return err
+			}
 			opts := backend.RunOpts{
 				Engine:          engine,
-				Image:           config.LoadDefaults().Image,
+				Image:           image,
+				Spec:            spec,
 				Dest:            t.base.SandboxDir(t.slug),
 				Slug:            t.slug,
 				BaseDir:         t.base.Dir,

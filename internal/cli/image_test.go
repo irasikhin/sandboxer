@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -10,31 +11,47 @@ import (
 )
 
 // TestResolveImage covers image selection: nil/empty profiles use the default
-// image with no tools, a `tools:` profile resolves to a variant tag plus the
-// nixpkgs attrs, and an unknown pack errors.
+// image with an empty spec, any customization (`tools:` or `image:`) resolves
+// to the spec's content-addressed variant tag, and resolution failures
+// (unknown pack, missing image.nix) error out.
 func TestResolveImage(t *testing.T) {
 	def := config.LoadDefaults().Image
 
 	for _, prof := range []*config.Profile{nil, {}} {
-		img, tools, err := resolveImage(prof)
-		if err != nil || img != def || tools != nil {
-			t.Errorf("profile %v → img=%q tools=%v err=%v; want default+nil", prof, img, tools, err)
+		img, spec, err := resolveImage(prof)
+		if err != nil || img != def || !spec.Empty() {
+			t.Errorf("profile %v → img=%q spec=%+v err=%v; want default+empty", prof, img, spec, err)
 		}
 	}
 
-	img, tools, err := resolveImage(&config.Profile{Tools: []string{"go"}})
+	img, spec, err := resolveImage(&config.Profile{Tools: []string{"go"}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if img == def {
-		t.Error("a tools profile must use a variant image, not the default")
+	if img == def || !strings.HasPrefix(img, "sandboxer-toolbox:var-") {
+		t.Errorf("a tools profile must use a var- variant image, got %q", img)
 	}
-	if len(tools) != 1 || tools[0] != "go" {
-		t.Errorf("resolved attrs = %v, want [go]", tools)
+	if len(spec.Attrs) != 1 || spec.Attrs[0] != "go" {
+		t.Errorf("resolved attrs = %v, want [go]", spec.Attrs)
+	}
+
+	// image.extraPkgs alone selects a variant too, and the reference is the
+	// spec's own content address (the backend rebuilds from the same spec).
+	img2, spec2, err := resolveImage(&config.Profile{Image: config.ImageSpec{ExtraPkgs: []string{"ripgrep"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if img2 != spec2.Tag() {
+		t.Errorf("image %q != spec tag %q", img2, spec2.Tag())
 	}
 
 	if _, _, err := resolveImage(&config.Profile{Tools: []string{"nope"}}); err == nil {
 		t.Error("unknown tool pack must error")
+	}
+	if _, _, err := resolveImage(&config.Profile{
+		Image: config.ImageSpec{Nix: filepath.Join(t.TempDir(), "missing.nix")},
+	}); err == nil {
+		t.Error("missing image.nix must error")
 	}
 }
 

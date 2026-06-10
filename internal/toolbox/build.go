@@ -10,9 +10,7 @@
 package toolbox
 
 import (
-	"crypto/sha256"
 	"embed"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -50,21 +48,9 @@ type BuildOpts struct {
 	KeepBuilder bool      // don't remove the nixos/nix image afterward
 	Refresh     bool      // re-fetch flake inputs (nix build --refresh)
 	ExtraArgs   []string  // extra engine `run` flags for the builder (escape hatch)
-	Tools       []string  // extra nixpkgs attrs to bake (a per-profile tool pack)
+	Spec        Spec      // image variant customization (attrs, user nix, rev overrides); zero = stock
 	Stdout      io.Writer // build chatter / engine stdout
 	Stderr      io.Writer // progress banners / engine stderr
-}
-
-// ToolsImageTag is the image reference for a toolbox variant baked with the
-// given nixpkgs tool attributes (already resolved + sorted by the registry). No
-// tools means the default image; any tools yield a deterministic, content-keyed
-// tag so identical tool sets share one cached image.
-func ToolsImageTag(attrs []string) string {
-	if len(attrs) == 0 {
-		return config.DefaultImage
-	}
-	sum := sha256.Sum256([]byte(strings.Join(attrs, ",")))
-	return "sandboxer-toolbox:tools-" + hex.EncodeToString(sum[:])[:12]
 }
 
 // BuildImage assembles the build context, runs the ephemeral nix builder, loads
@@ -96,7 +82,7 @@ func BuildImage(o BuildOpts) error {
 	}
 	defer func() { _ = os.RemoveAll(outDir) }()
 
-	if err := writeContext(ctxDir, o.Tools); err != nil {
+	if err := writeContext(ctxDir, o.Spec); err != nil {
 		return fmt.Errorf("assemble build context: %w", err)
 	}
 
@@ -150,10 +136,16 @@ func BuildImage(o BuildOpts) error {
 	return nil
 }
 
-// writeContext populates the flake build context: the embedded flake.nix, a
-// generated agents.nix list, and a copy of the running sandboxer binary (so the
-// flake can inject it as ./sandboxer without rebuilding from source).
-func writeContext(ctxDir string, tools []string) error {
+// stubUserNix is the user.nix written when the profile has no nix hook: the
+// flake's import is unconditional, so the stub keeps a stock build identical
+// to one before the hook existed (no customization in either phase).
+const stubUserNix = "{ pkgs }: { }\n"
+
+// writeContext populates the flake build context: the embedded flake.nix, the
+// generated agents.nix/tools.nix lists, the user.nix image hook, and a copy of
+// the running sandboxer binary (so the flake can inject it as ./sandboxer
+// without rebuilding from source).
+func writeContext(ctxDir string, spec Spec) error {
 	flake, err := assets.ReadFile("assets/flake.nix")
 	if err != nil {
 		return err
@@ -165,9 +157,20 @@ func writeContext(ctxDir string, tools []string) error {
 	if err := os.WriteFile(filepath.Join(ctxDir, "agents.nix"), []byte(agents), 0o644); err != nil {
 		return err
 	}
-	// tools.nix is the per-profile tool pack (empty list for the default image);
-	// the flake imports it and adds the named nixpkgs attrs to the image.
-	if err := os.WriteFile(filepath.Join(ctxDir, "tools.nix"), []byte(renderNixList(tools)), 0o644); err != nil {
+	// tools.nix carries the spec's nixpkgs attrs (tools packs + extraPkgs;
+	// empty list for the default image); the flake imports it and bakes the
+	// named attrs into the image.
+	if err := os.WriteFile(filepath.Join(ctxDir, "tools.nix"), []byte(renderNixList(spec.Attrs)), 0o644); err != nil {
+		return err
+	}
+	// user.nix is the profile's image hook — copied verbatim when set, the
+	// no-op stub otherwise — so the flake imports it unconditionally.
+	userNix := filepath.Join(ctxDir, "user.nix")
+	if spec.NixFile != "" {
+		if err := copyFile(spec.NixFile, userNix); err != nil {
+			return fmt.Errorf("copy image.nix: %w", err)
+		}
+	} else if err := os.WriteFile(userNix, []byte(stubUserNix), 0o644); err != nil {
 		return err
 	}
 	exe, err := os.Executable()
@@ -192,7 +195,8 @@ func builderArgv(o BuildOpts, ctxDir, outDir, cacheVol string) []string {
 		args = append(args, "--volume", cacheVol+":/nix")
 	}
 	args = append(args, o.ExtraArgs...)
-	args = append(args, o.NixImage, "sh", "-lc", builderScript(o.Refresh))
+	args = append(args, o.NixImage, "sh", "-lc",
+		builderScript(o.Refresh, o.Spec.NixpkgsRev, o.Spec.LLMAgentsRev))
 	return args
 }
 
@@ -200,15 +204,25 @@ func builderArgv(o BuildOpts, ctxDir, outDir, cacheVol string) []string {
 // `#image` derivation from the mounted /src flake and copy the realized image
 // tarball to the bind-mounted /out. `--accept-flake-config` lets the
 // llm-agents binary cache substituter be used (no agent compiles from source);
-// `--no-write-lock-file` keeps the read-only /src untouched.
-func builderScript(refresh bool) string {
-	refreshFlag := ""
+// `--no-write-lock-file` keeps the read-only /src untouched. A rev override
+// becomes an --override-input flag only when it differs from the embedded pin
+// — when the effective rev IS the pin the script stays byte-identical to a
+// stock build, so nix's eval cache is shared.
+func builderScript(refresh bool, nixpkgsRev, llmAgentsRev string) string {
+	flags := ""
 	if refresh {
-		refreshFlag = "--refresh "
+		flags += "--refresh "
+	}
+	embNixpkgs, embLLMAgents := EmbeddedRevs()
+	if nixpkgsRev != "" && nixpkgsRev != embNixpkgs {
+		flags += "--override-input nixpkgs github:NixOS/nixpkgs/" + nixpkgsRev + " "
+	}
+	if llmAgentsRev != "" && llmAgentsRev != embLLMAgents {
+		flags += "--override-input llm-agents github:numtide/llm-agents.nix/" + llmAgentsRev + " "
 	}
 	return "set -e; " +
 		"nix --extra-experimental-features 'nix-command flakes' " +
-		"--accept-flake-config build " + refreshFlag +
+		"--accept-flake-config build " + flags +
 		"--no-write-lock-file --no-link --print-out-paths " +
 		"path:/src#image > /out/storepath && " +
 		`cp -L "$(cat /out/storepath)" /out/image.tar.gz`

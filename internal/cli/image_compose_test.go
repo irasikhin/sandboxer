@@ -299,4 +299,35 @@ func TestBuildImageCommand(t *testing.T) {
 	if code, _, errs := run("build-image", "--engine", "podman"); code != 0 {
 		t.Fatalf("build-image = %d %s", code, errs)
 	}
+
+	// With a profile (-f): the profile's content-addressed variant tag is
+	// built instead of the stock default (the progress banner names it).
+	cfg := filepath.Join(t.TempDir(), "img.yaml")
+	if err := os.WriteFile(cfg, []byte("name: feat\nimage:\n  extraPkgs: [ripgrep]\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	code, _, errs := run("build-image", "--engine", "podman", "-f", cfg)
+	if code != 0 {
+		t.Fatalf("build-image -f = %d %s", code, errs)
+	}
+	if !strings.Contains(errs, "sandboxer-toolbox:var-") {
+		t.Errorf("expected a var- variant build, got: %s", errs)
+	}
+
+	// A multi-profile file: the positional names the section to build.
+	multi := filepath.Join(t.TempDir(), "multi.yaml")
+	if err := os.WriteFile(multi,
+		[]byte("profiles:\n  web:\n    tools: [node]\n  plain: {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	code, _, errs = run("build-image", "web", "--engine", "podman", "-f", multi)
+	if code != 0 || !strings.Contains(errs, "sandboxer-toolbox:var-") {
+		t.Errorf("build-image multi-profile = (%d, %q), want a var- build", code, errs)
+	}
+
+	// A positional that names no profile fails before any engine work.
+	if code, _, errs := run("build-image", "no-such-profile", "--engine", "podman"); code != 1 ||
+		!strings.Contains(errs, "no profile") {
+		t.Errorf("build-image bogus profile = (%d, %q)", code, errs)
+	}
 }

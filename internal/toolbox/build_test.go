@@ -74,6 +74,34 @@ func TestBuilderArgv(t *testing.T) {
 	}
 }
 
+// TestBuilderScriptOverrides pins the --override-input emission rules: no
+// override (or one equal to the embedded pin) keeps the script byte-identical
+// to a stock build; a differing rev adds exactly the matching override flag.
+func TestBuilderScriptOverrides(t *testing.T) {
+	embNixpkgs, embLLMAgents := EmbeddedRevs()
+	stock := builderScript(false, "", "")
+	if strings.Contains(stock, "--override-input") {
+		t.Errorf("stock script must carry no overrides:\n%s", stock)
+	}
+	if got := builderScript(false, embNixpkgs, embLLMAgents); got != stock {
+		t.Errorf("overrides equal to the embedded pins must not change the script:\ngot  %s\nwant %s", got, stock)
+	}
+	with := builderScript(false, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "bbbbbbb")
+	for _, want := range []string{
+		"--override-input nixpkgs github:NixOS/nixpkgs/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		"--override-input llm-agents github:numtide/llm-agents.nix/bbbbbbb",
+	} {
+		if !strings.Contains(with, want) {
+			t.Errorf("override script missing %q:\n%s", want, with)
+		}
+	}
+	// One overridden, one embedded → only the differing input gets a flag.
+	one := builderScript(false, "", "bbbbbbb")
+	if strings.Contains(one, "--override-input nixpkgs") || !strings.Contains(one, "--override-input llm-agents") {
+		t.Errorf("expected only the llm-agents override:\n%s", one)
+	}
+}
+
 func TestLoadArgv(t *testing.T) {
 	got := strings.Join(loadArgv("/out/image.tar.gz"), " ")
 	if got != "load -i /out/image.tar.gz" {
@@ -83,10 +111,10 @@ func TestLoadArgv(t *testing.T) {
 
 func TestWriteContext(t *testing.T) {
 	dir := t.TempDir()
-	if err := writeContext(dir, []string{"nodejs", "go"}); err != nil {
+	if err := writeContext(dir, Spec{Attrs: []string{"nodejs", "go"}}); err != nil {
 		t.Fatalf("writeContext: %v", err)
 	}
-	for _, f := range []string{"flake.nix", "agents.nix", "tools.nix", "sandboxer"} {
+	for _, f := range []string{"flake.nix", "agents.nix", "tools.nix", "user.nix", "sandboxer"} {
 		if _, err := os.Stat(filepath.Join(dir, f)); err != nil {
 			t.Errorf("missing %s in context: %v", f, err)
 		}
@@ -98,6 +126,32 @@ func TestWriteContext(t *testing.T) {
 	tools, _ := os.ReadFile(filepath.Join(dir, "tools.nix"))
 	if !strings.Contains(string(tools), `"go"`) || !strings.Contains(string(tools), `"nodejs"`) {
 		t.Errorf("tools.nix should list the tool attrs, got:\n%s", tools)
+	}
+	// No NixFile → user.nix is the no-op stub (the flake import is unconditional).
+	if got := readFile(t, filepath.Join(dir, "user.nix")); got != stubUserNix {
+		t.Errorf("user.nix stub = %q, want %q", got, stubUserNix)
+	}
+}
+
+// TestWriteContextUserNix: a spec with a user nix hook copies the file
+// verbatim into the context; a missing hook file fails the context assembly.
+func TestWriteContextUserNix(t *testing.T) {
+	src := filepath.Join(t.TempDir(), "image.nix")
+	body := "{ pkgs }: { packages = [ pkgs.hello ]; }\n"
+	if err := os.WriteFile(src, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	if err := writeContext(dir, Spec{NixFile: src}); err != nil {
+		t.Fatalf("writeContext: %v", err)
+	}
+	if got := readFile(t, filepath.Join(dir, "user.nix")); got != body {
+		t.Errorf("user.nix = %q, want the hook file copied verbatim", got)
+	}
+
+	err := writeContext(t.TempDir(), Spec{NixFile: filepath.Join(t.TempDir(), "missing.nix")})
+	if err == nil || !strings.Contains(err.Error(), "image.nix") {
+		t.Errorf("missing hook file should fail context assembly, got %v", err)
 	}
 }
 
@@ -136,6 +190,25 @@ func TestBuildImageFakeEngine(t *testing.T) {
 	if l := readFile(t, logPath2); !strings.Contains(l, "tag "+builtName+" myorg/toolbox:dev") {
 		t.Errorf("retag not issued:\n%s", l)
 	}
+
+	// Variant build: a non-empty spec under its content-addressed var- tag is
+	// retagged from the built default name like any custom tag.
+	spec := Spec{Attrs: []string{"ripgrep"}}
+	variant := spec.Tag()
+	if !strings.HasPrefix(variant, "sandboxer-toolbox:var-") {
+		t.Fatalf("unexpected variant tag %q", variant)
+	}
+	logPath3 := filepath.Join(dir, "calls3.log")
+	engine3 := writeFakeEngine(t, dir, logPath3)
+	if err := BuildImage(BuildOpts{
+		Engine: engine3, Image: variant, NixImage: "nixos/nix:test", Spec: spec,
+		Stdout: &strings.Builder{}, Stderr: &strings.Builder{},
+	}); err != nil {
+		t.Fatalf("BuildImage (variant): %v", err)
+	}
+	if l := readFile(t, logPath3); !strings.Contains(l, "tag "+builtName+" "+variant) {
+		t.Errorf("variant retag not issued:\n%s", l)
+	}
 }
 
 func TestCopyFile(t *testing.T) {
@@ -170,7 +243,7 @@ func TestBuildImageNoEngine(t *testing.T) {
 }
 
 func TestWriteContextError(t *testing.T) {
-	if err := writeContext(filepath.Join(t.TempDir(), "missing", "ctx"), nil); err == nil {
+	if err := writeContext(filepath.Join(t.TempDir(), "missing", "ctx"), Spec{}); err == nil {
 		t.Error("writeContext into a nonexistent dir should error")
 	}
 }

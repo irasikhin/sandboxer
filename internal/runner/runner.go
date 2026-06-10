@@ -124,16 +124,17 @@ func Run(o Options) (Result, error) {
 		return Result{}, err
 	}
 
-	// Per-profile tool pack: a `tools:` profile bakes a variant toolbox image
-	// (built on demand by the backend, keyed by tool-set hash).
+	// Per-profile image customization (`tools:` packs / `image:` section):
+	// resolve the content-addressed variant spec once for the whole batch; an
+	// empty spec keeps the configured image, any customization selects the
+	// variant tag (built on demand by the backend).
+	spec, err := toolbox.ResolveSpec(profile)
+	if err != nil {
+		return Result{}, err
+	}
 	image := o.Image
-	var toolAttrs []string
-	if profile != nil && len(profile.Tools) > 0 {
-		toolAttrs, err = registry.ResolveTools(profile.Tools)
-		if err != nil {
-			return Result{}, err
-		}
-		image = toolbox.ToolsImageTag(toolAttrs)
+	if !spec.Empty() {
+		image = spec.Tag()
 	}
 
 	// MCP servers: fold their domains into the batch allowlist once; the
@@ -200,7 +201,7 @@ func Run(o Options) (Result, error) {
 				agent:   agent,
 				engine:  engine,
 				image:   image,
-				tools:   toolAttrs,
+				spec:    spec,
 				mcp:     mcpServers,
 				profile: profile,
 				mem:     o.Mem,
@@ -254,7 +255,7 @@ type launchSpec struct {
 	agent   registry.Agent
 	engine  string
 	image   string
-	tools   []string
+	spec    toolbox.Spec
 	mcp     map[string]registry.MCPServer
 	profile *config.Profile
 	mem     string
@@ -286,7 +287,7 @@ func (s launchSpec) runSetup(dest, errPath string, crt config.Runtime, ef io.Wri
 	sc, serr := backendRun(backend.RunOpts{
 		Engine:          s.engine,
 		Image:           s.image,
-		Tools:           s.tools,
+		Spec:            s.spec,
 		Dest:            dest,
 		Slug:            s.slug,
 		HomeDir:         s.base.HomeDir(s.slug),
@@ -371,7 +372,7 @@ func (s launchSpec) runContainer(dest, acmd, outPath, errPath string) int {
 	rc, err := backend.Run(backend.RunOpts{
 		Engine:          s.engine,
 		Image:           s.image,
-		Tools:           s.tools,
+		Spec:            s.spec,
 		Dest:            dest,
 		Slug:            s.slug,
 		HomeDir:         s.base.HomeDir(s.slug),
