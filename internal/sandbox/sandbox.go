@@ -10,6 +10,8 @@ package sandbox
 
 import (
 	"bufio"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"os"
@@ -111,6 +113,32 @@ func (b *Base) LogPath(slug, ext string) string {
 }
 func (b *Base) AgentsListPath() string { return filepath.Join(b.metaDir(), "agents.list") }
 func (b *Base) currentPath() string    { return filepath.Join(b.metaDir(), "current") }
+func (b *Base) setupStampPath(slug string) string {
+	return filepath.Join(b.metaDir(), slug+".setup")
+}
+
+// SetupPending reports whether the profile's one-time setup script still needs
+// to run for slug — never run before, or changed since the last run — and
+// returns the script's hash to hand to MarkSetupDone. An empty script never
+// pends. The hash makes the gate re-trigger when the setup script is edited.
+func (b *Base) SetupPending(slug, script string) (bool, string) {
+	if strings.TrimSpace(script) == "" {
+		return false, ""
+	}
+	sum := sha256.Sum256([]byte(script))
+	h := hex.EncodeToString(sum[:])
+	prev, err := os.ReadFile(b.setupStampPath(slug))
+	if err == nil && strings.TrimSpace(string(prev)) == h {
+		return false, h
+	}
+	return true, h
+}
+
+// MarkSetupDone records that the setup script with the given hash completed, so
+// it is not re-run until the script changes.
+func (b *Base) MarkSetupDone(slug, hash string) error {
+	return os.WriteFile(b.setupStampPath(slug), []byte(hash+"\n"), 0o644)
+}
 
 // RunEnvExists reports whether the base has been initialized (at least one
 // sandbox created here).
@@ -244,6 +272,7 @@ func (b *Base) Remove(slug string) error {
 		b.MetaFilePath(slug),
 		b.ProfileJSONPath(slug),
 		b.ManifestPath(slug),
+		b.setupStampPath(slug),
 	}
 	for _, p := range paths {
 		_ = os.RemoveAll(p)

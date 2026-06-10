@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 
@@ -135,6 +136,9 @@ func newEnterCmd() *cobra.Command {
 			if err := t.base.EnsureHome(t.slug); err != nil {
 				return err
 			}
+			if err := runSetup(t, rt, engine, f.noSetup, errOut); err != nil {
+				return err
+			}
 			fmt.Fprintln(errOut, enterBanner(t.slug, engine, dest))
 			code, runErr := backend.Run(backend.RunOpts{
 				Engine: engine, Image: config.LoadDefaults().Image, Dest: dest, Slug: t.slug,
@@ -162,6 +166,7 @@ func newEnterCmd() *cobra.Command {
 		},
 	}
 	bindExisting(cmd, &f)
+	cmd.Flags().BoolVar(&f.noSetup, "no-setup", false, "skip the profile's one-time setup script")
 	return cmd
 }
 
@@ -208,6 +213,9 @@ func newExecCmd() *cobra.Command {
 			if err := t.base.EnsureHome(t.slug); err != nil {
 				return err
 			}
+			if err := runSetup(t, rt, engine, f.noSetup, cmd.ErrOrStderr()); err != nil {
+				return err
+			}
 			code, err := backend.Run(backend.RunOpts{
 				Engine: engine, Image: config.LoadDefaults().Image, Dest: dest, Slug: t.slug,
 				HomeDir: t.base.HomeDir(t.slug),
@@ -231,6 +239,7 @@ func newExecCmd() *cobra.Command {
 		},
 	}
 	bindExisting(cmd, &f)
+	cmd.Flags().BoolVar(&f.noSetup, "no-setup", false, "skip the profile's one-time setup script")
 	return cmd
 }
 
@@ -275,6 +284,52 @@ func enterBanner(slug, engine, dir string) string {
 		"sandboxer: interactive shell in %q (%s) — %s\n"+
 			"sandboxer: exit ends the shell and pushes rw deps back to their origins",
 		slug, engine, dir)
+}
+
+// backendRun is the container-run seam, overridable in tests so the setup
+// orchestration (gate → run → stamp) can be exercised without a real engine.
+var backendRun = backend.Run
+
+// runSetup runs the profile's one-time `setup:` script inside the sandbox before
+// the user/agent takes over. It is gated by a per-sandbox stamp (the script's
+// hash) so it runs once and re-runs only when the script changes. Setup runs
+// under the same isolation and egress allowlist as the sandbox, so network
+// installs need their domains allowed. A non-zero setup is fatal by default —
+// we don't drop the caller into a half-prepared sandbox — and noSetup skips it.
+func runSetup(t *target, rt config.Runtime, engine string, noSetup bool, errOut io.Writer) error {
+	if t.profile == nil {
+		return nil
+	}
+	pending, hash := t.base.SetupPending(t.slug, t.profile.Setup)
+	if !pending {
+		return nil
+	}
+	if noSetup {
+		fmt.Fprintf(errOut, "sandboxer: skipping setup for %q (--no-setup)\n", t.slug)
+		return nil
+	}
+	fmt.Fprintf(errOut, "sandboxer: running setup for %q…\n", t.slug)
+	code, err := backendRun(backend.RunOpts{
+		Engine: engine, Image: config.LoadDefaults().Image,
+		Dest: t.base.SandboxDir(t.slug), Slug: t.slug,
+		HomeDir:         t.base.HomeDir(t.slug),
+		RT:              rt,
+		Profile:         t.profile,
+		ProfileJSONPath: t.base.ProfileJSONPath(t.slug),
+		ManifestPath:    t.base.ManifestPath(t.slug),
+		Interactive:     false,
+		Args:            []string{"bash", "-lc", t.profile.Setup},
+		NoEgress:        noEgress(),
+		Stdout:          errOut,
+		Stderr:          errOut,
+	})
+	if err != nil {
+		return fmt.Errorf("setup failed to start: %w", err)
+	}
+	if code != 0 {
+		return fmt.Errorf("setup exited %d — fix the `setup:` script or re-run with --no-setup", code)
+	}
+	return t.base.MarkSetupDone(t.slug, hash)
 }
 
 // splitDash separates the optional positional before `--` from the command

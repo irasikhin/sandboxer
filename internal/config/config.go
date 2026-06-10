@@ -62,6 +62,11 @@ type Profile struct {
 	Deps        []string          `yaml:"deps,omitempty"        json:"deps,omitempty"`
 	ExtraMounts []Mount           `yaml:"extraMounts,omitempty" json:"extraMounts,omitempty"`
 	Env         map[string]string `yaml:"env,omitempty"         json:"env,omitempty"`
+	// Setup is a one-time shell script run inside the sandbox (bash -lc) before
+	// the user/agent takes over — e.g. `npm ci`, a build, a DB seed. It runs
+	// once per sandbox (re-run only when the script changes) under the same
+	// isolation and egress allowlist as the sandbox.
+	Setup string `yaml:"setup,omitempty" json:"setup,omitempty"`
 }
 
 // Load reads and parses a single flat YAML profile from disk. Multi-profile
