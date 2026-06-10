@@ -153,6 +153,9 @@ func mergeProfile(base, over Profile) Profile {
 	if over.Proxy.No != "" {
 		out.Proxy.No = over.Proxy.No
 	}
+	if over.Proxy.Upstream != "" {
+		out.Proxy.Upstream = over.Proxy.Upstream
+	}
 	if len(over.Agents) > 0 {
 		out.Agents = over.Agents
 	}
@@ -177,6 +180,15 @@ func mergeProfile(base, over Profile) Profile {
 			m[k] = v
 		}
 		out.Env = m
+	}
+	if over.Setup != "" {
+		out.Setup = over.Setup
+	}
+	if len(over.Tools) > 0 {
+		out.Tools = over.Tools
+	}
+	if len(over.MCP) > 0 {
+		out.MCP = over.MCP
 	}
 	if over.Session != "" {
 		out.Session = over.Session
