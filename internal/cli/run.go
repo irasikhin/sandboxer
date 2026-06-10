@@ -18,7 +18,7 @@ func newRunCmd() *cobra.Command {
 		model, agent, backend, doms string
 		mem, cpu, wall              string
 		maxp                        int
-		keep, dry                   bool
+		keep, dry, noSetup          bool
 	)
 	d := config.LoadDefaults()
 	cmd := &cobra.Command{
@@ -56,6 +56,7 @@ func newRunCmd() *cobra.Command {
 				Wall:       wall,
 				Keep:       keep,
 				DryRun:     dry,
+				NoSetup:    noSetup,
 				Stdout:     cmd.OutOrStdout(),
 				Stderr:     cmd.ErrOrStderr(),
 			})
@@ -89,5 +90,6 @@ func newRunCmd() *cobra.Command {
 	fl.StringVar(&wall, "wall", d.Wall, "per-agent wall-clock timeout in seconds")
 	fl.BoolVar(&keep, "keep", false, "keep existing .sandboxer state")
 	fl.BoolVar(&dry, "dry-run", false, "do not run agents; just create sandboxes")
+	fl.BoolVar(&noSetup, "no-setup", false, "skip each profile's one-time setup script")
 	return cmd
 }

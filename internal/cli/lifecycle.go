@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 
@@ -135,13 +136,16 @@ func newEnterCmd() *cobra.Command {
 			if err := t.base.EnsureHome(t.slug); err != nil {
 				return err
 			}
-			fmt.Fprintf(errOut, "sandboxer: interactive shell in container (%s %s). Agents in PATH.\n", engine, config.LoadDefaults().Image)
+			if err := runSetup(t, rt, engine, f.noSetup, errOut); err != nil {
+				return err
+			}
+			fmt.Fprintln(errOut, enterBanner(t.slug, engine, dest))
 			code, runErr := backend.Run(backend.RunOpts{
 				Engine: engine, Image: config.LoadDefaults().Image, Dest: dest, Slug: t.slug,
 				HomeDir: t.base.HomeDir(t.slug),
 				RT:      rt, Profile: t.profile,
 				ProfileJSONPath: t.base.ProfileJSONPath(t.slug), ManifestPath: t.base.ManifestPath(t.slug),
-				Interactive: true, Args: []string{"bash", "-l"},
+				Interactive: true, Args: interactiveShellArgs(),
 				NoEgress: noEgress(),
 				Stdin:    cmd.InOrStdin(), Stdout: cmd.OutOrStdout(), Stderr: errOut,
 			})
@@ -162,6 +166,7 @@ func newEnterCmd() *cobra.Command {
 		},
 	}
 	bindExisting(cmd, &f)
+	cmd.Flags().BoolVar(&f.noSetup, "no-setup", false, "skip the profile's one-time setup script")
 	return cmd
 }
 
@@ -208,6 +213,9 @@ func newExecCmd() *cobra.Command {
 			if err := t.base.EnsureHome(t.slug); err != nil {
 				return err
 			}
+			if err := runSetup(t, rt, engine, f.noSetup, cmd.ErrOrStderr()); err != nil {
+				return err
+			}
 			code, err := backend.Run(backend.RunOpts{
 				Engine: engine, Image: config.LoadDefaults().Image, Dest: dest, Slug: t.slug,
 				HomeDir: t.base.HomeDir(t.slug),
@@ -231,6 +239,7 @@ func newExecCmd() *cobra.Command {
 		},
 	}
 	bindExisting(cmd, &f)
+	cmd.Flags().BoolVar(&f.noSetup, "no-setup", false, "skip the profile's one-time setup script")
 	return cmd
 }
 
@@ -253,6 +262,75 @@ func pushDeps(t *target, cmd *cobra.Command) error {
 // noEgress reports whether the egress allowlist is disabled via the environment
 // (parity with the batch runner, which honours the same switch).
 func noEgress() bool { return os.Getenv("SANDBOXER_NO_EGRESS") == "1" }
+
+// interactiveShellArgs is the in-container command for `enter`: launch bash with
+// the baked rc (sandbox-aware prompt, aliases, EDITOR/PAGER) when it is present,
+// otherwise a plain interactive shell. The guard tolerates an older cached
+// toolbox image built before the rc existed — a fresh `sandboxer build-image`
+// adds it — so flipping the launcher never strands such an image at a dead
+// `--rcfile` path.
+func interactiveShellArgs() []string {
+	return []string{"bash", "-c",
+		"test -r /etc/sandboxer/rc.sh && exec bash --rcfile /etc/sandboxer/rc.sh -i || exec bash -i"}
+}
+
+// enterBanner is the orientation notice printed to stderr when an interactive
+// shell opens: which sandbox, the engine, the working directory, and the
+// non-obvious exit semantics (leaving the shell pushes rw deps back to their
+// origins). The agent/backend/model/egress facts are already on the configLine
+// printed just above, so this only adds what that line does not.
+func enterBanner(slug, engine, dir string) string {
+	return fmt.Sprintf(
+		"sandboxer: interactive shell in %q (%s) — %s\n"+
+			"sandboxer: exit ends the shell and pushes rw deps back to their origins",
+		slug, engine, dir)
+}
+
+// backendRun is the container-run seam, overridable in tests so the setup
+// orchestration (gate → run → stamp) can be exercised without a real engine.
+var backendRun = backend.Run
+
+// runSetup runs the profile's one-time `setup:` script inside the sandbox before
+// the user/agent takes over. It is gated by a per-sandbox stamp (the script's
+// hash) so it runs once and re-runs only when the script changes. Setup runs
+// under the same isolation and egress allowlist as the sandbox, so network
+// installs need their domains allowed. A non-zero setup is fatal by default —
+// we don't drop the caller into a half-prepared sandbox — and noSetup skips it.
+func runSetup(t *target, rt config.Runtime, engine string, noSetup bool, errOut io.Writer) error {
+	if t.profile == nil {
+		return nil
+	}
+	pending, hash := t.base.SetupPending(t.slug, t.profile.Setup)
+	if !pending {
+		return nil
+	}
+	if noSetup {
+		fmt.Fprintf(errOut, "sandboxer: skipping setup for %q (--no-setup)\n", t.slug)
+		return nil
+	}
+	fmt.Fprintf(errOut, "sandboxer: running setup for %q…\n", t.slug)
+	code, err := backendRun(backend.RunOpts{
+		Engine: engine, Image: config.LoadDefaults().Image,
+		Dest: t.base.SandboxDir(t.slug), Slug: t.slug,
+		HomeDir:         t.base.HomeDir(t.slug),
+		RT:              rt,
+		Profile:         t.profile,
+		ProfileJSONPath: t.base.ProfileJSONPath(t.slug),
+		ManifestPath:    t.base.ManifestPath(t.slug),
+		Interactive:     false,
+		Args:            []string{"bash", "-lc", t.profile.Setup},
+		NoEgress:        noEgress(),
+		Stdout:          errOut,
+		Stderr:          errOut,
+	})
+	if err != nil {
+		return fmt.Errorf("setup failed to start: %w", err)
+	}
+	if code != 0 {
+		return fmt.Errorf("setup exited %d — fix the `setup:` script or re-run with --no-setup", code)
+	}
+	return t.base.MarkSetupDone(t.slug, hash)
+}
 
 // splitDash separates the optional positional before `--` from the command
 // after it.

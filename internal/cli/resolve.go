@@ -25,6 +25,7 @@ type commonFlags struct {
 	backend string
 	domains string
 	force   bool
+	noSetup bool
 }
 
 // bindExisting registers the flags used by enter/exec/pull/push/show/diff/rm.

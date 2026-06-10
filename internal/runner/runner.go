@@ -44,6 +44,7 @@ type Options struct {
 	Wall       string
 	Keep       bool
 	DryRun     bool
+	NoSetup    bool
 	Stdout     io.Writer
 	Stderr     io.Writer
 }
@@ -179,6 +180,7 @@ func Run(o Options) (Result, error) {
 				cpu:     o.CPU,
 				wall:    o.Wall,
 				dry:     o.DryRun,
+				noSetup: o.NoSetup,
 				stderr:  o.Stderr,
 			}
 			if rc := la.run(); rc != 0 {
@@ -230,7 +232,54 @@ type launchSpec struct {
 	cpu     string
 	wall    string
 	dry     bool
+	noSetup bool
 	stderr  io.Writer
+}
+
+// backendRun is the container-run seam, overridable in tests so the setup
+// orchestration can be exercised without a real engine.
+var backendRun = backend.Run
+
+// runSetup runs the profile's one-time setup before the agent, gated by the
+// per-sandbox stamp so re-running the batch does not repeat it. It returns an
+// exit code: 0 = ran-and-stamped or nothing-to-do; non-zero = setup failed and
+// the task should be counted failed. Setup shares the agent's isolation and
+// egress allowlist (crt) and streams its output to the per-sandbox err log (ef).
+func (s launchSpec) runSetup(dest, errPath string, crt config.Runtime, ef io.Writer) int {
+	if s.noSetup || s.profile == nil {
+		return 0
+	}
+	pending, hash := s.base.SetupPending(s.slug, s.profile.Setup)
+	if !pending {
+		return 0
+	}
+	fmt.Fprintf(s.stderr, "sandboxer: %s: running setup…\n", s.slug)
+	sc, serr := backendRun(backend.RunOpts{
+		Engine:          s.engine,
+		Image:           s.image,
+		Dest:            dest,
+		Slug:            s.slug,
+		HomeDir:         s.base.HomeDir(s.slug),
+		RT:              crt,
+		Profile:         s.profile,
+		ProfileJSONPath: s.base.ProfileJSONPath(s.slug),
+		ManifestPath:    s.base.ManifestPath(s.slug),
+		Interactive:     false,
+		Args:            []string{"bash", "-lc", s.profile.Setup},
+		NoEgress:        os.Getenv("SANDBOXER_NO_EGRESS") == "1",
+		Stdout:          ef,
+		Stderr:          ef,
+	})
+	if serr != nil {
+		fmt.Fprintf(s.stderr, "sandboxer: %s: setup: %v\n", s.slug, serr)
+		return 1
+	}
+	if sc != 0 {
+		fmt.Fprintf(s.stderr, "sandboxer: %s: setup exited %d (see %s)\n", s.slug, sc, errPath)
+		return 1
+	}
+	_ = s.base.MarkSetupDone(s.slug, hash)
+	return 0
 }
 
 // run executes one agent and returns its exit code (0 = success). The code is
@@ -278,6 +327,13 @@ func (s launchSpec) runContainer(dest, acmd, outPath, errPath string) int {
 
 	crt := s.rt
 	crt.AuthAgents = []string{s.rt.Agent} // only the chosen agent's auth env
+
+	// One-time setup before the agent runs; a failed setup fails the task so we
+	// never launch an agent into a half-prepared tree.
+	if rc := s.runSetup(dest, errPath, crt, ef); rc != 0 {
+		return rc
+	}
+
 	rc, err := backend.Run(backend.RunOpts{
 		Engine:          s.engine,
 		Image:           s.image,
