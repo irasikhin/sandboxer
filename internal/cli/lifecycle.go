@@ -140,8 +140,12 @@ func newEnterCmd() *cobra.Command {
 				return err
 			}
 			fmt.Fprintln(errOut, enterBanner(t.slug, engine, dest))
+			image, tools, err := resolveImage(t.profile)
+			if err != nil {
+				return err
+			}
 			code, runErr := backend.Run(backend.RunOpts{
-				Engine: engine, Image: config.LoadDefaults().Image, Dest: dest, Slug: t.slug,
+				Engine: engine, Image: image, Tools: tools, Dest: dest, Slug: t.slug,
 				HomeDir: t.base.HomeDir(t.slug),
 				RT:      rt, Profile: t.profile,
 				ProfileJSONPath: t.base.ProfileJSONPath(t.slug), ManifestPath: t.base.ManifestPath(t.slug),
@@ -216,8 +220,12 @@ func newExecCmd() *cobra.Command {
 			if err := runSetup(t, rt, engine, f.noSetup, cmd.ErrOrStderr()); err != nil {
 				return err
 			}
+			image, tools, err := resolveImage(t.profile)
+			if err != nil {
+				return err
+			}
 			code, err := backend.Run(backend.RunOpts{
-				Engine: engine, Image: config.LoadDefaults().Image, Dest: dest, Slug: t.slug,
+				Engine: engine, Image: image, Tools: tools, Dest: dest, Slug: t.slug,
 				HomeDir: t.base.HomeDir(t.slug),
 				RT:      rt, Profile: t.profile,
 				ProfileJSONPath: t.base.ProfileJSONPath(t.slug), ManifestPath: t.base.ManifestPath(t.slug),
@@ -308,9 +316,13 @@ func runSetup(t *target, rt config.Runtime, engine string, noSetup bool, errOut 
 		fmt.Fprintf(errOut, "sandboxer: skipping setup for %q (--no-setup)\n", t.slug)
 		return nil
 	}
+	image, tools, rerr := resolveImage(t.profile)
+	if rerr != nil {
+		return rerr
+	}
 	fmt.Fprintf(errOut, "sandboxer: running setup for %q…\n", t.slug)
 	code, err := backendRun(backend.RunOpts{
-		Engine: engine, Image: config.LoadDefaults().Image,
+		Engine: engine, Image: image, Tools: tools,
 		Dest: t.base.SandboxDir(t.slug), Slug: t.slug,
 		HomeDir:         t.base.HomeDir(t.slug),
 		RT:              rt,

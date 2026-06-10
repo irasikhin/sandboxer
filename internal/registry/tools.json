@@ -1,0 +1,11 @@
+{
+  "node": ["nodejs"],
+  "python": ["python3", "uv"],
+  "go": ["go"],
+  "rust": ["rustc", "cargo"],
+  "bun": ["bun"],
+  "deno": ["deno"],
+  "java": ["jdk"],
+  "ruby": ["ruby"],
+  "php": ["php"]
+}

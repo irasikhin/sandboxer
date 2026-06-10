@@ -18,6 +18,7 @@ import (
 	"github.com/irasikhin/sandboxer/internal/config"
 	"github.com/irasikhin/sandboxer/internal/registry"
 	"github.com/irasikhin/sandboxer/internal/sandbox"
+	"github.com/irasikhin/sandboxer/internal/toolbox"
 )
 
 const preamble = "You are in an isolated copy of the project. Act autonomously, " +
@@ -123,6 +124,18 @@ func Run(o Options) (Result, error) {
 		return Result{}, err
 	}
 
+	// Per-profile tool pack: a `tools:` profile bakes a variant toolbox image
+	// (built on demand by the backend, keyed by tool-set hash).
+	image := o.Image
+	var toolAttrs []string
+	if profile != nil && len(profile.Tools) > 0 {
+		toolAttrs, err = registry.ResolveTools(profile.Tools)
+		if err != nil {
+			return Result{}, err
+		}
+		image = toolbox.ToolsImageTag(toolAttrs)
+	}
+
 	var profileJSON []byte
 	if profile != nil {
 		profileJSON, _ = profile.JSON()
@@ -174,7 +187,8 @@ func Run(o Options) (Result, error) {
 				rt:      rt,
 				agent:   agent,
 				engine:  engine,
-				image:   o.Image,
+				image:   image,
+				tools:   toolAttrs,
 				profile: profile,
 				mem:     o.Mem,
 				cpu:     o.CPU,
@@ -227,6 +241,7 @@ type launchSpec struct {
 	agent   registry.Agent
 	engine  string
 	image   string
+	tools   []string
 	profile *config.Profile
 	mem     string
 	cpu     string
@@ -257,6 +272,7 @@ func (s launchSpec) runSetup(dest, errPath string, crt config.Runtime, ef io.Wri
 	sc, serr := backendRun(backend.RunOpts{
 		Engine:          s.engine,
 		Image:           s.image,
+		Tools:           s.tools,
 		Dest:            dest,
 		Slug:            s.slug,
 		HomeDir:         s.base.HomeDir(s.slug),
@@ -337,6 +353,7 @@ func (s launchSpec) runContainer(dest, acmd, outPath, errPath string) int {
 	rc, err := backend.Run(backend.RunOpts{
 		Engine:          s.engine,
 		Image:           s.image,
+		Tools:           s.tools,
 		Dest:            dest,
 		Slug:            s.slug,
 		HomeDir:         s.base.HomeDir(s.slug),
