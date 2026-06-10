@@ -41,16 +41,21 @@ const (
 
 // BuildOpts configures a toolbox image build.
 type BuildOpts struct {
-	Engine      string    // resolved container engine (podman|docker); required
-	Image       string    // final tag; retagged from builtName when different
-	NixImage    string    // builder image override; "" → NixImage
-	Cache       bool      // keep a persistent nix-store volume for fast rebuilds
-	KeepBuilder bool      // don't remove the nixos/nix image afterward
-	Refresh     bool      // re-fetch flake inputs (nix build --refresh)
-	ExtraArgs   []string  // extra engine `run` flags for the builder (escape hatch)
-	Spec        Spec      // image variant customization (attrs, user nix, rev overrides); zero = stock
-	Stdout      io.Writer // build chatter / engine stdout
-	Stderr      io.Writer // progress banners / engine stderr
+	Engine      string // resolved container engine (podman|docker); required
+	Image       string // final tag; retagged from builtName when different
+	NixImage    string // builder image override; "" → NixImage
+	Cache       bool   // keep a persistent nix-store volume for fast rebuilds
+	KeepBuilder bool   // don't remove the nixos/nix image afterward
+	// BuilderPulled marks the builder image as pulled by an earlier step of
+	// this command (the "latest" pin resolver runs it before BuildImage and the
+	// engine auto-pulls), so clean-by-default still removes it afterward even
+	// though BuildImage's own probe now sees it as present.
+	BuilderPulled bool
+	Refresh       bool      // re-fetch flake inputs (nix build --refresh)
+	ExtraArgs     []string  // extra engine `run` flags for the builder (escape hatch)
+	Spec          Spec      // image variant customization (attrs, user nix, rev overrides); zero = stock
+	Stdout        io.Writer // build chatter / engine stdout
+	Stderr        io.Writer // progress banners / engine stderr
 }
 
 // BuildImage assembles the build context, runs the ephemeral nix builder, loads
@@ -87,8 +92,9 @@ func BuildImage(o BuildOpts) error {
 	}
 
 	// Track whether we pull the builder image, so cleanup only removes what we
-	// added (never a nixos/nix the user already had).
-	pulledBuilder := !imageExists(o.Engine, o.NixImage)
+	// added (never a nixos/nix the user already had). BuilderPulled folds in a
+	// pull done by an earlier step of the same command (the pin resolver).
+	pulledBuilder := o.BuilderPulled || !imageExists(o.Engine, o.NixImage)
 	// Clear any leftover builder container from a previously aborted run.
 	_ = exec.Command(o.Engine, "rm", "-f", builderName).Run()
 
@@ -107,6 +113,17 @@ func BuildImage(o BuildOpts) error {
 		return fmt.Errorf("toolbox image build failed: %w", err)
 	}
 
+	// The flake always produces builtName:latest, and `engine load` re-points
+	// that tag at the freshly built image. When the real target is a different
+	// tag (a var- variant, a custom SANDBOXER_IMAGE), remember what the stock
+	// tag pointed at so it can be given back after the retag — a variant build
+	// must never leave the user's default image tagless (the next stock
+	// enter/exec would then trigger a full rebuild).
+	prevID := ""
+	if o.Image != builtName {
+		prevID = imageID(o.Engine, builtName)
+	}
+
 	tar := filepath.Join(outDir, "image.tar.gz")
 	fmt.Fprintf(progress, "sandboxer: loading image into %s…\n", o.Engine)
 	load := exec.Command(o.Engine, loadArgv(tar)...)
@@ -116,13 +133,20 @@ func BuildImage(o BuildOpts) error {
 		return fmt.Errorf("image load failed: %w", err)
 	}
 
-	// Retag to a custom SANDBOXER_IMAGE, dropping the default tag so we leave
-	// exactly one new image behind.
+	// Retag to the real target, then restore the stock tag to the image it
+	// pointed at before the load (or drop it when there was none, so a custom
+	// tag still leaves exactly one new image behind).
 	if o.Image != builtName {
 		if err := exec.Command(o.Engine, "tag", builtName, o.Image).Run(); err != nil {
 			return fmt.Errorf("retag %s -> %s: %w", builtName, o.Image, err)
 		}
-		_ = exec.Command(o.Engine, "rmi", builtName).Run()
+		if prevID != "" {
+			if err := exec.Command(o.Engine, "tag", prevID, builtName).Run(); err != nil {
+				return fmt.Errorf("restore stock tag %s -> %s: %w", prevID, builtName, err)
+			}
+		} else {
+			_ = exec.Command(o.Engine, "rmi", builtName).Run()
+		}
 		fmt.Fprintf(progress, "sandboxer: tagged image as %s\n", o.Image)
 	}
 
@@ -207,7 +231,9 @@ func builderArgv(o BuildOpts, ctxDir, outDir, cacheVol string) []string {
 // `--no-write-lock-file` keeps the read-only /src untouched. A rev override
 // becomes an --override-input flag only when it differs from the embedded pin
 // — when the effective rev IS the pin the script stays byte-identical to a
-// stock build, so nix's eval cache is shared.
+// stock build, so nix's eval cache is shared. Revs are full 40-hex commits
+// (ValidateImageSpec / ResolveLatest enforce it), so the != comparison is
+// exact and a github: flakeref override never needs a GitHub API resolve.
 func builderScript(refresh bool, nixpkgsRev, llmAgentsRev string) string {
 	flags := ""
 	if refresh {
@@ -272,6 +298,17 @@ func imageAgentPackages() []string {
 // toolbox for the auto-build path).
 func imageExists(engine, image string) bool {
 	return exec.Command(engine, "image", "inspect", image).Run() == nil
+}
+
+// imageID returns the engine's local ID for image ("" when absent or on any
+// failure) — backend.ImageID's twin, duplicated for the same no-import-cycle
+// reason as imageExists.
+func imageID(engine, image string) string {
+	out, err := exec.Command(engine, "image", "inspect", "--format", "{{.Id}}", image).Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimPrefix(strings.TrimSpace(string(out)), "sha256:")
 }
 
 func copyFile(src, dst string) error {

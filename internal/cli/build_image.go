@@ -31,13 +31,16 @@ engine loads the result as ` + config.DefaultImage + `.
 
 With a profile (a positional name or -f, resolved like enter/exec) the profile's
 customized variant — tools packs, image.extraPkgs, an image.nix hook, pinned
-input revs — is built under its content-addressed var- tag instead. Without one
-the stock default image is built, as before.
+input revs — is built under its content-addressed var- tag instead. Without a
+profile and without rev flags the stock default image is built, as before.
 
 --llm-agents-rev/--nixpkgs-rev override the input revs for this build only (over
-the profile's values). A "latest" rev is resolved to the remote head once and
-stamped into the per-user pins cache; later enter/exec reuse the stamp, and only
---refresh re-resolves it.
+the profile's values). Any rev override — flag or profile — selects a var- tag
+too: only a profile pinning the same revs runs that image, so the bare-flag form
+pre-resolves the pins and pre-builds a variant but does NOT update the stock
+image profile-less sandboxes use. A "latest" rev is resolved to the remote head
+once and stamped into the per-user pins cache; later enter/exec reuse the stamp,
+and only --refresh re-resolves it.
 
 Clean by default: the builder container is removed, the nixos/nix image is dropped
 again unless it was already present (or --keep-builder), and no persistent volume
@@ -54,7 +57,7 @@ is left behind. Use --cache to keep a nix-store volume for faster rebuilds.`,
 			}
 			// One-shot flag overrides land on top of the profile's revs; the
 			// merged values obey the same rules as the profile fields (latest
-			// or a 7-40 char hex commit), checked before any engine work.
+			// or a full 40-hex commit), checked before any engine work.
 			if llmAgentsRev != "" {
 				spec.LLMAgentsRev = llmAgentsRev
 			}
@@ -71,10 +74,18 @@ is left behind. Use --cache to keep a nix-store volume for faster rebuilds.`,
 			if err != nil {
 				return err
 			}
+			// Probe the builder image BEFORE pin resolution: resolving a
+			// "latest" rev runs it (the engine auto-pulls), and clean-by-default
+			// must still drop a builder image that pull brought in.
+			builderImage := nixImage
+			if builderImage == "" {
+				builderImage = toolbox.NixImage
+			}
+			builderPulled := !backend.ImageExists(engine, builderImage)
 			// Pin any "latest" rev to a concrete commit, stamping the pins
 			// cache for later enter/exec; --refresh forces a re-resolve so the
 			// stamp (and every tag derived from it) moves forward.
-			spec, err = toolbox.PinSpec(spec, engine, refresh, cmd.ErrOrStderr())
+			spec, err = toolbox.PinSpec(spec, engine, nixImage, refresh, cmd.ErrOrStderr())
 			if err != nil {
 				return err
 			}
@@ -82,18 +93,29 @@ is left behind. Use --cache to keep a nix-store volume for faster rebuilds.`,
 			if !spec.Empty() {
 				image = spec.Tag()
 			}
-			return toolboxBuild(toolbox.BuildOpts{
-				Engine:      engine,
-				Image:       image,
-				NixImage:    nixImage,
-				Cache:       cache,
-				KeepBuilder: keepBuilder,
-				Refresh:     refresh,
-				ExtraArgs:   builderArgs,
-				Spec:        spec,
-				Stdout:      cmd.OutOrStdout(),
-				Stderr:      cmd.ErrOrStderr(),
-			})
+			if err := toolboxBuild(toolbox.BuildOpts{
+				Engine:        engine,
+				Image:         image,
+				NixImage:      nixImage,
+				Cache:         cache,
+				KeepBuilder:   keepBuilder,
+				Refresh:       refresh,
+				ExtraArgs:     builderArgs,
+				Spec:          spec,
+				BuilderPulled: builderPulled,
+				Stdout:        cmd.OutOrStdout(),
+				Stderr:        cmd.ErrOrStderr(),
+			}); err != nil {
+				return err
+			}
+			// Bare rev flags (no profile) build a variant nothing selects by
+			// default — say so instead of letting the user believe the stock
+			// image their sandboxes run was just updated.
+			if prof == nil && !spec.Empty() {
+				fmt.Fprintf(cmd.ErrOrStderr(), "sandboxer: note: built variant %s — the stock %s was "+
+					"not rebuilt; only a profile pinning the same revs uses this image\n", image, d.Image)
+			}
+			return nil
 		},
 	}
 	fl := cmd.Flags()
@@ -103,8 +125,8 @@ is left behind. Use --cache to keep a nix-store volume for faster rebuilds.`,
 	fl.BoolVar(&cache, "cache", false, "keep a persistent nix-store volume for faster rebuilds")
 	fl.BoolVar(&keepBuilder, "keep-builder", false, "keep the nixos/nix builder image afterward")
 	fl.BoolVar(&refresh, "refresh", false, "re-fetch flake inputs and re-resolve any latest rev pin")
-	fl.StringVar(&llmAgentsRev, "llm-agents-rev", "", "llm-agents input rev for this build: latest or a commit hash (overrides the profile)")
-	fl.StringVar(&nixpkgsRev, "nixpkgs-rev", "", "nixpkgs input rev for this build: latest or a commit hash (overrides the profile)")
+	fl.StringVar(&llmAgentsRev, "llm-agents-rev", "", "llm-agents input rev for this build: latest or a full 40-hex commit (overrides the profile)")
+	fl.StringVar(&nixpkgsRev, "nixpkgs-rev", "", "nixpkgs input rev for this build: latest or a full 40-hex commit (overrides the profile)")
 	fl.StringArrayVar(&builderArgs, "builder-arg", nil, "extra engine `run` flag for the builder (repeatable)")
 	return cmd
 }

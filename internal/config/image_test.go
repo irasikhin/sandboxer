@@ -36,13 +36,16 @@ func TestValidateImageSpec(t *testing.T) {
 		{"both empty revs", ImageSpec{ExtraPkgs: []string{"ripgrep"}, Nix: "/x.nix"}, true},
 		{"latest llm-agents", ImageSpec{LLMAgentsRev: "latest"}, true},
 		{"latest nixpkgs", ImageSpec{NixpkgsRev: "latest"}, true},
-		{"7-char hex", ImageSpec{NixpkgsRev: "abcdef0"}, true},
 		{"40-char hex", ImageSpec{LLMAgentsRev: strings.Repeat("a1", 20)}, true},
-		{"6-char hex too short", ImageSpec{NixpkgsRev: "abcdef"}, false},
+		// Short prefixes are rejected: 7- and 40-hex of the same commit would
+		// mint two variant tags, and nix resolves a short github: rev via the
+		// GitHub API — a network dependency a pin must not have.
+		{"7-char hex too short", ImageSpec{NixpkgsRev: "abcdef0"}, false},
+		{"39-char hex too short", ImageSpec{NixpkgsRev: strings.Repeat("a", 39)}, false},
 		{"41-char hex too long", ImageSpec{NixpkgsRev: strings.Repeat("a", 41)}, false},
-		{"uppercase hex rejected", ImageSpec{LLMAgentsRev: "ABCDEF0"}, false},
+		{"uppercase hex rejected", ImageSpec{LLMAgentsRev: strings.Repeat("A", 40)}, false},
 		{"branch name rejected", ImageSpec{LLMAgentsRev: "main"}, false},
-		{"non-hex rejected", ImageSpec{NixpkgsRev: "abcdefg"}, false},
+		{"non-hex rejected", ImageSpec{NixpkgsRev: strings.Repeat("g", 40)}, false},
 	}
 	for _, c := range cases {
 		err := ValidateImageSpec(c.s)

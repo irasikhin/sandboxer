@@ -210,9 +210,15 @@ func ensureImage(o RunOpts) error {
 	if o.Image != config.DefaultImage && o.Spec.Empty() {
 		return nil
 	}
+	// A bare `sandboxer build-image` builds the STOCK image — a missing var-
+	// variant needs its profile named, or the hint cannot fix the error.
+	hint := "sandboxer build-image"
+	if !o.Spec.Empty() {
+		hint = "sandboxer build-image <profile> (this variant image needs its profile, by name or -f)"
+	}
 	if os.Getenv("SANDBOXER_NO_AUTOBUILD") != "" {
 		return fmt.Errorf("toolbox image %q is not present and is built locally "+
-			"(never published) — build it with:\n  sandboxer build-image", o.Image)
+			"(never published) — build it with:\n  %s", o.Image, hint)
 	}
 	if o.Stderr != nil {
 		fmt.Fprintf(o.Stderr, "sandboxer: toolbox image %q not found — building it now "+
@@ -222,10 +228,10 @@ func ensureImage(o RunOpts) error {
 		Engine: o.Engine, Image: o.Image, Spec: o.Spec,
 		Stdout: o.Stderr, Stderr: o.Stderr,
 	}); err != nil {
-		return fmt.Errorf("%w — build manually with: sandboxer build-image", err)
+		return fmt.Errorf("%w — build manually with: %s", err, hint)
 	}
 	if !imageExists(o.Engine, o.Image) {
-		return fmt.Errorf("toolbox image %q still missing after build — try: sandboxer build-image", o.Image)
+		return fmt.Errorf("toolbox image %q still missing after build — try: %s", o.Image, hint)
 	}
 	return nil
 }

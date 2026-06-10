@@ -148,7 +148,7 @@ func Run(o Options) (Result, error) {
 	if err != nil {
 		return Result{}, err
 	}
-	spec, err = toolbox.PinSpec(spec, engine, false, o.Stderr)
+	spec, err = toolbox.PinSpec(spec, engine, "", false, o.Stderr)
 	if err != nil {
 		return Result{}, err
 	}

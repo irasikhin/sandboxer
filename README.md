@@ -181,7 +181,7 @@ container does everything) and without forking the image:
 image:
   extraPkgs: [gh, python3Packages.requests]  # extra nixpkgs attrs baked in
   nix: sandbox-image.nix                     # build hook (path relative to this file)
-  llmAgentsRev: latest                       # input pin override: latest | commit hash
+  llmAgentsRev: latest                       # input pin override: latest | full commit hash
   # nixpkgsRev: <commit>                     # empty = the pin embedded in the binary
 ```
 
@@ -214,9 +214,9 @@ reference its own result. Full commented example:
 [sandbox-image.nix](./examples/profiles/sandbox-image.nix).
 
 `llmAgentsRev`/`nixpkgsRev` move the image's flake-input pins — e.g. pick up
-newer agents without waiting for a sandboxer release. A commit hash pins
-exactly; `latest` is resolved to the remote head **once**, inside the builder
-container at build time, and stamped into the per-user pins cache
+newer agents without waiting for a sandboxer release. A full 40-hex commit
+hash pins exactly; `latest` is resolved to the remote head **once**, inside the
+builder container at build time, and stamped into the per-user pins cache
 (`~/.cache/sandboxer/image-pins.json`). `enter`/`exec` reuse the stamp and
 never re-resolve; only `sandboxer build-image --refresh` moves it.
 
@@ -318,9 +318,13 @@ image. `--llm-agents-rev`/`--nixpkgs-rev` override the input revs for this one
 build, on top of the profile's values; `--refresh` re-fetches the flake inputs
 and re-resolves any `latest` pin (a `latest` rev resolves once and is stamped
 into the pins cache — see
-[Custom toolbox image](#custom-toolbox-image-image)). Variant tags hash the
-input pins, so each sandboxer release (a pin bump) rebuilds a variant once on
-first use; `--cache` keeps a nix-store volume that makes those rebuilds cheap.
+[Custom toolbox image](#custom-toolbox-image-image)). Any rev override selects
+a `var-` tag too: rev flags **without** a profile pre-resolve the pins and
+pre-build a variant, but the stock image profile-less sandboxes run is not
+touched — only a profile pinning the same revs uses the result (the command
+prints a note). Variant tags hash the input pins, so each sandboxer release (a
+pin bump) rebuilds a variant once on first use; `--cache` keeps a nix-store
+volume that makes those rebuilds cheap.
 
 > Migrating from ≤0.20: tool-pack variants moved from `tools-*` to the unified
 > `var-*` tags. The old `sandboxer-toolbox:tools-*` images are orphans —

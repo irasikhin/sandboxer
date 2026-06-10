@@ -86,17 +86,18 @@ func TestBuilderScriptOverrides(t *testing.T) {
 	if got := builderScript(false, embNixpkgs, embLLMAgents); got != stock {
 		t.Errorf("overrides equal to the embedded pins must not change the script:\ngot  %s\nwant %s", got, stock)
 	}
-	with := builderScript(false, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "bbbbbbb")
+	revA, revB := strings.Repeat("a", 40), strings.Repeat("b", 40)
+	with := builderScript(false, revA, revB)
 	for _, want := range []string{
-		"--override-input nixpkgs github:NixOS/nixpkgs/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-		"--override-input llm-agents github:numtide/llm-agents.nix/bbbbbbb",
+		"--override-input nixpkgs github:NixOS/nixpkgs/" + revA,
+		"--override-input llm-agents github:numtide/llm-agents.nix/" + revB,
 	} {
 		if !strings.Contains(with, want) {
 			t.Errorf("override script missing %q:\n%s", want, with)
 		}
 	}
 	// One overridden, one embedded → only the differing input gets a flag.
-	one := builderScript(false, "", "bbbbbbb")
+	one := builderScript(false, "", revB)
 	if strings.Contains(one, "--override-input nixpkgs") || !strings.Contains(one, "--override-input llm-agents") {
 		t.Errorf("expected only the llm-agents override:\n%s", one)
 	}
@@ -208,6 +209,64 @@ func TestBuildImageFakeEngine(t *testing.T) {
 	}
 	if l := readFile(t, logPath3); !strings.Contains(l, "tag "+builtName+" "+variant) {
 		t.Errorf("variant retag not issued:\n%s", l)
+	}
+}
+
+// TestBuildImageVariantKeepsStockTag: building a variant while the stock
+// default image exists must give the stock tag back to the user's previous
+// image after the load re-points it — never leave it dangling/tagless (the
+// next stock enter would otherwise trigger a full rebuild).
+func TestBuildImageVariantKeepsStockTag(t *testing.T) {
+	requireExec(t, "sh")
+	dir := t.TempDir()
+	logPath := filepath.Join(dir, "calls.log")
+	eng := filepath.Join(dir, "engine")
+	// `image inspect --format {{.Id}} <stock>` answers with the pre-existing
+	// stock image's ID; everything else logs and exits 0.
+	script := "#!/bin/sh\n" +
+		"echo \"$@\" >> " + logPath + "\n" +
+		"if [ \"$1\" = image ] && [ \"$3\" = --format ]; then echo sha256:stockid123; fi\n" +
+		"exit 0\n"
+	if err := os.WriteFile(eng, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	spec := Spec{Attrs: []string{"ripgrep"}}
+	variant := spec.Tag()
+	if err := BuildImage(BuildOpts{
+		Engine: eng, Image: variant, NixImage: "nixos/nix:test", Spec: spec,
+		Stdout: &strings.Builder{}, Stderr: &strings.Builder{},
+	}); err != nil {
+		t.Fatalf("BuildImage: %v", err)
+	}
+	log := readFile(t, logPath)
+	if !strings.Contains(log, "tag "+builtName+" "+variant) {
+		t.Errorf("variant retag not issued:\n%s", log)
+	}
+	if !strings.Contains(log, "tag stockid123 "+builtName) {
+		t.Errorf("stock tag not restored to the previous image:\n%s", log)
+	}
+	if strings.Contains(log, "rmi "+builtName) {
+		t.Errorf("stock tag must be restored, not removed:\n%s", log)
+	}
+}
+
+// TestBuildImageBuilderPulledFlag: BuilderPulled marks a builder image pulled
+// by an earlier pin resolve as ours, so clean-by-default removes it even
+// though BuildImage's own probe now sees it as present.
+func TestBuildImageBuilderPulledFlag(t *testing.T) {
+	requireExec(t, "sh")
+	dir := t.TempDir()
+	logPath := filepath.Join(dir, "calls.log")
+	eng := writeFakeEngine(t, dir, logPath) // image inspect exits 0: "present"
+	if err := BuildImage(BuildOpts{
+		Engine: eng, NixImage: "nixos/nix:test", BuilderPulled: true,
+		Stdout: &strings.Builder{}, Stderr: &strings.Builder{},
+	}); err != nil {
+		t.Fatalf("BuildImage: %v", err)
+	}
+	if l := readFile(t, logPath); !strings.Contains(l, "rmi nixos/nix:test") {
+		t.Errorf("a resolver-pulled builder image must still be removed:\n%s", l)
 	}
 }
 

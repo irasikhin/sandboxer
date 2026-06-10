@@ -169,7 +169,7 @@ func newEnterCmd() *cobra.Command {
 			} else {
 				fmt.Fprintln(errOut, enterBanner(t.slug, engine, dest))
 			}
-			image, spec, err := resolveImage(t.profile, engine)
+			image, spec, err := resolveImage(t.profile, engine, errOut)
 			if err != nil {
 				return err
 			}
@@ -280,7 +280,7 @@ func newExecCmd() *cobra.Command {
 			if err := runSetup(t, rt, engine, f.noSetup, cmd.ErrOrStderr()); err != nil {
 				return err
 			}
-			image, spec, err := resolveImage(t.profile, engine)
+			image, spec, err := resolveImage(t.profile, engine, cmd.ErrOrStderr())
 			if err != nil {
 				return err
 			}
@@ -459,7 +459,7 @@ func runSetup(t *target, rt config.Runtime, engine string, noSetup bool, errOut 
 		fmt.Fprintf(errOut, "sandboxer: skipping setup for %q (--no-setup)\n", t.slug)
 		return nil
 	}
-	image, spec, rerr := resolveImage(t.profile, engine)
+	image, spec, rerr := resolveImage(t.profile, engine, errOut)
 	if rerr != nil {
 		return rerr
 	}

@@ -61,7 +61,7 @@ type ImageSpec struct {
 	Nix string `yaml:"nix,omitempty" json:"nix,omitempty"`
 	// LLMAgentsRev / NixpkgsRev override the embedded flake-input pins: empty
 	// keeps the embedded pin, "latest" resolves the remote head once at build
-	// time, and a hex commit hash pins exactly (see ValidateImageSpec).
+	// time, and a full 40-hex commit hash pins exactly (see ValidateImageSpec).
 	LLMAgentsRev string `yaml:"llmAgentsRev,omitempty" json:"llmAgentsRev,omitempty"`
 	NixpkgsRev   string `yaml:"nixpkgsRev,omitempty"   json:"nixpkgsRev,omitempty"`
 }
@@ -72,11 +72,14 @@ func (s ImageSpec) Empty() bool {
 	return len(s.ExtraPkgs) == 0 && s.Nix == "" && s.LLMAgentsRev == "" && s.NixpkgsRev == ""
 }
 
-var imageRevRe = regexp.MustCompile(`^[0-9a-f]{7,40}$`)
+var imageRevRe = regexp.MustCompile(`^[0-9a-f]{40}$`)
 
 // ValidateImageSpec rejects a malformed flake-input revision override. Each rev
 // is "" (keep the embedded pin), "latest" (resolve the remote head at build
-// time) or a 7-40 character lowercase hex commit hash.
+// time) or a full 40-character lowercase hex commit hash. Short prefixes are
+// rejected: the same commit as 7- and 40-hex would mint two different variant
+// tags, and nix treats a non-40-hex rev in a github: flakeref as a ref needing
+// a GitHub API resolve — a network dependency a pin must not have.
 func ValidateImageSpec(s ImageSpec) error {
 	for _, r := range []struct{ field, rev string }{
 		{"image.llmAgentsRev", s.LLMAgentsRev},
@@ -85,7 +88,7 @@ func ValidateImageSpec(s ImageSpec) error {
 		if r.rev == "" || r.rev == "latest" || imageRevRe.MatchString(r.rev) {
 			continue
 		}
-		return fmt.Errorf("invalid %s %q — use latest or a 7-40 char hex commit hash", r.field, r.rev)
+		return fmt.Errorf("invalid %s %q — use latest or a full 40-char hex commit hash", r.field, r.rev)
 	}
 	return nil
 }

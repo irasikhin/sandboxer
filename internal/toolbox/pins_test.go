@@ -190,7 +190,7 @@ func TestPinSpec(t *testing.T) {
 		{Attrs: []string{"go"}},
 		{Attrs: []string{"go"}, NixpkgsRev: "1234abcd", LLMAgentsRev: revB},
 	} {
-		got, err := PinSpec(s, "", true, nil)
+		got, err := PinSpec(s, "", "", true, nil)
 		if err != nil || got.NixpkgsRev != s.NixpkgsRev || got.LLMAgentsRev != s.LLMAgentsRev {
 			t.Errorf("PinSpec(%+v) = %+v, %v; want untouched pass-through", s, got, err)
 		}
@@ -200,14 +200,14 @@ func TestPinSpec(t *testing.T) {
 	}
 
 	// Cold cache + no engine → fail-closed with build-image guidance.
-	if _, err := PinSpec(Spec{NixpkgsRev: "latest"}, "", false, nil); err == nil ||
+	if _, err := PinSpec(Spec{NixpkgsRev: "latest"}, "", "", false, nil); err == nil ||
 		!strings.Contains(err.Error(), "build-image") {
 		t.Errorf("cold cache without an engine = %v, want build-image guidance", err)
 	}
 
 	// Miss → ResolveLatest via the engine, both revs replaced, cache stamped.
 	got, err := PinSpec(Spec{NixpkgsRev: "latest", LLMAgentsRev: "latest"},
-		writePinEngine(t, revA, revB), false, &strings.Builder{})
+		writePinEngine(t, revA, revB), "", false, &strings.Builder{})
 	if err != nil {
 		t.Fatalf("PinSpec miss: %v", err)
 	}
@@ -220,14 +220,14 @@ func TestPinSpec(t *testing.T) {
 	}
 
 	// Warm cache hit: no engine needed (the dry-run case), revs from the stamp.
-	hit, err := PinSpec(Spec{LLMAgentsRev: "latest"}, "", false, nil)
+	hit, err := PinSpec(Spec{LLMAgentsRev: "latest"}, "", "", false, nil)
 	if err != nil || hit.LLMAgentsRev != revB {
 		t.Errorf("warm-cache hit = %+v, %v; want the stamped rev with no engine", hit, err)
 	}
 
 	// Refresh forces a re-resolve over the warm stamp and re-stamps.
 	revC := strings.Repeat("c", 40)
-	ref, err := PinSpec(Spec{NixpkgsRev: "latest"}, writePinEngine(t, revC, revC), true, nil)
+	ref, err := PinSpec(Spec{NixpkgsRev: "latest"}, writePinEngine(t, revC, revC), "", true, nil)
 	if err != nil || ref.NixpkgsRev != revC {
 		t.Errorf("refresh = %+v, %v; want the re-resolved rev", ref, err)
 	}
@@ -235,7 +235,7 @@ func TestPinSpec(t *testing.T) {
 		t.Errorf("refresh must move the stamp, got %+v", restamped)
 	}
 	// Refresh with no engine is the same fail-closed error.
-	if _, err := PinSpec(Spec{NixpkgsRev: "latest"}, "", true, nil); err == nil {
+	if _, err := PinSpec(Spec{NixpkgsRev: "latest"}, "", "", true, nil); err == nil {
 		t.Error("refresh without an engine must error")
 	}
 
@@ -244,8 +244,101 @@ func TestPinSpec(t *testing.T) {
 	if err := os.WriteFile(path, []byte("{broken"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := PinSpec(Spec{NixpkgsRev: "latest"}, "", false, nil); err == nil {
+	if _, err := PinSpec(Spec{NixpkgsRev: "latest"}, "", "", false, nil); err == nil {
 		t.Error("a corrupt pins cache must error")
+	}
+}
+
+// TestPinSpecMissKeepsOtherStamps: a cache miss stamps ONLY the missing
+// inputs. Profile A's warm nixpkgs stamp must not move when profile B's first
+// enter resolves a cold llm-agents pin — or A's next enter would mint a new
+// tag and rebuild for no reason (only --refresh moves a warm stamp).
+func TestPinSpecMissKeepsOtherStamps(t *testing.T) {
+	requireExec(t, "sh")
+	pinsCacheDir(t)
+	revA, revC := strings.Repeat("a", 40), strings.Repeat("c", 40)
+	if err := SavePins(Pins{"nixpkgs": {Ref: "refs/heads/nixos-unstable", Rev: revA}}); err != nil {
+		t.Fatal(err)
+	}
+
+	// llm-agents is cold → resolve runs (returning revC for BOTH inputs), but
+	// only the missing llm-agents stamp is written.
+	got, err := PinSpec(Spec{LLMAgentsRev: "latest"}, writePinEngine(t, revC, revC), "", false, nil)
+	if err != nil || got.LLMAgentsRev != revC {
+		t.Fatalf("miss = %+v, %v; want llm-agents pinned to %s", got, err, revC)
+	}
+	pins, err := LoadPins()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pins["nixpkgs"].Rev != revA {
+		t.Errorf("warm nixpkgs stamp moved to %s on an unrelated miss, want %s kept", pins["nixpkgs"].Rev, revA)
+	}
+	if pins["llm-agents"].Rev != revC {
+		t.Errorf("llm-agents stamp = %s, want %s", pins["llm-agents"].Rev, revC)
+	}
+
+	// refresh is the deliberate full re-stamp: every resolved input moves.
+	if _, err := PinSpec(Spec{LLMAgentsRev: "latest"}, writePinEngine(t, revC, revC), "", true, nil); err != nil {
+		t.Fatal(err)
+	}
+	if re, _ := LoadPins(); re["nixpkgs"].Rev != revC {
+		t.Errorf("refresh must move every stamp, nixpkgs = %s", re["nixpkgs"].Rev)
+	}
+}
+
+// TestPinSpecResolveAndStampErrors: the two cold-cache failure branches are
+// fail-closed — a failing resolver run and a stamp that cannot be written both
+// error instead of guessing.
+func TestPinSpecResolveAndStampErrors(t *testing.T) {
+	requireExec(t, "sh")
+
+	// Resolver exits non-zero → the ResolveLatest error propagates.
+	pinsCacheDir(t)
+	fail := filepath.Join(t.TempDir(), "engine-fail")
+	if err := os.WriteFile(fail, []byte("#!/bin/sh\nexit 1\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := PinSpec(Spec{NixpkgsRev: "latest"}, fail, "", false, nil); err == nil ||
+		!strings.Contains(err.Error(), "resolve latest") {
+		t.Errorf("failing resolver = %v, want a resolve error", err)
+	}
+
+	// Resolve succeeds but the stamp cannot be written (a file squats on the
+	// cache dir) → SavePins' error propagates.
+	cache := pinsCacheDir(t)
+	if err := os.WriteFile(filepath.Join(cache, "sandboxer"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	rev := strings.Repeat("a", 40)
+	if _, err := PinSpec(Spec{NixpkgsRev: "latest"}, writePinEngine(t, rev, rev), "", false, nil); err == nil {
+		t.Error("unwritable pins cache must fail the pinning")
+	}
+}
+
+// TestPinSpecNixImageOverride: the resolver runs the caller's --nix-image
+// builder, not the hardcoded default — an env that overrides the image because
+// docker.io is unreachable must be able to resolve a latest pin too.
+func TestPinSpecNixImageOverride(t *testing.T) {
+	requireExec(t, "sh")
+	pinsCacheDir(t)
+	rev := strings.Repeat("a", 40)
+	log := filepath.Join(t.TempDir(), "argv.log")
+	eng := filepath.Join(t.TempDir(), "engine")
+	script := "#!/bin/sh\n" +
+		"echo \"$@\" >> " + log + "\n" +
+		"out=\"\"\n" +
+		"for a in \"$@\"; do case \"$a\" in *:/out:rw) out=\"${a%%:*}\";; esac; done\n" +
+		"[ -n \"$out\" ] && { echo " + rev + " > \"$out/rev.nixpkgs\"; echo " + rev + " > \"$out/rev.llm-agents\"; }\n" +
+		"exit 0\n"
+	if err := os.WriteFile(eng, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := PinSpec(Spec{NixpkgsRev: "latest"}, eng, "registry.example/nix:custom", false, nil); err != nil {
+		t.Fatal(err)
+	}
+	if l := readFile(t, log); !strings.Contains(l, "registry.example/nix:custom") {
+		t.Errorf("resolver must run the overridden builder image:\n%s", l)
 	}
 }
 
@@ -257,7 +350,7 @@ func TestPinSpecThenTag(t *testing.T) {
 	pinsCacheDir(t)
 	revA := strings.Repeat("a", 40)
 	s, err := PinSpec(Spec{Attrs: []string{"go"}, NixpkgsRev: "latest"},
-		writePinEngine(t, revA, revA), false, nil)
+		writePinEngine(t, revA, revA), "", false, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

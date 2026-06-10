@@ -180,9 +180,13 @@ func ResolveLatest(engine, nixImage string, stderr io.Writer) (Pins, error) {
 // untouched. "latest" reads the stamped pins cache; a miss (or refresh)
 // resolves the remote heads once via ResolveLatest and stamps the result —
 // so enter/exec never re-resolve a warm cache, only `build-image --refresh`
-// moves the pins. With no engine (a dry run) a cold cache is a fail-closed
-// error pointing at build-image instead of a guessing fallback.
-func PinSpec(s Spec, engine string, refresh bool, stderr io.Writer) (Spec, error) {
+// moves the pins. A miss stamps ONLY the inputs that were missing (an
+// existing stamp another profile relies on never moves as a side effect);
+// refresh re-stamps everything. nixImage overrides the resolver's builder
+// image ("" = the pinned default). With no engine (a dry run) a cold cache
+// is a fail-closed error pointing at build-image instead of a guessing
+// fallback.
+func PinSpec(s Spec, engine, nixImage string, refresh bool, stderr io.Writer) (Spec, error) {
 	latestNixpkgs := s.NixpkgsRev == "latest"
 	latestLLMAgents := s.LLMAgentsRev == "latest"
 	if !latestNixpkgs && !latestLLMAgents {
@@ -199,12 +203,14 @@ func PinSpec(s Spec, engine string, refresh bool, stderr io.Writer) (Spec, error
 			return Spec{}, errors.New(`unresolved "latest" image revs and no container engine to ` +
 				`resolve them — run 'sandboxer build-image' once to resolve and stamp the pins`)
 		}
-		resolved, err := ResolveLatest(engine, "", stderr)
+		resolved, err := ResolveLatest(engine, nixImage, stderr)
 		if err != nil {
 			return Spec{}, err
 		}
 		for name, pin := range resolved {
-			pins[name] = pin
+			if _, ok := pins[name]; !ok || refresh {
+				pins[name] = pin
+			}
 		}
 		if err := SavePins(pins); err != nil {
 			return Spec{}, err

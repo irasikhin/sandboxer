@@ -97,10 +97,13 @@ func (s Spec) Tag() string {
 	if nixSHA == "" {
 		nixSHA = "-"
 	}
+	// Attrs are NUL-joined so adjacent names can never collide by
+	// concatenation (["go,rg"] vs ["go","rg"]) — the session ConfigHash
+	// convention.
 	sum := sha256.Sum256([]byte("v1\x00" +
 		"nixpkgs=" + effectiveRev("nixpkgs", s.NixpkgsRev, embNixpkgs) + "\x00" +
 		"llm-agents=" + effectiveRev("llm-agents", s.LLMAgentsRev, embLLMAgents) + "\x00" +
-		"attrs=" + strings.Join(s.Attrs, ",") + "\x00" +
+		"attrs=" + strings.Join(s.Attrs, "\x00") + "\x00" +
 		"nix=" + nixSHA))
 	return "sandboxer-toolbox:var-" + hex.EncodeToString(sum[:])[:12]
 }

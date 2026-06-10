@@ -263,3 +263,22 @@ func TestRunBadProfile(t *testing.T) {
 		t.Errorf("bad profile should error, got %v", err)
 	}
 }
+
+// TestRunUnknownToolPack: an unresolvable `tools:` pack fails the whole batch
+// fast at spec resolution, before any sandbox or container work.
+func TestRunUnknownToolPack(t *testing.T) {
+	root := t.TempDir()
+	writeTasks(t, root)
+	cfg := filepath.Join(t.TempDir(), "p.yaml")
+	if err := os.WriteFile(cfg, []byte("agent: claude\ntools: [nope]\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, err := Run(Options{
+		Src: root, ConfigPath: cfg, DryRun: true,
+		Defaults: config.Defaults{Agent: "claude", Backend: "docker"},
+		Stdout:   &bytes.Buffer{}, Stderr: &bytes.Buffer{},
+	})
+	if err == nil || !strings.Contains(err.Error(), "nope") {
+		t.Errorf("unknown tool pack should fail the batch, got %v", err)
+	}
+}

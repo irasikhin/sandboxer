@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"io"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -19,13 +20,13 @@ func TestResolveImage(t *testing.T) {
 	def := config.LoadDefaults().Image
 
 	for _, prof := range []*config.Profile{nil, {}} {
-		img, spec, err := resolveImage(prof, "")
+		img, spec, err := resolveImage(prof, "", io.Discard)
 		if err != nil || img != def || !spec.Empty() {
 			t.Errorf("profile %v → img=%q spec=%+v err=%v; want default+empty", prof, img, spec, err)
 		}
 	}
 
-	img, spec, err := resolveImage(&config.Profile{Tools: []string{"go"}}, "")
+	img, spec, err := resolveImage(&config.Profile{Tools: []string{"go"}}, "", io.Discard)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -38,7 +39,7 @@ func TestResolveImage(t *testing.T) {
 
 	// image.extraPkgs alone selects a variant too, and the reference is the
 	// spec's own content address (the backend rebuilds from the same spec).
-	img2, spec2, err := resolveImage(&config.Profile{Image: config.ImageSpec{ExtraPkgs: []string{"ripgrep"}}}, "")
+	img2, spec2, err := resolveImage(&config.Profile{Image: config.ImageSpec{ExtraPkgs: []string{"ripgrep"}}}, "", io.Discard)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -46,12 +47,12 @@ func TestResolveImage(t *testing.T) {
 		t.Errorf("image %q != spec tag %q", img2, spec2.Tag())
 	}
 
-	if _, _, err := resolveImage(&config.Profile{Tools: []string{"nope"}}, ""); err == nil {
+	if _, _, err := resolveImage(&config.Profile{Tools: []string{"nope"}}, "", io.Discard); err == nil {
 		t.Error("unknown tool pack must error")
 	}
 	if _, _, err := resolveImage(&config.Profile{
 		Image: config.ImageSpec{Nix: filepath.Join(t.TempDir(), "missing.nix")},
-	}, ""); err == nil {
+	}, "", io.Discard); err == nil {
 		t.Error("missing image.nix must error")
 	}
 }
@@ -64,7 +65,7 @@ func TestResolveImageLatest(t *testing.T) {
 	t.Setenv("XDG_CACHE_HOME", t.TempDir())
 	prof := &config.Profile{Image: config.ImageSpec{NixpkgsRev: "latest"}}
 
-	if _, _, err := resolveImage(prof, ""); err == nil ||
+	if _, _, err := resolveImage(prof, "", io.Discard); err == nil ||
 		!strings.Contains(err.Error(), "build-image") {
 		t.Errorf("cold cache without an engine = %v, want build-image guidance", err)
 	}
@@ -73,7 +74,7 @@ func TestResolveImageLatest(t *testing.T) {
 	if err := toolbox.SavePins(toolbox.Pins{"nixpkgs": {Rev: rev}}); err != nil {
 		t.Fatal(err)
 	}
-	img, spec, err := resolveImage(prof, "")
+	img, spec, err := resolveImage(prof, "", io.Discard)
 	if err != nil {
 		t.Fatalf("warm cache: %v", err)
 	}

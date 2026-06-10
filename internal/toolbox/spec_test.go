@@ -99,6 +99,12 @@ func TestSpecTag(t *testing.T) {
 	if a.Tag() == (Spec{Attrs: []string{"go", "ripgrep"}, NixSHA: "deadbeef"}).Tag() {
 		t.Error("a user nix hash must change the tag")
 	}
+	// NUL-joined attrs: adjacent names never collide by concatenation, so a
+	// bogus comma-joined attr can't alias an already-built valid image and
+	// dodge the flake's fail-closed unknown-attribute throw.
+	if a.Tag() == (Spec{Attrs: []string{"go,ripgrep"}}).Tag() {
+		t.Error(`Attrs ["go,ripgrep"] must not hash like ["go","ripgrep"]`)
+	}
 
 	embNixpkgs, embLLMAgents := EmbeddedRevs()
 	pinned := Spec{Attrs: []string{"go", "ripgrep"}, NixpkgsRev: embNixpkgs, LLMAgentsRev: embLLMAgents}

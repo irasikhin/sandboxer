@@ -274,6 +274,34 @@ func TestComposePrintRunMCPDomains(t *testing.T) {
 	}
 }
 
+// TestComposePrintRunImageVariant: an image-customized profile's printed
+// create line names the spec's content-addressed var- tag, not the stock
+// default — compose must show the image a real enter would run.
+func TestComposePrintRunImageVariant(t *testing.T) {
+	project := newProject(t)
+	fakePodman(t)
+	t.Setenv("SANDBOXER_SESSION", "")
+	cfg := filepath.Join(t.TempDir(), "p.yaml")
+	if err := os.WriteFile(cfg, []byte("name: feat\nimage:\n  extraPkgs: [ripgrep]\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if code, _, errs := run("create", "--src", project, "--config", cfg); code != 0 {
+		t.Fatalf("create: %d %s", code, errs)
+	}
+
+	code, out, errs := run("compose", "feat", "--src", project, "--backend", "podman", "--print-run")
+	if code != 0 {
+		t.Fatalf("compose --print-run = %d %s", code, errs)
+	}
+	createLine := strings.Split(strings.TrimSpace(out), "\n")[0]
+	if !strings.Contains(createLine, "sandboxer-toolbox:var-") {
+		t.Errorf("create line must carry the variant tag:\n%s", createLine)
+	}
+	if strings.Contains(createLine, config.LoadDefaults().Image) {
+		t.Errorf("create line must not fall back to the stock image:\n%s", createLine)
+	}
+}
+
 func TestComposeNoSandbox(t *testing.T) {
 	project := newProject(t)
 	// No slug and no created sandbox → resolveTarget fails before any engine work.
@@ -331,6 +359,25 @@ func TestBuildImageCommand(t *testing.T) {
 		!strings.Contains(errs, "no profile") {
 		t.Errorf("build-image bogus profile = (%d, %q)", code, errs)
 	}
+
+	// A profile whose image.nix is missing fails spec resolution fast.
+	noNix := filepath.Join(t.TempDir(), "no-nix.yaml")
+	if err := os.WriteFile(noNix, []byte("name: feat\nimage:\n  nix: missing.nix\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if code, _, errs := run("build-image", "--engine", "podman", "-f", noNix); code != 1 ||
+		!strings.Contains(errs, "image.nix") {
+		t.Errorf("build-image missing image.nix = (%d, %q)", code, errs)
+	}
+
+	// A malformed profile file fails the document load.
+	broken := filepath.Join(t.TempDir(), "broken.yaml")
+	if err := os.WriteFile(broken, []byte("image: [not a map\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if code, _, errs := run("build-image", "--engine", "podman", "-f", broken); code != 1 || errs == "" {
+		t.Errorf("build-image malformed profile = (%d, %q)", code, errs)
+	}
 }
 
 // pinPodman puts a podman on PATH that serves the latest-pin resolver: any run
@@ -381,8 +428,14 @@ func TestBuildImageRevFlags(t *testing.T) {
 
 	rev := strings.Repeat("d", 40)
 	pinPodman(t, rev)
-	if code, _, errs := run("build-image", "--engine", "podman", "--nixpkgs-rev", "latest"); code != 0 {
+	code, _, errs := run("build-image", "--engine", "podman", "--nixpkgs-rev", "latest")
+	if code != 0 {
 		t.Fatalf("build-image latest = %d %s", code, errs)
+	}
+	// Bare rev flags build a variant nothing selects by default — the command
+	// must say so instead of implying the stock image moved.
+	if !strings.Contains(errs, "note: built variant") {
+		t.Errorf("bare-flag variant build must print the not-the-stock-image note, got: %s", errs)
 	}
 	if captured.Spec.NixpkgsRev != rev {
 		t.Errorf("seam spec rev = %q, want the resolved %s", captured.Spec.NixpkgsRev, rev)

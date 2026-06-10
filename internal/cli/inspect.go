@@ -263,9 +263,12 @@ func printSessionBlock(out io.Writer, t *target, rt config.Runtime) {
 // The profile's MCP-server domains are folded into the allowlist exactly as
 // enter does before hashing (applyMCP), or an MCP-enabled profile would
 // permanently read as stale here. ok=false when the image or the MCP set
-// cannot be resolved, leaving freshness unjudged.
+// cannot be resolved, leaving freshness unjudged. The image resolve gets NO
+// engine on purpose: show is read-only, so a cold "latest" pin must never
+// launch a resolver container or stamp the pins cache from here — a warm
+// stamp still resolves, a cold one just skips the freshness verdict.
 func sessionHashOpts(t *target, rt config.Runtime, engine string) (backend.RunOpts, bool) {
-	image, spec, err := resolveImage(t.profile, engine)
+	image, spec, err := resolveImage(t.profile, "", io.Discard)
 	if err != nil {
 		return backend.RunOpts{}, false
 	}
