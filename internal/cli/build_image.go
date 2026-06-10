@@ -16,7 +16,7 @@ func init() { register(newBuildImageCmd) }
 // (no host nix): an ephemeral, public nixos/nix container realizes the image
 // from a flake embedded in the binary, then the engine loads it.
 func newBuildImageCmd() *cobra.Command {
-	var engineFlag, nixImage, configPath string
+	var engineFlag, nixImage, configPath, llmAgentsRev, nixpkgsRev string
 	var cache, keepBuilder, refresh bool
 	var builderArgs []string
 	cmd := &cobra.Command{
@@ -34,25 +34,55 @@ customized variant — tools packs, image.extraPkgs, an image.nix hook, pinned
 input revs — is built under its content-addressed var- tag instead. Without one
 the stock default image is built, as before.
 
+--llm-agents-rev/--nixpkgs-rev override the input revs for this build only (over
+the profile's values). A "latest" rev is resolved to the remote head once and
+stamped into the per-user pins cache; later enter/exec reuse the stamp, and only
+--refresh re-resolves it.
+
 Clean by default: the builder container is removed, the nixos/nix image is dropped
 again unless it was already present (or --keep-builder), and no persistent volume
 is left behind. Use --cache to keep a nix-store volume for faster rebuilds.`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			prof, err := buildImageProfile(configPath, posArg(args))
+			if err != nil {
+				return err
+			}
+			spec, err := toolbox.ResolveSpec(prof)
+			if err != nil {
+				return err
+			}
+			// One-shot flag overrides land on top of the profile's revs; the
+			// merged values obey the same rules as the profile fields (latest
+			// or a 7-40 char hex commit), checked before any engine work.
+			if llmAgentsRev != "" {
+				spec.LLMAgentsRev = llmAgentsRev
+			}
+			if nixpkgsRev != "" {
+				spec.NixpkgsRev = nixpkgsRev
+			}
+			if err := config.ValidateImageSpec(config.ImageSpec{
+				LLMAgentsRev: spec.LLMAgentsRev, NixpkgsRev: spec.NixpkgsRev,
+			}); err != nil {
+				return err
+			}
 			d := config.LoadDefaults()
 			engine, err := backend.ResolveEngine(engineFlag, d)
 			if err != nil {
 				return err
 			}
-			prof, err := buildImageProfile(configPath, posArg(args))
+			// Pin any "latest" rev to a concrete commit, stamping the pins
+			// cache for later enter/exec; --refresh forces a re-resolve so the
+			// stamp (and every tag derived from it) moves forward.
+			spec, err = toolbox.PinSpec(spec, engine, refresh, cmd.ErrOrStderr())
 			if err != nil {
 				return err
 			}
-			image, spec, err := resolveImage(prof)
-			if err != nil {
-				return err
+			image := d.Image
+			if !spec.Empty() {
+				image = spec.Tag()
 			}
-			return toolbox.BuildImage(toolbox.BuildOpts{
+			return toolboxBuild(toolbox.BuildOpts{
 				Engine:      engine,
 				Image:       image,
 				NixImage:    nixImage,
@@ -72,10 +102,17 @@ is left behind. Use --cache to keep a nix-store volume for faster rebuilds.`,
 	fl.StringVar(&nixImage, "nix-image", "", "builder image (default: pinned "+toolbox.NixImage+")")
 	fl.BoolVar(&cache, "cache", false, "keep a persistent nix-store volume for faster rebuilds")
 	fl.BoolVar(&keepBuilder, "keep-builder", false, "keep the nixos/nix builder image afterward")
-	fl.BoolVar(&refresh, "refresh", false, "re-fetch flake inputs (latest agents)")
+	fl.BoolVar(&refresh, "refresh", false, "re-fetch flake inputs and re-resolve any latest rev pin")
+	fl.StringVar(&llmAgentsRev, "llm-agents-rev", "", "llm-agents input rev for this build: latest or a commit hash (overrides the profile)")
+	fl.StringVar(&nixpkgsRev, "nixpkgs-rev", "", "nixpkgs input rev for this build: latest or a commit hash (overrides the profile)")
 	fl.StringArrayVar(&builderArgs, "builder-arg", nil, "extra engine `run` flag for the builder (repeatable)")
 	return cmd
 }
+
+// toolboxBuild is the image-build seam, overridable in tests so the command's
+// flag/pin orchestration can be exercised without a real engine — the
+// backendRun seam's sibling.
+var toolboxBuild = toolbox.BuildImage
 
 // buildImageProfile resolves build-image's optional profile — a named profile,
 // a profile file/directory (-f), or a section of a multi-profile file —

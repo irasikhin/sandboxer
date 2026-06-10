@@ -124,11 +124,31 @@ func Run(o Options) (Result, error) {
 		return Result{}, err
 	}
 
+	// A dry run never launches a container, so it does not need an engine
+	// installed — resolve one only for a real run. Resolved BEFORE the image:
+	// pinning a "latest" input rev below may need the engine for a one-time
+	// remote resolve.
+	engine := ""
+	backendShown := rt.Backend
+	if !o.DryRun {
+		engine, err = backend.ResolveEngine(rt.Backend, o.Defaults)
+		if err != nil {
+			return Result{}, err
+		}
+		backendShown = engine
+	}
+
 	// Per-profile image customization (`tools:` packs / `image:` section):
-	// resolve the content-addressed variant spec once for the whole batch; an
+	// resolve the content-addressed variant spec once for the whole batch,
+	// pinning any "latest" input rev to a concrete commit (a dry run has no
+	// engine — a cold pins cache then fails with build-image guidance); an
 	// empty spec keeps the configured image, any customization selects the
 	// variant tag (built on demand by the backend).
 	spec, err := toolbox.ResolveSpec(profile)
+	if err != nil {
+		return Result{}, err
+	}
+	spec, err = toolbox.PinSpec(spec, engine, false, o.Stderr)
 	if err != nil {
 		return Result{}, err
 	}
@@ -152,18 +172,6 @@ func Run(o Options) (Result, error) {
 	var profileJSON []byte
 	if profile != nil {
 		profileJSON, _ = profile.JSON()
-	}
-
-	// A dry run never launches a container, so it does not need an engine
-	// installed — resolve one only for a real run.
-	engine := ""
-	backendShown := rt.Backend
-	if !o.DryRun {
-		engine, err = backend.ResolveEngine(rt.Backend, o.Defaults)
-		if err != nil {
-			return Result{}, err
-		}
-		backendShown = engine
 	}
 
 	fmt.Fprintf(o.Stdout, "sandboxer: src=%s agent=%s backend=%s model=%s parallel=%d%s%s\n",

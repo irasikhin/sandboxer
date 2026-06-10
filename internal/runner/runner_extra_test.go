@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/irasikhin/sandboxer/internal/config"
+	"github.com/irasikhin/sandboxer/internal/toolbox"
 )
 
 func TestSmallHelpers(t *testing.T) {
@@ -177,6 +178,37 @@ func TestRunDryRun(t *testing.T) {
 		if !strings.Contains(string(meta), "exit=0") {
 			t.Errorf("meta for %s = %q, want exit=0", slug, meta)
 		}
+	}
+}
+
+// TestRunDryRunLatestPins: a dry run resolves no engine, so an unresolved
+// "latest" image rev fails fast with build-image guidance on a cold pins
+// cache, and proceeds (with the variant tag) on a warm one.
+func TestRunDryRunLatestPins(t *testing.T) {
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	root := t.TempDir()
+	writeTasks(t, root)
+	cfg := filepath.Join(t.TempDir(), "p.yaml")
+	if err := os.WriteFile(cfg, []byte("agent: claude\nimage:\n  nixpkgsRev: latest\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	opts := func() Options {
+		return Options{
+			Src: root, ConfigPath: cfg, DryRun: true,
+			Defaults: config.Defaults{Agent: "claude", Backend: "docker"},
+			Stdout:   &bytes.Buffer{}, Stderr: &bytes.Buffer{},
+		}
+	}
+
+	if _, err := Run(opts()); err == nil || !strings.Contains(err.Error(), "build-image") {
+		t.Errorf("cold-pins dry run = %v, want build-image guidance", err)
+	}
+
+	if err := toolbox.SavePins(toolbox.Pins{"nixpkgs": {Rev: strings.Repeat("a", 40)}}); err != nil {
+		t.Fatal(err)
+	}
+	if res, err := Run(opts()); err != nil || res.Count != 2 {
+		t.Errorf("warm-pins dry run = %+v, %v; want 2 launched", res, err)
 	}
 }
 

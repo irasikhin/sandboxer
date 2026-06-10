@@ -8,6 +8,7 @@ import (
 
 	"github.com/irasikhin/sandboxer/internal/config"
 	"github.com/irasikhin/sandboxer/internal/sandbox"
+	"github.com/irasikhin/sandboxer/internal/toolbox"
 )
 
 // TestResolveImage covers image selection: nil/empty profiles use the default
@@ -18,13 +19,13 @@ func TestResolveImage(t *testing.T) {
 	def := config.LoadDefaults().Image
 
 	for _, prof := range []*config.Profile{nil, {}} {
-		img, spec, err := resolveImage(prof)
+		img, spec, err := resolveImage(prof, "")
 		if err != nil || img != def || !spec.Empty() {
 			t.Errorf("profile %v → img=%q spec=%+v err=%v; want default+empty", prof, img, spec, err)
 		}
 	}
 
-	img, spec, err := resolveImage(&config.Profile{Tools: []string{"go"}})
+	img, spec, err := resolveImage(&config.Profile{Tools: []string{"go"}}, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -37,7 +38,7 @@ func TestResolveImage(t *testing.T) {
 
 	// image.extraPkgs alone selects a variant too, and the reference is the
 	// spec's own content address (the backend rebuilds from the same spec).
-	img2, spec2, err := resolveImage(&config.Profile{Image: config.ImageSpec{ExtraPkgs: []string{"ripgrep"}}})
+	img2, spec2, err := resolveImage(&config.Profile{Image: config.ImageSpec{ExtraPkgs: []string{"ripgrep"}}}, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -45,13 +46,42 @@ func TestResolveImage(t *testing.T) {
 		t.Errorf("image %q != spec tag %q", img2, spec2.Tag())
 	}
 
-	if _, _, err := resolveImage(&config.Profile{Tools: []string{"nope"}}); err == nil {
+	if _, _, err := resolveImage(&config.Profile{Tools: []string{"nope"}}, ""); err == nil {
 		t.Error("unknown tool pack must error")
 	}
 	if _, _, err := resolveImage(&config.Profile{
 		Image: config.ImageSpec{Nix: filepath.Join(t.TempDir(), "missing.nix")},
-	}); err == nil {
+	}, ""); err == nil {
 		t.Error("missing image.nix must error")
+	}
+}
+
+// TestResolveImageLatest covers the "latest" pin plumbing in resolveImage: a
+// cold pins cache with no engine fails with build-image guidance; a warm
+// stamp resolves without any engine and the tag is the pinned spec's own
+// content address.
+func TestResolveImageLatest(t *testing.T) {
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	prof := &config.Profile{Image: config.ImageSpec{NixpkgsRev: "latest"}}
+
+	if _, _, err := resolveImage(prof, ""); err == nil ||
+		!strings.Contains(err.Error(), "build-image") {
+		t.Errorf("cold cache without an engine = %v, want build-image guidance", err)
+	}
+
+	rev := strings.Repeat("a", 40)
+	if err := toolbox.SavePins(toolbox.Pins{"nixpkgs": {Rev: rev}}); err != nil {
+		t.Fatal(err)
+	}
+	img, spec, err := resolveImage(prof, "")
+	if err != nil {
+		t.Fatalf("warm cache: %v", err)
+	}
+	if spec.NixpkgsRev != rev {
+		t.Errorf("NixpkgsRev = %q, want the stamped rev", spec.NixpkgsRev)
+	}
+	if img != spec.Tag() || !strings.HasPrefix(img, "sandboxer-toolbox:var-") {
+		t.Errorf("image %q != pinned spec tag %q", img, spec.Tag())
 	}
 }
 

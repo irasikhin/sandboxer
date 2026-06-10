@@ -262,7 +262,7 @@ func printSessionBlock(out io.Writer, t *target, rt config.Runtime) {
 // permanently read as stale here. ok=false when the image or the MCP set
 // cannot be resolved, leaving freshness unjudged.
 func sessionHashOpts(t *target, rt config.Runtime, engine string) (backend.RunOpts, bool) {
-	image, spec, err := resolveImage(t.profile)
+	image, spec, err := resolveImage(t.profile, engine)
 	if err != nil {
 		return backend.RunOpts{}, false
 	}

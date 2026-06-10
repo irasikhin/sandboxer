@@ -64,7 +64,7 @@ equivalent — its purpose is "run it with your own tooling".`,
 			// The same image resolution enter/exec use, so a tools/image
 			// profile's variant tag shows up in the printed configuration
 			// instead of the stock default.
-			image, spec, err := resolveImage(t.profile)
+			image, spec, err := resolveImage(t.profile, engine)
 			if err != nil {
 				return err
 			}
