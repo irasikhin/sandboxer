@@ -11,7 +11,6 @@
 # so at most one nixos/nix container is live at a time.
 when:
   - event: [push, pull_request, manual]
-    branch: main
 
 steps:
   flake-check:
