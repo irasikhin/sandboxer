@@ -96,7 +96,7 @@ Allowed types:
 | `docs`     | Documentation only                                         | —             |
 | `test`     | Adding or revising tests                                   | —             |
 | `build`    | Build system, packaging (`flake.nix`, `nix/`, `go.mod`)    | —             |
-| `ci`       | CI workflows (`.github/workflows/...`)                      | —             |
+| `ci`       | CI pipelines (`.woodpecker/...`)                           | —             |
 | `chore`    | Routine maintenance (deps bump, file moves)                | —             |
 | `revert`   | Reverting a previous commit                                | —             |
 | `style`    | Whitespace / formatting only                               | —             |
@@ -175,9 +175,13 @@ The release script:
 * writes a new section to `CHANGELOG.md` grouping commits by type,
 * commits with `chore(release): vX.Y.Z`, then tags `vX.Y.Z`.
 
-The `release` workflow in `.github/workflows/release.yml` builds the Linux
-binaries (amd64 + arm64) for each tag and publishes a GitHub Release with the
-changelog section.
+Pushing the tag triggers the Woodpecker release pipeline
+([`.woodpecker/release.yml`](.woodpecker/release.yml)): it verifies the tag
+matches `nix/package.nix`, builds the Linux binaries (amd64 + arm64) and
+publishes a Forgejo release with the changelog section. It needs the
+`forgejo_token` Woodpecker secret — see the pipeline header. Branch/PR CI
+lives in [`.woodpecker/ci.yml`](.woodpecker/ci.yml) and
+[`.woodpecker/flake-check.yml`](.woodpecker/flake-check.yml).
 
 Before pushing the release tag, verify:
 

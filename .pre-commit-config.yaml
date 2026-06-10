@@ -42,11 +42,6 @@ repos:
         language: system
         pass_filenames: false
         types: [go]
-      - id: actionlint
-        name: actionlint
-        entry: actionlint
-        language: system
-        files: ^\.github/workflows/.*\.ya?ml$
       - id: nixfmt-check
         name: nixfmt-check
         entry: nixfmt --check

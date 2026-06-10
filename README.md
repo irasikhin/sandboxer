@@ -1,6 +1,6 @@
 # sandboxer
 
-[![CI](https://github.com/irasikhin/sandboxer/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/irasikhin/sandboxer/actions/workflows/ci.yml?query=branch%3Amain)
+[![CI](https://woodpecker.rgband.ru/api/badges/rgband/sandboxer/status.svg?branch=main)](https://woodpecker.rgband.ru/repos/rgband/sandboxer)
 [![Coverage](https://img.shields.io/badge/coverage-92.2%25-brightgreen.svg)](#testing)
 [![Go](https://img.shields.io/badge/Go-1.24+-00ADD8?logo=go)](https://go.dev/)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
