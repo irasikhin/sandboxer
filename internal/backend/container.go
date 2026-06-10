@@ -18,7 +18,8 @@ import (
 type RunOpts struct {
 	Engine          string
 	Image           string
-	Dest            string // sandbox copy dir, mounted and used as workdir
+	Tools           []string // nixpkgs attrs baked into a per-profile image variant
+	Dest            string   // sandbox copy dir, mounted and used as workdir
 	Slug            string
 	HomeDir         string // sandbox-private agent home, mounted as $HOME (isolated per sandbox)
 	RT              config.Runtime
@@ -193,8 +194,11 @@ func ensureImage(o RunOpts) error {
 	if o.Engine == "" || o.Image == "" || imageExists(o.Engine, o.Image) {
 		return nil
 	}
-	if o.Image != config.DefaultImage {
-		return nil // custom image: let the engine pull it
+	// The default image and per-profile tool-pack variants are both built
+	// locally (never published); a truly custom SANDBOXER_IMAGE with no tools is
+	// left for the engine to pull.
+	if o.Image != config.DefaultImage && len(o.Tools) == 0 {
+		return nil
 	}
 	if os.Getenv("SANDBOXER_NO_AUTOBUILD") != "" {
 		return fmt.Errorf("toolbox image %q is not present and is built locally "+
@@ -205,7 +209,7 @@ func ensureImage(o RunOpts) error {
 			"(one-time, several minutes; disable with SANDBOXER_NO_AUTOBUILD=1)…\n", o.Image)
 	}
 	if err := buildImage(toolbox.BuildOpts{
-		Engine: o.Engine, Image: o.Image,
+		Engine: o.Engine, Image: o.Image, Tools: o.Tools,
 		Stdout: o.Stderr, Stderr: o.Stderr,
 	}); err != nil {
 		return fmt.Errorf("%w — build manually with: sandboxer build-image", err)

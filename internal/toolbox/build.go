@@ -10,7 +10,9 @@
 package toolbox
 
 import (
+	"crypto/sha256"
 	"embed"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -48,8 +50,21 @@ type BuildOpts struct {
 	KeepBuilder bool      // don't remove the nixos/nix image afterward
 	Refresh     bool      // re-fetch flake inputs (nix build --refresh)
 	ExtraArgs   []string  // extra engine `run` flags for the builder (escape hatch)
+	Tools       []string  // extra nixpkgs attrs to bake (a per-profile tool pack)
 	Stdout      io.Writer // build chatter / engine stdout
 	Stderr      io.Writer // progress banners / engine stderr
+}
+
+// ToolsImageTag is the image reference for a toolbox variant baked with the
+// given nixpkgs tool attributes (already resolved + sorted by the registry). No
+// tools means the default image; any tools yield a deterministic, content-keyed
+// tag so identical tool sets share one cached image.
+func ToolsImageTag(attrs []string) string {
+	if len(attrs) == 0 {
+		return config.DefaultImage
+	}
+	sum := sha256.Sum256([]byte(strings.Join(attrs, ",")))
+	return "sandboxer-toolbox:tools-" + hex.EncodeToString(sum[:])[:12]
 }
 
 // BuildImage assembles the build context, runs the ephemeral nix builder, loads
@@ -81,7 +96,7 @@ func BuildImage(o BuildOpts) error {
 	}
 	defer func() { _ = os.RemoveAll(outDir) }()
 
-	if err := writeContext(ctxDir); err != nil {
+	if err := writeContext(ctxDir, o.Tools); err != nil {
 		return fmt.Errorf("assemble build context: %w", err)
 	}
 
@@ -138,7 +153,7 @@ func BuildImage(o BuildOpts) error {
 // writeContext populates the flake build context: the embedded flake.nix, a
 // generated agents.nix list, and a copy of the running sandboxer binary (so the
 // flake can inject it as ./sandboxer without rebuilding from source).
-func writeContext(ctxDir string) error {
+func writeContext(ctxDir string, tools []string) error {
 	flake, err := assets.ReadFile("assets/flake.nix")
 	if err != nil {
 		return err
@@ -146,8 +161,13 @@ func writeContext(ctxDir string) error {
 	if err := os.WriteFile(filepath.Join(ctxDir, "flake.nix"), flake, 0o644); err != nil {
 		return err
 	}
-	agents := renderAgentsNix(imageAgentPackages())
+	agents := renderNixList(imageAgentPackages())
 	if err := os.WriteFile(filepath.Join(ctxDir, "agents.nix"), []byte(agents), 0o644); err != nil {
+		return err
+	}
+	// tools.nix is the per-profile tool pack (empty list for the default image);
+	// the flake imports it and adds the named nixpkgs attrs to the image.
+	if err := os.WriteFile(filepath.Join(ctxDir, "tools.nix"), []byte(renderNixList(tools)), 0o644); err != nil {
 		return err
 	}
 	exe, err := os.Executable()
@@ -199,9 +219,9 @@ func loadArgv(tarPath string) []string {
 	return []string{"load", "-i", tarPath}
 }
 
-// renderAgentsNix renders the llm-agents package names as a nix list literal
-// (sorted for determinism), consumed by assets/flake.nix as ./agents.nix.
-func renderAgentsNix(names []string) string {
+// renderNixList renders a set of package names as a nix list literal (sorted for
+// determinism), consumed by assets/flake.nix as ./agents.nix and ./tools.nix.
+func renderNixList(names []string) string {
 	sorted := append([]string(nil), names...)
 	sort.Strings(sorted)
 	var b strings.Builder

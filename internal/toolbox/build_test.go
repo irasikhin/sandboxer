@@ -8,12 +8,12 @@ import (
 	"testing"
 )
 
-func TestRenderAgentsNix(t *testing.T) {
-	got := renderAgentsNix([]string{"gemini-cli", "claude-code", "aider"})
+func TestRenderNixList(t *testing.T) {
+	got := renderNixList([]string{"gemini-cli", "claude-code", "aider"})
 	// Sorted, one quoted name per line, inside a nix list literal.
 	want := "[\n  \"aider\"\n  \"claude-code\"\n  \"gemini-cli\"\n]\n"
 	if got != want {
-		t.Errorf("renderAgentsNix =\n%q\nwant\n%q", got, want)
+		t.Errorf("renderNixList =\n%q\nwant\n%q", got, want)
 	}
 }
 
@@ -83,10 +83,10 @@ func TestLoadArgv(t *testing.T) {
 
 func TestWriteContext(t *testing.T) {
 	dir := t.TempDir()
-	if err := writeContext(dir); err != nil {
+	if err := writeContext(dir, []string{"nodejs", "go"}); err != nil {
 		t.Fatalf("writeContext: %v", err)
 	}
-	for _, f := range []string{"flake.nix", "agents.nix", "sandboxer"} {
+	for _, f := range []string{"flake.nix", "agents.nix", "tools.nix", "sandboxer"} {
 		if _, err := os.Stat(filepath.Join(dir, f)); err != nil {
 			t.Errorf("missing %s in context: %v", f, err)
 		}
@@ -94,6 +94,10 @@ func TestWriteContext(t *testing.T) {
 	agents, _ := os.ReadFile(filepath.Join(dir, "agents.nix"))
 	if !strings.Contains(string(agents), `"claude-code"`) {
 		t.Errorf("agents.nix should list claude-code, got:\n%s", agents)
+	}
+	tools, _ := os.ReadFile(filepath.Join(dir, "tools.nix"))
+	if !strings.Contains(string(tools), `"go"`) || !strings.Contains(string(tools), `"nodejs"`) {
+		t.Errorf("tools.nix should list the tool attrs, got:\n%s", tools)
 	}
 }
 
@@ -166,7 +170,7 @@ func TestBuildImageNoEngine(t *testing.T) {
 }
 
 func TestWriteContextError(t *testing.T) {
-	if err := writeContext(filepath.Join(t.TempDir(), "missing", "ctx")); err == nil {
+	if err := writeContext(filepath.Join(t.TempDir(), "missing", "ctx"), nil); err == nil {
 		t.Error("writeContext into a nonexistent dir should error")
 	}
 }

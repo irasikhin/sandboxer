@@ -93,7 +93,7 @@ Scalars come from **flags** and `SANDBOXER_*` env vars:
 | container engine | — | `SANDBOXER_ENGINE` (default: auto-detect podman→docker) |
 | image | — | `SANDBOXER_IMAGE` (default `sandboxer-toolbox:latest`) |
 
-Structured fields (`roots`/`deps`, `extraMounts`, `env`, `setup`) live in an **optional**
+Structured fields (`roots`/`deps`, `extraMounts`, `env`, `setup`, `tools`, `mcp`) live in an **optional**
 `.sandboxer.yaml`. Point at it with `-f`/`--config`, which accepts a **file**, a
 **directory** of profiles, or the **name** of a profile in the store (see
 [Named profiles](#named-profiles)); with nothing given, a `.sandboxer.yaml` in
@@ -112,6 +112,8 @@ deps:
   - src/lib/util.go      # any path ending with src/lib/util.go
 setup: |                 # one-time prep, run once inside the sandbox
   npm ci
+tools: [node, go]        # runtime tool packs baked into a per-profile image
+mcp: [context7]          # MCP servers wired into the agent
 ```
 
 `deps` are located by **path suffix** under `roots` and pulled into the sandbox
@@ -134,6 +136,13 @@ network install needs its domains allowed). A failed setup is fatal by default;
 skip it with `--no-setup`. The baked shell can also be extended without
 rebuilding the image: drop `*.sh` files in `/etc/sandboxer/rc.d/` (image
 plugins) or write `~/.config/sandboxer/rc` (per-sandbox `$HOME`).
+
+`tools` names language/runtime packs (`node`, `python`, `go`, `rust`, … — see
+`internal/registry/tools.json`) baked into a **per-profile toolbox image**
+variant, built on demand and cached by tool-set hash. `mcp` names MCP servers
+(see `internal/registry/mcp.json`): the server config is seeded into the agent's
+sandbox home (claude today) and each server's domains are folded into the egress
+allowlist, so a sandboxed agent can use MCP without opening the network.
 
 ### Multiple profiles in one file
 

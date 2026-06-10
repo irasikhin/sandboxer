@@ -67,6 +67,14 @@ type Profile struct {
 	// once per sandbox (re-run only when the script changes) under the same
 	// isolation and egress allowlist as the sandbox.
 	Setup string `yaml:"setup,omitempty" json:"setup,omitempty"`
+	// Tools names language/runtime tool packs (see registry/tools.json: node,
+	// python, go, rust, …) baked into a per-profile toolbox image variant,
+	// built on demand and cached by tool-set hash.
+	Tools []string `yaml:"tools,omitempty" json:"tools,omitempty"`
+	// MCP names MCP servers (see registry/mcp.json) to wire into the agent: the
+	// server config is seeded into the agent's sandbox home and each server's
+	// domains are folded into the egress allowlist.
+	MCP []string `yaml:"mcp,omitempty" json:"mcp,omitempty"`
 }
 
 // Load reads and parses a single flat YAML profile from disk. Multi-profile
