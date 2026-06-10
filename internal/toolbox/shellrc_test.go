@@ -27,3 +27,24 @@ func TestFlakeEmbedsShellRc(t *testing.T) {
 		}
 	}
 }
+
+// TestFlakeBakesToolingPack guards that the baseline tooling humans and agents
+// rely on (pager, editor, process tools, search, archives, delta git pager)
+// stays baked into the image, and that /etc/gitconfig routes the pager through
+// delta.
+func TestFlakeBakesToolingPack(t *testing.T) {
+	data, err := assets.ReadFile("assets/flake.nix")
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(data)
+	for _, want := range []string{
+		"less", "neovim", "procps", "ripgrep", "fd", "tree",
+		"gnutar", "gzip", "delta", "gnumake", "unzip",
+		`writeTextDir "etc/gitconfig"`, "gitConfig",
+	} {
+		if !strings.Contains(s, want) {
+			t.Errorf("embedded flake.nix missing tooling %q", want)
+		}
+	}
+}

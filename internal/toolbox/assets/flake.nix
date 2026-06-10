@@ -92,6 +92,19 @@
             for f in /etc/sandboxer/rc.d/*.sh; do [ -r "$f" ] && . "$f"; done
             [ -r "$HOME/.config/sandboxer/rc" ] && . "$HOME/.config/sandboxer/rc"
           '';
+
+          # System git config: route the pager through delta for readable diffs.
+          # Safe for headless agents — git disables the pager when stdout is not
+          # a TTY, so porcelain/parseable output is untouched; this only affects
+          # the human-facing interactive pager.
+          gitConfig = pkgs.writeTextDir "etc/gitconfig" ''
+            [core]
+                pager = delta
+            [interactive]
+                diffFilter = delta --color-only
+            [delta]
+                navigate = true
+          '';
         in
         {
           image = pkgs.dockerTools.buildLayeredImage {
@@ -112,11 +125,25 @@
                 gnugrep
                 openssh
                 which
+                # tooling pack: pager, editor, process tools, fast search,
+                # archives, nicer git diffs, make/unzip — for humans and agents
+                less
+                neovim
+                procps
+                ripgrep
+                fd
+                tree
+                gnutar
+                gzip
+                delta
+                gnumake
+                unzip
               ])
               ++ agentPkgs
               ++ [
                 sandboxerBin
                 shellRc
+                gitConfig
               ];
             config = {
               # No Entrypoint: the launcher always passes a full command
