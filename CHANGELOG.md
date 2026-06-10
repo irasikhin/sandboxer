@@ -10,6 +10,14 @@ commit messages with that in mind. See [CONTRIBUTING.md](./CONTRIBUTING.md).
 
 ## [Unreleased]
 
+## [0.20.1] — 2026-06-10
+
+### Fixed
+
+- re-sync profile snapshot on mutating ops (0f70c66)
+- reload a flat .sandboxer.yaml on positional re-enter (e2ebcea)
+
+
 ## [0.20.0] — 2026-06-10
 
 ### Added
@@ -342,3 +350,4 @@ commit messages with that in mind. See [CONTRIBUTING.md](./CONTRIBUTING.md).
 [0.18.3]: https://github.com/irasikhin/sandboxer/compare/v0.18.2...v0.18.3
 [0.19.0]: https://github.com/irasikhin/sandboxer/compare/v0.18.3...v0.19.0
 [0.20.0]: https://github.com/irasikhin/sandboxer/compare/v0.19.0...v0.20.0
+[0.20.1]: https://github.com/irasikhin/sandboxer/compare/v0.20.0...v0.20.1
