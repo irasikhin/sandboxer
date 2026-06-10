@@ -76,47 +76,116 @@ func TestShellQuoteArg(t *testing.T) {
 
 func TestComposeYAMLEgress(t *testing.T) {
 	argv := []string{"run", "--rm", "img", "bash"}
-	on, err := composeYAML("s", config.Runtime{Egress: true, Domains: []string{"a.com"}}, argv)
+	on, err := composeYAML("s", config.Runtime{Egress: true, Domains: []string{"a.com"}}, argv, "")
 	if err != nil || !strings.Contains(on, "a.com") {
 		t.Errorf("egress-on doc missing domains (err=%v):\n%s", err, on)
 	}
-	off, err := composeYAML("s", config.Runtime{}, argv)
+	off, err := composeYAML("s", config.Runtime{}, argv, "")
 	if err != nil || !strings.Contains(off, "egress disabled") {
 		t.Errorf("egress-off note missing (err=%v):\n%s", err, off)
+	}
+	if strings.Contains(off, "session container") {
+		t.Errorf("ephemeral doc must not carry a session note:\n%s", off)
+	}
+	// A session name adds the managed-container note; the YAML body is unchanged.
+	withNote, err := composeYAML("s", config.Runtime{}, argv, "sandboxer-s-abcd1234")
+	if err != nil || !strings.Contains(withNote, "sandboxer-s-abcd1234") ||
+		!strings.Contains(withNote, "one-shot (ephemeral) equivalent") {
+		t.Errorf("session note missing (err=%v):\n%s", err, withNote)
 	}
 }
 
 func TestComposeCommand(t *testing.T) {
 	project := newProject(t)
 	fakePodman(t)
+	t.Setenv("SANDBOXER_SESSION", "") // assert the persistent default below
 	if code, _, errs := run("create", "feat", "--src", project); code != 0 {
 		t.Fatalf("create: %d %s", code, errs)
 	}
 
-	// Default: docker-compose.yml.
+	// Default: docker-compose.yml. The session mode defaults to persistent, so
+	// the header notes the managed session container the YAML does not reproduce.
 	code, out, errs := run("compose", "feat", "--src", project, "--backend", "podman")
 	if code != 0 {
 		t.Fatalf("compose = %d %s", code, errs)
 	}
-	for _, want := range []string{"services:", "feat:", "image:", "working_dir:", "command:", "egress"} {
+	for _, want := range []string{"services:", "feat:", "image:", "working_dir:", "command:", "egress",
+		"sandboxer-feat-", "one-shot (ephemeral) equivalent"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("compose YAML missing %q:\n%s", want, out)
 		}
 	}
 
-	// --print-run: a docker/podman run command line.
-	code, out2, errs := run("compose", "feat", "--src", project, "--backend", "podman", "--print-run")
+	// --ephemeral --print-run: the plain one-shot run command line, no session.
+	code, out2, errs := run("compose", "feat", "--src", project, "--backend", "podman", "--print-run", "--ephemeral")
 	if code != 0 {
 		t.Fatalf("compose --print-run = %d %s", code, errs)
 	}
-	if !strings.Contains(out2, "podman run") || !strings.Contains(out2, "bash") {
+	if !strings.Contains(out2, "podman run --rm") || !strings.Contains(out2, "bash") {
 		t.Errorf("print-run missing run command:\n%s", out2)
+	}
+	if strings.Contains(out2, "sleep infinity") {
+		t.Errorf("ephemeral print-run must not show the session create:\n%s", out2)
+	}
+
+	// --ephemeral YAML: no session note.
+	if code, out3, errs := run("compose", "feat", "--src", project, "--backend", "podman", "--ephemeral"); code != 0 ||
+		strings.Contains(out3, "session container") {
+		t.Errorf("ephemeral compose = (%d, %s):\n%s", code, errs, out3)
 	}
 
 	// The removed native backend is rejected.
 	if code, _, errs := run("compose", "feat", "--src", project, "--backend", "native"); code != 1 ||
 		!strings.Contains(errs, "native backend was removed") {
 		t.Errorf("compose native = (%d, %q)", code, errs)
+	}
+}
+
+// TestComposePrintRunPersistent: in persistent mode --print-run emits the
+// create + exec pair from backend.CreateArgv/ExecArgv — the same no-drift
+// builders the real session lifecycle uses.
+func TestComposePrintRunPersistent(t *testing.T) {
+	project := newProject(t)
+	fakePodman(t)
+	t.Setenv("SANDBOXER_SESSION", "")
+	t.Setenv("TERM", "xterm") // execArgv forwards TERM; pin it for the assert
+	if code, _, errs := run("create", "feat", "--src", project); code != 0 {
+		t.Fatalf("create: %d %s", code, errs)
+	}
+
+	code, out, errs := run("compose", "feat", "--src", project, "--backend", "podman", "--print-run")
+	if code != 0 {
+		t.Fatalf("compose --print-run = %d %s", code, errs)
+	}
+	lines := strings.Split(strings.TrimSpace(out), "\n")
+	if len(lines) != 2 {
+		t.Fatalf("want a create + exec pair (2 lines), got %d:\n%s", len(lines), out)
+	}
+	for _, want := range []string{"podman run -d --init", "--name sandboxer-feat-",
+		"--label sandboxer.managed=true", "--label sandboxer.hash=", "sleep infinity"} {
+		if !strings.Contains(lines[0], want) {
+			t.Errorf("create line missing %q:\n%s", want, lines[0])
+		}
+	}
+	for _, want := range []string{"podman exec -i", "sandboxer-feat-", "--env TERM=xterm", "bash -l"} {
+		if !strings.Contains(lines[1], want) {
+			t.Errorf("exec line missing %q:\n%s", want, lines[1])
+		}
+	}
+
+	// SANDBOXER_SESSION=ephemeral (the operator kill-switch) restores the
+	// single one-shot line.
+	t.Setenv("SANDBOXER_SESSION", "ephemeral")
+	if code, out2, errs := run("compose", "feat", "--src", project, "--backend", "podman", "--print-run"); code != 0 ||
+		strings.Contains(out2, "sleep infinity") || !strings.Contains(out2, "podman run --rm") {
+		t.Errorf("ephemeral-env print-run = (%d, %s):\n%s", code, errs, out2)
+	}
+
+	// A typo'd session mode fails fast, before any engine work.
+	t.Setenv("SANDBOXER_SESSION", "bogus")
+	if code, _, errs := run("compose", "feat", "--src", project, "--backend", "podman"); code != 1 ||
+		!strings.Contains(errs, "unknown session mode") {
+		t.Errorf("bogus session mode = (%d, %q)", code, errs)
 	}
 }
 

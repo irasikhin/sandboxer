@@ -27,7 +27,12 @@ func newComposeCmd() *cobra.Command {
 By default it prints a docker-compose.yml; with --print-run it prints the
 equivalent docker/podman run command instead. The egress allowlist is enforced
 at run time by a separate proxy sidecar (started by 'sandboxer enter/exec') and
-is therefore documented rather than reproduced here.`,
+is therefore documented rather than reproduced here.
+
+In persistent session mode (the default) 'sandboxer enter/exec' reuses a
+managed session container instead of a one-shot run: --print-run then prints
+the create + exec command pair, while the YAML stays the one-shot (ephemeral)
+equivalent — its purpose is "run it with your own tooling".`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			t, err := resolveTarget(f, posArg(args))
@@ -41,6 +46,9 @@ is therefore documented rather than reproduced here.`,
 			if err := config.ValidateBackend(rt); err != nil {
 				return err
 			}
+			if err := config.ValidateSession(rt); err != nil {
+				return err
+			}
 			engine, err := backend.ResolveEngine(rt.Backend, config.LoadDefaults())
 			if err != nil {
 				return err
@@ -50,6 +58,7 @@ is therefore documented rather than reproduced here.`,
 				Image:           config.LoadDefaults().Image,
 				Dest:            t.base.SandboxDir(t.slug),
 				Slug:            t.slug,
+				BaseDir:         t.base.Dir,
 				HomeDir:         t.base.HomeDir(t.slug),
 				RT:              rt,
 				Profile:         t.profile,
@@ -63,12 +72,27 @@ is therefore documented rather than reproduced here.`,
 			if err != nil {
 				return err
 			}
+			// In persistent mode the managed session container is what
+			// enter/exec actually use; the one-shot YAML below stays the
+			// ephemeral equivalent but carries a note naming it.
+			session := ""
+			if rt.Session == config.SessionPersistent {
+				session = backend.SessionName(t.slug, t.base.Dir)
+			}
 			out := cmd.OutOrStdout()
 			if printRun {
+				if session != "" {
+					// The create + exec pair, from the same builders the real
+					// session lifecycle uses (no drift, same as RunArgv).
+					create := backend.CreateArgv(opts, session, backend.SessionWantHash(opts))
+					fmt.Fprintln(out, shellLine(append([]string{engine}, create...)))
+					fmt.Fprintln(out, shellLine(append([]string{engine}, backend.ExecArgv(opts, session, opts.Args)...)))
+					return nil
+				}
 				fmt.Fprintln(out, shellLine(append([]string{engine}, argv...)))
 				return nil
 			}
-			doc, err := composeYAML(t.slug, rt, argv)
+			doc, err := composeYAML(t.slug, rt, argv, session)
 			if err != nil {
 				return err
 			}
@@ -78,6 +102,7 @@ is therefore documented rather than reproduced here.`,
 	}
 	bindExisting(cmd, &f)
 	cmd.Flags().BoolVar(&printRun, "print-run", false, "print a docker/podman run command instead of compose YAML")
+	cmd.Flags().BoolVar(&f.ephemeral, "ephemeral", false, "render the one-shot configuration even when the session mode is persistent")
 	return cmd
 }
 
@@ -100,8 +125,11 @@ type composeService struct {
 
 // composeYAML renders a single-service docker-compose document from the engine
 // run argv produced by backend.RunArgv. Parsing our own well-formed argv keeps
-// the run command and the compose file from drifting apart.
-func composeYAML(slug string, rt config.Runtime, argv []string) (string, error) {
+// the run command and the compose file from drifting apart. session names the
+// managed persistent session container when that mode is in effect ("" in
+// ephemeral mode): the YAML is always the one-shot equivalent, so the header
+// notes the container enter/exec would actually reuse.
+func composeYAML(slug string, rt config.Runtime, argv []string, session string) (string, error) {
 	svc := parseRunArgv(argv)
 	doc := map[string]any{"services": map[string]any{slug: svc}}
 	body, err := yaml.Marshal(doc)
@@ -116,6 +144,10 @@ func composeYAML(slug string, rt config.Runtime, argv []string) (string, error) 
 		"# NOTE: the egress allowlist is applied at run time by a separate proxy\n" +
 		"# sidecar (started by `sandboxer enter/exec`); it is NOT reproduced here.\n" +
 		"# Allowed domains: " + egress + "\n"
+	if session != "" {
+		header += "# NOTE: `sandboxer enter/exec` reuse the managed session container\n" +
+			"# " + session + " — this file is the one-shot (ephemeral) equivalent.\n"
+	}
 	return header + string(body), nil
 }
 
