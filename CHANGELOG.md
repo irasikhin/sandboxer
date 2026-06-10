@@ -10,6 +10,14 @@ commit messages with that in mind. See [CONTRIBUTING.md](./CONTRIBUTING.md).
 
 ## [Unreleased]
 
+## [0.20.0] — 2026-06-10
+
+### Added
+
+- per-profile tool packs baked into a toolbox image variant (38d2f94)
+- MCP-server registry — seed agent config and allow domains (18a3575)
+
+
 ## [0.19.0] — 2026-06-10
 
 ### Added
@@ -333,3 +341,4 @@ commit messages with that in mind. See [CONTRIBUTING.md](./CONTRIBUTING.md).
 [0.18.2]: https://github.com/irasikhin/sandboxer/compare/v0.18.1...v0.18.2
 [0.18.3]: https://github.com/irasikhin/sandboxer/compare/v0.18.2...v0.18.3
 [0.19.0]: https://github.com/irasikhin/sandboxer/compare/v0.18.3...v0.19.0
+[0.20.0]: https://github.com/irasikhin/sandboxer/compare/v0.19.0...v0.20.0
