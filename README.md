@@ -57,12 +57,13 @@ Or grab a [pre-built binary](https://github.com/irasikhin/sandboxer/releases)
 ```bash
 sandboxer init                            # scaffold a commented .sandboxer.yaml to edit (optional)
 sandboxer create feat                     # create a sandbox named "feat" (deps come from a profile)
-sandboxer enter  feat                     # interactive shell inside it (agents on PATH)
+sandboxer enter  feat                     # attach a shell (persistent session; Ctrl-q detaches)
 sandboxer exec   feat -- claude           # run an agent/command inside it
 sandboxer diff   feat                     # show what changed vs the deps' origins
 sandboxer push   feat                     # copy the deps back to their origins
-sandboxer list                            # status of all sandboxes
-sandboxer rm     feat                     # delete the sandbox
+sandboxer stop   feat                     # park the session container (enter resumes it)
+sandboxer list                            # status of all sandboxes (incl. session state)
+sandboxer rm     feat                     # delete the sandbox and its session
 ```
 
 To pull deps in, a profile must list them: drop a `.sandboxer.yaml` in the cwd
@@ -78,6 +79,24 @@ sandboxer run tasks.txt --agent claude --max-parallel 4
 # tasks file: [slug] sections + task text (see sandboxer.tasks.example)
 ```
 
+## Persistent sessions
+
+By default `enter` attaches to a **persistent session container** (tmux
+inside): **Ctrl-q detaches**, the session — and any agent running in it —
+keeps going, and a later `sandboxer enter feat` reattaches (`--session <name>`
+opens extra tmux sessions in the same container). `exec` reuses a running
+session; `stop` parks the container for a later resume; `rm` removes it along
+with the sandbox. `list`'s STATE column shows `running`/`stopped`/`-` per
+sandbox. When the profile changes, the next `enter` recreates an idle session
+(and refuses while others are attached).
+
+Escape hatches back to one-shot containers: `--ephemeral` (enter/exec),
+`session: ephemeral` in the profile, or `SANDBOXER_SESSION=ephemeral` (the env
+wins over the profile — an operator kill-switch). A session survives client
+disconnects, **not** a host/engine restart — resuming the agent's conversation
+is the agent's job (e.g. `claude --continue`). Design notes:
+[docs/sessions-design.md](./docs/sessions-design.md).
+
 ## Config
 
 Scalars come from **flags** and `SANDBOXER_*` env vars:
@@ -87,6 +106,7 @@ Scalars come from **flags** and `SANDBOXER_*` env vars:
 | agent | `--agent` | `SANDBOXER_AGENT` (default `claude`) |
 | backend | `--backend` | `SANDBOXER_BACKEND` (default `podman`; `podman\|docker` pins that engine when installed, else falls back to whichever is) |
 | model | `--model` | `SANDBOXER_MODEL` |
+| session mode | `--ephemeral` | `SANDBOXER_SESSION` (default `persistent`; the env wins over a profile's `session:`) |
 | egress domains | `--allow-domains a,b` | `SANDBOXER_DOMAINS` |
 | disable egress | — | `SANDBOXER_NO_EGRESS=1` |
 | skip auto-scaffold | — | `SANDBOXER_NO_SCAFFOLD=1` (create/enter writes a default `.sandboxer.yaml` otherwise) |
