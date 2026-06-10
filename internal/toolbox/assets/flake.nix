@@ -57,6 +57,41 @@
                 install -m0755 ${./sandboxer} $out/bin/sandboxer
                 autoPatchelf $out/bin/sandboxer || true
               '';
+
+          # Interactive-shell rc baked into the image: a sandbox-aware colored
+          # prompt, sane aliases + EDITOR/PAGER, and drop-in extension points
+          # (/etc/sandboxer/rc.d/*.sh for plugins, ~/.config/sandboxer/rc for
+          # the user). `enter` launches `bash --rcfile /etc/sandboxer/rc.sh -i`.
+          # Kept in the image — never seeded into the per-sandbox $HOME — so
+          # shell cosmetics never touch the agent's private home.
+          shellRc = pkgs.writeTextDir "etc/sandboxer/rc.sh" ''
+            # sourced via `bash --rcfile`; do nothing for non-interactive shells
+            case $- in *i*) ;; *) return ;; esac
+
+            __sbx_git() {
+              local b
+              b=$(git rev-parse --abbrev-ref HEAD 2>/dev/null) || return
+              printf ' (%s)' "$b"
+            }
+
+            # The magenta sbx:<slug> marker means this is never mistaken for the
+            # host shell; cwd in cyan; git branch when inside a repo.
+            PS1='\[\e[1;35m\]sbx:'"''${SANDBOXER_SLUG:-?}"'\[\e[0m\] \[\e[36m\]\w\[\e[0m\]$(__sbx_git)\$ '
+
+            alias ls='ls --color=auto'
+            alias ll='ls -alh --color=auto'
+            alias la='ls -A'
+            alias grep='grep --color=auto'
+            alias ..='cd ..'
+
+            export EDITOR="''${EDITOR:-nvim}"
+            export PAGER="''${PAGER:-less}"
+            export LESS="''${LESS:--R}"
+
+            # extension points: plugin drop-ins (image) then the user file (home)
+            for f in /etc/sandboxer/rc.d/*.sh; do [ -r "$f" ] && . "$f"; done
+            [ -r "$HOME/.config/sandboxer/rc" ] && . "$HOME/.config/sandboxer/rc"
+          '';
         in
         {
           image = pkgs.dockerTools.buildLayeredImage {
@@ -79,7 +114,10 @@
                 which
               ])
               ++ agentPkgs
-              ++ [ sandboxerBin ];
+              ++ [
+                sandboxerBin
+                shellRc
+              ];
             config = {
               # No Entrypoint: the launcher always passes a full command
               # (bash -lc …, sandboxer _proxy …).

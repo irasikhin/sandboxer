@@ -135,13 +135,13 @@ func newEnterCmd() *cobra.Command {
 			if err := t.base.EnsureHome(t.slug); err != nil {
 				return err
 			}
-			fmt.Fprintf(errOut, "sandboxer: interactive shell in container (%s %s). Agents in PATH.\n", engine, config.LoadDefaults().Image)
+			fmt.Fprintln(errOut, enterBanner(t.slug, engine, dest))
 			code, runErr := backend.Run(backend.RunOpts{
 				Engine: engine, Image: config.LoadDefaults().Image, Dest: dest, Slug: t.slug,
 				HomeDir: t.base.HomeDir(t.slug),
 				RT:      rt, Profile: t.profile,
 				ProfileJSONPath: t.base.ProfileJSONPath(t.slug), ManifestPath: t.base.ManifestPath(t.slug),
-				Interactive: true, Args: []string{"bash", "-l"},
+				Interactive: true, Args: interactiveShellArgs(),
 				NoEgress: noEgress(),
 				Stdin:    cmd.InOrStdin(), Stdout: cmd.OutOrStdout(), Stderr: errOut,
 			})
@@ -253,6 +253,29 @@ func pushDeps(t *target, cmd *cobra.Command) error {
 // noEgress reports whether the egress allowlist is disabled via the environment
 // (parity with the batch runner, which honours the same switch).
 func noEgress() bool { return os.Getenv("SANDBOXER_NO_EGRESS") == "1" }
+
+// interactiveShellArgs is the in-container command for `enter`: launch bash with
+// the baked rc (sandbox-aware prompt, aliases, EDITOR/PAGER) when it is present,
+// otherwise a plain interactive shell. The guard tolerates an older cached
+// toolbox image built before the rc existed — a fresh `sandboxer build-image`
+// adds it — so flipping the launcher never strands such an image at a dead
+// `--rcfile` path.
+func interactiveShellArgs() []string {
+	return []string{"bash", "-c",
+		"test -r /etc/sandboxer/rc.sh && exec bash --rcfile /etc/sandboxer/rc.sh -i || exec bash -i"}
+}
+
+// enterBanner is the orientation notice printed to stderr when an interactive
+// shell opens: which sandbox, the engine, the working directory, and the
+// non-obvious exit semantics (leaving the shell pushes rw deps back to their
+// origins). The agent/backend/model/egress facts are already on the configLine
+// printed just above, so this only adds what that line does not.
+func enterBanner(slug, engine, dir string) string {
+	return fmt.Sprintf(
+		"sandboxer: interactive shell in %q (%s) — %s\n"+
+			"sandboxer: exit ends the shell and pushes rw deps back to their origins",
+		slug, engine, dir)
+}
 
 // splitDash separates the optional positional before `--` from the command
 // after it.
