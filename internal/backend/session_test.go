@@ -2,7 +2,10 @@ package backend
 
 import (
 	"bytes"
+	"errors"
+	"maps"
 	"os"
+	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -155,4 +158,695 @@ func TestConfigHash(t *testing.T) {
 			t.Errorf("%s did not change the hash: %q", tc.desc, g)
 		}
 	}
+}
+
+// --- lifecycle ---------------------------------------------------------------
+
+// sessionEngine writes an executable engine stub for the lifecycle tests.
+// Every invocation's argv is appended to the returned log; behavior branches
+// on the engine subcommand ($1) and is steered through env vars:
+//
+//	SBX_FAIL_ON       any invocation whose subcommand matches exits 1
+//	SBX_INSPECT_FAIL  `container inspect` of the session container exits 1
+//	SBX_INSPECT_OUT   stdout of `container inspect` (session or batched)
+//	SBX_PROXY_RUNNING `container inspect <…-proxy>` prints "true" when "1",
+//	                  exits 1 (proxy missing) otherwise
+//	SBX_EXEC_OUT      stdout of `exec` (the tmux list-clients idleness probe)
+//	SBX_PS_OUT        stdout of `ps`; SBX_PS_FAIL makes `ps` exit 1
+func sessionEngine(t *testing.T) (engine, logPath string) {
+	t.Helper()
+	dir := t.TempDir()
+	logPath = filepath.Join(dir, "calls.log")
+	engine = filepath.Join(dir, "engine")
+	script := `#!/bin/sh
+printf '%s\n' "$*" >> "` + logPath + `"
+[ -n "$SBX_FAIL_ON" ] && [ "$1" = "$SBX_FAIL_ON" ] && exit 1
+for a in "$@"; do last="$a"; done
+case "$1" in
+container)
+  case "$last" in
+  *-proxy)
+    [ "$SBX_PROXY_RUNNING" = "1" ] && { echo true; exit 0; }
+    exit 1 ;;
+  *)
+    [ -n "$SBX_INSPECT_FAIL" ] && exit 1
+    printf '%s\n' "$SBX_INSPECT_OUT" ;;
+  esac ;;
+exec) printf '%s\n' "$SBX_EXEC_OUT" ;;
+ps)
+  [ -n "$SBX_PS_FAIL" ] && exit 1
+  printf '%s\n' "$SBX_PS_OUT" ;;
+esac
+exit 0
+`
+	if err := os.WriteFile(engine, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return engine, logPath
+}
+
+// engineLog returns the stub's invocations, one argv per line (nil before the
+// first call).
+func engineLog(t *testing.T, path string) []string {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil
+	}
+	return strings.Split(strings.TrimSpace(string(data)), "\n")
+}
+
+func hasLine(lines []string, exact string) bool { return slices.Contains(lines, exact) }
+
+func findPrefixLine(lines []string, prefix string) string {
+	for _, l := range lines {
+		if strings.HasPrefix(l, prefix) {
+			return l
+		}
+	}
+	return ""
+}
+
+// TestPlanSession pins the full pure policy table: every combination of
+// exists/running/hash-freshness/idleness maps to exactly one action.
+func TestPlanSession(t *testing.T) {
+	const want = "h-want"
+	hash := func(fresh bool) string {
+		if fresh {
+			return want
+		}
+		return "h-stale"
+	}
+	rows := []struct {
+		exists, running, fresh, idle bool
+		action                       sessionAction
+	}{
+		// No container: create, whatever the other dimensions claim.
+		{false, false, false, false, actCreate},
+		{false, false, false, true, actCreate},
+		{false, false, true, false, actCreate},
+		{false, false, true, true, actCreate},
+		{false, true, false, false, actCreate},
+		{false, true, false, true, actCreate},
+		{false, true, true, false, actCreate},
+		{false, true, true, true, actCreate},
+		// Stopped: start when fresh, recreate when stale (idleness irrelevant —
+		// nothing can be attached to a stopped container).
+		{true, false, false, false, actRecreate},
+		{true, false, false, true, actRecreate},
+		{true, false, true, false, actStart},
+		{true, false, true, true, actStart},
+		// Running: exec when fresh; stale recreates only when idle, else refuse.
+		{true, true, false, false, actRefuse},
+		{true, true, false, true, actRecreate},
+		{true, true, true, false, actExec},
+		{true, true, true, true, actExec},
+	}
+	for _, r := range rows {
+		info := SessionInfo{Exists: r.exists, Running: r.running, Hash: hash(r.fresh)}
+		if got := planSession(info, want, r.idle); got != r.action {
+			t.Errorf("planSession(exists=%v running=%v fresh=%v idle=%v) = %d, want %d",
+				r.exists, r.running, r.fresh, r.idle, got, r.action)
+		}
+	}
+	// A missing hash label ("" — e.g. a container from an older version) is
+	// stale, never fresh.
+	if got := planSession(SessionInfo{Exists: true, Running: false}, want, false); got != actRecreate {
+		t.Errorf("missing hash label = %d, want actRecreate", got)
+	}
+}
+
+func TestInspectSession(t *testing.T) {
+	requireExec(t, "sh")
+	engine, logPath := sessionEngine(t)
+
+	t.Setenv("SBX_INSPECT_FAIL", "1")
+	if got := InspectSession(engine, "n"); got != (SessionInfo{}) {
+		t.Errorf("missing container: InspectSession = %+v, want zero", got)
+	}
+
+	t.Setenv("SBX_INSPECT_FAIL", "")
+	for out, want := range map[string]SessionInfo{
+		"true abc123":  {Exists: true, Running: true, Hash: "abc123"},
+		"false abc123": {Exists: true, Running: false, Hash: "abc123"},
+		"true":         {Exists: true, Running: true}, // hash label absent
+		"":             {Exists: true},                // unparseable output tolerated
+	} {
+		t.Setenv("SBX_INSPECT_OUT", out)
+		if got := InspectSession(engine, "n"); got != want {
+			t.Errorf("InspectSession(%q) = %+v, want %+v", out, got, want)
+		}
+	}
+
+	// One inspect call per InspectSession, reading state + hash label together.
+	want := `container inspect --format {{.State.Running}} {{index .Config.Labels "sandboxer.hash"}} n`
+	if lines := engineLog(t, logPath); !hasLine(lines, want) {
+		t.Errorf("engine log missing %q:\n%s", want, strings.Join(lines, "\n"))
+	}
+}
+
+func TestSessionIdle(t *testing.T) {
+	requireExec(t, "sh")
+	engine, logPath := sessionEngine(t)
+
+	t.Setenv("SBX_EXEC_OUT", "")
+	if !sessionIdle(engine, "n") {
+		t.Error("empty client list should be idle")
+	}
+	t.Setenv("SBX_EXEC_OUT", "client0: /dev/pts/3 [80x24 xterm]")
+	if sessionIdle(engine, "n") {
+		t.Error("an attached tmux client should not be idle")
+	}
+	// Any error (no tmux server yet, engine hiccup) counts as idle by design.
+	t.Setenv("SBX_FAIL_ON", "exec")
+	if !sessionIdle(engine, "n") {
+		t.Error("a failing probe should fall back to idle")
+	}
+
+	want := "exec n tmux -L sandboxer list-clients"
+	if lines := engineLog(t, logPath); !hasLine(lines, want) {
+		t.Errorf("engine log missing %q:\n%s", want, strings.Join(lines, "\n"))
+	}
+}
+
+// sessionOpts is the no-egress baseline the EnsureSession scenarios tweak.
+func sessionOpts(engine string) RunOpts {
+	return RunOpts{
+		Engine: engine, Image: "img:1", Dest: "/d", Slug: "s", BaseDir: "/b",
+		RT: config.Runtime{}, NoEgress: true,
+		Stdin: strings.NewReader(""), Stdout: &bytes.Buffer{}, Stderr: &bytes.Buffer{},
+	}
+}
+
+func TestEnsureSessionCreate(t *testing.T) {
+	requireExec(t, "sh")
+	engine, logPath := sessionEngine(t)
+	o := sessionOpts(engine)
+	name, hash := SessionName("s", "/b"), ConfigHash(o, "", "")
+
+	t.Setenv("SBX_INSPECT_FAIL", "1") // not found
+	got, err := EnsureSession(o)
+	if err != nil || got != name {
+		t.Fatalf("EnsureSession = (%q, %v), want (%q, nil)", got, err, name)
+	}
+	lines := engineLog(t, logPath)
+	run := findPrefixLine(lines, "run -d --init --name "+name)
+	if run == "" {
+		t.Fatalf("no create invocation:\n%s", strings.Join(lines, "\n"))
+	}
+	for _, want := range []string{"--label sandboxer.hash=" + hash, " img:1 sleep infinity"} {
+		if !strings.Contains(run, want) {
+			t.Errorf("create argv missing %q:\n%s", want, run)
+		}
+	}
+	if findPrefixLine(lines, "start ") != "" {
+		t.Errorf("fresh create should not start anything:\n%s", strings.Join(lines, "\n"))
+	}
+	// Without egress, leftovers from a previous egress-enabled life are swept.
+	if !hasLine(lines, "rm -f "+name+"-proxy") {
+		t.Errorf("create did not sweep stale egress:\n%s", strings.Join(lines, "\n"))
+	}
+}
+
+func TestEnsureSessionAdoptRunningFresh(t *testing.T) {
+	requireExec(t, "sh")
+	engine, logPath := sessionEngine(t)
+	o := sessionOpts(engine)
+	name, hash := SessionName("s", "/b"), ConfigHash(o, "", "")
+
+	t.Setenv("SBX_INSPECT_OUT", "true "+hash)
+	got, err := EnsureSession(o)
+	if err != nil || got != name {
+		t.Fatalf("EnsureSession = (%q, %v), want (%q, nil)", got, err, name)
+	}
+	lines := engineLog(t, logPath)
+	for _, banned := range []string{"run -d", "start ", "rm -f", "exec "} {
+		if findPrefixLine(lines, banned) != "" {
+			t.Errorf("adopting a fresh running session must not %q:\n%s", banned, strings.Join(lines, "\n"))
+		}
+	}
+}
+
+func TestEnsureSessionStartStoppedFresh(t *testing.T) {
+	requireExec(t, "sh")
+	engine, logPath := sessionEngine(t)
+	o := sessionOpts(engine)
+	name, hash := SessionName("s", "/b"), ConfigHash(o, "", "")
+
+	t.Setenv("SBX_INSPECT_OUT", "false "+hash)
+	if got, err := EnsureSession(o); err != nil || got != name {
+		t.Fatalf("EnsureSession = (%q, %v), want (%q, nil)", got, err, name)
+	}
+	lines := engineLog(t, logPath)
+	if !hasLine(lines, "start "+name) {
+		t.Errorf("stopped+fresh should start the container:\n%s", strings.Join(lines, "\n"))
+	}
+	if findPrefixLine(lines, "run -d") != "" {
+		t.Errorf("stopped+fresh must not create:\n%s", strings.Join(lines, "\n"))
+	}
+
+	// A failing start surfaces as an error.
+	t.Setenv("SBX_FAIL_ON", "start")
+	if _, err := EnsureSession(o); err == nil || !strings.Contains(err.Error(), "start session") {
+		t.Errorf("start failure = %v, want a start session error", err)
+	}
+}
+
+func TestEnsureSessionRecreateStale(t *testing.T) {
+	requireExec(t, "sh")
+
+	t.Run("stopped", func(t *testing.T) {
+		engine, logPath := sessionEngine(t)
+		o := sessionOpts(engine)
+		name := SessionName("s", "/b")
+		stderr := &bytes.Buffer{}
+		o.Stderr = stderr
+
+		t.Setenv("SBX_INSPECT_OUT", "false deadbeef")
+		if got, err := EnsureSession(o); err != nil || got != name {
+			t.Fatalf("EnsureSession = (%q, %v), want (%q, nil)", got, err, name)
+		}
+		if !strings.Contains(stderr.String(), "recreating session: profile changed") {
+			t.Errorf("missing recreate notice, stderr = %q", stderr.String())
+		}
+		lines := engineLog(t, logPath)
+		if !hasLine(lines, "rm -f "+name) {
+			t.Errorf("stale session was not removed:\n%s", strings.Join(lines, "\n"))
+		}
+		if findPrefixLine(lines, "run -d --init") == "" {
+			t.Errorf("stale session was not recreated:\n%s", strings.Join(lines, "\n"))
+		}
+	})
+
+	t.Run("running and idle", func(t *testing.T) {
+		engine, logPath := sessionEngine(t)
+		o := sessionOpts(engine)
+		name := SessionName("s", "/b")
+
+		t.Setenv("SBX_INSPECT_OUT", "true deadbeef")
+		t.Setenv("SBX_EXEC_OUT", "") // no tmux clients → idle
+		if got, err := EnsureSession(o); err != nil || got != name {
+			t.Fatalf("EnsureSession = (%q, %v), want (%q, nil)", got, err, name)
+		}
+		lines := engineLog(t, logPath)
+		if !hasLine(lines, "exec "+name+" tmux -L sandboxer list-clients") {
+			t.Errorf("idleness was not probed:\n%s", strings.Join(lines, "\n"))
+		}
+		if !hasLine(lines, "rm -f "+name) || findPrefixLine(lines, "run -d --init") == "" {
+			t.Errorf("idle stale session was not replaced:\n%s", strings.Join(lines, "\n"))
+		}
+	})
+
+	t.Run("rm failure surfaces", func(t *testing.T) {
+		engine, _ := sessionEngine(t)
+		o := sessionOpts(engine)
+
+		t.Setenv("SBX_INSPECT_OUT", "false deadbeef")
+		t.Setenv("SBX_FAIL_ON", "rm")
+		if _, err := EnsureSession(o); err == nil || !strings.Contains(err.Error(), "remove stale session") {
+			t.Errorf("rm failure = %v, want a remove stale session error", err)
+		}
+	})
+
+	t.Run("running and busy refuses", func(t *testing.T) {
+		engine, logPath := sessionEngine(t)
+		o := sessionOpts(engine)
+
+		t.Setenv("SBX_INSPECT_OUT", "true deadbeef")
+		t.Setenv("SBX_EXEC_OUT", "client0: /dev/pts/3")
+		_, err := EnsureSession(o)
+		if err == nil || !strings.Contains(err.Error(), "--ephemeral") {
+			t.Fatalf("busy stale session = %v, want a refusal pointing at --ephemeral", err)
+		}
+		lines := engineLog(t, logPath)
+		if findPrefixLine(lines, "rm -f") != "" || findPrefixLine(lines, "run -d") != "" {
+			t.Errorf("refusal must not touch the session:\n%s", strings.Join(lines, "\n"))
+		}
+	})
+}
+
+// egressOpts is the egress-enabled variant; its hash is computed with the
+// session's stable egress identifiers, exactly as EnsureSession does.
+func egressOpts(engine string) (o RunOpts, name, hash string) {
+	o = sessionOpts(engine)
+	o.NoEgress = false
+	o.RT = config.Runtime{Egress: true, Domains: []string{"x.com"}}
+	name = SessionName("s", "/b")
+	hash = ConfigHash(o, name+"-int", "http://"+name+"-proxy:8888")
+	return o, name, hash
+}
+
+func TestEnsureSessionEgress(t *testing.T) {
+	requireExec(t, "sh")
+
+	t.Run("create brings up the named sidecar first", func(t *testing.T) {
+		engine, logPath := sessionEngine(t)
+		o, name, hash := egressOpts(engine)
+
+		t.Setenv("SBX_INSPECT_FAIL", "1") // not found
+		if got, err := EnsureSession(o); err != nil || got != name {
+			t.Fatalf("EnsureSession = (%q, %v), want (%q, nil)", got, err, name)
+		}
+		lines := engineLog(t, logPath)
+		if !hasLine(lines, "network create --internal "+name+"-int") {
+			t.Errorf("missing stable-named internal network:\n%s", strings.Join(lines, "\n"))
+		}
+		if findPrefixLine(lines, "run -d --name "+name+"-proxy") == "" {
+			t.Errorf("missing stable-named proxy sidecar:\n%s", strings.Join(lines, "\n"))
+		}
+		run := findPrefixLine(lines, "run -d --init --name "+name)
+		if run == "" {
+			t.Fatalf("no session create:\n%s", strings.Join(lines, "\n"))
+		}
+		for _, want := range []string{
+			"--network " + name + "-int",
+			"HTTP_PROXY=http://" + name + "-proxy:8888",
+			"--label sandboxer.hash=" + hash,
+		} {
+			if !strings.Contains(run, want) {
+				t.Errorf("session create argv missing %q:\n%s", want, run)
+			}
+		}
+	})
+
+	t.Run("adopt with a healthy proxy", func(t *testing.T) {
+		engine, logPath := sessionEngine(t)
+		o, name, hash := egressOpts(engine)
+
+		t.Setenv("SBX_INSPECT_OUT", "true "+hash)
+		t.Setenv("SBX_PROXY_RUNNING", "1")
+		if got, err := EnsureSession(o); err != nil || got != name {
+			t.Fatalf("EnsureSession = (%q, %v), want (%q, nil)", got, err, name)
+		}
+		lines := engineLog(t, logPath)
+		if findPrefixLine(lines, "run -d") != "" || findPrefixLine(lines, "rm -f") != "" {
+			t.Errorf("healthy adoption must not recreate:\n%s", strings.Join(lines, "\n"))
+		}
+	})
+
+	t.Run("dead proxy forces recreate", func(t *testing.T) {
+		engine, logPath := sessionEngine(t)
+		o, name, hash := egressOpts(engine)
+		stderr := &bytes.Buffer{}
+		o.Stderr = stderr
+
+		t.Setenv("SBX_INSPECT_OUT", "true "+hash) // fresh container…
+		// …but SBX_PROXY_RUNNING is unset: the proxy inspect fails (missing).
+		if got, err := EnsureSession(o); err != nil || got != name {
+			t.Fatalf("EnsureSession = (%q, %v), want (%q, nil)", got, err, name)
+		}
+		if !strings.Contains(stderr.String(), "egress proxy is gone") {
+			t.Errorf("missing proxy-gone notice, stderr = %q", stderr.String())
+		}
+		lines := engineLog(t, logPath)
+		if !hasLine(lines, "rm -f "+name) || findPrefixLine(lines, "run -d --init") == "" {
+			t.Errorf("dead proxy should rebuild the session:\n%s", strings.Join(lines, "\n"))
+		}
+	})
+
+	t.Run("stopped fresh restarts the proxy too", func(t *testing.T) {
+		engine, logPath := sessionEngine(t)
+		o, name, hash := egressOpts(engine)
+
+		t.Setenv("SBX_INSPECT_OUT", "false "+hash)
+		if got, err := EnsureSession(o); err != nil || got != name {
+			t.Fatalf("EnsureSession = (%q, %v), want (%q, nil)", got, err, name)
+		}
+		lines := engineLog(t, logPath)
+		for _, want := range []string{"start " + name + "-proxy", "start " + name} {
+			if !hasLine(lines, want) {
+				t.Errorf("missing %q:\n%s", want, strings.Join(lines, "\n"))
+			}
+		}
+	})
+
+	t.Run("unstartable proxy forces recreate", func(t *testing.T) {
+		engine, logPath := sessionEngine(t)
+		o, name, hash := egressOpts(engine)
+
+		t.Setenv("SBX_INSPECT_OUT", "false "+hash)
+		t.Setenv("SBX_FAIL_ON", "start") // proxy start fails → rebuild both
+		if got, err := EnsureSession(o); err != nil || got != name {
+			t.Fatalf("EnsureSession = (%q, %v), want (%q, nil)", got, err, name)
+		}
+		lines := engineLog(t, logPath)
+		if !hasLine(lines, "rm -f "+name) || findPrefixLine(lines, "run -d --init") == "" {
+			t.Errorf("unstartable proxy should rebuild the session:\n%s", strings.Join(lines, "\n"))
+		}
+	})
+
+	t.Run("empty allowlist fails before any engine call", func(t *testing.T) {
+		engine, logPath := sessionEngine(t)
+		o, _, _ := egressOpts(engine)
+		o.RT.Domains = nil
+
+		if _, err := EnsureSession(o); !errors.Is(err, errEmptyAllowlist) {
+			t.Fatalf("EnsureSession = %v, want errEmptyAllowlist", err)
+		}
+		if lines := engineLog(t, logPath); lines != nil {
+			t.Errorf("engine was invoked despite the misconfiguration:\n%s", strings.Join(lines, "\n"))
+		}
+	})
+
+	t.Run("sidecar failure fails closed", func(t *testing.T) {
+		engine, _ := sessionEngine(t)
+		o, _, _ := egressOpts(engine)
+
+		t.Setenv("SBX_INSPECT_FAIL", "1")
+		t.Setenv("SBX_FAIL_ON", "network") // network create fails
+		_, err := EnsureSession(o)
+		if err == nil || !strings.Contains(err.Error(), "refusing to run on an open network") {
+			t.Errorf("sidecar failure = %v, want a fail-closed egress error", err)
+		}
+	})
+}
+
+func TestEnsureSessionCreateFailure(t *testing.T) {
+	requireExec(t, "sh")
+	engine, _ := sessionEngine(t)
+	o := sessionOpts(engine)
+
+	t.Setenv("SBX_INSPECT_FAIL", "1")
+	t.Setenv("SBX_FAIL_ON", "run")
+	if _, err := EnsureSession(o); err == nil || !strings.Contains(err.Error(), "create session") {
+		t.Errorf("create failure = %v, want a create session error", err)
+	}
+}
+
+func TestExecSession(t *testing.T) {
+	requireExec(t, "sh")
+	dir := t.TempDir()
+	logPath := filepath.Join(dir, "calls.log")
+	engine := filepath.Join(dir, "engine")
+	writeEngineScript(t, engine, logPath)
+	o := RunOpts{
+		Engine: engine, Dest: "/d",
+		Stdin: strings.NewReader(""), Stdout: &bytes.Buffer{}, Stderr: &bytes.Buffer{},
+	}
+	t.Setenv("TERM", "")
+
+	code, err := ExecSession(o, "n", []string{"echo", "hi"})
+	if err != nil || code != 0 {
+		t.Fatalf("ExecSession = (%d, %v), want (0, nil)", code, err)
+	}
+	if lines := engineLog(t, logPath); !hasLine(lines, "exec -i -w /d n echo hi") {
+		t.Errorf("exec argv wrong:\n%s", strings.Join(lines, "\n"))
+	}
+
+	// The in-container command's exit code propagates, not an error.
+	t.Setenv("SBX_EXIT", "7")
+	if code, err = ExecSession(o, "n", []string{"false"}); err != nil || code != 7 {
+		t.Errorf("ExecSession = (%d, %v), want (7, nil)", code, err)
+	}
+}
+
+func TestStopSession(t *testing.T) {
+	requireExec(t, "sh")
+	name := SessionName("s", "/b")
+
+	t.Run("stops container and running proxy", func(t *testing.T) {
+		engine, logPath := sessionEngine(t)
+		t.Setenv("SBX_INSPECT_OUT", "true h")
+		t.Setenv("SBX_PROXY_RUNNING", "1")
+		if err := StopSession(engine, "s", "/b"); err != nil {
+			t.Fatalf("StopSession: %v", err)
+		}
+		lines := engineLog(t, logPath)
+		for _, want := range []string{"stop " + name, "stop " + name + "-proxy"} {
+			if !hasLine(lines, want) {
+				t.Errorf("missing %q:\n%s", want, strings.Join(lines, "\n"))
+			}
+		}
+		// Networks stay: stop is resumable, only rm tears them down.
+		if findPrefixLine(lines, "network rm") != "" {
+			t.Errorf("stop must keep the networks:\n%s", strings.Join(lines, "\n"))
+		}
+	})
+
+	t.Run("missing session is a no-op", func(t *testing.T) {
+		engine, logPath := sessionEngine(t)
+		t.Setenv("SBX_INSPECT_FAIL", "1")
+		if err := StopSession(engine, "s", "/b"); err != nil {
+			t.Fatalf("StopSession on nothing: %v", err)
+		}
+		if findPrefixLine(engineLog(t, logPath), "stop ") != "" {
+			t.Error("nothing existed, nothing should be stopped")
+		}
+	})
+
+	t.Run("stop failure surfaces", func(t *testing.T) {
+		engine, _ := sessionEngine(t)
+		t.Setenv("SBX_INSPECT_OUT", "true h")
+		t.Setenv("SBX_FAIL_ON", "stop")
+		if err := StopSession(engine, "s", "/b"); err == nil || !strings.Contains(err.Error(), "stop session") {
+			t.Errorf("StopSession = %v, want a stop session error", err)
+		}
+	})
+
+	t.Run("proxy stop failure surfaces", func(t *testing.T) {
+		engine, _ := sessionEngine(t)
+		t.Setenv("SBX_INSPECT_FAIL", "1") // no container, but a running proxy
+		t.Setenv("SBX_PROXY_RUNNING", "1")
+		t.Setenv("SBX_FAIL_ON", "stop")
+		if err := StopSession(engine, "s", "/b"); err == nil {
+			t.Error("a failing proxy stop should surface")
+		}
+	})
+}
+
+func TestRemoveSession(t *testing.T) {
+	requireExec(t, "sh")
+	name := SessionName("s", "/b")
+
+	t.Run("removes container and egress", func(t *testing.T) {
+		engine, logPath := sessionEngine(t)
+		t.Setenv("SBX_INSPECT_OUT", "true h")
+		if err := RemoveSession(engine, "s", "/b"); err != nil {
+			t.Fatalf("RemoveSession: %v", err)
+		}
+		lines := engineLog(t, logPath)
+		for _, want := range []string{
+			"rm -f " + name,
+			"rm -f " + name + "-proxy",
+			"network rm " + name + "-int",
+			"network rm " + name + "-ext",
+		} {
+			if !hasLine(lines, want) {
+				t.Errorf("missing %q:\n%s", want, strings.Join(lines, "\n"))
+			}
+		}
+	})
+
+	t.Run("missing session still sweeps egress", func(t *testing.T) {
+		engine, logPath := sessionEngine(t)
+		t.Setenv("SBX_INSPECT_FAIL", "1")
+		if err := RemoveSession(engine, "s", "/b"); err != nil {
+			t.Fatalf("RemoveSession on nothing: %v", err)
+		}
+		lines := engineLog(t, logPath)
+		if hasLine(lines, "rm -f "+name) {
+			t.Error("no container existed, none should be removed")
+		}
+		if !hasLine(lines, "rm -f "+name+"-proxy") {
+			t.Errorf("egress sweep skipped:\n%s", strings.Join(lines, "\n"))
+		}
+	})
+
+	t.Run("rm failure surfaces", func(t *testing.T) {
+		engine, _ := sessionEngine(t)
+		t.Setenv("SBX_INSPECT_OUT", "true h")
+		t.Setenv("SBX_FAIL_ON", "rm")
+		if err := RemoveSession(engine, "s", "/b"); err == nil || !strings.Contains(err.Error(), "remove session") {
+			t.Errorf("RemoveSession = %v, want a remove session error", err)
+		}
+	})
+}
+
+func TestRemoveAllSessions(t *testing.T) {
+	requireExec(t, "sh")
+
+	t.Run("removes every labeled session", func(t *testing.T) {
+		engine, logPath := sessionEngine(t)
+		t.Setenv("SBX_PS_OUT", "n1\nn2")
+		t.Setenv("SBX_INSPECT_OUT", "true h")
+		if err := RemoveAllSessions(engine, "/b"); err != nil {
+			t.Fatalf("RemoveAllSessions: %v", err)
+		}
+		lines := engineLog(t, logPath)
+		wantPS := "ps -a --filter label=sandboxer.managed=true --filter label=sandboxer.base=/b --format {{.Names}}"
+		for _, want := range []string{wantPS, "rm -f n1", "rm -f n2", "rm -f n1-proxy", "network rm n2-int"} {
+			if !hasLine(lines, want) {
+				t.Errorf("missing %q:\n%s", want, strings.Join(lines, "\n"))
+			}
+		}
+	})
+
+	t.Run("no sessions is a no-op", func(t *testing.T) {
+		engine, logPath := sessionEngine(t)
+		t.Setenv("SBX_PS_OUT", "")
+		if err := RemoveAllSessions(engine, "/b"); err != nil {
+			t.Fatalf("RemoveAllSessions on nothing: %v", err)
+		}
+		if findPrefixLine(engineLog(t, logPath), "rm ") != "" {
+			t.Error("nothing listed, nothing should be removed")
+		}
+	})
+
+	t.Run("ps failure surfaces", func(t *testing.T) {
+		engine, _ := sessionEngine(t)
+		t.Setenv("SBX_PS_FAIL", "1")
+		if err := RemoveAllSessions(engine, "/b"); err == nil || !strings.Contains(err.Error(), "list sessions") {
+			t.Errorf("RemoveAllSessions = %v, want a list sessions error", err)
+		}
+	})
+}
+
+func TestSessionStates(t *testing.T) {
+	requireExec(t, "sh")
+
+	t.Run("maps slug to status", func(t *testing.T) {
+		engine, logPath := sessionEngine(t)
+		t.Setenv("SBX_PS_OUT", "n1\nn2")
+		// Status comes first because a raw slug may contain spaces.
+		t.Setenv("SBX_INSPECT_OUT", "running slug one\nexited s2")
+		got, err := SessionStates(engine, "/b")
+		if err != nil {
+			t.Fatalf("SessionStates: %v", err)
+		}
+		want := map[string]string{"slug one": "running", "s2": "exited"}
+		if !maps.Equal(got, want) {
+			t.Errorf("SessionStates = %v, want %v", got, want)
+		}
+		// One batched inspect over all the names ps returned.
+		wantInspect := `container inspect --format {{.State.Status}} {{index .Config.Labels "sandboxer.slug"}} n1 n2`
+		if lines := engineLog(t, logPath); !hasLine(lines, wantInspect) {
+			t.Errorf("missing %q:\n%s", wantInspect, strings.Join(lines, "\n"))
+		}
+	})
+
+	t.Run("no sessions skips the inspect", func(t *testing.T) {
+		engine, logPath := sessionEngine(t)
+		t.Setenv("SBX_PS_OUT", "")
+		got, err := SessionStates(engine, "/b")
+		if err != nil || len(got) != 0 {
+			t.Fatalf("SessionStates = (%v, %v), want an empty map", got, err)
+		}
+		if findPrefixLine(engineLog(t, logPath), "container inspect") != "" {
+			t.Error("no names, no inspect")
+		}
+	})
+
+	t.Run("engine failures surface", func(t *testing.T) {
+		engine, _ := sessionEngine(t)
+		t.Setenv("SBX_PS_FAIL", "1")
+		if _, err := SessionStates(engine, "/b"); err == nil {
+			t.Error("ps failure should surface")
+		}
+		t.Setenv("SBX_PS_FAIL", "")
+		t.Setenv("SBX_PS_OUT", "n1")
+		t.Setenv("SBX_INSPECT_FAIL", "1")
+		if _, err := SessionStates(engine, "/b"); err == nil || !strings.Contains(err.Error(), "inspect sessions") {
+			t.Errorf("SessionStates = %v, want an inspect sessions error", err)
+		}
+	})
 }

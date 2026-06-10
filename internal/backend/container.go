@@ -55,12 +55,9 @@ func Run(o RunOpts) (int, error) {
 	// egress: false) or an upstream proxy is holding the boundary. When it is
 	// required we fail closed: we never silently fall back to an open bridge
 	// network, because that would drop the isolation the caller asked for.
-	egressRequired := !o.NoEgress && o.RT.Egress && o.RT.HTTPProxy == "" && o.RT.HTTPSProxy == ""
-	if egressRequired {
+	if egressRequired(o) {
 		if len(o.RT.Domains) == 0 {
-			return 0, fmt.Errorf("egress allowlist is enabled but no domains are allowed — " +
-				"set --allow-domains / network.allowedDomains, or disable egress " +
-				"(egress: false, or SANDBOXER_NO_EGRESS=1)")
+			return 0, errEmptyAllowlist
 		}
 		e, err := egress.Up(o.Engine, o.Image, o.Slug, o.RT.Domains, o.RT.UpstreamProxy, o.Stderr)
 		if err != nil {
