@@ -1,0 +1,22 @@
+{
+  "context7": {
+    "command": "npx",
+    "args": ["-y", "@upstash/context7-mcp"],
+    "domains": ["registry.npmjs.org", "context7.com", "mcp.context7.com"]
+  },
+  "fetch": {
+    "command": "npx",
+    "args": ["-y", "@modelcontextprotocol/server-fetch"],
+    "domains": ["registry.npmjs.org"]
+  },
+  "sequential-thinking": {
+    "command": "npx",
+    "args": ["-y", "@modelcontextprotocol/server-sequential-thinking"],
+    "domains": ["registry.npmjs.org"]
+  },
+  "playwright": {
+    "command": "npx",
+    "args": ["-y", "@playwright/mcp@latest"],
+    "domains": ["registry.npmjs.org", "playwright.azureedge.net", "cdn.playwright.dev"]
+  }
+}

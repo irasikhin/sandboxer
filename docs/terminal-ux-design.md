@@ -1,7 +1,8 @@
 # Terminal UX, agent tooling & plugins — design
 
-Status: **T1–T3 implemented** (prompt+MOTD, tooling pack, `setup:` hook + shell
-drop-ins); tool packs (3c) and the MCP registry (3d) remain deferred. Scope: make the in-sandbox
+Status: **all implemented** — T1–T3 (prompt+MOTD, tooling pack, `setup:` hook +
+shell drop-ins) plus tool packs (3c, per-profile nix image variant) and the MCP
+registry (3d). Scope: make the in-sandbox
 shell pleasant and oriented, bake the baseline tooling humans and agents expect,
 and lay the extensibility primitives a "plugin" would be built from. Sequenced as
 four incremental PRs (T1 → T2 → T3) plus two deferred milestones.
@@ -252,7 +253,7 @@ Already wired by the `rc.sh` tail: image/plugin fragments in
 beyond T1 — this PR just formalizes and tests the contract. A "plugin" ships an
 `rc.d` fragment to add aliases/env without forking the image.
 
-### 3c. Tool packs (`tools:` profile field) — DEFER, design only
+### 3c. Tool packs (`tools:` profile field) — IMPLEMENTED (option 1)
 
 Extra toolchains (node/python/rust/go) are project-specific; baking them all into
 the default image bloats it for everyone. Options:
@@ -269,7 +270,7 @@ Key a `tools:` list off a curated nix-package map, mirroring the agent-registry
 single-source pattern (a `tools.json` embedded **and** consumed by the flake,
 like `registry.json` / `llm-agents.nix`). Its own milestone.
 
-### 3d. MCP-server registry — separate track
+### 3d. MCP-server registry — IMPLEMENTED (claude seeding first)
 
 Mirror `registry.json`: a catalog of MCP servers (name → package/command → which
 agents), with config seeded into the agent's per-sandbox HOME (`~/.claude.json`

@@ -136,6 +136,9 @@ func newEnterCmd() *cobra.Command {
 			if err := t.base.EnsureHome(t.slug); err != nil {
 				return err
 			}
+			if err := applyMCP(t, &rt, errOut); err != nil {
+				return err
+			}
 			if err := runSetup(t, rt, engine, f.noSetup, errOut); err != nil {
 				return err
 			}
@@ -215,6 +218,9 @@ func newExecCmd() *cobra.Command {
 				return err
 			}
 			if err := t.base.EnsureHome(t.slug); err != nil {
+				return err
+			}
+			if err := applyMCP(t, &rt, cmd.ErrOrStderr()); err != nil {
 				return err
 			}
 			if err := runSetup(t, rt, engine, f.noSetup, cmd.ErrOrStderr()); err != nil {

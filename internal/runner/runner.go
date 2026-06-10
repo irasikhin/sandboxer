@@ -136,6 +136,18 @@ func Run(o Options) (Result, error) {
 		image = toolbox.ToolsImageTag(toolAttrs)
 	}
 
+	// MCP servers: fold their domains into the batch allowlist once; the
+	// per-sandbox config is seeded at launch.
+	var mcpServers map[string]registry.MCPServer
+	if profile != nil && len(profile.MCP) > 0 {
+		servers, domains, mErr := registry.ResolveMCP(profile.MCP)
+		if mErr != nil {
+			return Result{}, mErr
+		}
+		mcpServers = servers
+		rt.Domains = append(rt.Domains, domains...)
+	}
+
 	var profileJSON []byte
 	if profile != nil {
 		profileJSON, _ = profile.JSON()
@@ -189,6 +201,7 @@ func Run(o Options) (Result, error) {
 				engine:  engine,
 				image:   image,
 				tools:   toolAttrs,
+				mcp:     mcpServers,
 				profile: profile,
 				mem:     o.Mem,
 				cpu:     o.CPU,
@@ -242,6 +255,7 @@ type launchSpec struct {
 	engine  string
 	image   string
 	tools   []string
+	mcp     map[string]registry.MCPServer
 	profile *config.Profile
 	mem     string
 	cpu     string
@@ -338,6 +352,10 @@ func (s launchSpec) runContainer(dest, acmd, outPath, errPath string) int {
 	defer ef.Close()
 	if err := s.base.EnsureHome(s.slug); err != nil {
 		fmt.Fprintf(s.stderr, "sandboxer: %s: prepare agent home: %v\n", s.slug, err)
+		return 1
+	}
+	if _, err := registry.SeedMCP(s.rt.Agent, s.base.HomeDir(s.slug), s.mcp); err != nil {
+		fmt.Fprintf(s.stderr, "sandboxer: %s: seed mcp: %v\n", s.slug, err)
 		return 1
 	}
 
