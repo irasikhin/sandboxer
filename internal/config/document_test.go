@@ -98,8 +98,17 @@ default: web
 	if _, err := d.Select("nope"); err == nil {
 		t.Error("selecting an unknown profile must error")
 	}
-	if !FileHasSection(p, "api") || FileHasSection(p, "nope") {
-		t.Error("FileHasSection mismatch")
+	if !FileHasProfile(p, "api") || FileHasProfile(p, "nope") {
+		t.Error("FileHasProfile (multi) mismatch")
+	}
+
+	// Flat file: the single profile's effective name matches too.
+	flat := writeFile(t, t.TempDir(), "x.yaml", "name: solo\nbackend: docker\n")
+	if !FileHasProfile(flat, "solo") || FileHasProfile(flat, "nope") {
+		t.Error("FileHasProfile (flat) mismatch")
+	}
+	if FileHasProfile(filepath.Join(t.TempDir(), "missing.yaml"), "solo") {
+		t.Error("FileHasProfile on a missing file should be false")
 	}
 }
 

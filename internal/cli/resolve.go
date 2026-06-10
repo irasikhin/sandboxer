@@ -78,9 +78,12 @@ func resolveProfileFile(configPath, pos string) (string, string, error) {
 		}
 		return configPath, pos, nil
 	}
-	// A bare positional first tries to name a section of the project's
-	// multi-profile .sandboxer.yaml (project-local wins over the global store).
-	if pos != "" && !isYAML(pos) && !inContainer() && config.FileHasSection(config.ConfigFileName, pos) {
+	// A bare positional first tries to name a profile in the project's
+	// .sandboxer.yaml — a multi-profile section or a flat file whose single
+	// profile is named pos (project-local wins over the global store). This is
+	// what lets a re-`enter <slug>` re-read an edited project file instead of the
+	// frozen snapshot.
+	if pos != "" && !isYAML(pos) && !inContainer() && config.FileHasProfile(config.ConfigFileName, pos) {
 		return config.ConfigFileName, pos, nil
 	}
 	if pos != "" && !isYAML(pos) {

@@ -70,6 +70,44 @@ func TestPullRefreshesSnapshot(t *testing.T) {
 	}
 }
 
+// TestFlatProfileReloadsOnReenter pins the flat-file half of the fix: a flat
+// .sandboxer.yaml (single profile, name == slug) is now re-read on a positional
+// `pull <slug>` — like a multi-profile section — so an edit to it is picked up
+// instead of the frozen snapshot.
+func TestFlatProfileReloadsOnReenter(t *testing.T) {
+	t.Setenv("SANDBOXER_IN_CONTAINER", "")
+	t.Setenv("SANDBOXER_PROFILES", t.TempDir())
+
+	project := t.TempDir()
+	t.Chdir(project)
+	if err := os.MkdirAll(filepath.Join(project, "lib"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(project, "lib", "util.txt"), []byte("v1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := filepath.Join(project, ".sandboxer.yaml")
+	// Flat form (no `profiles:`), name is the slug.
+	if err := os.WriteFile(cfg, []byte("name: feat\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if code, _, errs := run("create", "feat"); code != 0 {
+		t.Fatalf("create: %d %s", code, errs)
+	}
+
+	// Edit the flat file in place: add roots + deps.
+	if err := os.WriteFile(cfg, []byte("name: feat\nroots: [\".\"]\ndeps: [\"lib\"]\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if code, _, errs := run("pull", "feat"); code != 0 {
+		t.Fatalf("pull: %d %s", code, errs)
+	}
+	if _, err := os.Stat(filepath.Join(project, ".sandboxer", "feat", "lib", "util.txt")); err != nil {
+		t.Errorf("flat-file edit was not picked up on re-enter: %v", err)
+	}
+}
+
 // TestEnterExecRefreshVendorsNewDeps covers the enter/exec snapshot-refresh
 // branches: a deps edit made after creation is vendored in before the sandbox is
 // entered. An invalid backend makes both commands fail right after the refresh,

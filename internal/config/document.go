@@ -117,12 +117,13 @@ func (d *Document) names() string {
 	return strings.Join(out, ", ")
 }
 
-// FileHasSection reports whether file is a multi-profile document that defines a
-// profile named name. It is used during resolution to decide whether a bare
-// positional selects a section of the project file. Parse errors yield false.
-func FileHasSection(file, name string) bool {
+// FileHasProfile reports whether file defines a profile named name, in either
+// the flat (the single profile's effective name) or multi (a `profiles:`
+// section) form. It is used during resolution to decide whether a bare
+// positional selects a profile from the project file. Parse errors yield false.
+func FileHasProfile(file, name string) bool {
 	d, err := LoadDocument(file)
-	return err == nil && d.Multi() && d.Has(name)
+	return err == nil && d.Has(name)
 }
 
 // mergeProfile overlays over onto base field by field: a field set on over wins,
