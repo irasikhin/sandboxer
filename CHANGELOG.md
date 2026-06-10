@@ -10,6 +10,31 @@ commit messages with that in mind. See [CONTRIBUTING.md](./CONTRIBUTING.md).
 
 ## [Unreleased]
 
+### Added
+
+- profile `image:` section — extra nixpkgs packages (`extraPkgs`), a user nix
+  hook (`nix:` returning `{ packages, files, env, overlay }`) and overridable
+  llm-agents/nixpkgs input pins (`latest` or a commit hash), baked into a
+  content-addressed `sandboxer-toolbox:var-*` variant; built by the same
+  nixos/nix builder container, no host nix
+- `build-image [profile]` builds a profile's variant;
+  `--llm-agents-rev`/`--nixpkgs-rev` one-shot rev overrides; a `latest` rev is
+  resolved once and stamped into `~/.cache/sandboxer/image-pins.json`, and
+  only `--refresh` re-resolves it
+- persistent sessions recreate when the toolbox image is rebuilt under an
+  unchanged tag (image-ID freshness)
+
+### Changed
+
+- tool-pack image variants moved from `tools-*` to the unified `var-*` tags;
+  the old `sandboxer-toolbox:tools-*` images are orphans — remove them with
+  `podman images -q 'sandboxer-toolbox:tools-*' | xargs -r podman rmi`
+  (same with `docker`)
+
+> Forward compatibility: the profile schema is strict, so a `.sandboxer.yaml`
+> with an `image:` section is rejected by older sandboxer binaries — upgrade
+> every machine sharing the profile before adopting it.
+
 ## [0.20.1] — 2026-06-10
 
 ### Fixed

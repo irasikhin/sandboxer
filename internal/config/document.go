@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 
@@ -46,11 +47,13 @@ func LoadDocument(file string) (*Document, error) {
 		return nil, err
 	}
 
+	dir := filepath.Dir(file)
 	if probe.Profiles == nil {
 		p, err := decodeProfile(data)
 		if err != nil {
 			return nil, err
 		}
+		p.resolveImageNix(dir)
 		name := ProfileName(file, p)
 		p.Name = name
 		return &Document{
@@ -64,6 +67,14 @@ func LoadDocument(file string) (*Document, error) {
 	dec.KnownFields(true)
 	if err := dec.Decode(&d); err != nil {
 		return nil, err
+	}
+	// Resolve relative image.nix paths against the file's directory in every
+	// section — defaults: included — so the snapshot written to _meta is
+	// self-contained.
+	d.Defaults.resolveImageNix(dir)
+	for name, p := range d.Profiles {
+		p.resolveImageNix(dir)
+		d.Profiles[name] = p
 	}
 	d.multi = true
 	return &d, nil
@@ -153,6 +164,9 @@ func mergeProfile(base, over Profile) Profile {
 	if over.Proxy.No != "" {
 		out.Proxy.No = over.Proxy.No
 	}
+	if over.Proxy.Upstream != "" {
+		out.Proxy.Upstream = over.Proxy.Upstream
+	}
 	if len(over.Agents) > 0 {
 		out.Agents = over.Agents
 	}
@@ -177,6 +191,32 @@ func mergeProfile(base, over Profile) Profile {
 			m[k] = v
 		}
 		out.Env = m
+	}
+	if over.Setup != "" {
+		out.Setup = over.Setup
+	}
+	if len(over.Tools) > 0 {
+		out.Tools = over.Tools
+	}
+	// Image merges per field, so defaults: can pin revisions while a profile
+	// adds packages or a user nix file on top.
+	if len(over.Image.ExtraPkgs) > 0 {
+		out.Image.ExtraPkgs = over.Image.ExtraPkgs
+	}
+	if over.Image.Nix != "" {
+		out.Image.Nix = over.Image.Nix
+	}
+	if over.Image.LLMAgentsRev != "" {
+		out.Image.LLMAgentsRev = over.Image.LLMAgentsRev
+	}
+	if over.Image.NixpkgsRev != "" {
+		out.Image.NixpkgsRev = over.Image.NixpkgsRev
+	}
+	if len(over.MCP) > 0 {
+		out.MCP = over.MCP
+	}
+	if over.Session != "" {
+		out.Session = over.Session
 	}
 	out.Name = over.Name
 	return out

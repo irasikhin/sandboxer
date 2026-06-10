@@ -3,15 +3,21 @@ package cli
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"strings"
 
 	"github.com/spf13/cobra"
 
+	"github.com/irasikhin/sandboxer/internal/backend"
 	"github.com/irasikhin/sandboxer/internal/config"
 	"github.com/irasikhin/sandboxer/internal/sandbox"
 )
+
+// sessionStates is the session-enumeration seam for list and doctor,
+// overridable in tests so the STATE column renders without a real engine.
+var sessionStates = backend.SessionStates
 
 func init() {
 	register(newListCmd)
@@ -53,7 +59,8 @@ func newListCmd() *cobra.Command {
 func printList(cmd *cobra.Command, base *sandbox.Base, wide bool) {
 	out := cmd.OutOrStdout()
 	cur := base.Current()
-	fmt.Fprintf(out, "%-2s %-16s %-9s %-5s %s\n", "", "SANDBOX", "EXIT", "SEC", "RESULT")
+	states := projectSessionStates(base.Dir)
+	fmt.Fprintf(out, "%-2s %-16s %-8s %-9s %-5s %s\n", "", "SANDBOX", "STATE", "EXIT", "SEC", "RESULT")
 	for _, slug := range base.Agents() {
 		exit, secs := readMeta(base.MetaFilePath(slug))
 		res := jsonResult(base.LogPath(slug, "json"))
@@ -66,11 +73,51 @@ func printList(cmd *cobra.Command, base *sandbox.Base, wide bool) {
 			slugDisp = truncate(slug, 16)
 			resDisp = truncate(res, 50)
 		}
-		fmt.Fprintf(out, "%-2s %-16s %-9s %-5s %s\n",
-			marker, slugDisp, exit, secs, resDisp)
+		fmt.Fprintf(out, "%-2s %-16s %-8s %-9s %-5s %s\n",
+			marker, slugDisp, sessionState(states, slug), exit, secs, resDisp)
 	}
 	fmt.Fprintln(out)
 	fmt.Fprintln(out, "* = active (use). enter <s> | exec <s> -- cmd | diff [s] | push [s] | rm <s>")
+}
+
+// projectSessionStates returns slug→container status for the project's
+// persistent sessions, probing every installed engine (a profile's `backend:`
+// may have put sessions on either). Best-effort: any engine problem only
+// drops that engine's answers, so the listing shows dashes instead of failing
+// on an engine-less host.
+func projectSessionStates(baseDir string) map[string]string {
+	var states map[string]string
+	for _, engine := range backendInstalledEngines(config.LoadDefaults()) {
+		st, err := sessionStates(engine, baseDir)
+		if err != nil {
+			continue
+		}
+		if states == nil {
+			states = make(map[string]string, len(st))
+		}
+		for slug, s := range st {
+			// A "running" verdict wins over another engine's leftover record.
+			if cur, ok := states[slug]; !ok || cur != "running" {
+				states[slug] = s
+			}
+		}
+	}
+	return states
+}
+
+// sessionState folds an engine container status into the STATE column:
+// "running" stays, any other recorded status reads "stopped", and a sandbox
+// without a session container shows "-".
+func sessionState(states map[string]string, slug string) string {
+	st, ok := states[slug]
+	switch {
+	case !ok:
+		return "-"
+	case st == "running":
+		return "running"
+	default:
+		return "stopped"
+	}
 }
 
 // sandboxDiff shows what changed in a sandbox's pulled deps versus their
@@ -167,11 +214,77 @@ func newShowCmd() *cobra.Command {
 			if !dumpFile(out, t.base.ManifestPath(t.slug)) {
 				fmt.Fprintln(out, "(no manifest)")
 			}
+			printSessionBlock(out, t, rtShow)
 			return nil
 		},
 	}
 	bindExisting(cmd, &f)
 	return cmd
+}
+
+// printSessionBlock renders show's "== session ==" lines: the deterministic
+// session container name, its current state, and whether the session is still
+// fresh — the config hash recorded at create time matches the profile AND the
+// container still runs the engine's current image — or the next persistent
+// enter would recreate the container (stale, naming which of the two went).
+// Best-effort: with no engine the state is unknown, never an error.
+func printSessionBlock(out io.Writer, t *target, rt config.Runtime) {
+	fmt.Fprintln(out, "== session ==")
+	name := backend.SessionName(t.slug, t.base.Dir)
+	fmt.Fprintf(out, "container: %s\n", name)
+	engine, err := backend.ResolveEngine(rt.Backend, config.LoadDefaults())
+	if err != nil {
+		fmt.Fprintln(out, "state: unknown (no container engine)")
+		return
+	}
+	info := backendInspectSession(engine, name)
+	if !info.Exists {
+		fmt.Fprintln(out, "state: none (a persistent enter creates it)")
+		return
+	}
+	state := "stopped"
+	if info.Running {
+		state = "running"
+	}
+	switch o, ok := sessionHashOpts(t, rt, engine); {
+	case !ok:
+		fmt.Fprintf(out, "state: %s\n", state)
+	case info.Hash != backendWantHash(o):
+		fmt.Fprintf(out, "state: %s (stale — the profile changed; re-enter recreates it)\n", state)
+	case !backend.ImageFresh(info.ImageID, backendImageID(engine, o.Image)):
+		fmt.Fprintf(out, "state: %s (stale — the image was rebuilt; re-enter recreates it)\n", state)
+	default:
+		fmt.Fprintf(out, "state: %s (fresh)\n", state)
+	}
+}
+
+// sessionHashOpts assembles the RunOpts SessionWantHash needs to recompute
+// the session's config hash — the same fields enter passes, minus the stdio.
+// The profile's MCP-server domains are folded into the allowlist exactly as
+// enter does before hashing (applyMCP), or an MCP-enabled profile would
+// permanently read as stale here. ok=false when the image or the MCP set
+// cannot be resolved, leaving freshness unjudged. The image resolve gets NO
+// engine on purpose: show is read-only, so a cold "latest" pin must never
+// launch a resolver container or stamp the pins cache from here — a warm
+// stamp still resolves, a cold one just skips the freshness verdict.
+func sessionHashOpts(t *target, rt config.Runtime, engine string) (backend.RunOpts, bool) {
+	image, spec, err := resolveImage(t.profile, "", io.Discard)
+	if err != nil {
+		return backend.RunOpts{}, false
+	}
+	domains, err := mcpAllowDomains(t.profile, rt.Domains)
+	if err != nil {
+		return backend.RunOpts{}, false
+	}
+	rt.Domains = domains
+	return backend.RunOpts{
+		Engine: engine, Image: image, Spec: spec,
+		Dest: t.base.SandboxDir(t.slug), Slug: t.slug, BaseDir: t.base.Dir,
+		HomeDir: t.base.HomeDir(t.slug),
+		RT:      rt, Profile: t.profile,
+		ProfileJSONPath: t.base.ProfileJSONPath(t.slug), ManifestPath: t.base.ManifestPath(t.slug),
+		NoEgress: noEgress(),
+	}, true
 }
 
 func readMeta(path string) (exit, secs string) {

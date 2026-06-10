@@ -18,15 +18,16 @@ import (
 
 // commonFlags are shared across commands that operate on an existing sandbox.
 type commonFlags struct {
-	src     string
-	config  string
-	sandbox string
-	model   string
-	agent   string
-	backend string
-	domains string
-	force   bool
-	noSetup bool
+	src       string
+	config    string
+	sandbox   string
+	model     string
+	agent     string
+	backend   string
+	domains   string
+	force     bool
+	noSetup   bool
+	ephemeral bool // --ephemeral: one-shot container instead of the persistent session
 }
 
 // bindExisting registers the flags used by enter/exec/pull/push/show/diff/rm.
@@ -213,9 +214,15 @@ func resolveTarget(f commonFlags, pos string) (*target, error) {
 }
 
 // runtime resolves the effective settings for a target using the flag overrides.
+// The boolean --ephemeral maps onto the session override here, so the session
+// mode stays a single resolution chain inside ResolveRuntime.
 func (t *target) runtime(f commonFlags) (config.Runtime, error) {
+	session := ""
+	if f.ephemeral {
+		session = config.SessionEphemeral
+	}
 	return config.ResolveRuntime(t.profile, config.LoadDefaults(), t.base.Domains, t.base.Model,
-		config.Overrides{Model: f.model, Agent: f.agent, Backend: f.backend, Domains: f.domains})
+		config.Overrides{Model: f.model, Agent: f.agent, Backend: f.backend, Session: session, Domains: f.domains})
 }
 
 // backendLabel reports the backend to show in the banner: for a container

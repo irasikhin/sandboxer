@@ -9,20 +9,30 @@ import (
 	"github.com/irasikhin/sandboxer/internal/toolbox"
 )
 
-// resolveImage picks the toolbox image for a profile. Without a `tools:` pack it
-// is the default image; with one it is a per-profile variant baked with the
-// resolved nixpkgs attrs (built on demand by the backend, cached by tool-set
-// hash). It returns the image reference and the nixpkgs attrs to hand the
-// backend so a missing variant can be built.
-func resolveImage(prof *config.Profile) (image string, tools []string, err error) {
-	if prof == nil || len(prof.Tools) == 0 {
-		return config.LoadDefaults().Image, nil, nil
-	}
-	attrs, err := registry.ResolveTools(prof.Tools)
+// resolveImage picks the toolbox image for a profile. Without image
+// customization (`tools:` / `image:`) it is the configured default image; with
+// any it is the spec's content-addressed variant tag (built on demand by the
+// backend, shared across identical customizations). A "latest" input rev is
+// pinned to a concrete commit first — a stamped-cache hit, or a one-time
+// resolve via the engine on a miss ("" = no engine: a warm cache still works,
+// a cold one fails with build-image guidance). The resolve runs a container
+// (possibly pulling the nixos/nix builder image), so its banner and progress
+// go to stderr — interactive callers pass the command's stderr, the
+// best-effort show probe stays quiet. It returns the image reference and the
+// pinned spec the backend needs to build a missing variant.
+func resolveImage(prof *config.Profile, engine string, stderr io.Writer) (string, toolbox.Spec, error) {
+	spec, err := toolbox.ResolveSpec(prof)
 	if err != nil {
-		return "", nil, err
+		return "", toolbox.Spec{}, err
 	}
-	return toolbox.ToolsImageTag(attrs), attrs, nil
+	if spec.Empty() {
+		return config.LoadDefaults().Image, spec, nil
+	}
+	spec, err = toolbox.PinSpec(spec, engine, "", false, stderr)
+	if err != nil {
+		return "", toolbox.Spec{}, err
+	}
+	return spec.Tag(), spec, nil
 }
 
 // applyMCP wires a profile's `mcp:` servers into the run: it seeds the agent's
@@ -43,6 +53,22 @@ func applyMCP(t *target, rt *config.Runtime, errOut io.Writer) error {
 			"its domains are allowed — configure the server in-agent\n", rt.Agent)
 	}
 	return nil
+}
+
+// mcpAllowDomains returns the allowlist with the profile's MCP-server domains
+// folded in — the pure half of applyMCP (no config seeding), for commands that
+// must hash or print the same domain set enter/exec actually run with (show's
+// session freshness verdict, compose's printed argv). The two must never
+// disagree: both resolve through registry.ResolveMCP.
+func mcpAllowDomains(prof *config.Profile, have []string) ([]string, error) {
+	if prof == nil || len(prof.MCP) == 0 {
+		return have, nil
+	}
+	_, domains, err := registry.ResolveMCP(prof.MCP)
+	if err != nil {
+		return nil, err
+	}
+	return mergeDomains(have, domains), nil
 }
 
 // mergeDomains appends add to have without introducing duplicates.

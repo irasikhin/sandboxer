@@ -124,16 +124,37 @@ func Run(o Options) (Result, error) {
 		return Result{}, err
 	}
 
-	// Per-profile tool pack: a `tools:` profile bakes a variant toolbox image
-	// (built on demand by the backend, keyed by tool-set hash).
-	image := o.Image
-	var toolAttrs []string
-	if profile != nil && len(profile.Tools) > 0 {
-		toolAttrs, err = registry.ResolveTools(profile.Tools)
+	// A dry run never launches a container, so it does not need an engine
+	// installed — resolve one only for a real run. Resolved BEFORE the image:
+	// pinning a "latest" input rev below may need the engine for a one-time
+	// remote resolve.
+	engine := ""
+	backendShown := rt.Backend
+	if !o.DryRun {
+		engine, err = backend.ResolveEngine(rt.Backend, o.Defaults)
 		if err != nil {
 			return Result{}, err
 		}
-		image = toolbox.ToolsImageTag(toolAttrs)
+		backendShown = engine
+	}
+
+	// Per-profile image customization (`tools:` packs / `image:` section):
+	// resolve the content-addressed variant spec once for the whole batch,
+	// pinning any "latest" input rev to a concrete commit (a dry run has no
+	// engine — a cold pins cache then fails with build-image guidance); an
+	// empty spec keeps the configured image, any customization selects the
+	// variant tag (built on demand by the backend).
+	spec, err := toolbox.ResolveSpec(profile)
+	if err != nil {
+		return Result{}, err
+	}
+	spec, err = toolbox.PinSpec(spec, engine, "", false, o.Stderr)
+	if err != nil {
+		return Result{}, err
+	}
+	image := o.Image
+	if !spec.Empty() {
+		image = spec.Tag()
 	}
 
 	// MCP servers: fold their domains into the batch allowlist once; the
@@ -151,18 +172,6 @@ func Run(o Options) (Result, error) {
 	var profileJSON []byte
 	if profile != nil {
 		profileJSON, _ = profile.JSON()
-	}
-
-	// A dry run never launches a container, so it does not need an engine
-	// installed — resolve one only for a real run.
-	engine := ""
-	backendShown := rt.Backend
-	if !o.DryRun {
-		engine, err = backend.ResolveEngine(rt.Backend, o.Defaults)
-		if err != nil {
-			return Result{}, err
-		}
-		backendShown = engine
 	}
 
 	fmt.Fprintf(o.Stdout, "sandboxer: src=%s agent=%s backend=%s model=%s parallel=%d%s%s\n",
@@ -200,7 +209,7 @@ func Run(o Options) (Result, error) {
 				agent:   agent,
 				engine:  engine,
 				image:   image,
-				tools:   toolAttrs,
+				spec:    spec,
 				mcp:     mcpServers,
 				profile: profile,
 				mem:     o.Mem,
@@ -254,7 +263,7 @@ type launchSpec struct {
 	agent   registry.Agent
 	engine  string
 	image   string
-	tools   []string
+	spec    toolbox.Spec
 	mcp     map[string]registry.MCPServer
 	profile *config.Profile
 	mem     string
@@ -286,7 +295,7 @@ func (s launchSpec) runSetup(dest, errPath string, crt config.Runtime, ef io.Wri
 	sc, serr := backendRun(backend.RunOpts{
 		Engine:          s.engine,
 		Image:           s.image,
-		Tools:           s.tools,
+		Spec:            s.spec,
 		Dest:            dest,
 		Slug:            s.slug,
 		HomeDir:         s.base.HomeDir(s.slug),
@@ -371,7 +380,7 @@ func (s launchSpec) runContainer(dest, acmd, outPath, errPath string) int {
 	rc, err := backend.Run(backend.RunOpts{
 		Engine:          s.engine,
 		Image:           s.image,
-		Tools:           s.tools,
+		Spec:            s.spec,
 		Dest:            dest,
 		Slug:            s.slug,
 		HomeDir:         s.base.HomeDir(s.slug),

@@ -18,9 +18,10 @@ import (
 type RunOpts struct {
 	Engine          string
 	Image           string
-	Tools           []string // nixpkgs attrs baked into a per-profile image variant
-	Dest            string   // sandbox copy dir, mounted and used as workdir
+	Spec            toolbox.Spec // image variant customization; drives the auto-build of a missing variant
+	Dest            string       // sandbox copy dir, mounted and used as workdir
 	Slug            string
+	BaseDir         string // host .sandboxer dir; names/labels the persistent session (zero value fine for one-shot runs)
 	HomeDir         string // sandbox-private agent home, mounted as $HOME (isolated per sandbox)
 	RT              config.Runtime
 	Profile         *config.Profile
@@ -54,12 +55,9 @@ func Run(o RunOpts) (int, error) {
 	// egress: false) or an upstream proxy is holding the boundary. When it is
 	// required we fail closed: we never silently fall back to an open bridge
 	// network, because that would drop the isolation the caller asked for.
-	egressRequired := !o.NoEgress && o.RT.Egress && o.RT.HTTPProxy == "" && o.RT.HTTPSProxy == ""
-	if egressRequired {
+	if egressRequired(o) {
 		if len(o.RT.Domains) == 0 {
-			return 0, fmt.Errorf("egress allowlist is enabled but no domains are allowed — " +
-				"set --allow-domains / network.allowedDomains, or disable egress " +
-				"(egress: false, or SANDBOXER_NO_EGRESS=1)")
+			return 0, errEmptyAllowlist
 		}
 		e, err := egress.Up(o.Engine, o.Image, o.Slug, o.RT.Domains, o.RT.UpstreamProxy, o.Stderr)
 		if err != nil {
@@ -96,8 +94,6 @@ func RunArgv(o RunOpts) ([]string, error) { return runArgs(o, "", "") }
 // "" otherwise). Kept identical to the original inline construction so Run's
 // behavior is unchanged.
 func runArgs(o RunOpts, egNet, egProxyURL string) ([]string, error) {
-	userns := strconv.Itoa(os.Getuid()) + ":" + strconv.Itoa(os.Getgid())
-
 	args := []string{"run", "--rm"}
 	if o.Interactive {
 		args = append(args, "-i")
@@ -106,12 +102,33 @@ func runArgs(o RunOpts, egNet, egProxyURL string) ([]string, error) {
 			args = append(args, "-t")
 		}
 	}
-	args = append(args,
+	args = append(args, commonArgs(o, egNet, egProxyURL)...)
+	args = append(args, o.Image)
+	// Wall-clock timeout: wrap the in-container command with `timeout` (coreutils,
+	// present in the toolbox image).
+	if o.Wall != "" {
+		args = append(args, "timeout", "--signal=TERM", o.Wall)
+	}
+	args = append(args, o.Args...)
+	return args, nil
+}
+
+// commonArgs assembles every engine flag shared by the one-shot `run` and the
+// persistent-session `create` paths: everything between the run-mode prefix
+// (`run --rm [-i] [-t]` vs `run -d --init --name … --label …`) and the image —
+// isolation, workdir + sandbox mounts, identity env, host-gateway aliases,
+// resource limits, proxy/egress env, credentials and the profile's extra
+// mounts/env. The flag order is part of the contract: ConfigHash fingerprints
+// this argv, so reordering a flag invalidates every existing session.
+func commonArgs(o RunOpts, egNet, egProxyURL string) []string {
+	userns := strconv.Itoa(os.Getuid()) + ":" + strconv.Itoa(os.Getgid())
+
+	args := []string{
 		"--user", userns, "--cap-drop=ALL", "--security-opt", "no-new-privileges",
-		"--workdir", o.Dest, "--volume", o.Dest+":"+o.Dest+":rw",
+		"--workdir", o.Dest, "--volume", o.Dest + ":" + o.Dest + ":rw",
 		"--env", "SANDBOXER_IN_CONTAINER=1",
-		"--env", "SANDBOXER_SLUG="+o.Slug, "--env", "SANDBOXER_SANDBOX_DIR="+o.Dest,
-	)
+		"--env", "SANDBOXER_SLUG=" + o.Slug, "--env", "SANDBOXER_SANDBOX_DIR=" + o.Dest,
+	}
 	// $HOME is the sandbox-private agent home, bound at its own host path. It is
 	// isolated per sandbox (see sandbox.Base.HomeDir): the host's real home is
 	// never mounted, so no host config leaks in and the agent's atomic config
@@ -168,14 +185,7 @@ func runArgs(o RunOpts, egNet, egProxyURL string) ([]string, error) {
 	args = append(args, authEnvFlags(o.RT.AuthAgents)...)
 	args = append(args, originMounts(o.ManifestPath)...)
 	args = append(args, extraMountsAndEnv(o.Profile)...)
-	args = append(args, o.Image)
-	// Wall-clock timeout: wrap the in-container command with `timeout` (coreutils,
-	// present in the toolbox image).
-	if o.Wall != "" {
-		args = append(args, "timeout", "--signal=TERM", o.Wall)
-	}
-	args = append(args, o.Args...)
-	return args, nil
+	return args
 }
 
 // Test seams: overridable so ensureImage can be unit-tested without a real
@@ -194,28 +204,34 @@ func ensureImage(o RunOpts) error {
 	if o.Engine == "" || o.Image == "" || imageExists(o.Engine, o.Image) {
 		return nil
 	}
-	// The default image and per-profile tool-pack variants are both built
-	// locally (never published); a truly custom SANDBOXER_IMAGE with no tools is
+	// The default image and content-addressed variants are both built locally
+	// (never published); a truly custom SANDBOXER_IMAGE with an empty spec is
 	// left for the engine to pull.
-	if o.Image != config.DefaultImage && len(o.Tools) == 0 {
+	if o.Image != config.DefaultImage && o.Spec.Empty() {
 		return nil
+	}
+	// A bare `sandboxer build-image` builds the STOCK image — a missing var-
+	// variant needs its profile named, or the hint cannot fix the error.
+	hint := "sandboxer build-image"
+	if !o.Spec.Empty() {
+		hint = "sandboxer build-image <profile> (this variant image needs its profile, by name or -f)"
 	}
 	if os.Getenv("SANDBOXER_NO_AUTOBUILD") != "" {
 		return fmt.Errorf("toolbox image %q is not present and is built locally "+
-			"(never published) — build it with:\n  sandboxer build-image", o.Image)
+			"(never published) — build it with:\n  %s", o.Image, hint)
 	}
 	if o.Stderr != nil {
 		fmt.Fprintf(o.Stderr, "sandboxer: toolbox image %q not found — building it now "+
 			"(one-time, several minutes; disable with SANDBOXER_NO_AUTOBUILD=1)…\n", o.Image)
 	}
 	if err := buildImage(toolbox.BuildOpts{
-		Engine: o.Engine, Image: o.Image, Tools: o.Tools,
+		Engine: o.Engine, Image: o.Image, Spec: o.Spec,
 		Stdout: o.Stderr, Stderr: o.Stderr,
 	}); err != nil {
-		return fmt.Errorf("%w — build manually with: sandboxer build-image", err)
+		return fmt.Errorf("%w — build manually with: %s", err, hint)
 	}
 	if !imageExists(o.Engine, o.Image) {
-		return fmt.Errorf("toolbox image %q still missing after build — try: sandboxer build-image", o.Image)
+		return fmt.Errorf("toolbox image %q still missing after build — try: %s", o.Image, hint)
 	}
 	return nil
 }
@@ -225,6 +241,18 @@ func ensureImage(o RunOpts) error {
 // absent.
 func ImageExists(engine, image string) bool {
 	return exec.Command(engine, "image", "inspect", image).Run() == nil
+}
+
+// ImageID returns the engine's local ID for image (the 64-hex sha256 digest,
+// without docker's "sha256:" prefix — podman omits it), or "" on any failure.
+// A locally absent image is "unknown", never an error: callers skip the
+// image-freshness check on "" instead of failing before the image is built.
+func ImageID(engine, image string) string {
+	out, err := exec.Command(engine, "image", "inspect", "--format", "{{.Id}}", image).Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimPrefix(strings.TrimSpace(string(out)), "sha256:")
 }
 
 // exitCode maps a command error to a process exit code (0 success, the child's

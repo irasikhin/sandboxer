@@ -57,12 +57,13 @@ Or grab a [pre-built binary](https://github.com/irasikhin/sandboxer/releases)
 ```bash
 sandboxer init                            # scaffold a commented .sandboxer.yaml to edit (optional)
 sandboxer create feat                     # create a sandbox named "feat" (deps come from a profile)
-sandboxer enter  feat                     # interactive shell inside it (agents on PATH)
+sandboxer enter  feat                     # attach a shell (persistent session; Ctrl-q detaches)
 sandboxer exec   feat -- claude           # run an agent/command inside it
 sandboxer diff   feat                     # show what changed vs the deps' origins
 sandboxer push   feat                     # copy the deps back to their origins
-sandboxer list                            # status of all sandboxes
-sandboxer rm     feat                     # delete the sandbox
+sandboxer stop   feat                     # park the session container (enter resumes it)
+sandboxer list                            # status of all sandboxes (incl. session state)
+sandboxer rm     feat                     # delete the sandbox and its session
 ```
 
 To pull deps in, a profile must list them: drop a `.sandboxer.yaml` in the cwd
@@ -78,6 +79,24 @@ sandboxer run tasks.txt --agent claude --max-parallel 4
 # tasks file: [slug] sections + task text (see sandboxer.tasks.example)
 ```
 
+## Persistent sessions
+
+By default `enter` attaches to a **persistent session container** (tmux
+inside): **Ctrl-q detaches**, the session — and any agent running in it —
+keeps going, and a later `sandboxer enter feat` reattaches (`--session <name>`
+opens extra tmux sessions in the same container). `exec` reuses a running
+session; `stop` parks the container for a later resume; `rm` removes it along
+with the sandbox. `list`'s STATE column shows `running`/`stopped`/`-` per
+sandbox. When the profile changes or the toolbox image is rebuilt, the next
+`enter` recreates an idle session (and refuses while others are attached).
+
+Escape hatches back to one-shot containers: `--ephemeral` (enter/exec),
+`session: ephemeral` in the profile, or `SANDBOXER_SESSION=ephemeral` (the env
+wins over the profile — an operator kill-switch). A session survives client
+disconnects, **not** a host/engine restart — resuming the agent's conversation
+is the agent's job (e.g. `claude --continue`). Design notes:
+[docs/sessions-design.md](./docs/sessions-design.md).
+
 ## Config
 
 Scalars come from **flags** and `SANDBOXER_*` env vars:
@@ -87,13 +106,14 @@ Scalars come from **flags** and `SANDBOXER_*` env vars:
 | agent | `--agent` | `SANDBOXER_AGENT` (default `claude`) |
 | backend | `--backend` | `SANDBOXER_BACKEND` (default `podman`; `podman\|docker` pins that engine when installed, else falls back to whichever is) |
 | model | `--model` | `SANDBOXER_MODEL` |
+| session mode | `--ephemeral` | `SANDBOXER_SESSION` (default `persistent`; the env wins over a profile's `session:`) |
 | egress domains | `--allow-domains a,b` | `SANDBOXER_DOMAINS` |
 | disable egress | — | `SANDBOXER_NO_EGRESS=1` |
 | skip auto-scaffold | — | `SANDBOXER_NO_SCAFFOLD=1` (create/enter writes a default `.sandboxer.yaml` otherwise) |
 | container engine | — | `SANDBOXER_ENGINE` (default: auto-detect podman→docker) |
 | image | — | `SANDBOXER_IMAGE` (default `sandboxer-toolbox:latest`) |
 
-Structured fields (`roots`/`deps`, `extraMounts`, `env`, `setup`, `tools`, `mcp`) live in an **optional**
+Structured fields (`roots`/`deps`, `extraMounts`, `env`, `setup`, `tools`, `mcp`, `image`) live in an **optional**
 `.sandboxer.yaml`. Point at it with `-f`/`--config`, which accepts a **file**, a
 **directory** of profiles, or the **name** of a profile in the store (see
 [Named profiles](#named-profiles)); with nothing given, a `.sandboxer.yaml` in
@@ -137,12 +157,68 @@ skip it with `--no-setup`. The baked shell can also be extended without
 rebuilding the image: drop `*.sh` files in `/etc/sandboxer/rc.d/` (image
 plugins) or write `~/.config/sandboxer/rc` (per-sandbox `$HOME`).
 
+> ⚠️ `setup:` and `image.nix` (below) both run **arbitrary code the profile
+> points at** — setup inside the sandbox under its egress allowlist, the nix
+> hook inside the throwaway image-builder container with full network. That is
+> the intended trust level for *your own* profiles; treat a third-party
+> profile like a shell script someone sent you — read it before running it.
+
 `tools` names language/runtime packs (`node`, `python`, `go`, `rust`, … — see
 `internal/registry/tools.json`) baked into a **per-profile toolbox image**
-variant, built on demand and cached by tool-set hash. `mcp` names MCP servers
+variant, built on demand and content-addressed (see
+[Custom toolbox image](#custom-toolbox-image-image)). `mcp` names MCP servers
 (see `internal/registry/mcp.json`): the server config is seeded into the agent's
 sandbox home (claude today) and each server's domains are folded into the egress
 allowlist, so a sandboxed agent can use MCP without opening the network.
+
+### Custom toolbox image (`image:`)
+
+A profile can customize the toolbox image itself — extra packages, files, env,
+even a nixpkgs overlay — **without nix on your machine** (the same builder
+container does everything) and without forking the image:
+
+```yaml
+image:
+  extraPkgs: [gh, python3Packages.requests]  # extra nixpkgs attrs baked in
+  nix: sandbox-image.nix                     # build hook (path relative to this file)
+  llmAgentsRev: latest                       # input pin override: latest | full commit hash
+  # nixpkgsRev: <commit>                     # empty = the pin embedded in the binary
+```
+
+The customization is **content-addressed**: the sandbox runs
+`sandboxer-toolbox:var-<12hex>` — hashed over the effective input pins, the
+package set (`tools` packs + `extraPkgs`) and the nix file's content —
+auto-built on first use and shared by identical profiles; the stock
+`sandboxer-toolbox:latest` is untouched. Any change (a package, the hook's
+content, a pin) is a new tag, and an idle persistent session recreates itself
+on the next `enter`.
+
+`image.nix` is a function `{ pkgs }: { … }` returning any of four keys —
+unknown keys abort the build, so a typo never silently drops a customization:
+
+```nix
+{ pkgs }:
+{
+  overlay = final: prev: { };     # nixpkgs overlay, applied first
+  packages = [ pkgs.httpie ];     # store paths to bake in (pkgs has the overlay applied)
+  files."/etc/motd" = "hello\n";  # text files at absolute paths
+  env.MY_FLAG = "1";              # OCI env (overrides a same-named default)
+}
+```
+
+The contract is two-phase: `overlay` is read from a first call with base
+nixpkgs, then the function is called again with the overlay'd `pkgs` for
+`packages`/`files`/`env` — packages see the overlay, but the overlay cannot
+reference its own result. Full commented example:
+[examples/profiles/custom-image.yaml](./examples/profiles/custom-image.yaml) +
+[sandbox-image.nix](./examples/profiles/sandbox-image.nix).
+
+`llmAgentsRev`/`nixpkgsRev` move the image's flake-input pins — e.g. pick up
+newer agents without waiting for a sandboxer release. A full 40-hex commit
+hash pins exactly; `latest` is resolved to the remote head **once**, inside the
+builder container at build time, and stamped into the per-user pins cache
+(`~/.cache/sandboxer/image-pins.json`). `enter`/`exec` reuse the stamp and
+never re-resolve; only `sandboxer build-image --refresh` moves it.
 
 ### Multiple profiles in one file
 
@@ -232,8 +308,29 @@ afterward, leaving only the toolbox image; pass `--cache` to keep a nix-store
 volume for faster rebuilds, `--keep-builder` to keep the `nixos/nix` image.
 
 `create`/`enter`/`exec`/`run` **auto-build** the image on first use when it's
-missing (disable with `SANDBOXER_NO_AUTOBUILD=1`). Inspect or hand-run the
-container config with `sandboxer compose <slug>` (or `--print-run`).
+missing (disable with `SANDBOXER_NO_AUTOBUILD=1`) — the stock image and any
+`var-` variant alike. Inspect or hand-run the container config with
+`sandboxer compose <slug>` (or `--print-run`).
+
+`sandboxer build-image [profile]` (a positional name or `-f`, resolved like
+enter/exec) builds that profile's customized variant instead of the stock
+image. `--llm-agents-rev`/`--nixpkgs-rev` override the input revs for this one
+build, on top of the profile's values; `--refresh` re-fetches the flake inputs
+and re-resolves any `latest` pin (a `latest` rev resolves once and is stamped
+into the pins cache — see
+[Custom toolbox image](#custom-toolbox-image-image)). Any rev override selects
+a `var-` tag too: rev flags **without** a profile pre-resolve the pins and
+pre-build a variant, but the stock image profile-less sandboxes run is not
+touched — only a profile pinning the same revs uses the result (the command
+prints a note). Variant tags hash the input pins, so each sandboxer release (a
+pin bump) rebuilds a variant once on first use; `--cache` keeps a nix-store
+volume that makes those rebuilds cheap.
+
+> Migrating from ≤0.20: tool-pack variants moved from `tools-*` to the unified
+> `var-*` tags. The old `sandboxer-toolbox:tools-*` images are orphans —
+> remove them with
+> `podman images -q 'sandboxer-toolbox:tools-*' | xargs -r podman rmi`
+> (same with `docker`).
 
 ```bash
 nix run .#build-image   # maintainer/dev equivalent (requires nix on the host)

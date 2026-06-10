@@ -1,6 +1,9 @@
 package config
 
-import "testing"
+import (
+	"reflect"
+	"testing"
+)
 
 // TestMergeProfileOverrides pins the field-by-field override semantics of
 // mergeProfile: every field set on `over` wins, while a field left empty on
@@ -16,10 +19,13 @@ func TestMergeProfileOverrides(t *testing.T) {
 	egress := true
 	over := Profile{
 		Network:     Network{AllowedDomains: []string{"over.example"}},
-		Proxy:       Proxy{HTTP: "http://p:1", HTTPS: "http://p:2", No: "localhost"},
+		Proxy:       Proxy{HTTP: "http://p:1", HTTPS: "http://p:2", No: "localhost", Upstream: "http://up:3"},
 		Agents:      []string{"codex"},
 		Egress:      &egress,
 		ExtraMounts: []Mount{{}},
+		Setup:       "npm ci",
+		Tools:       []string{"node"},
+		MCP:         []string{"fetch"},
 	}
 
 	// when
@@ -41,8 +47,87 @@ func TestMergeProfileOverrides(t *testing.T) {
 	if len(got.ExtraMounts) != 1 {
 		t.Errorf("ExtraMounts len = %d, want 1", len(got.ExtraMounts))
 	}
+	// Setup/Tools/MCP must survive the merge — Select runs EVERY profile load
+	// (flat files included) through it, so a dropped field here silently
+	// disables the whole feature downstream (no setup run, no tool-pack image,
+	// no MCP wiring).
+	if got.Setup != "npm ci" {
+		t.Errorf("Setup = %q, want npm ci", got.Setup)
+	}
+	if len(got.Tools) != 1 || got.Tools[0] != "node" {
+		t.Errorf("Tools = %v, want [node]", got.Tools)
+	}
+	if len(got.MCP) != 1 || got.MCP[0] != "fetch" {
+		t.Errorf("MCP = %v, want [fetch]", got.MCP)
+	}
 	// and: fields left empty on over keep the base value
 	if got.Backend != "podman" || got.Agent != "claude" {
 		t.Errorf("base fields lost: backend=%q agent=%q", got.Backend, got.Agent)
+	}
+}
+
+// populateValue fills v with a non-zero value derived from path, recursing
+// into structs/slices/maps/pointers. It fails the test on a kind it does not
+// know how to build, so a new Profile field of a new shape cannot be silently
+// skipped by TestMergeProfileExhaustive.
+func populateValue(t *testing.T, v reflect.Value, path string) {
+	t.Helper()
+	switch v.Kind() {
+	case reflect.String:
+		v.SetString("val-" + path)
+	case reflect.Bool:
+		v.SetBool(true)
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		v.SetInt(1)
+	case reflect.Pointer:
+		v.Set(reflect.New(v.Type().Elem()))
+		populateValue(t, v.Elem(), path)
+	case reflect.Slice:
+		v.Set(reflect.MakeSlice(v.Type(), 1, 1))
+		populateValue(t, v.Index(0), path+"[0]")
+	case reflect.Map:
+		key := reflect.New(v.Type().Key()).Elem()
+		populateValue(t, key, path+".key")
+		val := reflect.New(v.Type().Elem()).Elem()
+		populateValue(t, val, path+".val")
+		v.Set(reflect.MakeMap(v.Type()))
+		v.SetMapIndex(key, val)
+	case reflect.Struct:
+		for i := 0; i < v.NumField(); i++ {
+			f := v.Type().Field(i)
+			if !f.IsExported() {
+				continue
+			}
+			populateValue(t, v.Field(i), path+"."+f.Name)
+		}
+	default:
+		t.Fatalf("populateValue: unsupported kind %s at %s — teach the builder so the merge guard stays exhaustive", v.Kind(), path)
+	}
+}
+
+// TestMergeProfileExhaustive is the merge guard for the whole Profile shape:
+// every exported field (recursively) is set non-zero via reflection, and the
+// merge over an empty base must reproduce it exactly. mergeProfile is a
+// hand-enumerated field list, and this class of bug has recurred (Session,
+// then Setup/Tools/MCP/Proxy.Upstream were silently dropped) — with this
+// test, adding a Profile field without a merge case fails CI instead of
+// silently disabling the feature downstream.
+func TestMergeProfileExhaustive(t *testing.T) {
+	var over Profile
+	populateValue(t, reflect.ValueOf(&over).Elem(), "Profile")
+
+	// Empty base: every populated over field must survive the merge intact.
+	got := mergeProfile(Profile{}, over)
+	if !reflect.DeepEqual(got, over) {
+		t.Errorf("mergeProfile(empty, full) dropped or rewrote fields:\ngot  %+v\nwant %+v", got, over)
+	}
+
+	// Full base, empty over: everything is kept — except Name, which is
+	// always taken from over (Select re-stamps it afterward).
+	kept := mergeProfile(over, Profile{})
+	want := over
+	want.Name = ""
+	if !reflect.DeepEqual(kept, want) {
+		t.Errorf("mergeProfile(full, empty) lost base fields:\ngot  %+v\nwant %+v", kept, want)
 	}
 }
