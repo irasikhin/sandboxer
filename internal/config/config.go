@@ -9,7 +9,9 @@ package config
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 
@@ -45,6 +47,65 @@ type Proxy struct {
 	Upstream string `yaml:"upstream,omitempty" json:"upstream,omitempty"`
 }
 
+// ImageSpec customizes the toolbox image a profile's sandbox runs in: extra
+// nixpkgs packages, a user nix file hooked into the image build, and overrides
+// for the pinned flake-input revisions. An empty spec means the stock image.
+type ImageSpec struct {
+	// ExtraPkgs are nixpkgs attribute names baked into the image (dotted
+	// attribute paths like nodePackages.pnpm are allowed).
+	ExtraPkgs []string `yaml:"extraPkgs,omitempty" json:"extraPkgs,omitempty"`
+	// Nix is a user nix file imported by the image build. It may be written
+	// relative to the profile file; Load/LoadDocument resolve it to an absolute
+	// path so the stored _meta/<slug>.profile.json snapshot stays
+	// self-contained.
+	Nix string `yaml:"nix,omitempty" json:"nix,omitempty"`
+	// LLMAgentsRev / NixpkgsRev override the embedded flake-input pins: empty
+	// keeps the embedded pin, "latest" resolves the remote head once at build
+	// time, and a hex commit hash pins exactly (see ValidateImageSpec).
+	LLMAgentsRev string `yaml:"llmAgentsRev,omitempty" json:"llmAgentsRev,omitempty"`
+	NixpkgsRev   string `yaml:"nixpkgsRev,omitempty"   json:"nixpkgsRev,omitempty"`
+}
+
+// Empty reports whether the spec requests no customization, i.e. the sandbox
+// runs the stock toolbox image.
+func (s ImageSpec) Empty() bool {
+	return len(s.ExtraPkgs) == 0 && s.Nix == "" && s.LLMAgentsRev == "" && s.NixpkgsRev == ""
+}
+
+var imageRevRe = regexp.MustCompile(`^[0-9a-f]{7,40}$`)
+
+// ValidateImageSpec rejects a malformed flake-input revision override. Each rev
+// is "" (keep the embedded pin), "latest" (resolve the remote head at build
+// time) or a 7-40 character lowercase hex commit hash.
+func ValidateImageSpec(s ImageSpec) error {
+	for _, r := range []struct{ field, rev string }{
+		{"image.llmAgentsRev", s.LLMAgentsRev},
+		{"image.nixpkgsRev", s.NixpkgsRev},
+	} {
+		if r.rev == "" || r.rev == "latest" || imageRevRe.MatchString(r.rev) {
+			continue
+		}
+		return fmt.Errorf("invalid %s %q — use latest or a 7-40 char hex commit hash", r.field, r.rev)
+	}
+	return nil
+}
+
+// resolveImageNix makes a relative Image.Nix absolute against dir (the profile
+// file's directory), so the path survives being snapshotted to _meta and read
+// from another working directory. Absolute paths pass through; an empty field
+// is a no-op.
+func (p *Profile) resolveImageNix(dir string) {
+	nix := p.Image.Nix
+	if nix == "" || filepath.IsAbs(nix) {
+		return
+	}
+	nix = filepath.Join(dir, nix)
+	if abs, err := filepath.Abs(nix); err == nil {
+		nix = abs
+	}
+	p.Image.Nix = nix
+}
+
 // Profile is a sandbox configuration. All fields are optional; an empty profile
 // is valid (everything then comes from flags/env/defaults). The sandbox content
 // is driven by roots+deps (depsync-style): deps are searched by path suffix
@@ -71,6 +132,9 @@ type Profile struct {
 	// python, go, rust, …) baked into a per-profile toolbox image variant,
 	// built on demand and cached by tool-set hash.
 	Tools []string `yaml:"tools,omitempty" json:"tools,omitempty"`
+	// Image customizes the toolbox image variant this profile's sandbox runs
+	// in; an empty spec keeps the stock image. See ImageSpec.
+	Image ImageSpec `yaml:"image,omitempty" json:"image,omitempty"`
 	// MCP names MCP servers (see registry/mcp.json) to wire into the agent: the
 	// server config is seeded into the agent's sandbox home and each server's
 	// domains are folded into the egress allowlist.
@@ -89,7 +153,12 @@ func Load(file string) (*Profile, error) {
 	if err != nil {
 		return nil, err
 	}
-	return decodeProfile(data)
+	p, err := decodeProfile(data)
+	if err != nil {
+		return nil, err
+	}
+	p.resolveImageNix(filepath.Dir(file))
+	return p, nil
 }
 
 // decodeProfile strictly decodes one profile from YAML bytes (unknown fields are

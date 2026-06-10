@@ -58,6 +58,9 @@ func ResolveRuntime(p *Profile, d Defaults, baseDomains, baseModel string, f Ove
 	if err := ValidateProxy(p.Proxy); err != nil {
 		return Runtime{}, err
 	}
+	if err := ValidateImageSpec(p.Image); err != nil {
+		return Runtime{}, err
+	}
 
 	domains := f.Domains
 	if domains == "" {
