@@ -111,6 +111,19 @@
             [delta]
                 navigate = true
           '';
+
+          # System tmux config baked into the image: every tmux window reuses
+          # the rc.sh launcher (so panes get the sandboxer prompt/aliases), and
+          # Ctrl-q detaches — the session keeps running for a later re-enter.
+          tmuxConf = pkgs.writeTextDir "etc/sandboxer/tmux.conf" ''
+            set -g default-command "bash -c 'test -r /etc/sandboxer/rc.sh && exec bash --rcfile /etc/sandboxer/rc.sh -i || exec bash -i'"
+            set -g default-terminal "tmux-256color"
+            set -g history-limit 10000
+            set -g mouse on
+            bind -n C-q detach-client
+            set -g status-left '[sbx #{session_name}] '
+            set -g status-right 'Ctrl-q: detach'
+          '';
         in
         {
           image = pkgs.dockerTools.buildLayeredImage {
@@ -144,6 +157,9 @@
                 delta
                 gnumake
                 unzip
+                # persistent sessions: tmux server + the terminfo it needs
+                tmux
+                ncurses
               ])
               ++ agentPkgs
               ++ toolPkgs
@@ -151,6 +167,7 @@
                 sandboxerBin
                 shellRc
                 gitConfig
+                tmuxConf
               ];
             config = {
               # No Entrypoint: the launcher always passes a full command
