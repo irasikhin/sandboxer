@@ -93,7 +93,7 @@ Scalars come from **flags** and `SANDBOXER_*` env vars:
 | container engine | — | `SANDBOXER_ENGINE` (default: auto-detect podman→docker) |
 | image | — | `SANDBOXER_IMAGE` (default `sandboxer-toolbox:latest`) |
 
-Structured fields (`roots`/`deps`, `extraMounts`, `env`) live in an **optional**
+Structured fields (`roots`/`deps`, `extraMounts`, `env`, `setup`) live in an **optional**
 `.sandboxer.yaml`. Point at it with `-f`/`--config`, which accepts a **file**, a
 **directory** of profiles, or the **name** of a profile in the store (see
 [Named profiles](#named-profiles)); with nothing given, a `.sandboxer.yaml` in
@@ -110,6 +110,8 @@ roots: [/abs/monorepo, /abs/shared]   # where to search
 deps:
   - some_module          # any dir/file named some_module
   - src/lib/util.go      # any path ending with src/lib/util.go
+setup: |                 # one-time prep, run once inside the sandbox
+  npm ci
 ```
 
 `deps` are located by **path suffix** under `roots` and pulled into the sandbox
@@ -123,6 +125,15 @@ replaces the destination wholesale (depsync semantics).
 > out-of-band edit to an origin is lost. Run `sandboxer diff` first to see what
 > will change. A `dep` that resolves to multiple paths uses the first match
 > (the others are listed); absolute or `../` deps are refused.
+
+`setup` is a one-time shell script (`bash -lc`) run inside the sandbox before
+you take over — e.g. `npm ci`, a build, a DB seed. It runs on the first
+`enter`/`exec`/`run` and again only when the script changes (a per-sandbox
+stamp tracks it), under the **same egress allowlist** as the sandbox (so a
+network install needs its domains allowed). A failed setup is fatal by default;
+skip it with `--no-setup`. The baked shell can also be extended without
+rebuilding the image: drop `*.sh` files in `/etc/sandboxer/rc.d/` (image
+plugins) or write `~/.config/sandboxer/rc` (per-sandbox `$HOME`).
 
 ### Multiple profiles in one file
 

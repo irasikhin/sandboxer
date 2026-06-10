@@ -1,6 +1,7 @@
 # Terminal UX, agent tooling & plugins — design
 
-Status: **proposal / for review** (no code yet). Scope: make the in-sandbox
+Status: **T1–T3 implemented** (prompt+MOTD, tooling pack, `setup:` hook + shell
+drop-ins); tool packs (3c) and the MCP registry (3d) remain deferred. Scope: make the in-sandbox
 shell pleasant and oriented, bake the baseline tooling humans and agents expect,
 and lay the extensibility primitives a "plugin" would be built from. Sequenced as
 four incremental PRs (T1 → T2 → T3) plus two deferred milestones.

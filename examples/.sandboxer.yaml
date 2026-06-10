@@ -37,6 +37,15 @@ network:
 # deps:
 #   - src/lib
 
+# One-time setup: a shell script (bash -lc) run once inside the sandbox before
+# you take over — install deps, build, seed a DB. It runs on the first
+# enter/exec/run and re-runs only when the script changes; it runs under the
+# egress allowlist above (so installs need their domains allowed) and is fatal
+# on failure (skip with --no-setup).
+# setup: |
+#   npm ci
+#   npm run build
+
 # Which agents' credentials to bind into the container (container backends
 # only). Defaults to every agent in the registry; narrow it to avoid mounting
 # credentials you don't need.
