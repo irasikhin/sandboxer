@@ -10,6 +10,20 @@ commit messages with that in mind. See [CONTRIBUTING.md](./CONTRIBUTING.md).
 
 ## [Unreleased]
 
+## [0.19.0] — 2026-06-10
+
+### Added
+
+- sandbox-aware shell prompt and orientation banner (df6375a)
+- bake baseline tooling pack and delta git pager (60241ef)
+- one-time per-sandbox `setup:` profile hook (2908a19)
+
+### Docs
+
+- plan terminal UX, agent tooling and plugins (1d23f07)
+- document the setup hook and shell drop-ins (4142382)
+
+
 ## [0.18.3] — 2026-06-09
 
 ### Fixed
@@ -318,3 +332,4 @@ commit messages with that in mind. See [CONTRIBUTING.md](./CONTRIBUTING.md).
 [0.18.1]: https://github.com/irasikhin/sandboxer/compare/v0.18.0...v0.18.1
 [0.18.2]: https://github.com/irasikhin/sandboxer/compare/v0.18.1...v0.18.2
 [0.18.3]: https://github.com/irasikhin/sandboxer/compare/v0.18.2...v0.18.3
+[0.19.0]: https://github.com/irasikhin/sandboxer/compare/v0.18.3...v0.19.0
