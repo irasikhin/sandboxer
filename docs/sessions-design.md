@@ -83,6 +83,12 @@ one-shot run (with a notice when a running session is stale; a missing or
 stopped session falls back silently — that is exec's normal pre-session
 behavior, nothing surprising to flag), so scripts keep working.
 
+Addendum (image customization work): freshness now also compares the
+container's **image ID** against the engine's current one for the same tag, so
+an image rebuilt under an unchanged tag (e.g. `build-image` re-run on the
+default image) recreates the session through the same table; an image the
+engine doesn't have yet reads as unknown and skips the check.
+
 ### D4 — tmux from the toolbox image, on its own socket, with a shipped config
 
 tmux (+ ncurses terminfo) is baked into the image; the server runs as `tmux -L

@@ -175,7 +175,7 @@ deps:
 
 func TestExampleProfilesParse(t *testing.T) {
 	// The shipped examples must stay valid under the strict (KnownFields) schema.
-	for _, name := range []string{".sandboxer.yaml", "with-deps.yaml", "profiles/web.yaml", "profiles/api.yaml"} {
+	for _, name := range []string{".sandboxer.yaml", "with-deps.yaml", "profiles/web.yaml", "profiles/api.yaml", "profiles/custom-image.yaml"} {
 		path := filepath.Join("..", "..", "examples", name)
 		if _, err := os.Stat(path); err != nil {
 			t.Skipf("example %s not present", name)
