@@ -295,18 +295,23 @@ func newExecCmd() *cobra.Command {
 			}
 			// exec rides an existing running+fresh session but NEVER creates or
 			// replaces the daemon container — that is enter's job. Anything else
-			// (no session, stopped, stale) falls back to a one-shot run.
+			// (no session, stopped, stale — by profile hash or by a rebuilt
+			// image under the same tag) falls back to a one-shot run.
 			useSession := false
 			var name string
 			if rt.Session == config.SessionPersistent {
 				o.BaseDir = t.base.Dir
 				name = backend.SessionName(t.slug, o.BaseDir)
 				if info := backendInspectSession(engine, name); info.Running {
-					if info.Hash == backendWantHash(o) {
-						useSession = true
-					} else {
+					switch {
+					case info.Hash != backendWantHash(o):
 						fmt.Fprintf(cmd.ErrOrStderr(),
 							"sandboxer: session %s is stale (profile changed) — running one-shot; re-enter to refresh it\n", name)
+					case !backend.ImageFresh(info.ImageID, backendImageID(engine, o.Image)):
+						fmt.Fprintf(cmd.ErrOrStderr(),
+							"sandboxer: session %s is stale (image rebuilt) — running one-shot; re-enter to refresh it\n", name)
+					default:
+						useSession = true
 					}
 				}
 			}
@@ -433,6 +438,7 @@ var (
 	backendExecSession    = backend.ExecSession
 	backendInspectSession = backend.InspectSession
 	backendWantHash       = backend.SessionWantHash
+	backendImageID        = backend.ImageID
 )
 
 // runSetup runs the profile's one-time `setup:` script inside the sandbox before

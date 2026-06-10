@@ -223,10 +223,11 @@ func newShowCmd() *cobra.Command {
 }
 
 // printSessionBlock renders show's "== session ==" lines: the deterministic
-// session container name, its current state, and whether the config hash
-// recorded at create time still matches the profile (fresh) or the next
-// persistent enter would recreate the container (stale). Best-effort: with no
-// engine the state is unknown, never an error.
+// session container name, its current state, and whether the session is still
+// fresh — the config hash recorded at create time matches the profile AND the
+// container still runs the engine's current image — or the next persistent
+// enter would recreate the container (stale, naming which of the two went).
+// Best-effort: with no engine the state is unknown, never an error.
 func printSessionBlock(out io.Writer, t *target, rt config.Runtime) {
 	fmt.Fprintln(out, "== session ==")
 	name := backend.SessionName(t.slug, t.base.Dir)
@@ -248,10 +249,12 @@ func printSessionBlock(out io.Writer, t *target, rt config.Runtime) {
 	switch o, ok := sessionHashOpts(t, rt, engine); {
 	case !ok:
 		fmt.Fprintf(out, "state: %s\n", state)
-	case info.Hash == backendWantHash(o):
-		fmt.Fprintf(out, "state: %s (fresh)\n", state)
-	default:
+	case info.Hash != backendWantHash(o):
 		fmt.Fprintf(out, "state: %s (stale — the profile changed; re-enter recreates it)\n", state)
+	case !backend.ImageFresh(info.ImageID, backendImageID(engine, o.Image)):
+		fmt.Fprintf(out, "state: %s (stale — the image was rebuilt; re-enter recreates it)\n", state)
+	default:
+		fmt.Fprintf(out, "state: %s (fresh)\n", state)
 	}
 }
 

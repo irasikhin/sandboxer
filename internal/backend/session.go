@@ -164,33 +164,55 @@ func SessionWantHash(o RunOpts) string {
 }
 
 // SessionInfo is what a single engine inspect reveals about a session
-// container: whether it exists at all, whether it is currently running, and
-// the ConfigHash it was created with (from the LabelHash label; "" when the
-// label is missing, which compares as stale against any wanted hash).
+// container: whether it exists at all, whether it is currently running, the
+// ConfigHash it was created with (from the LabelHash label; "" when the label
+// is missing, which compares as stale against any wanted hash), and the ID of
+// the image it runs (normalized without the "sha256:" prefix; "" when
+// unreadable, which skips the image-freshness check).
 type SessionInfo struct {
 	Exists  bool
 	Running bool
 	Hash    string
+	ImageID string
 }
 
-// InspectSession reads the session container's running state and recorded
-// config hash in one `container inspect` call. A non-zero exit means the
-// container does not exist: the zero SessionInfo.
+// InspectSession reads the session container's running state, recorded config
+// hash and image ID in one `container inspect` call. A non-zero exit means
+// the container does not exist: the zero SessionInfo.
 func InspectSession(engine, name string) SessionInfo {
 	out, err := exec.Command(engine, "container", "inspect", "--format",
-		`{{.State.Running}} {{index .Config.Labels "`+LabelHash+`"}}`, name).Output()
+		`{{.State.Running}} {{index .Config.Labels "`+LabelHash+`"}} {{.Image}}`, name).Output()
 	if err != nil {
 		return SessionInfo{}
 	}
 	info := SessionInfo{Exists: true}
-	fields := strings.Fields(string(out))
-	if len(fields) > 0 {
-		info.Running = fields[0] == "true"
-	}
+	// Single-space split, NOT strings.Fields: a missing hash label renders as
+	// an empty middle field that must keep its slot, or the trailing image ID
+	// would shift into the hash position.
+	fields := strings.Split(strings.TrimSpace(string(out)), " ")
+	info.Running = fields[0] == "true"
 	if len(fields) > 1 {
 		info.Hash = fields[1]
 	}
+	if len(fields) > 2 {
+		// Docker reports the container's image as "sha256:<hex>", podman as
+		// bare hex — normalize so ImageFresh compares like with like.
+		info.ImageID = strings.TrimPrefix(fields[2], "sha256:")
+	}
 	return info
+}
+
+// ImageFresh reports whether the session container's image (got, from
+// SessionInfo.ImageID) still is the image the engine would run today (want,
+// from ImageID). Either side unknown ("") skips the check — freshness then
+// rests on the config hash alone — so a not-yet-built image never reads as
+// stale. IDs are compared after trimming the "sha256:" prefix because docker
+// reports it and podman does not.
+func ImageFresh(got, want string) bool {
+	if got == "" || want == "" {
+		return true
+	}
+	return strings.TrimPrefix(got, "sha256:") == strings.TrimPrefix(want, "sha256:")
 }
 
 // sessionIdle reports whether no client is attached to the session's shared
@@ -219,9 +241,12 @@ const (
 )
 
 // planSession is the pure session-lifecycle policy: given what exists (info),
-// what the caller wants (wantHash) and whether anyone is attached (idle), it
-// picks the one action that converges the session. Engine-free so the whole
-// decision table is unit-testable:
+// what the caller wants (wantHash + wantImageID) and whether anyone is
+// attached (idle), it picks the one action that converges the session. Fresh
+// means the recorded config hash matches AND the container still runs the
+// image the engine would use today (ImageFresh — a rebuilt image under an
+// unchanged tag keeps the hash but flips the ID; either ID unknown skips that
+// half). Engine-free so the whole decision table is unit-testable:
 //
 //	not found               → create
 //	stopped + fresh         → start
@@ -229,22 +254,34 @@ const (
 //	running + fresh         → exec
 //	running + stale + idle  → recreate
 //	running + stale + busy  → refuse
-func planSession(info SessionInfo, wantHash string, idle bool) sessionAction {
+func planSession(info SessionInfo, wantHash, wantImageID string, idle bool) sessionAction {
+	fresh := info.Hash == wantHash && ImageFresh(info.ImageID, wantImageID)
 	switch {
 	case !info.Exists:
 		return actCreate
 	case !info.Running:
-		if info.Hash == wantHash {
+		if fresh {
 			return actStart
 		}
 		return actRecreate
-	case info.Hash == wantHash:
+	case fresh:
 		return actExec
 	case idle:
 		return actRecreate
 	default:
 		return actRefuse
 	}
+}
+
+// staleReason names what invalidated a session, for the user-facing notices:
+// a config-hash mismatch means the profile (or environment) changed, while a
+// hash-fresh container that still planned as stale runs an image that was
+// rebuilt under its unchanged tag.
+func staleReason(info SessionInfo, wantHash string) string {
+	if info.Hash == wantHash {
+		return "image rebuilt"
+	}
+	return "profile changed"
 }
 
 // EnsureSession converges slug's persistent session container to a running,
@@ -262,14 +299,23 @@ func EnsureSession(o RunOpts) (string, error) {
 	hash := SessionWantHash(o)
 
 	info := InspectSession(o.Engine, name)
+	// The wanted image ID only matters for an existing container, and it is
+	// read from whatever is locally present RIGHT NOW: createSession's
+	// ensureImage builds a missing image later, so an absent image yields ""
+	// here and the freshness check is skipped — never a false "stale".
+	wantImage := ""
+	if info.Exists {
+		wantImage = ImageID(o.Engine, o.Image)
+	}
+	fresh := info.Hash == hash && ImageFresh(info.ImageID, wantImage)
 	// Idleness only matters on the running+stale branch; skip the engine call
 	// otherwise.
 	idle := false
-	if info.Running && info.Hash != hash {
+	if info.Running && !fresh {
 		idle = sessionIdle(o.Engine, name)
 	}
 
-	switch action := planSession(info, hash, idle); action {
+	switch action := planSession(info, hash, wantImage, idle); action {
 	case actExec, actStart:
 		// Adoption health-check: a configuration-fresh container whose egress
 		// proxy died or vanished has no outbound path — treat it as stale and
@@ -293,10 +339,10 @@ func EnsureSession(o RunOpts) (string, error) {
 		}
 		return name, nil
 	case actRefuse:
-		return "", fmt.Errorf("session %s: the profile changed but other clients are attached — "+
-			"detach them first, or rerun with --ephemeral", name)
+		return "", fmt.Errorf("session %s is stale (%s) but other clients are attached — "+
+			"detach them first, or rerun with --ephemeral", name, staleReason(info, hash))
 	case actRecreate:
-		notice(o.Stderr, "recreating session: profile changed")
+		notice(o.Stderr, "recreating session: "+staleReason(info, hash))
 		return recreateSession(o, name, hash)
 	default: // actCreate
 		return createSession(o, name, hash)

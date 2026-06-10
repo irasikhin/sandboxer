@@ -237,6 +237,18 @@ func ImageExists(engine, image string) bool {
 	return exec.Command(engine, "image", "inspect", image).Run() == nil
 }
 
+// ImageID returns the engine's local ID for image (the 64-hex sha256 digest,
+// without docker's "sha256:" prefix — podman omits it), or "" on any failure.
+// A locally absent image is "unknown", never an error: callers skip the
+// image-freshness check on "" instead of failing before the image is built.
+func ImageID(engine, image string) string {
+	out, err := exec.Command(engine, "image", "inspect", "--format", "{{.Id}}", image).Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimPrefix(strings.TrimSpace(string(out)), "sha256:")
+}
+
 // exitCode maps a command error to a process exit code (0 success, the child's
 // code for a non-zero exit, 1 for failure to start).
 func exitCode(err error) int {

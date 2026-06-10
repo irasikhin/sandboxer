@@ -132,6 +132,20 @@ func TestShowSessionBlock(t *testing.T) {
 		})
 	}
 
+	t.Run("running image-stale", func(t *testing.T) {
+		// The hash still matches, but the engine's image was rebuilt under the
+		// same tag — show must name the image, not the profile.
+		stubSessionSeams(t, backend.SessionInfo{Exists: true, Running: true, Hash: "h", ImageID: "old"}, "h")
+		backendImageID = func(engine, image string) string { return "new" }
+		code, out, errs := run("show", "feat", "--src", project)
+		if code != 0 {
+			t.Fatalf("show = %d, %s", code, errs)
+		}
+		if !strings.Contains(out, "state: running (stale — the image was rebuilt") {
+			t.Errorf("show output missing the image-rebuilt verdict:\n%s", out)
+		}
+	})
+
 	t.Run("no engine", func(t *testing.T) {
 		stubSessionSeams(t, backend.SessionInfo{}, "h")
 		t.Setenv("PATH", "")

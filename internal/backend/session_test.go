@@ -174,6 +174,7 @@ func TestConfigHash(t *testing.T) {
 //	SBX_PROXY_RUNNING    `container inspect <…-proxy>` prints "true" when "1",
 //	                     exits 1 (proxy missing) otherwise
 //	SBX_EXEC_OUT         stdout of `exec` (the tmux list-clients idleness probe)
+//	SBX_IMAGE_ID         stdout of `image inspect` (the ImageID probe)
 //	SBX_PS_OUT           stdout of `ps`; SBX_PS_FAIL makes `ps` exit 1
 func sessionEngine(t *testing.T) (engine, logPath string) {
 	t.Helper()
@@ -198,6 +199,7 @@ container)
     printf '%s\n' "$SBX_INSPECT_OUT" ;;
   esac ;;
 exec) printf '%s\n' "$SBX_EXEC_OUT" ;;
+image) printf '%s\n' "$SBX_IMAGE_ID" ;;
 ps)
   [ -n "$SBX_PS_FAIL" ] && exit 1
   printf '%s\n' "$SBX_PS_OUT" ;;
@@ -269,15 +271,115 @@ func TestPlanSession(t *testing.T) {
 	}
 	for _, r := range rows {
 		info := SessionInfo{Exists: r.exists, Running: r.running, Hash: hash(r.fresh)}
-		if got := planSession(info, want, r.idle); got != r.action {
+		if got := planSession(info, want, "", r.idle); got != r.action {
 			t.Errorf("planSession(exists=%v running=%v fresh=%v idle=%v) = %d, want %d",
 				r.exists, r.running, r.fresh, r.idle, got, r.action)
 		}
 	}
 	// A missing hash label ("" — e.g. a container from an older version) is
 	// stale, never fresh.
-	if got := planSession(SessionInfo{Exists: true, Running: false}, want, false); got != actRecreate {
+	if got := planSession(SessionInfo{Exists: true, Running: false}, want, "", false); got != actRecreate {
 		t.Errorf("missing hash label = %d, want actRecreate", got)
+	}
+}
+
+// TestPlanSessionImageStaleness pins the image-ID half of freshness: a
+// hash-fresh container whose image was rebuilt under the same tag (the
+// recorded ID no longer matches the engine's current one) is stale — same
+// decision table as a profile change — while an unknown ID on either side
+// skips the check, and the comparison tolerates docker's "sha256:" prefix.
+func TestPlanSessionImageStaleness(t *testing.T) {
+	const want = "h-want"
+	rows := []struct {
+		desc           string
+		got, wantImage string
+		running, idle  bool
+		action         sessionAction
+	}{
+		{"running idle rebuilt", "old", "new", true, true, actRecreate},
+		{"running busy rebuilt", "old", "new", true, false, actRefuse},
+		{"stopped rebuilt", "old", "new", false, false, actRecreate},
+		{"container ID unknown", "", "new", true, false, actExec},
+		{"image absent locally", "old", "", true, false, actExec},
+		{"prefix-tolerant match", "sha256:abc", "abc", true, false, actExec},
+	}
+	for _, r := range rows {
+		info := SessionInfo{Exists: true, Running: r.running, Hash: want, ImageID: r.got}
+		if got := planSession(info, want, r.wantImage, r.idle); got != r.action {
+			t.Errorf("%s: planSession = %d, want %d", r.desc, got, r.action)
+		}
+	}
+	// A stopped container with a matching hash and image simply starts.
+	info := SessionInfo{Exists: true, Hash: want, ImageID: "abc"}
+	if got := planSession(info, want, "sha256:abc", false); got != actStart {
+		t.Errorf("stopped fresh-by-image = %d, want actStart", got)
+	}
+	// A stale hash dominates: the image matching cannot make a session fresh.
+	info = SessionInfo{Exists: true, Running: true, Hash: "h-stale", ImageID: "abc"}
+	if got := planSession(info, want, "abc", true); got != actRecreate {
+		t.Errorf("stale hash with a fresh image = %d, want actRecreate", got)
+	}
+}
+
+// TestImageFresh pins the pure comparison: empty on either side skips, and the
+// "sha256:" prefix never causes a false stale across engines.
+func TestImageFresh(t *testing.T) {
+	for _, r := range []struct {
+		got, want string
+		fresh     bool
+	}{
+		{"", "", true},
+		{"", "abc", true},
+		{"abc", "", true},
+		{"abc", "abc", true},
+		{"sha256:abc", "abc", true},
+		{"abc", "sha256:abc", true},
+		{"sha256:abc", "sha256:abc", true},
+		{"abc", "def", false},
+		{"sha256:abc", "sha256:def", false},
+	} {
+		if got := ImageFresh(r.got, r.want); got != r.fresh {
+			t.Errorf("ImageFresh(%q, %q) = %v, want %v", r.got, r.want, got, r.fresh)
+		}
+	}
+}
+
+// TestStaleReason: a hash mismatch reads as a profile change; a hash-fresh
+// session that still went stale can only mean the image was rebuilt.
+func TestStaleReason(t *testing.T) {
+	if got := staleReason(SessionInfo{Hash: "h"}, "h"); got != "image rebuilt" {
+		t.Errorf("staleReason(fresh hash) = %q, want %q", got, "image rebuilt")
+	}
+	if got := staleReason(SessionInfo{Hash: "old"}, "h"); got != "profile changed" {
+		t.Errorf("staleReason(stale hash) = %q, want %q", got, "profile changed")
+	}
+}
+
+func TestImageID(t *testing.T) {
+	requireExec(t, "sh")
+	engine, logPath := sessionEngine(t)
+
+	// Docker prefixes the ID with "sha256:", podman does not — both normalize.
+	for out, want := range map[string]string{
+		"sha256:0123abcd": "0123abcd",
+		"0123abcd":        "0123abcd",
+		"":                "",
+	} {
+		t.Setenv("SBX_IMAGE_ID", out)
+		if got := ImageID(engine, "img:1"); got != want {
+			t.Errorf("ImageID(%q) = %q, want %q", out, got, want)
+		}
+	}
+
+	// An absent image (non-zero inspect) is unknown, never an error.
+	t.Setenv("SBX_FAIL_ON", "image")
+	if got := ImageID(engine, "img:1"); got != "" {
+		t.Errorf("missing image: ImageID = %q, want \"\"", got)
+	}
+
+	want := "image inspect --format {{.Id}} img:1"
+	if lines := engineLog(t, logPath); !hasLine(lines, want) {
+		t.Errorf("engine log missing %q:\n%s", want, strings.Join(lines, "\n"))
 	}
 }
 
@@ -292,10 +394,14 @@ func TestInspectSession(t *testing.T) {
 
 	t.Setenv("SBX_INSPECT_FAIL", "")
 	for out, want := range map[string]SessionInfo{
-		"true abc123":  {Exists: true, Running: true, Hash: "abc123"},
-		"false abc123": {Exists: true, Running: false, Hash: "abc123"},
-		"true":         {Exists: true, Running: true}, // hash label absent
-		"":             {Exists: true},                // unparseable output tolerated
+		"true abc123 sha256:i1": {Exists: true, Running: true, Hash: "abc123", ImageID: "i1"},
+		"false abc123 i1":       {Exists: true, Running: false, Hash: "abc123", ImageID: "i1"},
+		// A missing hash label is an EMPTY middle field — the image ID must
+		// not shift into the hash slot.
+		"true  sha256:i1": {Exists: true, Running: true, ImageID: "i1"},
+		"true abc123":     {Exists: true, Running: true, Hash: "abc123"}, // image field absent
+		"true":            {Exists: true, Running: true},                 // hash + image absent
+		"":                {Exists: true},                                // unparseable output tolerated
 	} {
 		t.Setenv("SBX_INSPECT_OUT", out)
 		if got := InspectSession(engine, "n"); got != want {
@@ -303,8 +409,9 @@ func TestInspectSession(t *testing.T) {
 		}
 	}
 
-	// One inspect call per InspectSession, reading state + hash label together.
-	want := `container inspect --format {{.State.Running}} {{index .Config.Labels "sandboxer.hash"}} n`
+	// One inspect call per InspectSession, reading state + hash label + image
+	// ID together.
+	want := `container inspect --format {{.State.Running}} {{index .Config.Labels "sandboxer.hash"}} {{.Image}} n`
 	if lines := engineLog(t, logPath); !hasLine(lines, want) {
 		t.Errorf("engine log missing %q:\n%s", want, strings.Join(lines, "\n"))
 	}
@@ -480,12 +587,81 @@ func TestEnsureSessionRecreateStale(t *testing.T) {
 		t.Setenv("SBX_INSPECT_OUT", "true deadbeef")
 		t.Setenv("SBX_EXEC_OUT", "client0: /dev/pts/3")
 		_, err := EnsureSession(o)
-		if err == nil || !strings.Contains(err.Error(), "--ephemeral") {
+		if err == nil || !strings.Contains(err.Error(), "profile changed") ||
+			!strings.Contains(err.Error(), "--ephemeral") {
 			t.Fatalf("busy stale session = %v, want a refusal pointing at --ephemeral", err)
 		}
 		lines := engineLog(t, logPath)
 		if findPrefixLine(lines, "rm -f") != "" || findPrefixLine(lines, "run -d") != "" {
 			t.Errorf("refusal must not touch the session:\n%s", strings.Join(lines, "\n"))
+		}
+	})
+}
+
+// TestEnsureSessionImageRebuilt: a hash-fresh session whose container runs an
+// older build of the image (rebuilt under the same tag — the engine now holds
+// a different ID) is stale: recreated when idle, refused when busy, and the
+// notice says "image rebuilt", not "profile changed". A matching ID (modulo
+// the "sha256:" prefix) is adopted untouched.
+func TestEnsureSessionImageRebuilt(t *testing.T) {
+	requireExec(t, "sh")
+
+	t.Run("running and idle recreates", func(t *testing.T) {
+		engine, logPath := sessionEngine(t)
+		o := sessionOpts(engine)
+		name, hash := SessionName("s", "/b"), ConfigHash(o, "", "")
+		stderr := &bytes.Buffer{}
+		o.Stderr = stderr
+
+		t.Setenv("SBX_IMAGE_ID", "sha256:newimg")           // the engine's current image…
+		t.Setenv("SBX_INSPECT_OUT", "true "+hash+" oldimg") // …but the container runs the old build
+		t.Setenv("SBX_EXEC_OUT", "")                        // no tmux clients → idle
+		if got, err := EnsureSession(o); err != nil || got != name {
+			t.Fatalf("EnsureSession = (%q, %v), want (%q, nil)", got, err, name)
+		}
+		if !strings.Contains(stderr.String(), "recreating session: image rebuilt") {
+			t.Errorf("missing image-rebuilt notice, stderr = %q", stderr.String())
+		}
+		lines := engineLog(t, logPath)
+		if !hasLine(lines, "rm -f "+name) || findPrefixLine(lines, "run -d --init") == "" {
+			t.Errorf("image-stale session was not replaced:\n%s", strings.Join(lines, "\n"))
+		}
+	})
+
+	t.Run("running and busy refuses", func(t *testing.T) {
+		engine, logPath := sessionEngine(t)
+		o := sessionOpts(engine)
+		hash := ConfigHash(o, "", "")
+
+		t.Setenv("SBX_IMAGE_ID", "newimg")
+		t.Setenv("SBX_INSPECT_OUT", "true "+hash+" oldimg")
+		t.Setenv("SBX_EXEC_OUT", "client0: /dev/pts/3")
+		_, err := EnsureSession(o)
+		if err == nil || !strings.Contains(err.Error(), "image rebuilt") ||
+			!strings.Contains(err.Error(), "--ephemeral") {
+			t.Fatalf("busy image-stale session = %v, want a refusal pointing at --ephemeral", err)
+		}
+		lines := engineLog(t, logPath)
+		if findPrefixLine(lines, "rm -f") != "" || findPrefixLine(lines, "run -d") != "" {
+			t.Errorf("refusal must not touch the session:\n%s", strings.Join(lines, "\n"))
+		}
+	})
+
+	t.Run("matching image adopts", func(t *testing.T) {
+		engine, logPath := sessionEngine(t)
+		o := sessionOpts(engine)
+		name, hash := SessionName("s", "/b"), ConfigHash(o, "", "")
+
+		t.Setenv("SBX_IMAGE_ID", "sha256:img1") // docker prefixes…
+		t.Setenv("SBX_INSPECT_OUT", "true "+hash+" img1")
+		if got, err := EnsureSession(o); err != nil || got != name {
+			t.Fatalf("EnsureSession = (%q, %v), want (%q, nil)", got, err, name)
+		}
+		lines := engineLog(t, logPath)
+		for _, banned := range []string{"run -d", "start ", "rm -f", "exec "} {
+			if findPrefixLine(lines, banned) != "" {
+				t.Errorf("adopting a fresh session must not %q:\n%s", banned, strings.Join(lines, "\n"))
+			}
 		}
 	})
 }

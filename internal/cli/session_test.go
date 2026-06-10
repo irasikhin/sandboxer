@@ -19,23 +19,25 @@ type sessionCalls struct {
 	run     []backend.RunOpts
 	inspect []string          // names inspected
 	hash    []backend.RunOpts // opts per SessionWantHash call
+	imageID []string          // images whose ID was queried
 }
 
 // stubSessionSeams replaces the persistent-session seams (and backendRun) with
 // recorders, restoring them when the test ends. inspect returns info for every
 // container; the want-hash seam returns wantHash so a test can force a
-// fresh/stale verdict without computing real hashes. SANDBOXER_SESSION is
-// cleared so the mode under test comes only from flags/profile (tests that
-// exercise the env set it themselves afterwards).
+// fresh/stale verdict without computing real hashes; the image-ID seam returns
+// "" (image unknown — the freshness check is skipped) unless a test overrides
+// it. SANDBOXER_SESSION is cleared so the mode under test comes only from
+// flags/profile (tests that exercise the env set it themselves afterwards).
 func stubSessionSeams(t *testing.T, info backend.SessionInfo, wantHash string) *sessionCalls {
 	t.Helper()
 	t.Setenv("SANDBOXER_SESSION", "")
 	c := &sessionCalls{}
 	oldEnsure, oldExec, oldRun := backendEnsureSession, backendExecSession, backendRun
-	oldInspect, oldHash := backendInspectSession, backendWantHash
+	oldInspect, oldHash, oldImageID := backendInspectSession, backendWantHash, backendImageID
 	t.Cleanup(func() {
 		backendEnsureSession, backendExecSession, backendRun = oldEnsure, oldExec, oldRun
-		backendInspectSession, backendWantHash = oldInspect, oldHash
+		backendInspectSession, backendWantHash, backendImageID = oldInspect, oldHash, oldImageID
 	})
 	backendEnsureSession = func(o backend.RunOpts) (string, error) {
 		c.ensure = append(c.ensure, o)
@@ -57,6 +59,10 @@ func stubSessionSeams(t *testing.T, info backend.SessionInfo, wantHash string) *
 	backendWantHash = func(o backend.RunOpts) string {
 		c.hash = append(c.hash, o)
 		return wantHash
+	}
+	backendImageID = func(engine, image string) string {
+		c.imageID = append(c.imageID, image)
+		return ""
 	}
 	return c
 }
@@ -253,6 +259,47 @@ func TestExecStaleSessionFallsBack(t *testing.T) {
 	}
 	if !strings.Contains(errs, "stale") {
 		t.Errorf("missing stale notice:\n%s", errs)
+	}
+}
+
+// TestExecImageStaleFallsBack: a running session whose hash still matches but
+// whose container runs an older build of the image (the engine now holds a
+// different ID — rebuilt under the same tag) is left alone: one-shot run with
+// an "image rebuilt" notice, never a session exec or recreate.
+func TestExecImageStaleFallsBack(t *testing.T) {
+	project := sessionProject(t)
+	c := stubSessionSeams(t, backend.SessionInfo{Exists: true, Running: true, Hash: "h", ImageID: "old"}, "h")
+	backendImageID = func(engine, image string) string { return "new" }
+
+	code, _, errs := run("exec", "feat", "--src", project, "--", "true")
+	if code != 0 {
+		t.Fatalf("exec = %d, %s", code, errs)
+	}
+	if len(c.run) != 1 || len(c.exec) != 0 || len(c.ensure) != 0 {
+		t.Errorf("calls: run=%d exec=%d ensure=%d, want 1/0/0", len(c.run), len(c.exec), len(c.ensure))
+	}
+	if !strings.Contains(errs, "stale (image rebuilt)") {
+		t.Errorf("missing image-rebuilt notice:\n%s", errs)
+	}
+}
+
+// TestExecImageFreshPrefixTolerant: docker reports the container's image as
+// "sha256:<hex>" while `image inspect` IDs may come bare (and vice versa on
+// podman) — a prefix-only difference must still route to the session.
+func TestExecImageFreshPrefixTolerant(t *testing.T) {
+	project := sessionProject(t)
+	c := stubSessionSeams(t, backend.SessionInfo{Exists: true, Running: true, Hash: "h", ImageID: "abc"}, "h")
+	backendImageID = func(engine, image string) string { return "sha256:abc" }
+
+	code, _, errs := run("exec", "feat", "--src", project, "--", "true")
+	if code != 0 {
+		t.Fatalf("exec = %d, %s", code, errs)
+	}
+	if len(c.exec) != 1 || len(c.run) != 0 {
+		t.Errorf("calls: exec=%d run=%d, want 1/0", len(c.exec), len(c.run))
+	}
+	if strings.Contains(errs, "stale") {
+		t.Errorf("unexpected stale notice:\n%s", errs)
 	}
 }
 
