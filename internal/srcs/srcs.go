@@ -76,8 +76,11 @@ func walkAt(root string, depth, cur int, fn func(path string)) {
 
 // resolveDeps turns the roots+deps config into copy jobs: each dep is searched
 // (by path suffix) under every root, and the first match is copied to
-// <sandbox>/<dep>. Not-found and multi-match are reported to w.
-func resolveDeps(p Profile, sandboxDir string, w io.Writer) []target {
+// <sandbox>/<dep>. Not-found and multi-match are reported to w. When inContainer
+// is set, roots that aren't visible on this filesystem trigger an upfront hint —
+// host roots aren't bind-mounted into the sandbox, so an in-container pull can
+// only refresh deps already vendored on the host.
+func resolveDeps(p Profile, sandboxDir string, w io.Writer, inContainer bool) []target {
 	if len(p.Deps) == 0 {
 		return nil
 	}
@@ -85,6 +88,7 @@ func resolveDeps(p Profile, sandboxDir string, w io.Writer) []target {
 	if len(roots) == 0 {
 		roots = []string{cwd()}
 	}
+	warnUnmountedRoots(w, roots, inContainer)
 	var out []target
 	for _, dep := range p.Deps {
 		dest := absJoin(sandboxDir, dep)
@@ -110,6 +114,28 @@ func resolveDeps(p Profile, sandboxDir string, w io.Writer) []target {
 		})
 	}
 	return out
+}
+
+// warnUnmountedRoots prints a single hint when, inside the container, one or more
+// search roots do not exist on the local filesystem. Host roots are never
+// bind-mounted into the sandbox, so those deps can't be discovered in here — they
+// must be pulled on the host. Outside the container this is a no-op.
+func warnUnmountedRoots(w io.Writer, roots []string, inContainer bool) {
+	if !inContainer {
+		return
+	}
+	var missing []string
+	for _, r := range roots {
+		if _, err := os.Stat(mustAbs(r)); err != nil {
+			missing = append(missing, r)
+		}
+	}
+	if len(missing) == 0 {
+		return
+	}
+	fmt.Fprintf(w, "  NOTE  host roots aren't mounted inside the sandbox: %s\n"+
+		"        run `sandboxer pull` on the host (in here only deps already vendored on the host refresh)\n",
+		strings.Join(missing, ", "))
 }
 
 // searchDep finds entries under roots whose path ends with dep's components
@@ -231,8 +257,9 @@ func writeManifest(file string, m []ManifestEntry) error {
 
 // CopyIn pulls a profile's deps into sandboxDir and writes a manifest to
 // manifestOut. A target that already exists is KEPT untouched unless force is
-// set, in which case it is overwritten. Progress is reported to w.
-func CopyIn(w io.Writer, profileFile, sandboxDir, manifestOut string, force bool) error {
+// set, in which case it is overwritten. Progress is reported to w. inContainer
+// marks an in-container pull, where host roots aren't mounted (see resolveDeps).
+func CopyIn(w io.Writer, profileFile, sandboxDir, manifestOut string, force, inContainer bool) error {
 	data, err := os.ReadFile(profileFile)
 	if err != nil {
 		return err
@@ -242,7 +269,7 @@ func CopyIn(w io.Writer, profileFile, sandboxDir, manifestOut string, force bool
 		return err
 	}
 
-	targets := resolveDeps(profile, sandboxDir, w)
+	targets := resolveDeps(profile, sandboxDir, w, inContainer)
 
 	manifest := []ManifestEntry{}
 	pulled, kept := 0, 0

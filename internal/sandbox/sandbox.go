@@ -186,12 +186,25 @@ func (b *Base) MakeSandbox(slug string, w io.Writer) error {
 	if err := b.EnsureHome(slug); err != nil {
 		return err
 	}
-	if pj := b.ProfileJSONPath(slug); fileExists(pj) {
-		if err := srcs.CopyIn(w, pj, dest, b.ManifestPath(slug), false); err != nil {
-			return fmt.Errorf("srcs pull: %w", err)
-		}
+	if err := b.PullDeps(slug, w); err != nil {
+		return err
 	}
 	return b.AppendAgent(slug)
+}
+
+// PullDeps vendors the sandbox's deps (host-side) from its stored profile.json
+// into the sandbox directory, refreshing the manifest. It is a no-op when the
+// sandbox has no stored profile. Callers run it whenever the profile changed so
+// newly-listed deps land before the sandbox is entered. Progress is written to w.
+func (b *Base) PullDeps(slug string, w io.Writer) error {
+	pj := b.ProfileJSONPath(slug)
+	if !fileExists(pj) {
+		return nil
+	}
+	if err := srcs.CopyIn(w, pj, b.SandboxDir(slug), b.ManifestPath(slug), false, false); err != nil {
+		return fmt.Errorf("srcs pull: %w", err)
+	}
+	return nil
 }
 
 // Agents lists the registered sandbox slugs (one per line in agents.list).

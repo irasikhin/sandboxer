@@ -246,6 +246,22 @@ func TestParseEnvFile(t *testing.T) {
 	}
 }
 
+// TestPullDepsCorruptProfile: a stored profile.json that won't parse surfaces as
+// a wrapped pull error (rather than a silent no-op), so a refresh-and-pull fails
+// loudly.
+func TestPullDepsCorruptProfile(t *testing.T) {
+	b, err := ResolveBase(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := b.WriteProfileJSON("feat", []byte("not json")); err != nil {
+		t.Fatal(err)
+	}
+	if err := b.PullDeps("feat", io.Discard); err == nil {
+		t.Error("PullDeps with a corrupt profile should error")
+	}
+}
+
 // TestMakeSandboxEmpty: with no profile, nothing is copied — just the empty
 // sandbox dir and registration.
 func TestMakeSandboxEmpty(t *testing.T) {

@@ -119,6 +119,14 @@ func newEnterCmd() *cobra.Command {
 				if err := t.base.MakeSandbox(t.slug, cmd.ErrOrStderr()); err != nil {
 					return err
 				}
+			} else if changed, err := t.syncSnapshot(); err != nil {
+				return err
+			} else if changed {
+				// The profile changed since this sandbox was created — vendor any
+				// newly listed deps in before opening the shell.
+				if err := t.base.PullDeps(t.slug, cmd.ErrOrStderr()); err != nil {
+					return err
+				}
 			}
 			rt, rtErr := t.runtime(f)
 			if rtErr != nil {
@@ -204,6 +212,14 @@ func newExecCmd() *cobra.Command {
 			dest := t.base.SandboxDir(t.slug)
 			if !fileExists(dest) {
 				return fmt.Errorf("no sandbox %q (create it: sandboxer create)", t.slug)
+			}
+			if changed, err := t.syncSnapshot(); err != nil {
+				return err
+			} else if changed {
+				// Pick up deps added to the profile since creation before running.
+				if err := t.base.PullDeps(t.slug, cmd.ErrOrStderr()); err != nil {
+					return err
+				}
 			}
 			rt, rtErr := t.runtime(f)
 			if rtErr != nil {

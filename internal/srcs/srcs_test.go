@@ -53,7 +53,7 @@ func TestRoundTrip(t *testing.T) {
 	pf := writeProfile(t, base, profile)
 
 	var out bytes.Buffer
-	if err := CopyIn(&out, pf, sandbox, manifest, false); err != nil {
+	if err := CopyIn(&out, pf, sandbox, manifest, false, false); err != nil {
 		t.Fatalf("CopyIn: %v", err)
 	}
 	dest := filepath.Join(sandbox, "pkg", "file.txt")
@@ -86,14 +86,14 @@ func TestPullKeepPushOverwrite(t *testing.T) {
 	pf := writeProfile(t, base, profile)
 
 	var out bytes.Buffer
-	if err := CopyIn(&out, pf, sandbox, manifest, false); err != nil {
+	if err := CopyIn(&out, pf, sandbox, manifest, false, false); err != nil {
 		t.Fatalf("CopyIn 1: %v", err)
 	}
 
 	// --- KEEP: an existing target is kept on re-pull without force. ---
 	writeFile(t, dest, "local-change\n")
 	out.Reset()
-	if err := CopyIn(&out, pf, sandbox, manifest, false); err != nil {
+	if err := CopyIn(&out, pf, sandbox, manifest, false, false); err != nil {
 		t.Fatalf("CopyIn 2: %v", err)
 	}
 	if !strings.Contains(out.String(), "KEEP") {
@@ -105,7 +105,7 @@ func TestPullKeepPushOverwrite(t *testing.T) {
 
 	// --- force pull: overwritten from origin. ---
 	out.Reset()
-	if err := CopyIn(&out, pf, sandbox, manifest, true); err != nil {
+	if err := CopyIn(&out, pf, sandbox, manifest, true, false); err != nil {
 		t.Fatalf("CopyIn force: %v", err)
 	}
 	if got := readFile(t, dest); got != "v1\n" {

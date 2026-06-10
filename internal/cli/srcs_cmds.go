@@ -32,17 +32,22 @@ func newPullCmd() *cobra.Command {
 				if dir == "" {
 					dir = getwd()
 				}
-				return srcs.CopyIn(out, "/run/sandboxer/profile.json", dir, "/run/sandboxer/manifest.json", f.force)
+				return srcs.CopyIn(out, "/run/sandboxer/profile.json", dir, "/run/sandboxer/manifest.json", f.force, true)
 			}
 			t, err := resolveTarget(f, posArg(args))
 			if err != nil {
+				return err
+			}
+			// Refresh the stored snapshot from the live profile first, so a pull
+			// after editing .sandboxer.yaml sees the new roots/deps.
+			if _, err := t.syncSnapshot(); err != nil {
 				return err
 			}
 			pj := t.base.ProfileJSONPath(t.slug)
 			if !fileExists(pj) {
 				return fmt.Errorf("sandbox %q has no profile (nothing to pull)", t.slug)
 			}
-			return srcs.CopyIn(out, pj, t.base.SandboxDir(t.slug), t.base.ManifestPath(t.slug), f.force)
+			return srcs.CopyIn(out, pj, t.base.SandboxDir(t.slug), t.base.ManifestPath(t.slug), f.force, false)
 		},
 	}
 	bindExisting(cmd, &f)

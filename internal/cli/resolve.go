@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -251,6 +252,26 @@ func configLine(rt config.Runtime, slug string, prof *config.Profile, backendSho
 	}
 	return fmt.Sprintf("sandboxer: %s — agent=%s backend=%s model=%s egress=%s profile=%s deps=%d",
 		slug, rt.Agent, backendShown, firstNonEmpty(rt.Model, "default"), egress, profile, deps)
+}
+
+// syncSnapshot refreshes the sandbox's stored profile.json from the freshly
+// resolved profile, so editing .sandboxer.yaml propagates to an existing
+// sandbox instead of being frozen at create time. It reports whether the stored
+// snapshot actually changed (so the caller can re-pull deps only when needed).
+//
+// It is a no-op inside the container (the snapshot is a read-only mount and
+// there is no live source) and when the target was resolved from the stored
+// snapshot rather than a live file/store (t.json == nil) — there is nothing
+// newer to write.
+func (t *target) syncSnapshot() (changed bool, err error) {
+	if inContainer() || t.json == nil {
+		return false, nil
+	}
+	pj := t.base.ProfileJSONPath(t.slug)
+	if cur, e := os.ReadFile(pj); e == nil && bytes.Equal(cur, t.json) {
+		return false, nil
+	}
+	return true, t.base.WriteProfileJSON(t.slug, t.json)
 }
 
 // loadStoredProfile reads the profile.json saved for a sandbox (nil if absent).

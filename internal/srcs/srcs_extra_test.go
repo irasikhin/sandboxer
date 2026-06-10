@@ -27,7 +27,7 @@ func TestDepsSearchAndLayout(t *testing.T) {
 	pf := writeProfile(t, base, profile)
 
 	var out bytes.Buffer
-	if err := CopyIn(&out, pf, sandbox, manifest, false); err != nil {
+	if err := CopyIn(&out, pf, sandbox, manifest, false, false); err != nil {
 		t.Fatalf("CopyIn: %v", err)
 	}
 	// Suffix match → flat layout at <sandbox>/<dep>.
@@ -55,7 +55,7 @@ func TestDepsMultiMatchAndDefaultRoot(t *testing.T) {
 	pf := writeProfile(t, dir, Profile{Deps: []string{"x.txt"}}) // roots empty → cwd
 
 	var out bytes.Buffer
-	if err := CopyIn(&out, pf, sandbox, manifest, false); err != nil {
+	if err := CopyIn(&out, pf, sandbox, manifest, false, false); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(out.String(), "WARN") {
@@ -83,7 +83,7 @@ func TestCopyInRefusesEscapingDep(t *testing.T) {
 	})
 
 	var out bytes.Buffer
-	if err := CopyIn(&out, pf, sandbox, manifest, false); err != nil {
+	if err := CopyIn(&out, pf, sandbox, manifest, false, false); err != nil {
 		t.Fatalf("CopyIn: %v", err)
 	}
 	if !strings.Contains(out.String(), "outside the sandbox") {
@@ -205,12 +205,12 @@ func TestPathHelpers(t *testing.T) {
 
 func TestCopyInProfileErrors(t *testing.T) {
 	var buf bytes.Buffer
-	if err := CopyIn(&buf, filepath.Join(t.TempDir(), "missing.json"), t.TempDir(), filepath.Join(t.TempDir(), "m.json"), false); err == nil {
+	if err := CopyIn(&buf, filepath.Join(t.TempDir(), "missing.json"), t.TempDir(), filepath.Join(t.TempDir(), "m.json"), false, false); err == nil {
 		t.Error("CopyIn with missing profile should error")
 	}
 	bad := filepath.Join(t.TempDir(), "bad.json")
 	writeFile(t, bad, "not json")
-	if err := CopyIn(&buf, bad, t.TempDir(), filepath.Join(t.TempDir(), "m.json"), false); err == nil {
+	if err := CopyIn(&buf, bad, t.TempDir(), filepath.Join(t.TempDir(), "m.json"), false, false); err == nil {
 		t.Error("CopyIn with malformed profile should error")
 	}
 }
