@@ -72,6 +72,44 @@ func TestStopNoSandbox(t *testing.T) {
 	}
 }
 
+// TestStopEngineLessHost: unlike rm/rm-all (which degrade to a warning so the
+// files still go), stop has nothing useful to do without an engine — it
+// hard-fails with the engine diagnostic before any seam call. Deliberate
+// asymmetry, pinned here.
+func TestStopEngineLessHost(t *testing.T) {
+	project := newProject(t)
+	if code, _, errs := run("create", "feat", "--src", project); code != 0 {
+		t.Fatalf("create: %d %s", code, errs)
+	}
+	calls := stubStopSession(t, nil)
+	t.Setenv("PATH", "") // no podman/docker discoverable
+	t.Setenv("SANDBOXER_ENGINE", "")
+
+	code, _, errs := run("stop", "feat", "--src", project)
+	if code != 1 || !strings.Contains(errs, "podman or docker") {
+		t.Errorf("engine-less stop = (%d, %q), want exit 1 with the engine hint", code, errs)
+	}
+	if len(*calls) != 0 {
+		t.Errorf("no engine, no seam call; got %+v", *calls)
+	}
+}
+
+// TestStopInvalidBackend: stop validates the backend like every sibling that
+// resolves an engine — `--backend native` gets the explicit removal notice,
+// not a silent fallback to the auto-detected engine.
+func TestStopInvalidBackend(t *testing.T) {
+	project := sessionProject(t)
+	calls := stubStopSession(t, nil)
+
+	code, _, errs := run("stop", "feat", "--src", project, "--backend", "native")
+	if code != 1 || !strings.Contains(errs, "native backend was removed") {
+		t.Errorf("stop --backend native = (%d, %q)", code, errs)
+	}
+	if len(*calls) != 0 {
+		t.Errorf("invalid backend, no seam call; got %+v", *calls)
+	}
+}
+
 // TestStopBlockedInContainer: stop joins the mutating-command blocklist.
 func TestStopBlockedInContainer(t *testing.T) {
 	t.Setenv("SANDBOXER_IN_CONTAINER", "1")

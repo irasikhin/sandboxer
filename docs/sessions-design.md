@@ -79,7 +79,9 @@ decision table (`planSession`):
 "Idle" = no clients on the in-container tmux server — an informed guess, not a
 lock. `exec` rides a running fresh session but **never** creates or replaces
 the daemon container (that is enter's job); anything else falls back to a
-one-shot run with a notice, so scripts keep working.
+one-shot run (with a notice when a running session is stale; a missing or
+stopped session falls back silently — that is exec's normal pre-session
+behavior, nothing surprising to flag), so scripts keep working.
 
 ### D4 — tmux from the toolbox image, on its own socket, with a shipped config
 
@@ -99,7 +101,8 @@ uses the session name as the ID (`<name>-int/-ext/-proxy`, `egress.UpNamed` /
 container **and** the proxy but keeps the networks and the sandbox files
 (resume = plain start); `rm`/`rm-all` sweep container, proxy and networks. A
 fresh-looking session whose proxy died is treated as stale and rebuilt rather
-than left without an outbound path.
+than left without an outbound path — under D3's busy guard: a running session
+with clients attached refuses instead of being torn down under them.
 
 ## The honest limitation
 
@@ -111,6 +114,14 @@ filesystem are kept and restarted by the next enter). Resuming the *agent's
 conversation* after that is the agent's own job — e.g. `claude --continue` —
 sandboxer only guarantees the place it runs in (container fs, sandbox dir,
 per-sandbox `$HOME`) is still there.
+
+The detach-time deps push is likewise best-effort **by design**: detaching
+pushes rw deps back to their origins while the session — and anything running
+in it — keeps going, so a writer caught mid-write can land a torn copy at the
+origin. Accepted rather than skipped: the push is the same copy `sandboxer
+push` does, so re-running it once the sandbox is quiet restores a consistent
+copy, while skipping it would silently break enter's "leaving returns your
+work" contract that every other exit path keeps.
 
 ## Tests
 

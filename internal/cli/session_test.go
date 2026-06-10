@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -16,7 +17,8 @@ type sessionCalls struct {
 	exec    [][]string // cmdArgs per ExecSession call
 	execTo  []string   // container name per ExecSession call
 	run     []backend.RunOpts
-	inspect []string // names inspected
+	inspect []string          // names inspected
+	hash    []backend.RunOpts // opts per SessionWantHash call
 }
 
 // stubSessionSeams replaces the persistent-session seams (and backendRun) with
@@ -52,7 +54,10 @@ func stubSessionSeams(t *testing.T, info backend.SessionInfo, wantHash string) *
 		c.inspect = append(c.inspect, name)
 		return info
 	}
-	backendWantHash = func(o backend.RunOpts) string { return wantHash }
+	backendWantHash = func(o backend.RunOpts) string {
+		c.hash = append(c.hash, o)
+		return wantHash
+	}
 	return c
 }
 
@@ -266,6 +271,92 @@ func TestExecNoSessionFallsBack(t *testing.T) {
 	}
 	if strings.Contains(errs, "stale") {
 		t.Errorf("unexpected stale notice:\n%s", errs)
+	}
+}
+
+// TestExecUnknownSessionMode: enter's fail-fast twin for exec — a typo in
+// SANDBOXER_SESSION errors out before any backend call.
+func TestExecUnknownSessionMode(t *testing.T) {
+	project := sessionProject(t)
+	c := stubSessionSeams(t, backend.SessionInfo{}, "h")
+	t.Setenv("SANDBOXER_SESSION", "bogus")
+
+	code, _, errs := run("exec", "feat", "--src", project, "--", "true")
+	if code != 1 || !strings.Contains(errs, "unknown session mode") {
+		t.Errorf("bogus mode = (%d, %q)", code, errs)
+	}
+	if len(c.ensure)+len(c.exec)+len(c.run)+len(c.inspect) != 0 {
+		t.Error("no backend call may happen on an unknown session mode")
+	}
+}
+
+// TestExecSessionErrorPropagates: an ExecSession failure surfaces (exit 1 with
+// the engine error printed), and the rw deps push still runs on the way out.
+func TestExecSessionErrorPropagates(t *testing.T) {
+	project := sessionProject(t)
+	c := stubSessionSeams(t, backend.SessionInfo{Exists: true, Running: true, Hash: "h"}, "h")
+	backendExecSession = func(o backend.RunOpts, name string, cmdArgs []string) (int, error) {
+		return 0, errors.New("engine exploded")
+	}
+	// An (empty) manifest makes the post-run push observable on stderr.
+	mf := filepath.Join(project, ".sandboxer", "_meta", "feat.manifest.json")
+	if err := os.MkdirAll(filepath.Dir(mf), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(mf, []byte("[]"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	code, _, errs := run("exec", "feat", "--src", project, "--", "true")
+	if code != 1 || !strings.Contains(errs, "engine exploded") {
+		t.Errorf("failing session exec = (%d, %q), want exit 1 with the engine error", code, errs)
+	}
+	if !strings.Contains(errs, "push: 0 rw entries restored") {
+		t.Errorf("deps push must still run after a failed exec:\n%s", errs)
+	}
+	if len(c.run) != 0 {
+		t.Error("a failing session exec must not fall back to a one-shot run")
+	}
+}
+
+// TestShowEnterAgreeOnMCPDomains: show's freshness verdict and enter's
+// session hash must be computed over the same allowlist — including the MCP
+// servers' domains the profile pulls in (applyMCP merges them before enter
+// builds its RunOpts; show folds them in via mcpAllowDomains).
+func TestShowEnterAgreeOnMCPDomains(t *testing.T) {
+	project := newProject(t)
+	fakePodman(t)
+	cfg := filepath.Join(t.TempDir(), "p.yaml")
+	// context7's domains are NOT in the default allowlist, so the asserts
+	// below cannot pass vacuously.
+	if err := os.WriteFile(cfg, []byte("name: feat\nmcp: [context7]\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if code, _, errs := run("create", "--src", project, "--config", cfg); code != 0 {
+		t.Fatalf("create: %d %s", code, errs)
+	}
+	c := stubSessionSeams(t, backend.SessionInfo{Exists: true, Running: true, Hash: "h"}, "h")
+
+	// Both legs resolve the same profile file (--config skips the
+	// auto-scaffold, which would otherwise shadow it with an mcp-less default).
+	if code, _, errs := run("show", "--src", project, "--config", cfg); code != 0 {
+		t.Fatalf("show = %d, %s", code, errs)
+	}
+	if len(c.hash) != 1 {
+		t.Fatalf("show hash calls = %d, want 1", len(c.hash))
+	}
+	if code, _, errs := run("enter", "--src", project, "--config", cfg); code != 0 {
+		t.Fatalf("enter = %d, %s", code, errs)
+	}
+	if len(c.ensure) != 1 {
+		t.Fatalf("enter ensure calls = %d, want 1", len(c.ensure))
+	}
+	showDomains, enterDomains := c.hash[0].RT.Domains, c.ensure[0].RT.Domains
+	if !slices.Contains(showDomains, "mcp.context7.com") {
+		t.Errorf("show hashed without the MCP domain: %v", showDomains)
+	}
+	if !slices.Equal(showDomains, enterDomains) {
+		t.Errorf("show and enter hash different domain sets:\nshow:  %v\nenter: %v", showDomains, enterDomains)
 	}
 }
 

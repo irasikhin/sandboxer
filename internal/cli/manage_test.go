@@ -2,9 +2,12 @@ package cli
 
 import (
 	"errors"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/irasikhin/sandboxer/internal/config"
 )
 
 // stubRemoveSession replaces the rm seam with a recorder returning err. The
@@ -108,10 +111,21 @@ func stubRemoveAllSessions(t *testing.T, stateDir string, err error) (calls *[]s
 	return calls, dirExisted
 }
 
+// stubInstalledEngines pins the engine enumeration the sweeps/reports iterate,
+// so the tests stay deterministic on hosts with a real docker beside the fake
+// podman.
+func stubInstalledEngines(t *testing.T, engines []string) {
+	t.Helper()
+	old := backendInstalledEngines
+	t.Cleanup(func() { backendInstalledEngines = old })
+	backendInstalledEngines = func(config.Defaults) []string { return engines }
+}
+
 // TestRmAllRemovesSessions: rm-all sweeps the project's session containers
 // (labeled with the state dir) before deleting the state dir itself.
 func TestRmAllRemovesSessions(t *testing.T) {
 	project := sessionProject(t)
+	stubInstalledEngines(t, []string{"podman"})
 	stateDir := filepath.Join(project, ".sandboxer")
 	calls, dirExisted := stubRemoveAllSessions(t, stateDir, nil)
 
@@ -134,6 +148,7 @@ func TestRmAllRemovesSessions(t *testing.T) {
 // containers — a failing sweep warns but the state dir still goes.
 func TestRmAllSessionFailureOnlyWarns(t *testing.T) {
 	project := sessionProject(t)
+	stubInstalledEngines(t, []string{"podman"})
 	stateDir := filepath.Join(project, ".sandboxer")
 	stubRemoveAllSessions(t, stateDir, errors.New("engine on fire"))
 
@@ -146,5 +161,89 @@ func TestRmAllSessionFailureOnlyWarns(t *testing.T) {
 	}
 	if fileExists(stateDir) {
 		t.Error("state dir was not removed")
+	}
+}
+
+// TestRmAllSweepsEveryEngine: with both podman and docker installed the sweep
+// must visit BOTH — sessions created via a profile's `backend: docker` would
+// otherwise be stranded forever once the state dir is gone.
+func TestRmAllSweepsEveryEngine(t *testing.T) {
+	project := sessionProject(t)
+	stubInstalledEngines(t, []string{"podman", "docker"})
+	stateDir := filepath.Join(project, ".sandboxer")
+	calls, _ := stubRemoveAllSessions(t, stateDir, nil)
+
+	code, out, errs := run("rm-all", "--force", project)
+	if code != 0 || !strings.Contains(out, "removed") {
+		t.Fatalf("rm-all = (%d, %q, %q)", code, out, errs)
+	}
+	want := []seamCall{
+		{engine: "podman", baseDir: stateDir},
+		{engine: "docker", baseDir: stateDir},
+	}
+	if len(*calls) != 2 || (*calls)[0] != want[0] || (*calls)[1] != want[1] {
+		t.Errorf("rm-all session calls = %+v, want %+v", *calls, want)
+	}
+}
+
+// TestRmAllEngineLessHost: with no engine installed the state dir is still
+// removed; the skipped sweep is a one-line warning, never a failure — the
+// rm-all twin of TestRmEngineLessHost.
+func TestRmAllEngineLessHost(t *testing.T) {
+	project := newProject(t)
+	if code, _, errs := run("create", "feat", "--src", project); code != 0 {
+		t.Fatalf("create: %d %s", code, errs)
+	}
+	stateDir := filepath.Join(project, ".sandboxer")
+	calls, _ := stubRemoveAllSessions(t, stateDir, nil)
+	t.Setenv("PATH", "") // no podman/docker discoverable
+	t.Setenv("SANDBOXER_ENGINE", "")
+
+	code, out, errs := run("rm-all", "--force", project)
+	if code != 0 || !strings.Contains(out, "removed") {
+		t.Fatalf("engine-less rm-all = (%d, %q, %q)", code, out, errs)
+	}
+	if len(*calls) != 0 {
+		t.Errorf("no engine, no sweep call; got %+v", *calls)
+	}
+	if !strings.Contains(errs, "session cleanup skipped") {
+		t.Errorf("missing skip warning on stderr: %q", errs)
+	}
+	if fileExists(stateDir) {
+		t.Error("state dir was not removed")
+	}
+}
+
+// TestRmRuntimeErrorOnlyWarns: a profile whose runtime cannot be resolved
+// (invalid domain) skips the session cleanup with a warning — the files are
+// still removed.
+func TestRmRuntimeErrorOnlyWarns(t *testing.T) {
+	project := newProject(t)
+	fakePodman(t)
+	cfg := filepath.Join(t.TempDir(), "p.yaml")
+	profile := "name: feat\nnetwork:\n  allowedDomains: [\"not a domain\"]\n"
+	if err := os.WriteFile(cfg, []byte(profile), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// create fails resolving the runtime, but only AFTER the sandbox files and
+	// the profile snapshot are written — exactly the broken state rm must cope with.
+	if code, _, _ := run("create", "--src", project, "--config", cfg); code != 1 {
+		t.Fatalf("create with a broken profile should fail resolving the runtime")
+	}
+	dest := filepath.Join(project, ".sandboxer", "feat")
+	calls, _ := stubRemoveSession(t, dest, nil)
+
+	code, out, errs := run("rm", "feat", "--src", project)
+	if code != 0 || !strings.Contains(out, "removed sandbox") {
+		t.Fatalf("rm with a broken profile = (%d, %q, %q)", code, out, errs)
+	}
+	if len(*calls) != 0 {
+		t.Errorf("no runtime, no session call; got %+v", *calls)
+	}
+	if !strings.Contains(errs, "session cleanup skipped") {
+		t.Errorf("missing skip warning on stderr: %q", errs)
+	}
+	if fileExists(dest) {
+		t.Error("sandbox files were not removed")
 	}
 }

@@ -14,12 +14,15 @@ func stubSessionOrphans(t *testing.T, orphans []string, err error) {
 	sessionOrphans = func(engine string) ([]string, error) { return orphans, err }
 }
 
-// doctorEnv gives doctor an engine and an isolated profile store/cwd.
+// doctorEnv gives doctor an engine and an isolated profile store/cwd. The
+// engine enumeration is pinned to podman so a real docker on the host cannot
+// add extra session rows.
 func doctorEnv(t *testing.T) {
 	t.Helper()
 	t.Setenv("SANDBOXER_IN_CONTAINER", "")
 	t.Setenv("SANDBOXER_PROFILES", t.TempDir())
 	fakePodman(t)
+	stubInstalledEngines(t, []string{"podman"})
 	t.Chdir(t.TempDir())
 }
 
@@ -60,6 +63,42 @@ func TestDoctorSessionsClean(t *testing.T) {
 	}
 	if strings.Contains(out, "orphan") {
 		t.Errorf("clean doctor must not report orphans:\n%s", out)
+	}
+}
+
+// TestDoctorOrphanProbeFailureIsSilent: the orphan scan is purely advisory —
+// its failure adds no row and no warning.
+func TestDoctorOrphanProbeFailureIsSilent(t *testing.T) {
+	doctorEnv(t)
+	stubSessionStates(t, map[string]string{}, nil)
+	stubSessionOrphans(t, nil, errors.New("probe failed"))
+
+	code, out, _ := run("doctor")
+	if code != 0 {
+		t.Fatalf("doctor = %d", code)
+	}
+	if strings.Contains(out, "orphan") || strings.Contains(out, "probe failed") {
+		t.Errorf("a failing orphan probe must stay silent:\n%s", out)
+	}
+}
+
+// TestDoctorSessionsEveryEngine: with both engines installed doctor probes
+// each one — a docker-backed session must not be invisible just because
+// podman is the auto-detected default.
+func TestDoctorSessionsEveryEngine(t *testing.T) {
+	doctorEnv(t)
+	stubInstalledEngines(t, []string{"podman", "docker"})
+	stubSessionStates(t, map[string]string{"a": "running"}, nil)
+	stubSessionOrphans(t, nil, nil)
+
+	code, out, _ := run("doctor")
+	if code != 0 {
+		t.Fatalf("doctor = %d", code)
+	}
+	for _, want := range []string{"sessions (podman)", "sessions (docker)"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("doctor missing the %q row:\n%s", want, out)
+		}
 	}
 }
 

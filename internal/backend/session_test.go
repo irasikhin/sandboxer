@@ -166,13 +166,15 @@ func TestConfigHash(t *testing.T) {
 // Every invocation's argv is appended to the returned log; behavior branches
 // on the engine subcommand ($1) and is steered through env vars:
 //
-//	SBX_FAIL_ON       any invocation whose subcommand matches exits 1
-//	SBX_INSPECT_FAIL  `container inspect` of the session container exits 1
-//	SBX_INSPECT_OUT   stdout of `container inspect` (session or batched)
-//	SBX_PROXY_RUNNING `container inspect <…-proxy>` prints "true" when "1",
-//	                  exits 1 (proxy missing) otherwise
-//	SBX_EXEC_OUT      stdout of `exec` (the tmux list-clients idleness probe)
-//	SBX_PS_OUT        stdout of `ps`; SBX_PS_FAIL makes `ps` exit 1
+//	SBX_FAIL_ON          any invocation whose subcommand matches exits 1
+//	SBX_INSPECT_FAIL     `container inspect` of the session container exits 1
+//	SBX_INSPECT_FAIL_ONCE a marker-file path: only the FIRST session inspect
+//	                     exits 1 (the marker records that it happened)
+//	SBX_INSPECT_OUT      stdout of `container inspect` (session or batched)
+//	SBX_PROXY_RUNNING    `container inspect <…-proxy>` prints "true" when "1",
+//	                     exits 1 (proxy missing) otherwise
+//	SBX_EXEC_OUT         stdout of `exec` (the tmux list-clients idleness probe)
+//	SBX_PS_OUT           stdout of `ps`; SBX_PS_FAIL makes `ps` exit 1
 func sessionEngine(t *testing.T) (engine, logPath string) {
 	t.Helper()
 	dir := t.TempDir()
@@ -189,6 +191,9 @@ container)
     [ "$SBX_PROXY_RUNNING" = "1" ] && { echo true; exit 0; }
     exit 1 ;;
   *)
+    if [ -n "$SBX_INSPECT_FAIL_ONCE" ] && [ ! -f "$SBX_INSPECT_FAIL_ONCE" ]; then
+      : > "$SBX_INSPECT_FAIL_ONCE"; exit 1
+    fi
     [ -n "$SBX_INSPECT_FAIL" ] && exit 1
     printf '%s\n' "$SBX_INSPECT_OUT" ;;
   esac ;;
@@ -564,6 +569,25 @@ func TestEnsureSessionEgress(t *testing.T) {
 		}
 	})
 
+	t.Run("dead proxy with attached clients refuses", func(t *testing.T) {
+		engine, logPath := sessionEngine(t)
+		o, _, hash := egressOpts(engine)
+
+		t.Setenv("SBX_INSPECT_OUT", "true "+hash) // fresh container…
+		// …whose proxy is missing (SBX_PROXY_RUNNING unset) while a client is
+		// attached: same busy guard as the stale path — refuse, never rm -f.
+		t.Setenv("SBX_EXEC_OUT", "client0: /dev/pts/3")
+		_, err := EnsureSession(o)
+		if err == nil || !strings.Contains(err.Error(), "egress proxy is gone") ||
+			!strings.Contains(err.Error(), "--ephemeral") {
+			t.Fatalf("busy session with a dead proxy = %v, want a refusal pointing at --ephemeral", err)
+		}
+		lines := engineLog(t, logPath)
+		if findPrefixLine(lines, "rm -f") != "" || findPrefixLine(lines, "run -d") != "" {
+			t.Errorf("refusal must not touch the session:\n%s", strings.Join(lines, "\n"))
+		}
+	})
+
 	t.Run("stopped fresh restarts the proxy too", func(t *testing.T) {
 		engine, logPath := sessionEngine(t)
 		o, name, hash := egressOpts(engine)
@@ -623,14 +647,50 @@ func TestEnsureSessionEgress(t *testing.T) {
 
 func TestEnsureSessionCreateFailure(t *testing.T) {
 	requireExec(t, "sh")
-	engine, _ := sessionEngine(t)
-	o := sessionOpts(engine)
 
-	t.Setenv("SBX_INSPECT_FAIL", "1")
-	t.Setenv("SBX_FAIL_ON", "run")
-	if _, err := EnsureSession(o); err == nil || !strings.Contains(err.Error(), "create session") {
-		t.Errorf("create failure = %v, want a create session error", err)
-	}
+	t.Run("create error surfaces", func(t *testing.T) {
+		engine, _ := sessionEngine(t)
+		o := sessionOpts(engine)
+
+		t.Setenv("SBX_INSPECT_FAIL", "1")
+		t.Setenv("SBX_FAIL_ON", "run")
+		if _, err := EnsureSession(o); err == nil || !strings.Contains(err.Error(), "create session") {
+			t.Errorf("create failure = %v, want a create session error", err)
+		}
+	})
+
+	t.Run("duplicate-name race adopts the winner", func(t *testing.T) {
+		engine, logPath := sessionEngine(t)
+		o := sessionOpts(engine)
+		name, hash := SessionName("s", "/b"), ConfigHash(o, "", "")
+
+		// First inspect: not found (so we take the create path); our create
+		// then loses the name race; the re-inspect sees the concurrent
+		// winner's container running and configuration-fresh — adopt it.
+		t.Setenv("SBX_INSPECT_FAIL_ONCE", filepath.Join(t.TempDir(), "marker"))
+		t.Setenv("SBX_INSPECT_OUT", "true "+hash)
+		t.Setenv("SBX_FAIL_ON", "run")
+		got, err := EnsureSession(o)
+		if err != nil || got != name {
+			t.Fatalf("EnsureSession = (%q, %v), want (%q, nil)", got, err, name)
+		}
+		if lines := engineLog(t, logPath); findPrefixLine(lines, "run -d --init") == "" {
+			t.Errorf("the create must have been attempted:\n%s", strings.Join(lines, "\n"))
+		}
+	})
+
+	t.Run("missing image with autobuild disabled fails with a hint", func(t *testing.T) {
+		engine, _ := sessionEngine(t)
+		o := sessionOpts(engine)
+		o.Image = config.DefaultImage // a locally-built image, never pullable
+
+		t.Setenv("SBX_INSPECT_FAIL", "1") // not found → create path
+		t.Setenv("SBX_FAIL_ON", "image")  // the `image inspect` probe: absent
+		t.Setenv("SANDBOXER_NO_AUTOBUILD", "1")
+		if _, err := EnsureSession(o); err == nil || !strings.Contains(err.Error(), "sandboxer build-image") {
+			t.Errorf("missing image = %v, want the build-image hint", err)
+		}
+	})
 }
 
 func TestExecSession(t *testing.T) {
@@ -841,6 +901,22 @@ func TestOrphanSessions(t *testing.T) {
 		}
 	})
 
+	t.Run("short inspect output never flags a false orphan", func(t *testing.T) {
+		engine, _ := sessionEngine(t)
+		gone := filepath.Join(t.TempDir(), "deleted-project", ".sandboxer")
+		// Two names but only one inspect line: n2 has no base slot, so the
+		// scan stops there instead of guessing (or panicking).
+		t.Setenv("SBX_PS_OUT", "n1\nn2")
+		t.Setenv("SBX_INSPECT_OUT", gone)
+		got, err := OrphanSessions(engine)
+		if err != nil {
+			t.Fatalf("OrphanSessions: %v", err)
+		}
+		if !slices.Equal(got, []string{"n1"}) {
+			t.Errorf("OrphanSessions = %v, want [n1]", got)
+		}
+	})
+
 	t.Run("engine failures surface", func(t *testing.T) {
 		engine, _ := sessionEngine(t)
 		t.Setenv("SBX_PS_FAIL", "1")
@@ -862,8 +938,10 @@ func TestSessionStates(t *testing.T) {
 	t.Run("maps slug to status", func(t *testing.T) {
 		engine, logPath := sessionEngine(t)
 		t.Setenv("SBX_PS_OUT", "n1\nn2")
-		// Status comes first because a raw slug may contain spaces.
-		t.Setenv("SBX_INSPECT_OUT", "running slug one\nexited s2")
+		// Status comes first because a raw slug may contain spaces. A line
+		// without a separator ("malformed") and one with an empty slug
+		// ("created ") are skipped, never mapped.
+		t.Setenv("SBX_INSPECT_OUT", "running slug one\nmalformed\ncreated \nexited s2")
 		got, err := SessionStates(engine, "/b")
 		if err != nil {
 			t.Fatalf("SessionStates: %v", err)

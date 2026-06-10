@@ -273,8 +273,15 @@ func EnsureSession(o RunOpts) (string, error) {
 	case actExec, actStart:
 		// Adoption health-check: a configuration-fresh container whose egress
 		// proxy died or vanished has no outbound path — treat it as stale and
-		// rebuild both together.
+		// rebuild both together, under the same busy guard as any stale
+		// session: a running container with clients attached is never torn
+		// down silently (a stopped one cannot have clients, so actStart
+		// recreates without probing).
 		if needEgress && !reviveEgress(o.Engine, name, action) {
+			if action == actExec && !sessionIdle(o.Engine, name) {
+				return "", fmt.Errorf("session %s: its egress proxy is gone but other clients are attached — "+
+					"detach them first, or rerun with --ephemeral", name)
+			}
 			notice(o.Stderr, "recreating session: egress proxy is gone")
 			return recreateSession(o, name, hash)
 		}
@@ -347,6 +354,14 @@ func createSession(o RunOpts, name, hash string) (string, error) {
 	cmd.Stdout = io.Discard // `run -d` prints the new container id
 	cmd.Stderr = o.Stderr
 	if err := cmd.Run(); err != nil {
+		// Two concurrent first enters race to this create under the same
+		// deterministic name; the loser fails on the duplicate. Adopt the
+		// winner's container when it is running and configuration-fresh (our
+		// stably-named egress, when required, serves it just as well) instead
+		// of surfacing the name conflict.
+		if again := InspectSession(o.Engine, name); again.Exists && again.Running && again.Hash == hash {
+			return name, nil
+		}
 		// Don't leave a proxy running for a container that never came up.
 		eg.Down()
 		return "", fmt.Errorf("create session %s: %w", name, err)

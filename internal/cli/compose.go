@@ -49,6 +49,14 @@ equivalent — its purpose is "run it with your own tooling".`,
 			if err := config.ValidateSession(rt); err != nil {
 				return err
 			}
+			// Fold the profile's MCP-server domains into the allowlist exactly
+			// as enter/exec do (minus the config seeding), so the printed argv
+			// carries the same SANDBOXER_ALLOW_DOMAINS a real run gets.
+			domains, err := mcpAllowDomains(t.profile, rt.Domains)
+			if err != nil {
+				return err
+			}
+			rt.Domains = domains
 			engine, err := backend.ResolveEngine(rt.Backend, config.LoadDefaults())
 			if err != nil {
 				return err
@@ -83,8 +91,15 @@ equivalent — its purpose is "run it with your own tooling".`,
 			if printRun {
 				if session != "" {
 					// The create + exec pair, from the same builders the real
-					// session lifecycle uses (no drift, same as RunArgv).
-					create := backend.CreateArgv(opts, session, backend.SessionWantHash(opts))
+					// session lifecycle uses (no drift, same as RunArgv). The
+					// hash label is computed over exactly the argv printed:
+					// the dynamic egress flags are documented rather than
+					// reproduced (see the long help), so a session hand-made
+					// from this line is deliberately stale to a real `enter`
+					// when egress is on — enter then rebuilds it with the
+					// proxy wired in, never adopting a container without an
+					// outbound path.
+					create := backend.CreateArgv(opts, session, backend.ConfigHash(opts, "", ""))
 					fmt.Fprintln(out, shellLine(append([]string{engine}, create...)))
 					fmt.Fprintln(out, shellLine(append([]string{engine}, backend.ExecArgv(opts, session, opts.Args)...)))
 					return nil

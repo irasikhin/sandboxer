@@ -81,16 +81,26 @@ func printList(cmd *cobra.Command, base *sandbox.Base, wide bool) {
 }
 
 // projectSessionStates returns slug→container status for the project's
-// persistent sessions. Best-effort: any engine problem yields nil, so the
-// listing shows dashes instead of failing on an engine-less host.
+// persistent sessions, probing every installed engine (a profile's `backend:`
+// may have put sessions on either). Best-effort: any engine problem only
+// drops that engine's answers, so the listing shows dashes instead of failing
+// on an engine-less host.
 func projectSessionStates(baseDir string) map[string]string {
-	engine, err := backend.DetectEngine(config.LoadDefaults())
-	if err != nil {
-		return nil
-	}
-	states, err := sessionStates(engine, baseDir)
-	if err != nil {
-		return nil
+	var states map[string]string
+	for _, engine := range backendInstalledEngines(config.LoadDefaults()) {
+		st, err := sessionStates(engine, baseDir)
+		if err != nil {
+			continue
+		}
+		if states == nil {
+			states = make(map[string]string, len(st))
+		}
+		for slug, s := range st {
+			// A "running" verdict wins over another engine's leftover record.
+			if cur, ok := states[slug]; !ok || cur != "running" {
+				states[slug] = s
+			}
+		}
 	}
 	return states
 }
@@ -247,12 +257,20 @@ func printSessionBlock(out io.Writer, t *target, rt config.Runtime) {
 
 // sessionHashOpts assembles the RunOpts SessionWantHash needs to recompute
 // the session's config hash — the same fields enter passes, minus the stdio.
-// ok=false when the image cannot be resolved, leaving freshness unjudged.
+// The profile's MCP-server domains are folded into the allowlist exactly as
+// enter does before hashing (applyMCP), or an MCP-enabled profile would
+// permanently read as stale here. ok=false when the image or the MCP set
+// cannot be resolved, leaving freshness unjudged.
 func sessionHashOpts(t *target, rt config.Runtime, engine string) (backend.RunOpts, bool) {
 	image, tools, err := resolveImage(t.profile)
 	if err != nil {
 		return backend.RunOpts{}, false
 	}
+	domains, err := mcpAllowDomains(t.profile, rt.Domains)
+	if err != nil {
+		return backend.RunOpts{}, false
+	}
+	rt.Domains = domains
 	return backend.RunOpts{
 		Engine: engine, Image: image, Tools: tools,
 		Dest: t.base.SandboxDir(t.slug), Slug: t.slug, BaseDir: t.base.Dir,

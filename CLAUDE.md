@@ -45,7 +45,7 @@ was extracted from:
 
 - **Isolation backends** (`internal/backend`): `container` (podman/docker via the toolbox image) and `native`
   (Claude Code's own `/sandbox`, claude-only). `PersistentPreRunE` in `cli.go` blocks the mutating commands
-  (create/enter/exec/run/rm/rm-all/use) when running **inside** the container — only pull/push/show/list/diff
+  (create/enter/exec/run/rm/rm-all/use/stop) when running **inside** the container — only pull/push/show/list/diff
   are allowed there.
 - **Sandbox state** (`internal/sandbox`): a sandbox is `.sandboxer/<slug>/` holding only the listed deps
   (each located by path suffix under your roots and copied in — nothing by default, no git involved), alongside

@@ -1,6 +1,10 @@
 package cli
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -186,6 +190,86 @@ func TestComposePrintRunPersistent(t *testing.T) {
 	if code, _, errs := run("compose", "feat", "--src", project, "--backend", "podman"); code != 1 ||
 		!strings.Contains(errs, "unknown session mode") {
 		t.Errorf("bogus session mode = (%d, %q)", code, errs)
+	}
+}
+
+// TestComposePrintRunHashSelfConsistent: the sandboxer.hash label on the
+// printed create line is the hash of exactly the argv printed (the dynamic
+// egress flags are documented, not reproduced — so with egress on, the label
+// must NOT inherit the real session's egress-flavored hash). Recomputing the
+// ConfigHash from the printed tokens (run -d --init + everything but the
+// name/labels) must reproduce the label value.
+func TestComposePrintRunHashSelfConsistent(t *testing.T) {
+	project := newProject(t)
+	fakePodman(t)
+	t.Setenv("SANDBOXER_SESSION", "")
+	if code, _, errs := run("create", "feat", "--src", project); code != 0 {
+		t.Fatalf("create: %d %s", code, errs)
+	}
+
+	code, out, errs := run("compose", "feat", "--src", project, "--backend", "podman", "--print-run")
+	if code != 0 {
+		t.Fatalf("compose --print-run = %d %s", code, errs)
+	}
+	createLine := strings.Split(strings.TrimSpace(out), "\n")[0]
+	// No printed token needs shell quoting in this fixture, so Fields is an
+	// exact inverse of shellLine.
+	if strings.Contains(createLine, "'") {
+		t.Fatalf("fixture grew a quoted token, the reconstruction below is invalid:\n%s", createLine)
+	}
+	tokens := strings.Fields(createLine)[1:] // drop the engine
+	var core []string
+	label := ""
+	for i := 0; i < len(tokens); i++ {
+		switch tokens[i] {
+		case "--name":
+			i++
+		case "--label":
+			i++
+			if v, ok := strings.CutPrefix(tokens[i], "sandboxer.hash="); ok {
+				label = v
+			}
+		default:
+			core = append(core, tokens[i])
+		}
+	}
+	sum := sha256.Sum256([]byte(strings.Join(core, "\x00")))
+	if want := hex.EncodeToString(sum[:]); label != want {
+		t.Errorf("printed hash label %q is not the hash of the printed argv %q", label, want)
+	}
+}
+
+// TestComposePrintRunMCPDomains: compose folds the profile's MCP-server
+// domains into the printed allowlist env, same as a real enter/exec.
+func TestComposePrintRunMCPDomains(t *testing.T) {
+	project := newProject(t)
+	fakePodman(t)
+	t.Setenv("SANDBOXER_SESSION", "")
+	cfg := filepath.Join(t.TempDir(), "p.yaml")
+	// context7's domains are NOT in the default allowlist, so this cannot
+	// pass vacuously.
+	if err := os.WriteFile(cfg, []byte("name: feat\nmcp: [context7]\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if code, _, errs := run("create", "--src", project, "--config", cfg); code != 0 {
+		t.Fatalf("create: %d %s", code, errs)
+	}
+
+	code, out, errs := run("compose", "feat", "--src", project, "--backend", "podman", "--print-run")
+	if code != 0 {
+		t.Fatalf("compose --print-run = %d %s", code, errs)
+	}
+	if !strings.Contains(out, "mcp.context7.com") {
+		t.Errorf("printed argv missing the MCP server's domain:\n%s", out)
+	}
+
+	// An unresolvable mcp: entry fails compose the same way enter would fail.
+	if err := os.WriteFile(cfg, []byte("name: feat\nmcp: [no-such-server]\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if code, _, errs := run("compose", "--src", project, "--config", cfg, "--backend", "podman"); code != 1 ||
+		!strings.Contains(errs, "unknown MCP server") {
+		t.Errorf("compose with a bogus MCP server = (%d, %q)", code, errs)
 	}
 }
 

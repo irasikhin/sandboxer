@@ -34,6 +34,9 @@ to remove the sandbox (and its session) entirely.`,
 			if err != nil {
 				return err
 			}
+			if err := config.ValidateBackend(rt); err != nil {
+				return err
+			}
 			engine, err := backend.ResolveEngine(rt.Backend, config.LoadDefaults())
 			if err != nil {
 				return err

@@ -21,6 +21,9 @@ import (
 var (
 	backendRemoveSession     = backend.RemoveSession
 	backendRemoveAllSessions = backend.RemoveAllSessions
+	// backendInstalledEngines enumerates every engine a sweep or report must
+	// visit (rm-all, list, doctor) — sessions may live on podman AND docker.
+	backendInstalledEngines = backend.InstalledEngines
 )
 
 func init() {
@@ -96,12 +99,19 @@ use 'sandboxer rm <slug>' to remove a single sandbox instead.`,
 				return fmt.Errorf("no such directory: %s", src)
 			}
 			dir := filepath.Join(abs, config.StateDirName)
-			// Sweep the session containers labeled with this base dir first;
-			// best-effort — the state dir must go even with no engine installed.
-			if engine, err := backend.DetectEngine(config.LoadDefaults()); err != nil {
-				fmt.Fprintf(cmd.ErrOrStderr(), "sandboxer: session cleanup skipped: %v\n", err)
-			} else if err := backendRemoveAllSessions(engine, dir); err != nil {
-				fmt.Fprintf(cmd.ErrOrStderr(), "sandboxer: session cleanup failed: %v\n", err)
+			// Sweep the session containers labeled with this base dir first — on
+			// every installed engine, since per-profile backends may have created
+			// sessions on either; best-effort — the state dir must go even with
+			// no engine installed.
+			engines := backendInstalledEngines(config.LoadDefaults())
+			if len(engines) == 0 {
+				fmt.Fprintln(cmd.ErrOrStderr(),
+					"sandboxer: session cleanup skipped: no container engine (podman or docker) found")
+			}
+			for _, engine := range engines {
+				if err := backendRemoveAllSessions(engine, dir); err != nil {
+					fmt.Fprintf(cmd.ErrOrStderr(), "sandboxer: session cleanup failed: %v\n", err)
+				}
 			}
 			if err := os.RemoveAll(dir); err != nil {
 				return err

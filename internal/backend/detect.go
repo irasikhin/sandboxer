@@ -43,6 +43,25 @@ func ResolveEngine(be string, d config.Defaults) (string, error) {
 // plain podman→docker auto-detect).
 func DetectEngine(d config.Defaults) (string, error) { return ResolveEngine("", d) }
 
+// InstalledEngines returns every engine a sandboxer-managed container could
+// live on: the SANDBOXER_ENGINE override alone when set, otherwise each of
+// podman and docker that is actually installed (possibly none). Sweeps and
+// reports (rm-all, list, doctor) iterate over all of them — a profile's
+// `backend:` may have created sessions on either engine, so probing only the
+// auto-detected one would strand the other's containers.
+func InstalledEngines(d config.Defaults) []string {
+	if d.Engine != "" {
+		return []string{d.Engine}
+	}
+	var engines []string
+	for _, e := range []string{"podman", "docker"} {
+		if hasExec(e) {
+			engines = append(engines, e)
+		}
+	}
+	return engines
+}
+
 // EngineLabel reports, best-effort, the engine ResolveEngine would pick, for the
 // summary banner so it matches what runs. It never errors: with no engine
 // installed it returns be unchanged so the banner still names the configured
