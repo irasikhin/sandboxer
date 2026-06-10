@@ -1,0 +1,72 @@
+# Woodpecker port of the `test`, `lint` and `commits` jobs in the retired
+# .github/workflows/ci.yml (removed in 2122d94; recover the original with
+#   git show 2122d94^:.github/workflows/ci.yml).
+#
+# One file on purpose: each .woodpecker/ file is its own workflow, and the host
+# runs WOODPECKER_MAX_WORKFLOWS=1 so at most one heavy container is live at a
+# time. Keeping the three Go lanes here as sequential steps (depends_on chain,
+# no matrix) makes them queue as a single unit next to flake-check.yml instead
+# of competing for the node.
+#
+# Images are pinned like flake-check.yml pins nixos/nix:2.28.3; once pulled
+# they stay cached on the node (DockerHub pulls there are rate-limited).
+#
+# Triggers mirror the retired workflow: pushes to main + every pull request
+# (flake-check.yml also runs on feature-branch pushes; the Go lanes do not).
+when:
+  - event: push
+    branch: main
+  - event: [pull_request, manual]
+
+steps:
+  test:
+    image: golang:1.24.13
+    commands:
+      - go build ./cmd/sandboxer
+      # Cross-build the other release target so arch-specific breakage is
+      # caught here, not only at release time.
+      - GOOS=linux GOARCH=arm64 go build ./...
+      # -race guards the parallel batch runner (the worker pool + failure
+      # aggregation); the debian-based golang image ships gcc so the detector
+      # links.
+      - go test ./... -race -coverprofile=coverage.out
+      - go tool cover -func=coverage.out | tail -1
+      # Coverage gate (Woodpecker has no ::error:: workflow commands, so the
+      # failure is a plain stderr line; the awk gate itself is verbatim).
+      - |
+        total=$(go tool cover -func=coverage.out | awk '/^total:/ {sub(/%/,"",$3); print $3}')
+        echo "total coverage: ${total}%"
+        awk -v t="$total" 'BEGIN { exit (t+0 >= 90.0) ? 0 : 1 }' \
+          || { echo "ERROR: total coverage ${total}% is below the 90% gate" >&2; exit 1; }
+      - go vet ./...
+
+  lint:
+    image: golangci/golangci-lint:v2.1.6
+    depends_on: [test]
+    commands:
+      - golangci-lint run
+
+  # Conventional-commit subject check on the PR range, reusing the same
+  # script the local commit-msg hook runs (scripts/git-hooks/commit-msg).
+  # Reuses the golang image (already cached from `test`) for git + bash.
+  commits:
+    image: golang:1.24.13
+    depends_on: [lint]
+    when:
+      - event: pull_request
+    commands:
+      # The default clone only fetches the PR head; fetch the target branch
+      # so the PR range can be enumerated.
+      - git fetch --no-tags origin "refs/heads/${CI_COMMIT_TARGET_BRANCH}"
+      - |
+        status=0
+        for sha in $(git rev-list --no-merges "FETCH_HEAD..HEAD"); do
+          msg_file="$(mktemp)"
+          git log -1 --format=%B "$sha" > "$msg_file"
+          if ! bash scripts/git-hooks/commit-msg "$msg_file"; then
+            echo "ERROR: commit $sha has a non-conforming message" >&2
+            status=1
+          fi
+          rm -f "$msg_file"
+        done
+        exit "$status"

@@ -1,0 +1,144 @@
+# Woodpecker port of the retired .github/workflows/release.yml (removed in
+# 2122d94; recover the original with
+#   git show 2122d94^:.github/workflows/release.yml).
+#
+# Single workflow with sequential steps (verify -> build -> publish) sharing
+# the workspace — the same reason the old file was a single job: this forge
+# has no Actions artifact storage to pass archives between jobs, and the host
+# caps Woodpecker at one workflow (WOODPECKER_MAX_WORKFLOWS=1) anyway.
+#
+# Publishing talks to the Forgejo release API with curl, authenticated by the
+# `forgejo_token` Woodpecker secret (a Forgejo access token with repository
+# write scope). That secret must be created server-side in Woodpecker — as a
+# repo or org secret with the "tag" event enabled — BEFORE the first tagged
+# release; without it the pipeline fails at the publish step (verify and
+# build still validate the release).
+#
+# The golang image ships neither node nor jq, so the JSON encode/decode the
+# old workflow did with node is done with stdlib-only `go run` helpers — the
+# Go toolchain is the one tool this pipeline can always count on.
+when:
+  - event: tag
+    ref: refs/tags/v*
+
+steps:
+  verify:
+    image: golang:1.24.13
+    commands:
+      # Tag and nix/package.nix must agree (scripts/release.sh keeps them in
+      # sync; this catches a hand-pushed tag).
+      - |
+        tag="${CI_COMMIT_TAG#v}"
+        pkg_version=$(grep -oP 'version\s*=\s*"\K[^"]+' nix/package.nix | head -1)
+        if [ "$tag" != "$pkg_version" ]; then
+          echo "Tag ${CI_COMMIT_TAG} does not match nix/package.nix version ${pkg_version}" >&2
+          exit 1
+        fi
+      - go test ./...
+
+  build:
+    image: golang:1.24.13
+    depends_on: [verify]
+    environment:
+      CGO_ENABLED: "0"
+    commands:
+      - mkdir -p dist
+      - |
+        for pair in linux/amd64 linux/arm64; do
+          export GOOS="${pair%/*}" GOARCH="${pair#*/}"
+          out="sandboxer-${CI_COMMIT_TAG}-${GOOS}-${GOARCH}"
+          go build -trimpath \
+            -ldflags "-s -w -X main.version=${CI_COMMIT_TAG}" \
+            -o "dist/${out}/sandboxer" ./cmd/sandboxer
+          cp README.md CHANGELOG.md LICENSE "dist/${out}/" 2>/dev/null || true
+          tar -czf "dist/${out}.tar.gz" -C dist "${out}"
+          (cd dist && sha256sum "${out}.tar.gz" > "${out}.tar.gz.sha256")
+          # Smoke-test the host-native (amd64) binary only.
+          if [ "$GOOS" = "linux" ] && [ "$GOARCH" = "amd64" ]; then
+            "dist/${out}/sandboxer" --version
+            "dist/${out}/sandboxer" --help >/dev/null
+          fi
+          rm -rf "dist/${out}"
+        done
+      # Extract this tag's CHANGELOG section into release-notes.md.
+      - |
+        tag="${CI_COMMIT_TAG#v}"
+        awk -v tag="$tag" '
+          BEGIN { p = 0 }
+          /^## \[/ {
+            if (p) exit
+            if ($0 ~ "^## \\[" tag "\\]") { p = 1; next }
+          }
+          p { print }
+        ' CHANGELOG.md > release-notes.md
+        if [ ! -s release-notes.md ]; then
+          echo "_(no changelog section authored for this release)_" > release-notes.md
+        fi
+
+  publish:
+    image: golang:1.24.13
+    depends_on: [build]
+    environment:
+      FORGEJO_TOKEN:
+        from_secret: forgejo_token
+    commands:
+      - |
+        api="${CI_FORGE_URL}/api/v1/repos/${CI_REPO}"
+        cat > /tmp/mkbody.go <<'EOF'
+        package main
+
+        import (
+            "encoding/json"
+            "os"
+        )
+
+        func main() {
+            notes, err := os.ReadFile("release-notes.md")
+            if err != nil {
+                panic(err)
+            }
+            tag := os.Getenv("CI_COMMIT_TAG")
+            out, err := json.Marshal(map[string]any{
+                "tag_name":   tag,
+                "name":       tag,
+                "body":       string(notes),
+                "draft":      false,
+                "prerelease": false,
+            })
+            if err != nil {
+                panic(err)
+            }
+            os.Stdout.Write(out)
+        }
+        EOF
+        cat > /tmp/getid.go <<'EOF'
+        package main
+
+        import (
+            "encoding/json"
+            "fmt"
+            "os"
+        )
+
+        func main() {
+            var r struct {
+                ID int64 `json:"id"`
+            }
+            if err := json.NewDecoder(os.Stdin).Decode(&r); err != nil {
+                panic(err)
+            }
+            fmt.Println(r.ID)
+        }
+        EOF
+        body=$(go run /tmp/mkbody.go)
+        rid=$(curl -fsS -X POST -H "Authorization: token ${FORGEJO_TOKEN}" \
+          -H "Content-Type: application/json" \
+          --data "${body}" "${api}/releases" | go run /tmp/getid.go)
+        echo "Created release ${CI_COMMIT_TAG} (id ${rid})"
+        for f in dist/*.tar.gz dist/*.tar.gz.sha256; do
+          echo "  uploading $(basename "$f")"
+          curl -fsS -X POST -H "Authorization: token ${FORGEJO_TOKEN}" \
+            -F "attachment=@${f}" \
+            "${api}/releases/${rid}/assets?name=$(basename "$f")" >/dev/null
+        done
+        echo "Published ${CI_COMMIT_TAG}"
