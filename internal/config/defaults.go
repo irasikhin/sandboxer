@@ -31,6 +31,7 @@ type Defaults struct {
 	Model       string
 	Agent       string
 	Backend     string
+	Session     string
 	Domains     string
 	Image       string
 	Engine      string
@@ -46,6 +47,7 @@ func LoadDefaults() Defaults {
 		Model:       os.Getenv("SANDBOXER_MODEL"),
 		Agent:       envOr("SANDBOXER_AGENT", "claude"),
 		Backend:     envOr("SANDBOXER_BACKEND", "podman"),
+		Session:     os.Getenv("SANDBOXER_SESSION"),
 		Domains:     envOr("SANDBOXER_DOMAINS", DefaultDomains),
 		Image:       envOr("SANDBOXER_IMAGE", DefaultImage),
 		Engine:      os.Getenv("SANDBOXER_ENGINE"),

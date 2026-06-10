@@ -75,6 +75,10 @@ type Profile struct {
 	// server config is seeded into the agent's sandbox home and each server's
 	// domains are folded into the egress allowlist.
 	MCP []string `yaml:"mcp,omitempty" json:"mcp,omitempty"`
+	// Session selects how enter/exec use the container: "persistent" (the
+	// default) keeps one detached session container running across invocations,
+	// "ephemeral" starts a fresh one-shot container per command.
+	Session string `yaml:"session,omitempty" json:"session,omitempty"`
 }
 
 // Load reads and parses a single flat YAML profile from disk. Multi-profile

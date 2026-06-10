@@ -147,6 +147,22 @@ func egressRequired(o RunOpts) bool {
 	return !o.NoEgress && o.RT.Egress && o.RT.HTTPProxy == "" && o.RT.HTTPSProxy == ""
 }
 
+// SessionWantHash computes the ConfigHash a fresh persistent session for o
+// must carry: hashed with the session's STABLE egress identifiers (purely
+// name-derived via Lookup, no per-run randomness), so the hash computed on a
+// re-enter always matches the one stamped at create time — and toggling
+// egress on/off flips it, because the create argv genuinely changes
+// (--network + proxy env). The single staleness oracle for EnsureSession and
+// the CLI's exec routing — they must never disagree.
+func SessionWantHash(o RunOpts) string {
+	egNet, egProxyURL := "", ""
+	if egressRequired(o) {
+		lk := egress.Lookup(o.Engine, SessionName(o.Slug, o.BaseDir))
+		egNet, egProxyURL = lk.Net(), lk.ProxyURL()
+	}
+	return ConfigHash(o, egNet, egProxyURL)
+}
+
 // SessionInfo is what a single engine inspect reveals about a session
 // container: whether it exists at all, whether it is currently running, and
 // the ConfigHash it was created with (from the LabelHash label; "" when the
@@ -243,17 +259,7 @@ func EnsureSession(o RunOpts) (string, error) {
 	if needEgress && len(o.RT.Domains) == 0 {
 		return "", errEmptyAllowlist
 	}
-	// Hash with the session's STABLE egress identifiers (purely name-derived
-	// via Lookup, no per-run randomness), so the hash computed here always
-	// matches the one stamped at create time — and toggling egress on/off
-	// flips it, because the create argv genuinely changes (--network + proxy
-	// env).
-	egNet, egProxyURL := "", ""
-	if needEgress {
-		lk := egress.Lookup(o.Engine, name)
-		egNet, egProxyURL = lk.Net(), lk.ProxyURL()
-	}
-	hash := ConfigHash(o, egNet, egProxyURL)
+	hash := SessionWantHash(o)
 
 	info := InspectSession(o.Engine, name)
 	// Idleness only matters on the running+stale branch; skip the engine call

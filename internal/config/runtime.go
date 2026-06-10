@@ -19,15 +19,24 @@ type Runtime struct {
 	Model         string
 	Agent         string
 	Backend       string
+	Session       string   // SessionPersistent or SessionEphemeral (resolved; never empty)
 	AuthAgents    []string // whose creds to bind in the container
 	Egress        bool
 }
+
+// Session modes for Runtime.Session: a persistent detached container reused
+// across enter/exec invocations, or a fresh one-shot container per command.
+const (
+	SessionPersistent = "persistent"
+	SessionEphemeral  = "ephemeral"
+)
 
 // Overrides are command-line flag values; empty means "not set".
 type Overrides struct {
 	Model   string
 	Agent   string
 	Backend string
+	Session string // SessionEphemeral when --ephemeral is given
 	Domains string // csv
 }
 
@@ -65,6 +74,10 @@ func ResolveRuntime(p *Profile, d Defaults, baseDomains, baseModel string, f Ove
 	rt.Model = firstNonEmpty(f.Model, p.Model, baseModel)
 	rt.Agent = firstNonEmpty(f.Agent, p.Agent, d.Agent)
 	rt.Backend = firstNonEmpty(f.Backend, p.Backend, d.Backend)
+	// Session deviates from the others: the env (d.Session) sits ABOVE the
+	// profile, because SANDBOXER_SESSION=ephemeral is an operator kill-switch
+	// that must win over a profile's `session:` choice.
+	rt.Session = firstNonEmpty(f.Session, d.Session, p.Session, SessionPersistent)
 
 	if len(p.Agents) > 0 {
 		rt.AuthAgents = append([]string{}, p.Agents...)
@@ -115,6 +128,18 @@ func ValidateBackend(rt Runtime) error {
 		return fmt.Errorf("the native backend was removed — sandboxer is container-only now; use backend: podman or docker")
 	default:
 		return fmt.Errorf("unknown backend %q — use podman or docker", rt.Backend)
+	}
+}
+
+// ValidateSession rejects an unknown session mode. The resolved value always
+// carries a mode (the default is persistent), so anything else is a typo in
+// the flag, SANDBOXER_SESSION or the profile's `session:` field.
+func ValidateSession(rt Runtime) error {
+	switch rt.Session {
+	case SessionPersistent, SessionEphemeral:
+		return nil
+	default:
+		return fmt.Errorf("unknown session mode %q — use persistent or ephemeral", rt.Session)
 	}
 }
 

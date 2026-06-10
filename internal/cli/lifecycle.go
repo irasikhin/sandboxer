@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 
 	"github.com/spf13/cobra"
 
@@ -94,6 +95,7 @@ func newCreateCmd() *cobra.Command {
 
 func newEnterCmd() *cobra.Command {
 	var f commonFlags
+	var sessionName string
 	cmd := &cobra.Command{
 		Use:   "enter [slug|profile.yaml]",
 		Short: "Open an interactive shell inside the sandbox",
@@ -135,6 +137,17 @@ func newEnterCmd() *cobra.Command {
 			if err := config.ValidateBackend(rt); err != nil {
 				return err
 			}
+			if err := config.ValidateSession(rt); err != nil {
+				return err
+			}
+			persistent := rt.Session == config.SessionPersistent
+			if persistent {
+				// The name is interpolated into the bash -c launcher — reject
+				// anything outside the safe alphabet before any work happens.
+				if err := validateSessionName(sessionName); err != nil {
+					return err
+				}
+			}
 			errOut := cmd.ErrOrStderr()
 			fmt.Fprintln(errOut, configLine(rt, t.slug, t.profile, backendLabel(rt)))
 			engine, err := backend.ResolveEngine(rt.Backend, config.LoadDefaults())
@@ -150,12 +163,17 @@ func newEnterCmd() *cobra.Command {
 			if err := runSetup(t, rt, engine, f.noSetup, errOut); err != nil {
 				return err
 			}
-			fmt.Fprintln(errOut, enterBanner(t.slug, engine, dest))
+			name := backend.SessionName(t.slug, t.base.Dir)
+			if persistent {
+				fmt.Fprintln(errOut, persistentEnterBanner(t.slug, engine, dest, name))
+			} else {
+				fmt.Fprintln(errOut, enterBanner(t.slug, engine, dest))
+			}
 			image, tools, err := resolveImage(t.profile)
 			if err != nil {
 				return err
 			}
-			code, runErr := backend.Run(backend.RunOpts{
+			o := backend.RunOpts{
 				Engine: engine, Image: image, Tools: tools, Dest: dest, Slug: t.slug,
 				HomeDir: t.base.HomeDir(t.slug),
 				RT:      rt, Profile: t.profile,
@@ -163,7 +181,22 @@ func newEnterCmd() *cobra.Command {
 				Interactive: true, Args: interactiveShellArgs(),
 				NoEgress: noEgress(),
 				Stdin:    cmd.InOrStdin(), Stdout: cmd.OutOrStdout(), Stderr: errOut,
-			})
+			}
+			var code int
+			var runErr error
+			if persistent {
+				o.BaseDir = t.base.Dir
+				if _, err := backendEnsureSession(o); err != nil {
+					// EnsureSession's message IS the diagnostic (busy session, egress
+					// failure, …) — print it here; the tail then returns silently.
+					fmt.Fprintln(errOut, "sandboxer:", err)
+					runErr = err
+				} else {
+					code, runErr = backendExecSession(o, name, tmuxEnterArgs(sessionName))
+				}
+			} else {
+				code, runErr = backendRun(o)
+			}
 			// Always return rw deps, even when the shell/run failed. pushDeps (via
 			// srcs.CopyOut) prints what it actually returned, so we just note we're done.
 			pushErr := pushDeps(t, cmd)
@@ -182,6 +215,8 @@ func newEnterCmd() *cobra.Command {
 	}
 	bindExisting(cmd, &f)
 	cmd.Flags().BoolVar(&f.noSetup, "no-setup", false, "skip the profile's one-time setup script")
+	cmd.Flags().BoolVar(&f.ephemeral, "ephemeral", false, "one-shot container instead of the persistent session")
+	cmd.Flags().StringVar(&sessionName, "session", "main", "tmux session name inside the persistent container")
 	return cmd
 }
 
@@ -228,6 +263,9 @@ func newExecCmd() *cobra.Command {
 			if err := config.ValidateBackend(rt); err != nil {
 				return err
 			}
+			if err := config.ValidateSession(rt); err != nil {
+				return err
+			}
 			fmt.Fprintln(cmd.ErrOrStderr(), configLine(rt, t.slug, t.profile, backendLabel(rt)))
 			engine, err := backend.ResolveEngine(rt.Backend, config.LoadDefaults())
 			if err != nil {
@@ -246,7 +284,7 @@ func newExecCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			code, err := backend.Run(backend.RunOpts{
+			o := backend.RunOpts{
 				Engine: engine, Image: image, Tools: tools, Dest: dest, Slug: t.slug,
 				HomeDir: t.base.HomeDir(t.slug),
 				RT:      rt, Profile: t.profile,
@@ -254,10 +292,34 @@ func newExecCmd() *cobra.Command {
 				Interactive: true, Args: rest,
 				NoEgress: noEgress(),
 				Stdin:    cmd.InOrStdin(), Stdout: cmd.OutOrStdout(), Stderr: cmd.ErrOrStderr(),
-			})
+			}
+			// exec rides an existing running+fresh session but NEVER creates or
+			// replaces the daemon container — that is enter's job. Anything else
+			// (no session, stopped, stale) falls back to a one-shot run.
+			useSession := false
+			var name string
+			if rt.Session == config.SessionPersistent {
+				o.BaseDir = t.base.Dir
+				name = backend.SessionName(t.slug, o.BaseDir)
+				if info := backendInspectSession(engine, name); info.Running {
+					if info.Hash == backendWantHash(o) {
+						useSession = true
+					} else {
+						fmt.Fprintf(cmd.ErrOrStderr(),
+							"sandboxer: session %s is stale (profile changed) — running one-shot; re-enter to refresh it\n", name)
+					}
+				}
+			}
+			var code int
+			var runErr error
+			if useSession {
+				code, runErr = backendExecSession(o, name, rest)
+			} else {
+				code, runErr = backendRun(o)
+			}
 			pushErr := pushDeps(t, cmd)
-			if err != nil {
-				return err
+			if runErr != nil {
+				return runErr
 			}
 			if code != 0 {
 				return silentErr{fmt.Errorf("command exited %d", code)}
@@ -270,6 +332,7 @@ func newExecCmd() *cobra.Command {
 	}
 	bindExisting(cmd, &f)
 	cmd.Flags().BoolVar(&f.noSetup, "no-setup", false, "skip the profile's one-time setup script")
+	cmd.Flags().BoolVar(&f.ephemeral, "ephemeral", false, "one-shot container instead of the persistent session")
 	return cmd
 }
 
@@ -304,6 +367,37 @@ func interactiveShellArgs() []string {
 		"test -r /etc/sandboxer/rc.sh && exec bash --rcfile /etc/sandboxer/rc.sh -i || exec bash -i"}
 }
 
+// tmuxEnterArgs is the in-container command for a persistent `enter`: attach
+// to (or create) the named session on the shared `tmux -L sandboxer` server,
+// under the shipped tmux config. The guard tolerates an older cached toolbox
+// image built before tmux was baked in — the same convention as
+// interactiveShellArgs — degrading to the plain rc shell with a rebuild hint
+// instead of stranding the user. The session name is interpolated into the
+// script, so callers must vet it with validateSessionName first.
+func tmuxEnterArgs(session string) []string {
+	return []string{"bash", "-c",
+		"if command -v tmux >/dev/null && test -r /etc/sandboxer/tmux.conf; then " +
+			"exec tmux -L sandboxer -f /etc/sandboxer/tmux.conf new-session -A -s " + session + "; " +
+			"else " +
+			"echo 'sandboxer: tmux not in image — plain shell (rebuild: sandboxer build-image)' >&2; " +
+			"test -r /etc/sandboxer/rc.sh && exec bash --rcfile /etc/sandboxer/rc.sh -i || exec bash -i; fi"}
+}
+
+// sessionNameRe pins --session to characters that are safe to splice into the
+// bash -c launcher (the name lands inside a shell word) and that tmux accepts
+// unquoted.
+var sessionNameRe = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
+
+// validateSessionName rejects a tmux session name outside the safe alphabet —
+// it is interpolated into tmuxEnterArgs' script, so this is an injection
+// guard, not cosmetics.
+func validateSessionName(name string) error {
+	if !sessionNameRe.MatchString(name) {
+		return fmt.Errorf("invalid --session name %q — use letters, digits, dash or underscore", name)
+	}
+	return nil
+}
+
 // enterBanner is the orientation notice printed to stderr when an interactive
 // shell opens: which sandbox, the engine, the working directory, and the
 // non-obvious exit semantics (leaving the shell pushes rw deps back to their
@@ -316,9 +410,30 @@ func enterBanner(slug, engine, dir string) string {
 		slug, engine, dir)
 }
 
+// persistentEnterBanner is enterBanner's persistent-session variant: it also
+// names the session container and spells out the detach semantics — detaching
+// keeps the session (and anything it runs) alive, while the deps push still
+// happens on the way out, same as an ephemeral exit.
+func persistentEnterBanner(slug, engine, dir, container string) string {
+	return fmt.Sprintf(
+		"sandboxer: persistent session %s in %q (%s) — %s\n"+
+			"sandboxer: Ctrl-q (or tmux detach) detaches — session keeps running; reattach: sandboxer enter %s\n"+
+			"sandboxer: detaching pushes rw deps back to their origins",
+		container, slug, engine, dir, slug)
+}
+
 // backendRun is the container-run seam, overridable in tests so the setup
 // orchestration (gate → run → stamp) can be exercised without a real engine.
 var backendRun = backend.Run
+
+// Session seams beside backendRun, for the same reason: the persistent
+// enter/exec orchestration is exercised in tests without a real engine.
+var (
+	backendEnsureSession  = backend.EnsureSession
+	backendExecSession    = backend.ExecSession
+	backendInspectSession = backend.InspectSession
+	backendWantHash       = backend.SessionWantHash
+)
 
 // runSetup runs the profile's one-time `setup:` script inside the sandbox before
 // the user/agent takes over. It is gated by a per-sandbox stamp (the script's

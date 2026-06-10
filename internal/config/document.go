@@ -178,6 +178,9 @@ func mergeProfile(base, over Profile) Profile {
 		}
 		out.Env = m
 	}
+	if over.Session != "" {
+		out.Session = over.Session
+	}
 	out.Name = over.Name
 	return out
 }
