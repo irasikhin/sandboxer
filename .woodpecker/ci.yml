@@ -41,9 +41,9 @@ steps:
       # failure is a plain stderr line; the awk gate itself is verbatim).
       - |
         total=$(go tool cover -func=coverage.out | awk '/^total:/ {sub(/%/,"",$3); print $3}')
-        echo "total coverage: ${total}%"
+        echo "total coverage: $${total}%"
         awk -v t="$total" 'BEGIN { exit (t+0 >= 90.0) ? 0 : 1 }' \
-          || { echo "ERROR: total coverage ${total}% is below the 90% gate" >&2; exit 1; }
+          || { echo "ERROR: total coverage $${total}% is below the 90% gate" >&2; exit 1; }
       - go vet ./...
 
   lint:
