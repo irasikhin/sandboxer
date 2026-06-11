@@ -233,6 +233,9 @@ func mergeProfile(base, over Profile) Profile {
 	if len(over.Deps) > 0 {
 		out.Deps = over.Deps
 	}
+	if len(over.Context) > 0 {
+		out.Context = over.Context
+	}
 	if len(over.ExtraMounts) > 0 {
 		out.ExtraMounts = over.ExtraMounts
 	}

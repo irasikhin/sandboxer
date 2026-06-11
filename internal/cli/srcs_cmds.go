@@ -3,15 +3,29 @@ package cli
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"github.com/spf13/cobra"
 
+	"github.com/irasikhin/sandboxer/internal/config"
 	"github.com/irasikhin/sandboxer/internal/srcs"
 )
 
 func init() {
 	register(newPullCmd)
 	register(newPushCmd)
+}
+
+// projectRootFromSandbox derives the host project root from the sandbox dir
+// (<root>/.sandboxer/<slug>) — used in-container, where there is no host cwd to
+// resolve against. It returns "" when the layout doesn't match; context entries
+// then simply resolve to nothing.
+func projectRootFromSandbox(dir string) string {
+	parent := filepath.Dir(dir)
+	if filepath.Base(parent) != config.StateDirName {
+		return ""
+	}
+	return filepath.Dir(parent)
 }
 
 func newPullCmd() *cobra.Command {
@@ -36,6 +50,7 @@ func newPullCmd() *cobra.Command {
 					ProfileFile:  "/run/sandboxer/profile.json",
 					SandboxDir:   dir,
 					ManifestFile: "/run/sandboxer/manifest.json",
+					ProjectRoot:  projectRootFromSandbox(dir),
 					Force:        f.force,
 					InContainer:  true,
 				})
@@ -57,6 +72,7 @@ func newPullCmd() *cobra.Command {
 				ProfileFile:  pj,
 				SandboxDir:   t.base.SandboxDir(t.slug),
 				ManifestFile: t.base.ManifestPath(t.slug),
+				ProjectRoot:  t.base.Src,
 				Force:        f.force,
 			})
 		},

@@ -224,7 +224,12 @@ func (b *Base) PullDeps(slug string, w io.Writer) error {
 	if !fileExists(pj) {
 		return nil
 	}
-	opts := srcs.PullOpts{ProfileFile: pj, SandboxDir: b.SandboxDir(slug), ManifestFile: b.ManifestPath(slug)}
+	opts := srcs.PullOpts{
+		ProfileFile:  pj,
+		SandboxDir:   b.SandboxDir(slug),
+		ManifestFile: b.ManifestPath(slug),
+		ProjectRoot:  b.Src,
+	}
 	if err := srcs.CopyIn(w, opts); err != nil {
 		return fmt.Errorf("srcs pull: %w", err)
 	}

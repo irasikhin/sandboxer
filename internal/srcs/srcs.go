@@ -26,12 +26,18 @@ import (
 	"time"
 )
 
-// Profile is the resolved sandbox configuration: search roots and the deps to
-// find under them.
+// Profile is the resolved sandbox configuration: search roots, the deps to
+// find under them, and the agent-context files to copy to the sandbox root.
 type Profile struct {
-	Roots []string `json:"roots"`
-	Deps  []string `json:"deps"`
+	Roots   []string `json:"roots"`
+	Deps    []string `json:"deps"`
+	Context []string `json:"context"`
 }
+
+// DefaultContext is the agent-context set used when the profile has no
+// context: list — the common instruction files coding agents read from a
+// project root. Entries missing from the project are silently skipped.
+var DefaultContext = []string{"CLAUDE.md", "AGENTS.md", ".claude"}
 
 // ManifestEntry records one copied target so a later push can find its origin.
 // OriginSig is the origin's signature at pull time (rw entries only): push
@@ -46,11 +52,12 @@ type ManifestEntry struct {
 
 // PullOpts parameterizes CopyIn.
 type PullOpts struct {
-	ProfileFile  string // resolved profile JSON (roots+deps)
+	ProfileFile  string // resolved profile JSON (roots+deps+context)
 	SandboxDir   string
 	ManifestFile string
-	Force        bool // overwrite sandbox targets that already exist
-	InContainer  bool // in-container pull: host roots aren't mounted (see resolveDeps)
+	ProjectRoot  string // project root the context entries are copied from ("" = no context)
+	Force        bool   // overwrite sandbox targets that already exist
+	InContainer  bool   // in-container pull: host roots aren't mounted (see resolveDeps)
 }
 
 // PushOpts parameterizes CopyOut.
@@ -153,6 +160,41 @@ func resolveDeps(p Profile, sandboxDir string, w io.Writer, inContainer bool) []
 			Dest:   dest,
 			Mode:   "rw",
 		})
+	}
+	return out
+}
+
+// resolveContext turns the profile's context list (or DefaultContext when none
+// is set) into read-only copy jobs from the project root to the SANDBOX ROOT —
+// beside workspace/, where agents discover instruction files like CLAUDE.md.
+// ro entries are never pushed back. A missing default entry is silently
+// skipped; a missing explicit entry warns. Entries may not escape the sandbox
+// root or shadow the workspace dir.
+func resolveContext(p Profile, projectRoot, sandboxDir string, w io.Writer) []target {
+	if projectRoot == "" {
+		return nil
+	}
+	list := p.Context
+	explicit := len(list) > 0
+	if !explicit {
+		list = DefaultContext
+	}
+	ws := filepath.Join(sandboxDir, WorkspaceDir)
+	var out []target
+	for _, rel := range list {
+		dest := absJoin(sandboxDir, rel)
+		if !within(sandboxDir, dest) || within(ws, dest) {
+			fmt.Fprintf(w, "  SKIP  context %s — must stay at the sandbox root (no absolute/../ paths, not under %s/)\n", rel, WorkspaceDir)
+			continue
+		}
+		origin := filepath.Join(projectRoot, rel)
+		if !exists(origin) {
+			if explicit {
+				fmt.Fprintf(w, "  SKIP  context %s — not found under %s\n", rel, projectRoot)
+			}
+			continue
+		}
+		out = append(out, target{Origin: origin, Dest: dest, Mode: "ro"})
 	}
 	return out
 }
@@ -342,9 +384,9 @@ func writeManifest(file string, m []ManifestEntry) error {
 	return os.WriteFile(file, data, 0o644)
 }
 
-// CopyIn pulls a profile's deps into the sandbox and writes a manifest. A
-// target that already exists is KEPT untouched unless Force is set, in which
-// case it is overwritten. Each copied rw origin's signature is recorded in the
+// CopyIn pulls a profile's deps (into workspace/) and context files (to the
+// sandbox root) and writes a manifest. A target that already exists is KEPT
+// untouched unless Force is set, in which case it is overwritten. Each copied rw origin's signature is recorded in the
 // manifest (a kept target carries its previous signature forward), so a later
 // push can detect host edits. Progress is reported to w.
 func CopyIn(w io.Writer, o PullOpts) error {
@@ -358,6 +400,7 @@ func CopyIn(w io.Writer, o PullOpts) error {
 	}
 
 	targets := resolveDeps(profile, o.SandboxDir, w, o.InContainer)
+	targets = append(targets, resolveContext(profile, o.ProjectRoot, o.SandboxDir, w)...)
 
 	// Previous signatures, carried forward for KEPT targets: a keep leaves the
 	// sandbox copy at its old sync point, so blessing the CURRENT origin state

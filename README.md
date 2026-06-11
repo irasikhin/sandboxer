@@ -124,7 +124,7 @@ Scalars come from **flags** and `SANDBOXER_*` env vars:
 | container engine | — | `SANDBOXER_ENGINE` (default: auto-detect docker→podman) |
 | image | — | `SANDBOXER_IMAGE` (default `sandboxer-toolbox:latest`) |
 
-Structured fields (`roots`/`deps`, `extraMounts`, `env`, `setup`, `tools`, `mcp`, `image`) live in an **optional**
+Structured fields (`roots`/`deps`, `context`, `extraMounts`, `env`, `setup`, `tools`, `mcp`, `image`) live in an **optional**
 `.sandboxer/config.yaml`. Point at it with `-f`/`--config`, which accepts a **file**, a
 **directory** of profiles, or the **name** of a profile in the store (see
 [Named profiles](#named-profiles)); with nothing given, a `.sandboxer/config.yaml` in
@@ -160,6 +160,12 @@ wholesale (depsync semantics).
 > (with a warning); `push --force` overwrites those too. Run `sandboxer diff`
 > first to see what will change. A `dep` that resolves to multiple paths uses
 > the first match (the others are listed); absolute or `../` deps are refused.
+
+`context` files are copied from the project root to the **sandbox root**
+(beside `workspace/`), so agents see your instructions: by default `CLAUDE.md`,
+`AGENTS.md` and `.claude` — those that exist. They refresh on `pull` (kept
+unless `--force`) and are **never pushed back**. A non-empty `context:` list
+replaces the default set (re-list what you keep).
 
 `setup` is a one-time shell script (`bash -lc`) run inside the sandbox before
 you take over — e.g. `npm ci`, a build, a DB seed. It runs on the first

@@ -149,10 +149,17 @@ network:
 
 # Sandbox content. Nothing is copied unless listed here: each dep is located by
 # path suffix under roots — this directory is always searched as an implicit
-# last root — copied INTO the sandbox, and pushed back with 'sandboxer push'.
-# Uncomment and adjust (roots: only needed to search OTHER trees):
+# last root — copied INTO the sandbox's workspace/, and pushed back with
+# 'sandboxer push'. Uncomment and adjust (roots: only needed to search OTHER
+# trees):
 # deps:
 #   - src/lib
+
+# Agent context: project files copied to the sandbox ROOT (beside workspace/)
+# so agents see your instructions — refreshed on pull, never pushed back.
+# Default when unset: CLAUDE.md, AGENTS.md, .claude (existing entries only).
+# Listing context: REPLACES that set, so re-list what you keep:
+# context: [CLAUDE.md, AGENTS.md, .claude, docs/agent-notes.md]
 
 # Extra bind mounts / env for the container backend (optional):
 # extraMounts:
