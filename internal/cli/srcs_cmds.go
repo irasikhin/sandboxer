@@ -39,7 +39,7 @@ func newPullCmd() *cobra.Command {
 				return err
 			}
 			// Refresh the stored snapshot from the live profile first, so a pull
-			// after editing .sandboxer.yaml sees the new roots/deps.
+			// after editing .sandboxer/config.yaml sees the new roots/deps.
 			if _, err := t.syncSnapshot(); err != nil {
 				return err
 			}

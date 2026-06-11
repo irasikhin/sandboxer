@@ -4,6 +4,25 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed (BREAKING)
+
+- The project profile and the nix image hook now live under the sandboxer-owned
+  state dir: `./.sandboxer.yaml` → `.sandboxer/config.yaml` and
+  `./sandbox-image.nix` → `.sandboxer/image.nix`. The old root-level locations are
+  no longer read. The generated `.sandboxer/.gitignore` becomes an allowlist that
+  commits only `config.yaml`, `image.nix` and itself while keeping
+  `_meta`/`_home`/`_logs`/`<slug>` ignored; an existing blanket `*` gitignore is
+  upgraded in place. `sandboxer init`/auto-scaffold write into `.sandboxer/`, and
+  `doctor` (and discovery) flag a lingering `./.sandboxer.yaml`.
+
+  Migrate with:
+
+  ```sh
+  mkdir -p .sandboxer && git mv .sandboxer.yaml .sandboxer/config.yaml && git mv sandbox-image.nix .sandboxer/image.nix
+  ```
+
 ## [0.22.1]
 
 Initial public release.

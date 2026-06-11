@@ -9,7 +9,7 @@ import (
 
 // TestPullRefreshesSnapshot pins the fix for a deps edit never reaching an
 // existing sandbox: profile.json is written once at create time, so editing
-// .sandboxer.yaml afterwards used to be invisible to pull. Now a mutating op
+// .sandboxer/config.yaml afterwards used to be invisible to pull. Now a mutating op
 // (here host-side `pull`) re-resolves the live profile via syncSnapshot, so
 // newly-listed deps are vendored in. Engine-free — exercises only the host copy
 // path, no container.
@@ -28,7 +28,10 @@ func TestPullRefreshesSnapshot(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	cfg := filepath.Join(project, ".sandboxer.yaml")
+	if err := os.MkdirAll(filepath.Join(project, ".sandboxer"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cfg := filepath.Join(project, ".sandboxer", "config.yaml")
 	writeConfig := func(body string) {
 		if err := os.WriteFile(cfg, []byte(body), 0o644); err != nil {
 			t.Fatal(err)
@@ -71,7 +74,7 @@ func TestPullRefreshesSnapshot(t *testing.T) {
 }
 
 // TestFlatProfileReloadsOnReenter pins the flat-file half of the fix: a flat
-// .sandboxer.yaml (single profile, name == slug) is now re-read on a positional
+// .sandboxer/config.yaml (single profile, name == slug) is now re-read on a positional
 // `pull <slug>` — like a multi-profile section — so an edit to it is picked up
 // instead of the frozen snapshot.
 func TestFlatProfileReloadsOnReenter(t *testing.T) {
@@ -87,7 +90,10 @@ func TestFlatProfileReloadsOnReenter(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	cfg := filepath.Join(project, ".sandboxer.yaml")
+	if err := os.MkdirAll(filepath.Join(project, ".sandboxer"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cfg := filepath.Join(project, ".sandboxer", "config.yaml")
 	// Flat form (no `profiles:`), name is the slug.
 	if err := os.WriteFile(cfg, []byte("name: feat\n"), 0o644); err != nil {
 		t.Fatal(err)
@@ -126,7 +132,10 @@ func TestEnterExecRefreshVendorsNewDeps(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	cfg := filepath.Join(project, ".sandboxer.yaml")
+	if err := os.MkdirAll(filepath.Join(project, ".sandboxer"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cfg := filepath.Join(project, ".sandboxer", "config.yaml")
 	if err := os.WriteFile(cfg, []byte("profiles:\n  en: {}\n  ex: {}\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}

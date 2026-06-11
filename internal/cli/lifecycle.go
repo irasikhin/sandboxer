@@ -39,7 +39,7 @@ func newCreateCmd() *cobra.Command {
   sandboxer create feat
 
   # from a profile file — slug comes from the profile's name:
-  sandboxer create ./.sandboxer.yaml
+  sandboxer create ./.sandboxer/config.yaml
 
   # from a named profile in the store (~/.config/sandboxer/profiles)
   sandboxer create web

@@ -25,7 +25,7 @@ network:
 # --internal network, sole exit via the forward-proxy). Disable with:
 # egress: false        # or set env SANDBOXER_NO_EGRESS=1
 
-# Proxy — two mutually-exclusive modes (see examples/.sandboxer.yaml for detail):
+# Proxy — two mutually-exclusive modes (see examples/config.yaml for detail):
 #  - http/https/no: corporate proxy the agent uses directly, BYPASSING egress.
 #    # proxy: { http: "http://proxy.corp:3128", https: "http://proxy.corp:3128", no: "localhost,127.0.0.1,.corp" }
 #  - upstream: keep the egress allowlist ON and chain through a parent proxy.

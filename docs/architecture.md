@@ -8,15 +8,18 @@ the [README](../README.md); for the trust model see [SECURITY.md](../SECURITY.md
 ## On-disk layout (`.sandboxer/`)
 
 Everything sandboxer creates for a project lives under a single `.sandboxer/`
-directory at the project root. A generated `.sandboxer/.gitignore` (a lone `*`)
-keeps the whole tree — working copies and login tokens alike — out of the user's
-repo.
+directory at the project root — including the committed project profile
+(`config.yaml`) and image hook (`image.nix`). A generated `.sandboxer/.gitignore`
+is an **allowlist** (`*` + `!.gitignore` + `!config.yaml` + `!image.nix`): it
+commits only those three sandboxer-owned files while the leading `*` keeps the
+generated state — working copies and login tokens alike — out of the user's repo.
 
 ```
 <project-root>/
-├── .sandboxer.yaml            # the profile (optional; auto-discovered in cwd)
 └── .sandboxer/
-    ├── .gitignore             # "*" — ignores this whole tree
+    ├── .gitignore            # allowlist: "*" + !.gitignore !config.yaml !image.nix
+    ├── config.yaml           # the profile (optional; auto-discovered; committed)
+    ├── image.nix             # the image hook the profile's image: points at (committed)
     ├── <slug>/                # one per sandbox: the agent's working dir,
     │                          #   holding only the pulled `deps` (flat copies)
     ├── _meta/                 # per-base + per-sandbox metadata
@@ -48,7 +51,7 @@ Key invariants (`internal/sandbox`):
 ## Sandbox lifecycle
 
 ```
-  init ──────────►  scaffold .sandboxer.yaml (+ sandbox-image.nix)   [optional]
+  init ──────────►  scaffold .sandboxer/config.yaml (+ .sandboxer/image.nix)   [optional]
                     │
   create <slug> ──► mkdir .sandboxer/<slug>, _home/<slug>;
                     │   snapshot profile.json; PULL deps; register slug

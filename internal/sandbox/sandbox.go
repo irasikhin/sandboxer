@@ -48,13 +48,13 @@ func ResolveBase(src string) (*Base, error) {
 		return nil, err
 	}
 	// The state tree holds working copies and per-sandbox agent homes (which can
-	// store login tokens after an in-sandbox `claude login`). Drop a self-ignoring
-	// .gitignore so none of it can be committed into the user's repo by accident.
-	gitignore := filepath.Join(b.Dir, ".gitignore")
-	if _, err := os.Stat(gitignore); err != nil {
-		if err := os.WriteFile(gitignore, []byte("*\n"), 0o644); err != nil {
-			return nil, err
-		}
+	// store login tokens after an in-sandbox `claude login`). Drop an allowlisting
+	// .gitignore so none of it can be committed into the user's repo by accident —
+	// only the three committed sandboxer-owned files (the .gitignore itself, the
+	// project profile and the image hook) are un-ignored; _meta/_home/_logs/<slug>
+	// stay ignored by the leading "*", which is the credential-leak guard.
+	if err := ensureGitignore(filepath.Join(b.Dir, ".gitignore")); err != nil {
+		return nil, err
 	}
 	runEnv := filepath.Join(b.metaDir(), "run.env")
 	if _, err := os.Stat(runEnv); err != nil {
@@ -305,6 +305,39 @@ func (b *Base) Remove(slug string) error {
 		return b.ClearCurrent()
 	}
 	return nil
+}
+
+// gitignoreAllowlist is the .sandboxer/.gitignore body: ignore everything, then
+// un-ignore only the three committed sandboxer-owned top-level files. The
+// generated state (_meta/, _home/, _logs/, <slug>/) stays ignored by the leading
+// "*" — un-ignoring a directory's contents would require re-listing the dir, so
+// the allowlist deliberately names only files, keeping the credential-leak guard
+// intact.
+const gitignoreAllowlist = "*\n!.gitignore\n!" + config.ConfigFileName + "\n!image.nix\n"
+
+// legacyBlanketGitignore is the pre-consolidation body ("ignore everything"),
+// which would keep a now-committed config.yaml/image.nix invisible to git.
+const legacyBlanketGitignore = "*\n"
+
+// ensureGitignore writes the allowlisting .gitignore, idempotently: it creates
+// it when missing and upgrades an existing blanket "*\n" (so an old sandbox's
+// committed config stops being ignored). A user-customized gitignore (neither
+// the allowlist nor the legacy blanket) is left untouched.
+func ensureGitignore(path string) error {
+	cur, err := os.ReadFile(path)
+	switch {
+	case os.IsNotExist(err):
+		// create below
+	case err != nil:
+		return err
+	case string(cur) == gitignoreAllowlist:
+		return nil // already current
+	case string(cur) == legacyBlanketGitignore:
+		// upgrade the blanket guard to the allowlist
+	default:
+		return nil // user-customized; leave it alone
+	}
+	return os.WriteFile(path, []byte(gitignoreAllowlist), 0o644)
 }
 
 func fileExists(p string) bool {

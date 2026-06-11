@@ -71,7 +71,7 @@ func TestImageStrictDecode(t *testing.T) {
 	good := writeFile(t, dir, "good.yaml", `
 image:
   extraPkgs: [ripgrep, nodePackages.pnpm]
-  nix: sandbox-image.nix
+  nix: image.nix
   llmAgentsRev: latest
   nixpkgsRev: abcdef0
 `)
@@ -121,7 +121,7 @@ func TestImageNixPathResolution(t *testing.T) {
 		nix  string // value written into the yaml
 		want string // expected after load
 	}{
-		{"relative", "sandbox-image.nix", filepath.Join(dir, "sandbox-image.nix")},
+		{"relative", "image.nix", filepath.Join(dir, "image.nix")},
 		{"relative subdir", "nix/image.nix", filepath.Join(dir, "nix", "image.nix")},
 		{"absolute passthrough", "/abs/image.nix", "/abs/image.nix"},
 	}

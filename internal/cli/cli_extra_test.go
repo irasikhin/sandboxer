@@ -11,9 +11,9 @@ import (
 	"github.com/irasikhin/sandboxer/internal/sandbox"
 )
 
-// TestRunAutoScaffold: create with no config writes a default .sandboxer.yaml
-// into the project root, announces it, and applies it (name = slug); opting out
-// keeps the no-profile path.
+// TestRunAutoScaffold: create with no config writes a default .sandboxer/config.yaml
+// into the project's state dir, announces it, and applies it (name = slug);
+// opting out keeps the no-profile path.
 func TestRunAutoScaffold(t *testing.T) {
 	t.Setenv("SANDBOXER_IN_CONTAINER", "")
 	t.Setenv("SANDBOXER_PROFILES", t.TempDir())
@@ -26,7 +26,7 @@ func TestRunAutoScaffold(t *testing.T) {
 	if !strings.Contains(errs, "scaffolded a default") {
 		t.Errorf("auto-scaffold was not announced: %q", errs)
 	}
-	scaffold := filepath.Join(project, config.ConfigFileName)
+	scaffold := filepath.Join(project, config.StateDirName, config.ConfigFileName)
 	doc, err := config.LoadDocument(scaffold)
 	if err != nil {
 		t.Fatalf("auto-scaffold did not parse: %v", err)
@@ -34,13 +34,13 @@ func TestRunAutoScaffold(t *testing.T) {
 	if p, _ := doc.Select(""); p.Name != "feat" {
 		t.Errorf("scaffold name should match the slug, got %+v", p)
 	}
-	// Auto-scaffold wires the active image: section and the sandbox-image.nix hook
-	// (same as `init`), so the custom image works on the auto-scaffold path too.
+	// Auto-scaffold wires the active image: section and the image.nix hook (same
+	// as `init`), so the custom image works on the auto-scaffold path too.
 	if p, _ := doc.Select(""); p.Image.Nix == "" {
 		t.Errorf("auto-scaffold should wire an active image hook, got %+v", p.Image)
 	}
-	if !fileExists(filepath.Join(project, imageNixFileName)) {
-		t.Errorf("auto-scaffold should write %s", imageNixFileName)
+	if !fileExists(filepath.Join(project, config.StateDirName, imageNixFileName)) {
+		t.Errorf("auto-scaffold should write %s under %s", imageNixFileName, config.StateDirName)
 	}
 
 	// Opt-out: no file written, and create without a profile is refused.
@@ -49,22 +49,23 @@ func TestRunAutoScaffold(t *testing.T) {
 	if code, _, errs := run("create", "x", "--src", other); code != 1 || !strings.Contains(errs, "no profile") {
 		t.Fatalf("create with opt-out and no profile = (%d, %q); want 'no profile' error", code, errs)
 	}
-	if fileExists(filepath.Join(other, config.ConfigFileName)) {
+	if fileExists(filepath.Join(other, config.StateDirName, config.ConfigFileName)) {
 		t.Error("SANDBOXER_NO_SCAFFOLD=1 should skip scaffolding")
 	}
 }
 
-// TestRunInit covers scaffolding a starter .sandboxer.yaml plus its
-// sandbox-image.nix hook: both parse/exist, the image: section is wired active,
-// init refuses to clobber either file, and --force rewrites them.
+// TestRunInit covers scaffolding a starter .sandboxer/config.yaml plus its
+// .sandboxer/image.nix hook: both parse/exist under .sandboxer/, the image:
+// section is wired active, init refuses to clobber either file, and --force
+// rewrites them.
 func TestRunInit(t *testing.T) {
 	t.Setenv("SANDBOXER_IN_CONTAINER", "")
 	t.Chdir(t.TempDir())
 
-	if code, out, errs := run("init", "demo"); code != 0 || !strings.Contains(out, "wrote "+config.ConfigFileName) {
+	if code, out, errs := run("init", "demo"); code != 0 || !strings.Contains(out, "wrote "+config.ConfigPath()) {
 		t.Fatalf("init = (%d, %q, %q)", code, out, errs)
 	}
-	doc, err := config.LoadDocument(config.ConfigFileName)
+	doc, err := config.LoadDocument(config.ConfigPath())
 	if err != nil {
 		t.Fatalf("scaffold did not parse: %v", err)
 	}
@@ -72,34 +73,107 @@ func TestRunInit(t *testing.T) {
 	if err != nil || p.Name != "demo" || p.Agent == "" || p.Backend == "" {
 		t.Errorf("scaffold profile wrong: %+v (err %v)", p, err)
 	}
-	// init also writes the image hook and wires an active image: section at it.
-	if !fileExists(imageNixFileName) {
-		t.Fatalf("init did not write %s", imageNixFileName)
+	// init also writes the image hook under .sandboxer/ and wires an active
+	// image: section at it; its relative nix: resolves to .sandboxer/image.nix.
+	if !fileExists(imageNixPath()) {
+		t.Fatalf("init did not write %s", imageNixPath())
 	}
-	if nb, err := os.ReadFile(imageNixFileName); err != nil || !strings.Contains(string(nb), "{ pkgs }") {
-		t.Errorf("%s missing the image-hook contract: %v", imageNixFileName, err)
+	if nb, err := os.ReadFile(imageNixPath()); err != nil || !strings.Contains(string(nb), "{ pkgs }") {
+		t.Errorf("%s missing the image-hook contract: %v", imageNixPath(), err)
 	}
 	if p.Image.Nix == "" {
 		t.Errorf("scaffold should wire an active image hook, got %+v", p.Image)
+	}
+	wantNix, _ := filepath.Abs(imageNixPath())
+	if p.Image.Nix != wantNix {
+		t.Errorf("scaffolded image.nix should resolve under .sandboxer/: got %q, want %q", p.Image.Nix, wantNix)
 	}
 	// Refuses to overwrite the config without --force.
 	if code, _, errs := run("init"); code != 1 || !strings.Contains(errs, "already exists") {
 		t.Errorf("init over existing = (%d, %q), want refusal", code, errs)
 	}
-	// Refuses to clobber an existing sandbox-image.nix even when the config is gone.
-	if err := os.Remove(config.ConfigFileName); err != nil {
+	// Refuses to clobber an existing image.nix even when the config is gone.
+	if err := os.Remove(config.ConfigPath()); err != nil {
 		t.Fatal(err)
 	}
 	if code, _, errs := run("init"); code != 1 || !strings.Contains(errs, imageNixFileName) {
-		t.Errorf("init over existing %s = (%d, %q), want refusal", imageNixFileName, code, errs)
+		t.Errorf("init over existing %s = (%d, %q), want refusal", imageNixPath(), code, errs)
 	}
 	// --force rewrites both.
 	if code, _, errs := run("init", "other", "--force"); code != 0 {
 		t.Errorf("init --force = %d (%q)", code, errs)
 	}
-	doc2, _ := config.LoadDocument(config.ConfigFileName)
+	doc2, _ := config.LoadDocument(config.ConfigPath())
 	if p2, _ := doc2.Select(""); p2.Name != "other" {
 		t.Errorf("--force did not rewrite name: %+v", p2)
+	}
+}
+
+// TestLegacyConfigHint covers the migration notice: it fires only when the
+// stale root-level ./.sandboxer.yaml is present AND the new .sandboxer/config.yaml
+// is not, and never inside the container.
+func TestLegacyConfigHint(t *testing.T) {
+	t.Setenv("SANDBOXER_IN_CONTAINER", "")
+	t.Chdir(t.TempDir())
+
+	var buf strings.Builder
+	// No legacy file → silent.
+	legacyConfigHint(&buf, ".")
+	if buf.String() != "" {
+		t.Errorf("hint with no legacy file: %q", buf.String())
+	}
+
+	// Legacy file present, new one absent → hint fires.
+	if err := os.WriteFile(config.LegacyConfigFileName, []byte("name: old\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	buf.Reset()
+	legacyConfigHint(&buf, ".")
+	if !strings.Contains(buf.String(), config.LegacyConfigFileName) || !strings.Contains(buf.String(), config.ConfigPath()) {
+		t.Errorf("hint should name both paths: %q", buf.String())
+	}
+
+	// New config also present → no hint (already migrated).
+	if err := os.MkdirAll(config.StateDirName, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(config.ConfigPath(), []byte("name: new\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	buf.Reset()
+	legacyConfigHint(&buf, ".")
+	if buf.String() != "" {
+		t.Errorf("hint should be silent once migrated: %q", buf.String())
+	}
+
+	// Inside the container → always silent (old path is never read there anyway).
+	t.Setenv("SANDBOXER_IN_CONTAINER", "1")
+	if err := os.Remove(config.ConfigPath()); err != nil {
+		t.Fatal(err)
+	}
+	buf.Reset()
+	legacyConfigHint(&buf, ".")
+	if buf.String() != "" {
+		t.Errorf("hint should be silent in-container: %q", buf.String())
+	}
+}
+
+// TestAutoScaffoldHintsLegacy: a create in a project with a stale root-level
+// ./.sandboxer.yaml surfaces the migration hint before scaffolding the new
+// default under .sandboxer/.
+func TestAutoScaffoldHintsLegacy(t *testing.T) {
+	t.Setenv("SANDBOXER_IN_CONTAINER", "")
+	t.Setenv("SANDBOXER_PROFILES", t.TempDir())
+	project := t.TempDir()
+	if err := os.WriteFile(filepath.Join(project, config.LegacyConfigFileName), []byte("name: old\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	code, _, errs := run("create", "feat", "--src", project)
+	if code != 0 {
+		t.Fatalf("create = %d (%q)", code, errs)
+	}
+	if !strings.Contains(errs, "legacy") || !strings.Contains(errs, config.LegacyConfigFileName) {
+		t.Errorf("auto-scaffold should surface the legacy hint: %q", errs)
 	}
 }
 
@@ -311,9 +385,9 @@ func TestRunBackendNativeRejected(t *testing.T) {
 	}
 }
 
-// TestRunMultiProfileSelect: a project .sandboxer.yaml with a profiles: map —
-// `create` picks the default section, `create <name>` picks that section, and
-// the section inherits the shared defaults.
+// TestRunMultiProfileSelect: a project .sandboxer/config.yaml with a profiles:
+// map — `create` picks the default section, `create <name>` picks that section,
+// and the section inherits the shared defaults.
 func TestRunMultiProfileSelect(t *testing.T) {
 	t.Setenv("SANDBOXER_IN_CONTAINER", "")
 	t.Setenv("SANDBOXER_PROFILES", t.TempDir()) // isolate the global store
@@ -331,7 +405,10 @@ profiles:
     model: opus
 default: web
 `
-	if err := os.WriteFile(config.ConfigFileName, []byte(body), 0o644); err != nil {
+	if err := os.MkdirAll(config.StateDirName, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(config.ConfigPath(), []byte(body), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -402,7 +479,10 @@ func TestDoctorPopulated(t *testing.T) {
 
 	cwd := t.TempDir()
 	t.Chdir(cwd)
-	if err := os.WriteFile(config.ConfigFileName, []byte("name: x\n"), 0o644); err != nil {
+	if err := os.MkdirAll(config.StateDirName, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(config.ConfigPath(), []byte("name: x\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -421,6 +501,25 @@ func TestDoctorPopulated(t *testing.T) {
 	}
 }
 
+// TestDoctorLegacyConfig: a stale root-level ./.sandboxer.yaml (no
+// .sandboxer/config.yaml) is flagged as a legacy location to migrate.
+func TestDoctorLegacyConfig(t *testing.T) {
+	t.Setenv("SANDBOXER_IN_CONTAINER", "")
+	t.Setenv("SANDBOXER_PROFILES", t.TempDir())
+	t.Chdir(t.TempDir())
+	if err := os.WriteFile(config.LegacyConfigFileName, []byte("name: old\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	code, out, _ := run("doctor")
+	if code != 0 {
+		t.Fatalf("doctor = %d", code)
+	}
+	if !strings.Contains(out, "legacy location") || !strings.Contains(out, config.LegacyConfigFileName) {
+		t.Errorf("doctor should flag the legacy config location:\n%s", out)
+	}
+}
+
 // TestDoctorConfigParseError covers the warn branch for an unparseable config
 // file in cwd.
 func TestDoctorConfigParseError(t *testing.T) {
@@ -428,7 +527,10 @@ func TestDoctorConfigParseError(t *testing.T) {
 	t.Setenv("SANDBOXER_IN_CONTAINER", "")
 	t.Setenv("SANDBOXER_PROFILES", t.TempDir())
 	t.Chdir(t.TempDir())
-	if err := os.WriteFile(config.ConfigFileName, []byte("name: [unterminated\n"), 0o644); err != nil {
+	if err := os.MkdirAll(config.StateDirName, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(config.ConfigPath(), []byte("name: [unterminated\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -439,8 +541,8 @@ func TestDoctorConfigParseError(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("doctor = %d", code)
 	}
-	if !strings.Contains(out, config.ConfigFileName+" in cwd") {
-		t.Errorf("doctor output missing config-in-cwd line:\n%s", out)
+	if !strings.Contains(out, config.ConfigPath()) {
+		t.Errorf("doctor output missing project-config line:\n%s", out)
 	}
 	if strings.Contains(out, "parses ok") {
 		t.Errorf("invalid config should not report 'parses ok':\n%s", out)
@@ -482,9 +584,13 @@ func TestRunAutoDiscoversProfile(t *testing.T) {
 	t.Setenv("SANDBOXER_IN_CONTAINER", "")
 	project := t.TempDir()
 	t.Chdir(project)
-	// A docker profile in the cwd must be picked up without --config; otherwise the
-	// default (podman) backend would be used and the banner would not say docker.
-	if err := os.WriteFile(config.ConfigFileName, []byte("name: disco\nbackend: docker\nagent: claude\n"), 0o644); err != nil {
+	// A docker profile under .sandboxer/ must be picked up without --config;
+	// otherwise the default (podman) backend would be used and the banner would
+	// not say docker.
+	if err := os.MkdirAll(config.StateDirName, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(config.ConfigPath(), []byte("name: disco\nbackend: docker\nagent: claude\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile("sandboxer.tasks", []byte("[a]\ndo a\n"), 0o644); err != nil {
@@ -495,6 +601,6 @@ func TestRunAutoDiscoversProfile(t *testing.T) {
 		t.Fatalf("run = %d, %s", code, errs)
 	}
 	if !strings.Contains(out, "backend=docker") {
-		t.Errorf("auto-discovered %s not applied (want backend=docker):\n%s", config.ConfigFileName, out)
+		t.Errorf("auto-discovered %s not applied (want backend=docker):\n%s", config.ConfigPath(), out)
 	}
 }

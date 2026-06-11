@@ -1,8 +1,9 @@
 # Minimal sandbox profile.
 #
-# sandboxer auto-discovers `.sandboxer.yaml` in the current directory (or pass
-# one explicitly: `sandboxer create --config path/feat.yaml`, or positionally
-# `sandboxer create feat.yaml`).
+# sandboxer auto-discovers `.sandboxer/config.yaml` in the current directory (or
+# pass one explicitly: `sandboxer create --config path/feat.yaml`, or
+# positionally `sandboxer create feat.yaml`). This file is a standalone sample of
+# the flat single-profile form — copy it to .sandboxer/config.yaml to use it.
 
 # Sandbox name (slug). Drives the working directory at .sandboxer/<name>.
 name: feature-x

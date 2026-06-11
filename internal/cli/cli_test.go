@@ -189,11 +189,14 @@ func TestResolveProfileFile(t *testing.T) {
 	f, p, err = resolveProfileFile("", "p.yaml")
 	must("positional yaml", "p.yaml", "", f, p, err)
 
-	if err := os.WriteFile(config.ConfigFileName, []byte("name: y\n"), 0o644); err != nil {
+	if err := os.MkdirAll(config.StateDirName, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(config.ConfigPath(), []byte("name: y\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	f, p, err = resolveProfileFile("", "")
-	must("auto-discovery", config.ConfigFileName, "", f, p, err)
+	must("auto-discovery", config.ConfigPath(), "", f, p, err)
 
 	// A bare positional naming nothing stays a slug.
 	f, p, err = resolveProfileFile("", "slug")
@@ -241,8 +244,8 @@ func requireExec(t *testing.T, names ...string) {
 
 // newProject returns a fresh project dir (plain, no git) with one file, and
 // ensures the in-container guard is off. Auto-scaffold is left enabled — a
-// bare create/enter without a profile writes a default .sandboxer.yaml so the
-// user never lands in an empty no-profile state.
+// bare create/enter without a profile writes a default .sandboxer/config.yaml so
+// the user never lands in an empty no-profile state.
 func newProject(t *testing.T) string {
 	t.Helper()
 	t.Setenv("SANDBOXER_IN_CONTAINER", "")

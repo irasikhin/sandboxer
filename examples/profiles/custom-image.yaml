@@ -7,7 +7,7 @@
 #
 # The customization is content-addressed: this profile's sandboxes run
 # sandboxer-toolbox:var-<12hex> (hashed over the input pins, the package set
-# and sandbox-image.nix's content), built on first use and shared by identical
+# and image.nix's content), built on first use and shared by identical
 # profiles. The stock sandboxer-toolbox:latest is untouched.
 name: custom-image
 agent: claude
@@ -20,11 +20,11 @@ image:
   extraPkgs: [gh, python3Packages.requests]
 
   # A nix hook into the image build — the full { packages, files, env,
-  # overlay } contract, commented in sandbox-image.nix. A relative path
-  # resolves against this file. The hook runs in the throwaway builder
-  # container: same trust level as a `setup:` script (read third-party
-  # profiles before running them).
-  nix: sandbox-image.nix
+  # overlay } contract, commented in image.nix. A relative path resolves
+  # against this file. The hook runs in the throwaway builder container: same
+  # trust level as a `setup:` script (read third-party profiles before running
+  # them).
+  nix: image.nix
 
   # Flake-input pin overrides; empty keeps the pins embedded in the binary.
   # "latest" resolves the remote head ONCE at build time and stamps it into

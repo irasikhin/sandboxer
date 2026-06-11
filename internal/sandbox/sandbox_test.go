@@ -50,6 +50,63 @@ func TestResolveBaseSeedsState(t *testing.T) {
 	}
 }
 
+// TestResolveBaseGitignoreAllowlist pins the .sandboxer/.gitignore body: an
+// allowlist that commits only the .gitignore, config.yaml and image.nix while
+// the leading "*" keeps the generated state (_meta/_home/_logs/<slug>) ignored —
+// the credential-leak guard.
+func TestResolveBaseGitignoreAllowlist(t *testing.T) {
+	b, err := ResolveBase(t.TempDir())
+	if err != nil {
+		t.Fatalf("ResolveBase: %v", err)
+	}
+	got, err := os.ReadFile(filepath.Join(b.Dir, ".gitignore"))
+	if err != nil {
+		t.Fatalf("read .gitignore: %v", err)
+	}
+	want := "*\n!.gitignore\n!config.yaml\n!image.nix\n"
+	if string(got) != want {
+		t.Errorf(".gitignore = %q, want %q", got, want)
+	}
+	// The leading "*" still ignores the state dirs — those names are NOT in the
+	// allowlist, so the credential-leak guard is intact.
+	for _, ignored := range []string{"_meta", "_home", "_logs"} {
+		if strings.Contains(string(got), "!"+ignored) {
+			t.Errorf(".gitignore must not un-ignore %s:\n%s", ignored, got)
+		}
+	}
+}
+
+// TestResolveBaseUpgradesBlanketGitignore pins the migration: an old sandbox's
+// blanket "*\n" .gitignore is upgraded to the allowlist on the next ResolveBase,
+// so a committed config.yaml/image.nix stops being ignored. A user-customized
+// gitignore is left untouched.
+func TestResolveBaseUpgradesBlanketGitignore(t *testing.T) {
+	allow := "*\n!.gitignore\n!config.yaml\n!image.nix\n"
+
+	// Blanket "*\n" → upgraded to the allowlist.
+	src := t.TempDir()
+	gi := filepath.Join(src, config.StateDirName, ".gitignore")
+	writeFile(t, gi, "*\n")
+	if _, err := ResolveBase(src); err != nil {
+		t.Fatalf("ResolveBase: %v", err)
+	}
+	if got, _ := os.ReadFile(gi); string(got) != allow {
+		t.Errorf("blanket gitignore not upgraded: %q", got)
+	}
+
+	// A user-customized gitignore is preserved as-is.
+	src2 := t.TempDir()
+	gi2 := filepath.Join(src2, config.StateDirName, ".gitignore")
+	custom := "*\n!keep-me\n"
+	writeFile(t, gi2, custom)
+	if _, err := ResolveBase(src2); err != nil {
+		t.Fatalf("ResolveBase: %v", err)
+	}
+	if got, _ := os.ReadFile(gi2); string(got) != custom {
+		t.Errorf("customized gitignore was overwritten: %q", got)
+	}
+}
+
 func TestResolveBaseMissing(t *testing.T) {
 	if _, err := ResolveBase(filepath.Join(t.TempDir(), "nope")); err == nil {
 		t.Error("ResolveBase of missing dir should error")

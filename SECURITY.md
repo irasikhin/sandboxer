@@ -3,7 +3,7 @@
 ## Supported Versions
 
 sandboxer is pre-1.0; the CLI flags and on-disk layout may still change between
-minor versions (the `.sandboxer.yaml` schema has settled on `roots`+`deps` and is
+minor versions (the `.sandboxer/config.yaml` schema has settled on `roots`+`deps` and is
 treated as stable through 0.x).
 
 While pre-1.0, **only the latest `0.x` release** receives security fixes — there
