@@ -82,7 +82,7 @@ built from the toolbox image (the agents baked in: claude/codex/opencode/crush/â
 each sandbox has its own isolated home, and network, proxy and credentials are
 wired per-config.
 
-Config: flags + SANDBOXER_* env, with an optional .sandboxer.yaml profile for
+Config: flags + SANDBOXER_* env, with an optional .sandboxer/config.yaml profile for
 structured fields (roots/deps, extraMounts, env). A profile file can hold one
 profile or several under a profiles: map (pick a section with 'create <name>').
 

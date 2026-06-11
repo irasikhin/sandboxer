@@ -16,7 +16,7 @@ drives.
 > or support guarantees. Use at your own risk.
 
 > ⚠️ **Pre-1.0.** CLI flags and the on-disk `.sandboxer/` layout may change
-> between minor versions until 1.0. The **`.sandboxer.yaml` schema has settled**
+> between minor versions until 1.0. The **`.sandboxer/config.yaml` schema has settled**
 > on `roots`+`deps` and is treated as stable through 0.x (the shipped
 > `examples/` are CI-verified against the strict parser); any future change will
 > be called out in the changelog.
@@ -65,7 +65,7 @@ Or grab a [pre-built binary](https://github.com/irasikhin/sandboxer/releases)
 ## Quick start
 
 ```bash
-sandboxer init                            # scaffold a commented .sandboxer.yaml + sandbox-image.nix to edit (optional)
+sandboxer init                            # scaffold a commented .sandboxer/config.yaml + image.nix to edit (optional)
 sandboxer create feat                     # create a sandbox named "feat" (deps come from a profile)
 sandboxer enter  feat                     # attach a shell (persistent session; Ctrl-q detaches)
 sandboxer exec   feat -- claude           # run an agent/command inside it
@@ -76,7 +76,7 @@ sandboxer list                            # status of all sandboxes (incl. sessi
 sandboxer rm     feat                     # delete the sandbox and its session
 ```
 
-To pull deps in, a profile must list them: drop a `.sandboxer.yaml` in the cwd
+To pull deps in, a profile must list them: drop a `.sandboxer/config.yaml` in the cwd
 (auto-discovered), pass one with `-f` (a file, a directory of profiles, or a
 [named profile](#named-profiles) from `~/.config/sandboxer/profiles/`), or refer
 to a stored profile by name; the sandbox slug then comes from the profile's
@@ -119,15 +119,15 @@ Scalars come from **flags** and `SANDBOXER_*` env vars:
 | session mode | `--ephemeral` | `SANDBOXER_SESSION` (default `persistent`; the env wins over a profile's `session:`) |
 | egress domains | `--allow-domains a,b` | `SANDBOXER_DOMAINS` |
 | disable egress | — | `SANDBOXER_NO_EGRESS=1` |
-| skip auto-scaffold | — | `SANDBOXER_NO_SCAFFOLD=1` (create/enter writes a default `.sandboxer.yaml` otherwise) |
+| skip auto-scaffold | — | `SANDBOXER_NO_SCAFFOLD=1` (create/enter writes a default `.sandboxer/config.yaml` otherwise) |
 | container engine | — | `SANDBOXER_ENGINE` (default: auto-detect docker→podman) |
 | image | — | `SANDBOXER_IMAGE` (default `sandboxer-toolbox:latest`) |
 
 Structured fields (`roots`/`deps`, `extraMounts`, `env`, `setup`, `tools`, `mcp`, `image`) live in an **optional**
-`.sandboxer.yaml`. Point at it with `-f`/`--config`, which accepts a **file**, a
+`.sandboxer/config.yaml`. Point at it with `-f`/`--config`, which accepts a **file**, a
 **directory** of profiles, or the **name** of a profile in the store (see
-[Named profiles](#named-profiles)); with nothing given, a `.sandboxer.yaml` in
-the cwd is auto-discovered. See `examples/.sandboxer.yaml`,
+[Named profiles](#named-profiles)); with nothing given, a `.sandboxer/config.yaml` in
+the cwd is auto-discovered. See `examples/config.yaml`,
 `examples/with-deps.yaml` and `examples/profiles/`.
 
 ```yaml
@@ -187,12 +187,12 @@ A profile can customize the toolbox image itself — extra packages, files, env,
 even a nixpkgs overlay — **without nix on your machine** (the same builder
 container does everything) and without forking the image. `sandboxer init`
 scaffolds this section together with an inert, fully-commented
-`sandbox-image.nix` hook next to the profile, ready to edit:
+`image.nix` hook next to the profile under `.sandboxer/`, ready to edit:
 
 ```yaml
 image:
   extraPkgs: [gh, python3Packages.requests]  # extra nixpkgs attrs baked in
-  nix: sandbox-image.nix                     # build hook (path relative to this file)
+  nix: image.nix                             # build hook (path relative to this file)
   llmAgentsRev: latest                       # input pin override: latest | full commit hash
   # nixpkgsRev: <commit>                     # empty = the pin embedded in the binary
 ```
@@ -223,7 +223,7 @@ nixpkgs, then the function is called again with the overlay'd `pkgs` for
 `packages`/`files`/`env` — packages see the overlay, but the overlay cannot
 reference its own result. Full commented example:
 [examples/profiles/custom-image.yaml](./examples/profiles/custom-image.yaml) +
-[sandbox-image.nix](./examples/profiles/sandbox-image.nix).
+[image.nix](./examples/profiles/image.nix).
 
 `llmAgentsRev`/`nixpkgsRev` move the image's flake-input pins — e.g. pick up
 newer agents without waiting for a sandboxer release. A full 40-hex commit
@@ -234,7 +234,7 @@ never re-resolve; only `sandboxer build-image --refresh` moves it.
 
 ### Multiple profiles in one file
 
-Instead of one profile per file, a `.sandboxer.yaml` can hold many under a
+Instead of one profile per file, a `.sandboxer/config.yaml` can hold many under a
 `profiles:` map. A shared **`defaults:`** block is auto-applied under every
 profile (a profile's own fields win; `env` merges key-by-key). To inherit from
 *another profile*, use plain **YAML anchors** — anchor one (`&api`) and merge it

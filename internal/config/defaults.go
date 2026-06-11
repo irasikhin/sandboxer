@@ -2,6 +2,7 @@ package config
 
 import (
 	"os"
+	"path/filepath"
 	"strconv"
 )
 
@@ -9,9 +10,19 @@ import (
 // metadata (the bash STATE_DIR_NAME).
 const StateDirName = ".sandboxer"
 
-// ConfigFileName is the project-local profile file auto-discovered in the cwd
-// (a dotfile, so it stays out of directory listings).
-const ConfigFileName = ".sandboxer.yaml"
+// ConfigFileName is the project-local profile file auto-discovered under the
+// state dir (see ConfigPath). It is committed alongside the image hook via the
+// allowlisting .sandboxer/.gitignore.
+const ConfigFileName = "config.yaml"
+
+// ConfigPath is the cwd-relative location of the project profile —
+// .sandboxer/config.yaml — used for auto-discovery and scaffolding.
+func ConfigPath() string { return filepath.Join(StateDirName, ConfigFileName) }
+
+// LegacyConfigFileName is the pre-consolidation root-level profile path. It is
+// no longer read; discovery only uses it to print a one-line migration hint
+// when it is present but the new location is not.
+const LegacyConfigFileName = ".sandboxer.yaml"
 
 // DefaultImage is the toolbox image reference used by the container backend.
 const DefaultImage = "sandboxer-toolbox:latest"

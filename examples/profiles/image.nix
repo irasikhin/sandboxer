@@ -1,4 +1,4 @@
-# sandbox-image.nix — the user hook a profile's `image.nix` points at, imported
+# image.nix — the user hook a profile's `image:` section points at, imported
 # by the embedded toolbox flake during `sandboxer build-image` (or the
 # auto-build on first enter). A function over { pkgs } returning any of FOUR
 # keys: packages, files, env, overlay. The contract is fail-closed — an unknown

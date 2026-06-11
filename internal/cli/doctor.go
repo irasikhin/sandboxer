@@ -105,15 +105,21 @@ Run this after a fresh install or when something isn't working.`,
 				}
 			}
 
-			// Config file in cwd.
-			if fileExists(config.ConfigFileName) {
-				if _, err := config.LoadDocument(config.ConfigFileName); err == nil {
-					fmt.Fprintf(tw, "%s in cwd\t✓\tparses ok\n", config.ConfigFileName)
+			// Project config under .sandboxer/.
+			cfgPath := config.ConfigPath()
+			if fileExists(cfgPath) {
+				if _, err := config.LoadDocument(cfgPath); err == nil {
+					fmt.Fprintf(tw, "%s\t✓\tparses ok\n", cfgPath)
 					ok++
 				} else {
-					fmt.Fprintf(tw, "%s in cwd\t⚠\t%v\n", config.ConfigFileName, err)
+					fmt.Fprintf(tw, "%s\t⚠\t%v\n", cfgPath, err)
 					warn++
 				}
+			} else if fileExists(config.LegacyConfigFileName) {
+				// An upgrading user with the stale root-level profile: flag the move.
+				fmt.Fprintf(tw, "./%s\t⚠\tlegacy location — move it to %s (no longer read)\n",
+					config.LegacyConfigFileName, cfgPath)
+				warn++
 			}
 
 			if err := tw.Flush(); err != nil {

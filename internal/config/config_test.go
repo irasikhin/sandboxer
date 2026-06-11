@@ -8,6 +8,16 @@ import (
 	"testing"
 )
 
+func TestConfigPath(t *testing.T) {
+	// The project profile lives under the state dir: .sandboxer/config.yaml.
+	if got, want := ConfigPath(), filepath.Join(StateDirName, ConfigFileName); got != want {
+		t.Errorf("ConfigPath() = %q, want %q", got, want)
+	}
+	if ConfigFileName != "config.yaml" || StateDirName != ".sandboxer" {
+		t.Errorf("unexpected names: dir=%q file=%q", StateDirName, ConfigFileName)
+	}
+}
+
 func TestSanitize(t *testing.T) {
 	cases := map[string]string{
 		"feature-x":    "feature-x",
@@ -175,7 +185,7 @@ deps:
 
 func TestExampleProfilesParse(t *testing.T) {
 	// The shipped examples must stay valid under the strict (KnownFields) schema.
-	for _, name := range []string{".sandboxer.yaml", "with-deps.yaml", "profiles/web.yaml", "profiles/api.yaml", "profiles/custom-image.yaml"} {
+	for _, name := range []string{"config.yaml", "with-deps.yaml", "profiles/web.yaml", "profiles/api.yaml", "profiles/custom-image.yaml"} {
 		path := filepath.Join("..", "..", "examples", name)
 		if _, err := os.Stat(path); err != nil {
 			t.Skipf("example %s not present", name)

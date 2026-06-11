@@ -32,8 +32,10 @@ was extracted from:
   the root is assembled from `commandFactories` in `internal/cli/cli.go` (no central command list). The
   `Run(args, stdin, stdout, stderr) int` stdio seam is exactly as `arch-go-cli` describes.
 - **Config = `gopkg.in/yaml.v3`** (kpass uses TOML). Scalars resolve flag → `SANDBOXER_*` env → default;
-  structured fields (roots/deps/extraMounts/env) come from an optional `.sandboxer.yaml` profile — a dotfile,
-  centralized as `config.ConfigFileName` (one profile or several under a `profiles:` map). See `internal/config`.
+  structured fields (roots/deps/extraMounts/env) come from an optional `.sandboxer/config.yaml` profile —
+  centralized as `config.ConfigPath()` (= `StateDirName`/`ConfigFileName`), one profile or several under a
+  `profiles:` map. The image hook sits beside it at `.sandboxer/image.nix`; both are committed via the
+  allowlisting `.sandboxer/.gitignore`. See `internal/config`.
 - **User-facing error = `silentErr{err}`** in `internal/cli/cli.go` (kpass uses `UserError{Msg}`): it marks
   "the command already printed its own diagnostic", so `Run` returns exit 1 without re-printing. Same contract
   as `lang-go-error-handling`, different shape — there is no colored top-level reprint and no `130`/Canceled
@@ -51,8 +53,11 @@ was extracted from:
   are allowed there.
 - **Sandbox state** (`internal/sandbox`): a sandbox is `.sandboxer/<slug>/` holding only the listed deps
   (each located by path suffix under your roots and copied in — nothing by default, no git involved), alongside
-  `.sandboxer/_meta`, `_logs`, and a per-sandbox private `$HOME` at `.sandboxer/_home/<slug>` (v0.16.0). A
-  generated `.sandboxer/.gitignore` keeps it all out of the user's repo.
+  `.sandboxer/_meta`, `_logs`, and a per-sandbox private `$HOME` at `.sandboxer/_home/<slug>` (v0.16.0). The
+  generated `.sandboxer/.gitignore` is an **allowlist** (`*` + `!.gitignore` + `!config.yaml` + `!image.nix`):
+  it commits the project profile and image hook while the leading `*` keeps the generated state
+  (`_meta`/`_home`/`_logs`/`<slug>`) out of the user's repo — the credential-leak guard. `ensureGitignore`
+  upgrades an old blanket `*` gitignore to the allowlist in place.
 - **Egress** (`internal/proxy`, `internal/egress`): outbound traffic is restricted to an allowlist
   (`network.allowedDomains` / `--allow-domains`) through a forward-proxy sidecar; disable with
   `SANDBOXER_NO_EGRESS=1`.
