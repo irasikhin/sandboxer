@@ -3,11 +3,12 @@
 Thanks for taking the time. This project follows a small set of conventions to
 make releases reliable; please skim before opening a PR.
 
-> **Conventions live as skills.** The engineering rules below are formalized as vendored
-> [praxis](https://git.rgband.ru/rgband/praxis) skills — see [`CLAUDE.md`](CLAUDE.md) and `.claude/skills/`
-> (gitignored; `praxis sync` materializes them from the committed `praxis.toml`). The skills are canonical;
-> this guide mirrors the essentials for human contributors browsing the repo. Agents should read the skills,
-> not duplicate them.
+> **Conventions live as skills.** The engineering rules below are formalized as vendored **praxis** skills —
+> see [`CLAUDE.md`](CLAUDE.md) and `.claude/skills/` (gitignored; `praxis sync` materializes them from the
+> committed `praxis.toml`). praxis is internal author-tooling: it is **optional — not required to contribute**.
+> The conventions it documents are also enforced by `.golangci.yml`, by CI, and described in [`CLAUDE.md`](CLAUDE.md),
+> so you can work from those alone. Where the skills exist they are canonical; this guide mirrors the essentials
+> for human contributors browsing the repo, and agents should read the skills rather than duplicate them.
 
 ## Local setup
 
@@ -96,7 +97,7 @@ Allowed types:
 | `docs`     | Documentation only                                         | —             |
 | `test`     | Adding or revising tests                                   | —             |
 | `build`    | Build system, packaging (`flake.nix`, `nix/`, `go.mod`)    | —             |
-| `ci`       | CI pipelines (`.woodpecker/...`)                           | —             |
+| `ci`       | CI pipelines (`.github/workflows/...`)                     | —             |
 | `chore`    | Routine maintenance (deps bump, file moves)                | —             |
 | `revert`   | Reverting a previous commit                                | —             |
 | `style`    | Whitespace / formatting only                               | —             |
@@ -175,13 +176,12 @@ The release script:
 * writes a new section to `CHANGELOG.md` grouping commits by type,
 * commits with `chore(release): vX.Y.Z`, then tags `vX.Y.Z`.
 
-Pushing the tag triggers the Woodpecker release pipeline
-([`.woodpecker/release.yml`](.woodpecker/release.yml)): it verifies the tag
-matches `nix/package.nix`, builds the Linux binaries (amd64 + arm64) and
-publishes a Forgejo release with the changelog section. It needs the
-`forgejo_token` Woodpecker secret — see the pipeline header. Branch/PR CI
-lives in [`.woodpecker/ci.yml`](.woodpecker/ci.yml) and
-[`.woodpecker/flake-check.yml`](.woodpecker/flake-check.yml).
+Pushing the tag triggers the GitHub Actions release workflow
+([`.github/workflows/release.yml`](.github/workflows/release.yml)): it verifies
+the tag matches `nix/package.nix`, builds the Linux binaries (amd64 + arm64) and
+publishes a GitHub release with the changelog section. It uses the
+auto-provisioned `GITHUB_TOKEN` — no extra secret to configure. Branch/PR CI
+lives in [`.github/workflows/ci.yml`](.github/workflows/ci.yml).
 
 Before pushing the release tag, verify:
 

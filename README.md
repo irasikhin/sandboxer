@@ -1,6 +1,6 @@
 # sandboxer
 
-[![CI](https://woodpecker.rgband.ru/api/badges/rgband/sandboxer/status.svg?branch=main)](https://woodpecker.rgband.ru/repos/rgband/sandboxer)
+[![CI](https://github.com/irasikhin/sandboxer/actions/workflows/ci.yml/badge.svg)](https://github.com/irasikhin/sandboxer/actions/workflows/ci.yml)
 [![Coverage](https://img.shields.io/badge/coverage-92.2%25-brightgreen.svg)](#testing)
 [![Go](https://img.shields.io/badge/Go-1.24+-00ADD8?logo=go)](https://go.dev/)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
@@ -37,6 +37,11 @@ Isolation backend — a **docker / podman** container built from a toolbox image
 with the agents baked in (claude, opencode, crush, aider, pi, gemini). Any of
 them; each sandbox gets its own isolated home, and network, proxy and
 credentials are wired per config.
+
+For the full picture — on-disk layout, sandbox lifecycle, how the toolbox image
+is built and cached, the egress proxy and the agent registry — see
+[docs/architecture.md](./docs/architecture.md). Hitting a wall? See
+[docs/troubleshooting.md](./docs/troubleshooting.md).
 
 ## Install
 
@@ -341,6 +346,8 @@ nix run .#build-image   # maintainer/dev equivalent (requires nix on the host)
 ## Docs
 
 - `sandboxer --help` / `sandboxer <cmd> --help` — commands, flags, examples
+- [docs/architecture.md](./docs/architecture.md) — how it works: on-disk layout, lifecycle, image build, egress, registry
+- [docs/troubleshooting.md](./docs/troubleshooting.md) — common problems, fixes, and FAQ
 - [CONTRIBUTING.md](./CONTRIBUTING.md) — dev setup, Conventional Commits, releases
 - [SECURITY.md](./SECURITY.md) — isolation model, vulnerability reporting
 - [CHANGELOG.md](./CHANGELOG.md) — what's in each release

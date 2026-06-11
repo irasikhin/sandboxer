@@ -8,7 +8,9 @@ repo's parameters/deviations, and knowledge no skill owns.
 ## Skills (authoritative — vendored from praxis)
 
 Materialized under `.claude/skills/` (gitignored). The committed source of truth is `praxis.toml` (desired set)
-+ `.praxis/lock.json` (pinned hashes); run `praxis sync` after clone to regenerate the copies.
++ `.praxis/lock.json` (pinned hashes); run `praxis sync` after clone to regenerate the copies (praxis is
+optional author-tooling — not required to build or contribute; the same conventions are also enforced by
+`.golangci.yml` and CI).
 
 <!-- praxis:skills BEGIN -->
 arch-go-cli, lang-go-style, lang-go-error-handling, lang-go-testing, build-go-tooling, ci-github-binary-release,

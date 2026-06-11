@@ -4,8 +4,16 @@
 
 sandboxer is pre-1.0; the CLI flags and on-disk layout may still change between
 minor versions (the `.sandboxer.yaml` schema has settled on `roots`+`deps` and is
-treated as stable through 0.x). Security fixes are provided for the latest
-release only.
+treated as stable through 0.x).
+
+While pre-1.0, **only the latest `0.x` release** receives security fixes — there
+are no maintained back-ports to earlier `0.y` lines. A fix ships as the next
+patch (or minor) release; upgrade to the newest tag to receive it.
+
+| Version            | Supported          |
+|--------------------|--------------------|
+| latest `0.x`       | :white_check_mark: |
+| any older release  | :x:                |
 
 ## Reporting a Vulnerability
 
@@ -18,6 +26,10 @@ Please include:
 - affected sandboxer version or commit;
 - operating system and install method;
 - a minimal reproduction that does not include real credentials or API keys.
+
+This is a single-maintainer open-source project, so reports are handled on a
+**best-effort** basis. Expect an initial acknowledgement within a few days
+(typically under a week); a fix then ships in the next release once confirmed.
 
 ## Security model notes
 
