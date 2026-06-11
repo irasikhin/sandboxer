@@ -199,3 +199,27 @@ Go style and formatting are owned by the `lang-go-style` and `build-go-tooling` 
 
 Repo-specific: new flags are wired into the cobra command structs and documented via their struct tags — the
 help text is generated from them.
+
+## Config layering
+
+A resolved profile is composed from up to four layers, high → low precedence:
+
+```
+flags  >  project profile section  >  project defaults  >  GLOBAL defaults  >  SANDBOXER_* env  >  built-in
+```
+
+- The **project config** is `.sandboxer/config.yaml` (`config.ConfigPath()`), discovered in the cwd.
+- The **global config** is optional and merges *under* the project: `SANDBOXER_CONFIG` →
+  `$XDG_CONFIG_HOME/sandboxer/config.yaml` → `~/.config/sandboxer/config.yaml` (`config.GlobalConfigPath()` /
+  `config.LoadGlobalConfig()` in `internal/config/store.go`). An absent file is a clean no-op.
+
+The composition lives in **`Document.SelectWithGlobal`** (`internal/config/document.go`): it sets the base to
+`mergeProfile(global.Defaults, project.Defaults)` and merges the selected section on top, reusing the single
+`mergeProfile` (per-field; `env` key-wise, `image:` per field) — there is no second merger. `resolveTarget`
+(`internal/cli/resolve.go`) loads both documents and calls it. A profile **name** resolves project → global →
+`ProfilesDir()` store; a `defaults:`-only file (the common global shape) is parsed as a Document, not a flat
+profile.
+
+`roots:`/`deps:` are **project-specific** (deps are located by path suffix under the project's roots), so they
+are discouraged at global scope — a global `defaults.roots`/`defaults.deps` would copy the wrong tree into every
+sandbox. Keep them in the project config.
