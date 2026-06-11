@@ -98,8 +98,9 @@ func walkAt(root string, depth, cur int, fn func(path string)) {
 }
 
 // resolveDeps turns the roots+deps config into copy jobs: each dep is searched
-// (by path suffix) under every root, and the first match is copied to
-// <sandbox>/<dep>. Not-found and multi-match are reported to w. When inContainer
+// (by path suffix) under every root — the cwd is always an implicit last root —
+// and the first match is copied to <sandbox>/<dep>. Not-found and multi-match
+// are reported to w. When inContainer
 // is set, roots that aren't visible on this filesystem trigger an upfront hint —
 // host roots aren't bind-mounted into the sandbox, so an in-container pull can
 // only refresh deps already vendored on the host.
@@ -107,10 +108,20 @@ func resolveDeps(p Profile, sandboxDir string, w io.Writer, inContainer bool) []
 	if len(p.Deps) == 0 {
 		return nil
 	}
-	roots := p.Roots
-	if len(roots) == 0 {
-		roots = []string{cwd()}
-	}
+	// The cwd is ALWAYS a search root, appended after the explicit roots (which
+	// win the deterministic first-match) — so a project profile can list deps
+	// from the project itself without any roots: stanza. Dedup by absolute path
+	// keeps an explicit `roots: [.]` from double-matching every dep.
+	roots := append(slices.Clone(p.Roots), cwd())
+	seen := map[string]bool{}
+	roots = slices.DeleteFunc(roots, func(r string) bool {
+		abs := mustAbs(r)
+		if seen[abs] {
+			return true
+		}
+		seen[abs] = true
+		return false
+	})
 	warnUnmountedRoots(w, roots, inContainer)
 	var out []target
 	for _, dep := range p.Deps {

@@ -33,7 +33,8 @@ when you're done. No git is involved.
 - **slug** — a short sandbox name (`feat`, `bugfix-auth`, …), set at `create`.
 - **roots / deps** — the single source of a sandbox's contents: each `dep` is
   located by **path suffix** under the `roots` and copied flat to
-  `<sandbox>/<dep>` (depsync-style).
+  `<sandbox>/<dep>` (depsync-style). The current directory is always searched
+  as an implicit last root, so a project-local dep needs no `roots:` at all.
 - **pull / push** — `sandboxer pull` copies the `deps` in, keeping a target that
   already exists unless `--force`; `sandboxer push` copies them back over their
   origins (always overwriting, like depsync).
@@ -146,9 +147,10 @@ tools: [node, go]        # runtime tool packs baked into a per-profile image
 mcp: [context7]          # MCP servers wired into the agent
 ```
 
-`deps` are located by **path suffix** under `roots` and pulled into the sandbox
-(`sandboxer pull`), copied flat to `<sandbox>/<dep>`. An already-present target
-is kept unless `--force`. They are copied back to their origins (`sandboxer
+`deps` are located by **path suffix** under `roots` — explicit roots first,
+then the current directory as an implicit last root — and pulled into the
+sandbox (`sandboxer pull`), copied flat to `<sandbox>/<dep>`. An
+already-present target is kept unless `--force`. They are copied back to their origins (`sandboxer
 push`). The copy preserves symlinks and file modes and replaces the destination
 wholesale (depsync semantics).
 

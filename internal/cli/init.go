@@ -148,9 +148,9 @@ network:
   allowedDomains: [%s]
 
 # Sandbox content. Nothing is copied unless listed here: each dep is located by
-# path suffix under roots, copied INTO the sandbox, and pushed back with
-# 'sandboxer push'. Uncomment and adjust:
-# roots: [.]
+# path suffix under roots — this directory is always searched as an implicit
+# last root — copied INTO the sandbox, and pushed back with 'sandboxer push'.
+# Uncomment and adjust (roots: only needed to search OTHER trees):
 # deps:
 #   - src/lib
 

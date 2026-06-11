@@ -33,8 +33,9 @@ network:
 
 # Sandbox content: deps are searched by path suffix under roots, copied into
 # the sandbox and (rw) pushed back with `sandboxer push`. Nothing is copied
-# unless listed here.
-# roots: [.]
+# unless listed here. The current directory is always searched as an implicit
+# last root — set roots: only to search OTHER trees.
+# roots: [/abs/other-tree]
 # deps:
 #   - src/lib
 
