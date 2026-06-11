@@ -1,0 +1,58 @@
+# Profile with dependencies, a container backend, and a proxy.
+#
+# The sandbox content is driven by roots+deps: each dep is located by path
+# suffix under the roots, copied INTO the sandbox, and (rw) pushed back to its
+# origin with `sandboxer push`. Handy for monorepo vendoring or shared libs.
+
+name: integ
+
+# Container toolbox: image with the agents (nix run .#build-image). Any agent,
+# not just claude. (codex is Rust and is not baked into the image due to build
+# time; bring your own / BYO image for it.)
+backend: podman
+agent: opencode
+model: gpt-5
+
+# Which agents to authorize in the container (bind their config dirs / env).
+# Defaults to every agent in the registry; narrow it to avoid mounting
+# credentials you don't need.
+agents: [opencode, claude]
+
+network:
+  allowedDomains: [api.openai.com, api.anthropic.com, registry.npmjs.org, pypi.org, repo.maven.apache.org, repo1.maven.org, central.sonatype.com]
+
+# Container egress is forced by the allowlist proxy by default (agent on an
+# --internal network, sole exit via the forward-proxy). Disable with:
+# egress: false        # or set env SANDBOXER_NO_EGRESS=1
+
+# Proxy — two mutually-exclusive modes (see examples/.sandboxer.yaml for detail):
+#  - http/https/no: corporate proxy the agent uses directly, BYPASSING egress.
+#    # proxy: { http: "http://proxy.corp:3128", https: "http://proxy.corp:3128", no: "localhost,127.0.0.1,.corp" }
+#  - upstream: keep the egress allowlist ON and chain through a parent proxy.
+#    # proxy: { upstream: "http://host.docker.internal:3128" }
+# Host-running proxy: use host.docker.internal / host.containers.internal — both
+# resolve on either engine.
+
+# Search roots and the deps to find under them (matched by path suffix, copied
+# flat to <sandbox>/<dep>; rw entries are pushed back on `sandboxer push`).
+roots:
+  - /home/me/work/app
+  - /home/me/work
+deps:
+  - shared-lib          # any dir/file named shared-lib
+  - src/proto           # any path ending with src/proto
+
+# Extra bind mounts and env for the container (optional).
+# extraMounts:
+#   - { source: /data/cache, target: /data/cache, mode: rw }
+# env:
+#   NPM_CONFIG_REGISTRY: "https://registry.npmjs.org/"
+#
+# Persist Maven's local repo across runs: the sandbox $HOME is ephemeral, so the
+# default ~/.m2 is thrown away each run. Bind the host ~/.m2 at a fixed path and
+# point Maven at it (Maven Central is already in the default allowlist; mode rw
+# lets Maven download-on-miss into the real host cache):
+# extraMounts:
+#   - { source: /home/me/.m2, target: /cache/.m2, mode: rw }
+# env:
+#   MAVEN_OPTS: "-Dmaven.repo.local=/cache/.m2/repository"

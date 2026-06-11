@@ -1,0 +1,54 @@
+#!/usr/bin/env bash
+# Validate a commit message against Conventional Commits 1.0.0.
+#
+# Allowed types:   feat fix perf refactor docs test build ci chore revert style
+# Format:          type(scope)!: subject       (scope and ! optional)
+# Special cases:   merges and reverts produced by git itself bypass the rules.
+#
+# To install:   ./scripts/install-hooks.sh
+# To bypass:    git commit --no-verify   (avoid; CI will reject anyway)
+set -euo pipefail
+
+msg_file="$1"
+first_line="$(head -n1 "$msg_file" | tr -d '\r')"
+
+# Skip merge commits and reverts (git generates a different shape).
+if [[ "$first_line" == Merge\ * ]] || [[ "$first_line" == Revert\ \"* ]]; then
+  exit 0
+fi
+# Skip fixup / squash commits — rebase will rewrite the subject anyway.
+if [[ "$first_line" == fixup!\ * ]] || [[ "$first_line" == squash!\ * ]]; then
+  exit 0
+fi
+
+types='feat|fix|perf|refactor|docs|test|build|ci|chore|revert|style'
+pattern="^(${types})(\\([a-z0-9._/-]+\\))?!?: .+"
+
+if ! [[ "$first_line" =~ $pattern ]]; then
+  cat >&2 <<EOF
+Commit message does not follow Conventional Commits.
+
+Got:
+  ${first_line}
+
+Expected format:
+  <type>(<scope>)<!>: <subject>
+
+Allowed types: feat, fix, perf, refactor, docs, test, build, ci, chore, revert, style
+Use '!' after type/scope to flag a breaking change.
+
+Examples:
+  feat(cli): add --backend flag to exec
+  fix: release the egress proxy port on teardown
+  feat(config)!: drop the .nix profile format
+
+See CONTRIBUTING.md for details. To bypass once: git commit --no-verify
+EOF
+  exit 1
+fi
+
+# Subject length sanity check (warn only).
+subject_len=${#first_line}
+if (( subject_len > 80 )); then
+  echo "warning: commit subject is ${subject_len} chars (>80); consider trimming." >&2
+fi

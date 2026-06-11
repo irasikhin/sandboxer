@@ -1,0 +1,68 @@
+version: "2"
+run:
+  tests: true
+linters:
+  enable:
+    - copyloopvar
+    - misspell
+    - nilerr
+    - revive
+    - unconvert
+    - unparam
+    - wastedassign
+  settings:
+    errcheck:
+      # CLI tool: writes to stdout/stderr (fmt.Fprint*) and best-effort
+      # cleanup paths (defer Close on *os.File) cannot meaningfully return
+      # errors to the user, so don't pollute every call site with `_ =`.
+      exclude-functions:
+        - fmt.Fprint
+        - fmt.Fprintf
+        - fmt.Fprintln
+        - (*os.File).Close
+    revive:
+      rules:
+        - name: blank-imports
+        - name: context-as-argument
+        - name: error-naming
+        - name: error-return
+        - name: error-strings
+        - name: exported
+          disabled: true
+        - name: if-return
+        - name: increment-decrement
+        - name: range
+        - name: receiver-naming
+        - name: time-naming
+        - name: unexported-return
+        - name: unnecessary-stmt
+        - name: unreachable-code
+  exclusions:
+    generated: lax
+    rules:
+      # Tests freely ignore Close/Write/deadline errors on throwaway conns and
+      # servers; that is normal and not worth asserting on every line.
+      - path: _test\.go
+        linters:
+          - errcheck
+    paths:
+      - third_party$
+      - builtin$
+      - examples$
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0
+formatters:
+  enable:
+    - gofmt
+    - goimports
+  settings:
+    goimports:
+      local-prefixes:
+        - github.com/irasikhin/sandboxer
+  exclusions:
+    generated: lax
+    paths:
+      - third_party$
+      - builtin$
+      - examples$

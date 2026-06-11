@@ -1,0 +1,15 @@
+# Normalize line endings: auto-detect text, check out with LF.
+* text=auto eol=lf
+
+# Source files are always LF text.
+*.go text eol=lf
+
+# Lockfiles and checksums are text (avoid accidental binary treatment / CRLF).
+go.sum text eol=lf
+flake.lock text eol=lf
+
+# Binary assets — never normalize or diff as text.
+*.png binary
+*.jpg binary
+*.gif binary
+*.ico binary

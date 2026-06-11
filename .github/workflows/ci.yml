@@ -1,0 +1,66 @@
+# CI gate: lint + test (engine-free 90% coverage gate) and a nix flake check.
+#
+# Triggers on every push to main and every pull request. The `test`, `lint`,
+# and `nix` jobs run in parallel.
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          # Track the toolchain pinned in go.mod (do not hardcode the version).
+          go-version-file: go.mod
+      - run: go build ./...
+      # Cross-build the other release target so arch-specific breakage is
+      # caught here, not only at release time.
+      - run: GOOS=linux GOARCH=arm64 go build ./...
+      # -race guards the parallel batch runner (the worker pool + failure
+      # aggregation). NOTE: no `-tags integration` — the 90% gate is calibrated
+      # engine-free and the integration tests are //go:build integration.
+      - run: go test ./... -race -coverprofile=coverage.out
+      - run: go tool cover -func=coverage.out | tail -1
+      # Coverage gate: fail the build under 90% total coverage.
+      - name: coverage gate
+        run: |
+          total=$(go tool cover -func=coverage.out | awk '/^total:/ {sub(/%/,"",$3); print $3}')
+          echo "total coverage: ${total}%"
+          awk -v t="$total" 'BEGIN { exit (t+0 >= 90.0) ? 0 : 1 }' \
+            || { echo "ERROR: total coverage ${total}% is below the 90% gate" >&2; exit 1; }
+      - run: go vet ./...
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      # .golangci.yml is golangci-lint v2 config; pin the binary at v2.1.6.
+      # golangci-lint-action v8 supports golangci-lint >= v2.1.0 and accepts a
+      # full patch version in its default binary install mode.
+      - uses: golangci/golangci-lint-action@v8
+        with:
+          version: v2.1.6
+
+  nix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: cachix/install-nix-action@v31
+        with:
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+      - run: nix flake check --no-build --print-build-logs
+      - run: nix build .#sandboxer --no-link --print-build-logs
+      # The toolbox-image flake is an embedded asset built only inside the
+      # ephemeral builder container, so `nix flake check` never sees it; parse
+      # it here so a syntax error fails CI instead of a user's first build.
+      - run: nix-instantiate --parse internal/toolbox/assets/flake.nix > /dev/null

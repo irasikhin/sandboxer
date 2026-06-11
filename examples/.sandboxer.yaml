@@ -1,0 +1,79 @@
+# Minimal sandbox profile.
+#
+# sandboxer auto-discovers `.sandboxer.yaml` in the current directory (or pass
+# one explicitly: `sandboxer create --config path/feat.yaml`, or positionally
+# `sandboxer create feat.yaml`).
+
+# Sandbox name (slug). Drives the working directory at .sandboxer/<name>.
+name: feature-x
+
+# Isolation backend — a podman or docker container built from the toolbox image
+# (works with any agent). Leave empty to auto-detect (prefers podman).
+backend: podman
+
+# Coding agent from the registry (sandboxer agents):
+#   claude | codex | opencode | crush | aider | pi | gemini
+agent: claude
+
+# Agent model (optional). For claude: haiku | sonnet | opus | full id.
+# model: sonnet
+
+# Egress allowlist — the ONLY domains the sandbox may reach (enforced by the
+# container's egress proxy); everything else is blocked.
+#
+# NOTE: allowedDomains REPLACES the built-in default list wholesale. The defaults
+# already cover the common AI APIs and package registries (npm, pypi, Maven
+# Central, crates, Go, RubyGems, github — see DefaultDomains in
+# internal/config/defaults.go). If you set allowedDomains you must re-list EVERY
+# domain you need — e.g. add repo.maven.apache.org and repo1.maven.org for Maven.
+# Omit this block entirely to keep the full defaults.
+network:
+  allowedDomains: [api.anthropic.com, registry.npmjs.org, github.com, repo.maven.apache.org, repo1.maven.org, central.sonatype.com]
+
+# Sandbox content: deps are searched by path suffix under roots, copied into
+# the sandbox and (rw) pushed back with `sandboxer push`. Nothing is copied
+# unless listed here.
+# roots: [.]
+# deps:
+#   - src/lib
+
+# One-time setup: a shell script (bash -lc) run once inside the sandbox before
+# you take over — install deps, build, seed a DB. It runs on the first
+# enter/exec/run and re-runs only when the script changes; it runs under the
+# egress allowlist above (so installs need their domains allowed) and is fatal
+# on failure (skip with --no-setup).
+# setup: |
+#   npm ci
+#   npm run build
+
+# Tool packs: language/runtime toolchains baked into a per-profile toolbox image
+# variant (built on demand, cached by tool-set hash). See registry/tools.json
+# for the available packs.
+# tools: [node, go]
+
+# MCP servers wired into the agent: the server config is seeded into the agent's
+# sandbox home (claude today) and each server's domains are folded into the
+# egress allowlist above. See registry/mcp.json for the catalog.
+# mcp: [context7, fetch]
+
+# Which agents' credentials to bind into the container (container backends
+# only). Defaults to every agent in the registry; narrow it to avoid mounting
+# credentials you don't need.
+# agents: [opencode, claude]
+
+# Proxy — two mutually-exclusive modes:
+#  1) http/https/no: a corporate proxy the agent talks to directly, forwarded as
+#     HTTP(S)_PROXY / NO_PROXY. This BYPASSES the egress allowlist (the proxy is
+#     trusted to police egress).
+#     # proxy: { http: "http://proxy:3128", https: "http://proxy:3128", no: "localhost,127.0.0.1" }
+#  2) upstream: keep the egress allowlist ON and chain allowed traffic through a
+#     parent proxy — sandboxer still enforces allowedDomains. http upstream only.
+#     # proxy: { upstream: "http://host.docker.internal:3128" }
+#
+# To reach a proxy running on the HOST, use host.docker.internal (Docker) or
+# host.containers.internal (podman) — sandboxer maps BOTH names to the host
+# gateway on either engine, so either works (incl. Linux Docker).
+
+# Container backends force the allowlist proxy by default (agent on an
+# --internal network, sole exit via the forward-proxy). Set to false to disable.
+# egress: true

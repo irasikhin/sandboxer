@@ -1,0 +1,18 @@
+# Go
+/sandboxer
+/cmd/sandboxer/sandboxer
+/result
+/result-*
+/dist
+
+# Cache & tools
+/.direnv
+/.pre-commit-cache
+/.golangci-lint-cache
+
+# Editor / tooling state
+/.claude/
+/.praxis/
+
+# sandboxer's own state dir
+/.sandboxer/

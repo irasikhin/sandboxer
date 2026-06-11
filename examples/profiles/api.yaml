@@ -1,0 +1,15 @@
+# A second named profile, for a container backend with vendored deps.
+#
+#   sandboxer create api -f ./examples/profiles
+#
+# `sandboxer profiles -f ./examples/profiles` lists both web and api.
+name: api
+backend: podman
+agent: opencode
+model: gpt-5
+network:
+  allowedDomains: [api.openai.com, registry.npmjs.org, pypi.org]
+roots:
+  - /home/me/work/app
+deps:
+  - shared-lib
