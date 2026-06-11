@@ -32,7 +32,13 @@ func newPullCmd() *cobra.Command {
 				if dir == "" {
 					dir = getwd()
 				}
-				return srcs.CopyIn(out, "/run/sandboxer/profile.json", dir, "/run/sandboxer/manifest.json", f.force, true)
+				return srcs.CopyIn(out, srcs.PullOpts{
+					ProfileFile:  "/run/sandboxer/profile.json",
+					SandboxDir:   dir,
+					ManifestFile: "/run/sandboxer/manifest.json",
+					Force:        f.force,
+					InContainer:  true,
+				})
 			}
 			t, err := resolveTarget(f, posArg(args))
 			if err != nil {
@@ -47,7 +53,12 @@ func newPullCmd() *cobra.Command {
 			if !fileExists(pj) {
 				return fmt.Errorf("sandbox %q has no profile (nothing to pull)", t.slug)
 			}
-			return srcs.CopyIn(out, pj, t.base.SandboxDir(t.slug), t.base.ManifestPath(t.slug), f.force, false)
+			return srcs.CopyIn(out, srcs.PullOpts{
+				ProfileFile:  pj,
+				SandboxDir:   t.base.SandboxDir(t.slug),
+				ManifestFile: t.base.ManifestPath(t.slug),
+				Force:        f.force,
+			})
 		},
 	}
 	bindExisting(cmd, &f)
@@ -60,17 +71,21 @@ func newPushCmd() *cobra.Command {
 	var dryRun bool
 	cmd := &cobra.Command{
 		Use:   "push [slug]",
-		Short: "Copy rw dependencies from the sandbox back to their origins",
+		Short: "Copy rw dependencies from the sandbox back to their origins (skip host-modified; --force overwrites)",
 		Example: `  # preview what would be overwritten (no files touched)
   sandboxer push feat --dry-run
 
-  # return rw deps to their origins — OVERWRITES each origin wholesale
-  sandboxer push feat`,
+  # return rw deps to their origins; an origin edited on the host since the
+  # pull is skipped with a warning
+  sandboxer push feat
+
+  # overwrite each origin wholesale, host edits included
+  sandboxer push feat --force`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			out := cmd.OutOrStdout()
 			if inContainer() {
-				return srcs.CopyOut(out, "/run/sandboxer/manifest.json", dryRun)
+				return srcs.CopyOut(out, "/run/sandboxer/manifest.json", srcs.PushOpts{DryRun: dryRun, Force: f.force})
 			}
 			t, err := resolveTarget(f, posArg(args))
 			if err != nil {
@@ -80,10 +95,11 @@ func newPushCmd() *cobra.Command {
 			if !fileExists(mf) {
 				return fmt.Errorf("sandbox %q has no manifest (nothing to return)", t.slug)
 			}
-			return srcs.CopyOut(out, mf, dryRun)
+			return srcs.CopyOut(out, mf, srcs.PushOpts{DryRun: dryRun, Force: f.force})
 		},
 	}
 	bindExisting(cmd, &f)
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "show what would be pushed without changing files")
+	cmd.Flags().BoolVar(&f.force, "force", false, "overwrite origins that changed on the host since pull")
 	return cmd
 }

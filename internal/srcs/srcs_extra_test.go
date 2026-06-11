@@ -27,7 +27,7 @@ func TestDepsSearchAndLayout(t *testing.T) {
 	pf := writeProfile(t, base, profile)
 
 	var out bytes.Buffer
-	if err := CopyIn(&out, pf, sandbox, manifest, false, false); err != nil {
+	if err := CopyIn(&out, PullOpts{ProfileFile: pf, SandboxDir: sandbox, ManifestFile: manifest}); err != nil {
 		t.Fatalf("CopyIn: %v", err)
 	}
 	// Suffix match → flat layout at <sandbox>/<dep>.
@@ -55,7 +55,7 @@ func TestDepsMultiMatchAndDefaultRoot(t *testing.T) {
 	pf := writeProfile(t, dir, Profile{Deps: []string{"x.txt"}}) // roots empty → cwd
 
 	var out bytes.Buffer
-	if err := CopyIn(&out, pf, sandbox, manifest, false, false); err != nil {
+	if err := CopyIn(&out, PullOpts{ProfileFile: pf, SandboxDir: sandbox, ManifestFile: manifest}); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(out.String(), "WARN") {
@@ -83,7 +83,7 @@ func TestCopyInRefusesEscapingDep(t *testing.T) {
 	})
 
 	var out bytes.Buffer
-	if err := CopyIn(&out, pf, sandbox, manifest, false, false); err != nil {
+	if err := CopyIn(&out, PullOpts{ProfileFile: pf, SandboxDir: sandbox, ManifestFile: manifest}); err != nil {
 		t.Fatalf("CopyIn: %v", err)
 	}
 	if !strings.Contains(out.String(), "outside the sandbox") {
@@ -107,11 +107,11 @@ func TestCopyInRefusesEscapingDep(t *testing.T) {
 func TestCopyOutCorruptManifest(t *testing.T) {
 	bad := filepath.Join(t.TempDir(), "m.json")
 	writeFile(t, bad, "not json")
-	if err := CopyOut(&bytes.Buffer{}, bad, false); err == nil {
+	if err := CopyOut(&bytes.Buffer{}, bad, PushOpts{}); err == nil {
 		t.Error("CopyOut on a corrupt manifest should error")
 	}
 	// A missing manifest is still a no-op (push of nothing succeeds).
-	if err := CopyOut(&bytes.Buffer{}, filepath.Join(t.TempDir(), "missing.json"), false); err != nil {
+	if err := CopyOut(&bytes.Buffer{}, filepath.Join(t.TempDir(), "missing.json"), PushOpts{}); err != nil {
 		t.Errorf("CopyOut on a missing manifest should not error: %v", err)
 	}
 }
@@ -205,22 +205,31 @@ func TestPathHelpers(t *testing.T) {
 
 func TestCopyInProfileErrors(t *testing.T) {
 	var buf bytes.Buffer
-	if err := CopyIn(&buf, filepath.Join(t.TempDir(), "missing.json"), t.TempDir(), filepath.Join(t.TempDir(), "m.json"), false, false); err == nil {
+	if err := CopyIn(&buf, PullOpts{
+		ProfileFile:  filepath.Join(t.TempDir(), "missing.json"),
+		SandboxDir:   t.TempDir(),
+		ManifestFile: filepath.Join(t.TempDir(), "m.json"),
+	}); err == nil {
 		t.Error("CopyIn with missing profile should error")
 	}
 	bad := filepath.Join(t.TempDir(), "bad.json")
 	writeFile(t, bad, "not json")
-	if err := CopyIn(&buf, bad, t.TempDir(), filepath.Join(t.TempDir(), "m.json"), false, false); err == nil {
+	if err := CopyIn(&buf, PullOpts{
+		ProfileFile:  bad,
+		SandboxDir:   t.TempDir(),
+		ManifestFile: filepath.Join(t.TempDir(), "m.json"),
+	}); err == nil {
 		t.Error("CopyIn with malformed profile should error")
 	}
 }
 
-// TestCopyOutOverwriteAndMissing: push always overwrites the origin (even one
-// changed out-of-band) and reports entries whose sandbox copy is missing.
+// TestCopyOutOverwriteAndMissing: push --force overwrites the origin (even one
+// without a recorded signature) and reports entries whose sandbox copy is
+// missing; ro entries are never pushed.
 func TestCopyOutOverwriteAndMissing(t *testing.T) {
 	base := t.TempDir()
 	origin := filepath.Join(base, "origin.txt")
-	writeFile(t, origin, "external\n") // changed out-of-band; push overwrites anyway
+	writeFile(t, origin, "external\n") // no recorded sig; --force overwrites anyway
 	sandboxFile := filepath.Join(base, "sb.txt")
 	writeFile(t, sandboxFile, "from-sandbox\n")
 	gone := filepath.Join(base, "gone.txt")
@@ -236,14 +245,42 @@ func TestCopyOutOverwriteAndMissing(t *testing.T) {
 	}
 
 	var buf bytes.Buffer
-	if err := CopyOut(&buf, manifest, false); err != nil {
+	if err := CopyOut(&buf, manifest, PushOpts{Force: true}); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(buf.String(), "missing") {
 		t.Errorf("CopyOut output = %q, want a missing note", buf.String())
 	}
 	if got := readFile(t, origin); got != "from-sandbox\n" {
-		t.Errorf("origin after push = %q, want from-sandbox (overwritten)", got)
+		t.Errorf("origin after push --force = %q, want from-sandbox (overwritten)", got)
+	}
+}
+
+// TestCopyOutNoSigSkipped: an rw entry with no recorded signature (pre-sig
+// manifest, or an origin that was unreadable at pull time) is skipped by the
+// default push — the safe direction.
+func TestCopyOutNoSigSkipped(t *testing.T) {
+	base := t.TempDir()
+	origin := filepath.Join(base, "origin.txt")
+	writeFile(t, origin, "host\n")
+	sandboxFile := filepath.Join(base, "sb.txt")
+	writeFile(t, sandboxFile, "from-sandbox\n")
+	manifest := filepath.Join(base, "m.json")
+	if err := writeManifest(manifest, []ManifestEntry{
+		{Mode: "rw", Origin: origin, SandboxPath: sandboxFile},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	var buf bytes.Buffer
+	if err := CopyOut(&buf, manifest, PushOpts{}); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(buf.String(), "changed on the host") {
+		t.Errorf("CopyOut output = %q, want a changed-on-host SKIP", buf.String())
+	}
+	if got := readFile(t, origin); got != "host\n" {
+		t.Errorf("origin after sig-less default push = %q, want host (untouched)", got)
 	}
 }
 
@@ -255,16 +292,20 @@ func TestCopyOutDryRun(t *testing.T) {
 	sandboxFile := filepath.Join(base, "modified.txt")
 	writeFile(t, sandboxFile, "v2\n")
 
+	sig, err := originSignature(origin)
+	if err != nil {
+		t.Fatal(err)
+	}
 	manifest := filepath.Join(base, "manifest.json")
 	entries := []ManifestEntry{
-		{Mode: "rw", Origin: origin, SandboxPath: sandboxFile},
+		{Mode: "rw", Origin: origin, SandboxPath: sandboxFile, OriginSig: sig},
 	}
 	if err := writeManifest(manifest, entries); err != nil {
 		t.Fatal(err)
 	}
 
 	var buf bytes.Buffer
-	if err := CopyOut(&buf, manifest, true); err != nil {
+	if err := CopyOut(&buf, manifest, PushOpts{DryRun: true}); err != nil {
 		t.Fatal(err)
 	}
 	// The origin must NOT be changed.

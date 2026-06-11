@@ -342,15 +342,17 @@ func newExecCmd() *cobra.Command {
 }
 
 // pushDeps pushes rw dependencies back to their origins (if a manifest exists),
-// the same copy-back that `sandboxer push` performs. The error is returned (not
-// just printed) so the caller can exit non-zero — otherwise the user could
+// the same copy-back that `sandboxer push` performs — safe-by-default too: an
+// origin edited on the host while the sandbox ran is skipped with a warning
+// (recover it with an explicit `sandboxer push --force`). The error is returned
+// (not just printed) so the caller can exit non-zero — otherwise the user could
 // believe work was returned when the copy-back actually failed.
 func pushDeps(t *target, cmd *cobra.Command) error {
 	mf := t.base.ManifestPath(t.slug)
 	if !fileExists(mf) {
 		return nil
 	}
-	if err := srcs.CopyOut(cmd.ErrOrStderr(), mf, false); err != nil {
+	if err := srcs.CopyOut(cmd.ErrOrStderr(), mf, srcs.PushOpts{}); err != nil {
 		fmt.Fprintf(cmd.ErrOrStderr(), "sandboxer: push failed: %v\n", err)
 		return err
 	}

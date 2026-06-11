@@ -149,14 +149,15 @@ mcp: [context7]          # MCP servers wired into the agent
 `deps` are located by **path suffix** under `roots` and pulled into the sandbox
 (`sandboxer pull`), copied flat to `<sandbox>/<dep>`. An already-present target
 is kept unless `--force`. They are copied back to their origins (`sandboxer
-push`), always overwriting. The copy preserves symlinks and file modes and
-replaces the destination wholesale (depsync semantics).
+push`). The copy preserves symlinks and file modes and replaces the destination
+wholesale (depsync semantics).
 
 > ⚠️ `push` (and the automatic copy-back after `enter`/`exec`) **overwrites each
-> origin wholesale** — there is no merge and no signature check, so an
-> out-of-band edit to an origin is lost. Run `sandboxer diff` first to see what
-> will change. A `dep` that resolves to multiple paths uses the first match
-> (the others are listed); absolute or `../` deps are refused.
+> origin wholesale** — there is no merge. The pull records a signature of each
+> origin, and a push skips any origin **edited on the host since that pull**
+> (with a warning); `push --force` overwrites those too. Run `sandboxer diff`
+> first to see what will change. A `dep` that resolves to multiple paths uses
+> the first match (the others are listed); absolute or `../` deps are refused.
 
 `setup` is a one-time shell script (`bash -lc`) run inside the sandbox before
 you take over — e.g. `npm ci`, a build, a DB seed. It runs on the first

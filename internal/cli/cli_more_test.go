@@ -122,13 +122,15 @@ func TestRunExecPushFailureExitsNonzero(t *testing.T) {
 	if code, _, errs := run("create", "--src", project, "--config", cfg); code != 0 {
 		t.Fatalf("create: %d %s", code, errs)
 	}
-	// Replace the origin's parent directory (depRoot/sub) with a regular file:
-	// the copy-back's MkdirAll(parent-of-origin) then fails with ENOTDIR — a
-	// perms-independent way to fail the push (works even when tests run as root).
-	if err := os.RemoveAll(filepath.Join(depRoot, "sub")); err != nil {
+	// Replace the manifest file with a directory: the copy-back's manifest read
+	// then fails with EISDIR — a perms-independent way to fail the push (works
+	// even when tests run as root). (Sabotaging the origin no longer fails the
+	// push: a changed/unreadable origin is now SKIPped by the safe default.)
+	mf := filepath.Join(project, ".sandboxer", "_meta", "feat.manifest.json")
+	if err := os.RemoveAll(mf); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(depRoot, "sub"), []byte("blocker\n"), 0o644); err != nil {
+	if err := os.Mkdir(mf, 0o755); err != nil {
 		t.Fatal(err)
 	}
 

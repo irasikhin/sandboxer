@@ -3,14 +3,19 @@
 // under the roots and pulls it into the sandbox (CopyIn), then pushes the
 // read-write copies back over their origins (CopyOut).
 //
-// The copy semantics mirror the depsync reference script:
-//   - pull KEEPs a target that already exists (unless --force);
-//   - push always overwrites the origin (no signature/skip protection);
+// The copy semantics mirror the depsync reference script, with one safety
+// addition on top:
+//   - pull KEEPs a target that already exists (unless --force) and records a
+//     signature of each origin in the manifest;
+//   - push SKIPs an origin that changed on the host since that pull (unless
+//     --force), so an out-of-band host edit is never silently overwritten;
 //   - copy replaces the destination wholesale and preserves symlinks, file
 //     modes and mtimes.
 package srcs
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -28,12 +33,30 @@ type Profile struct {
 	Deps  []string `json:"deps"`
 }
 
-// ManifestEntry records one copied target so a later push can find its origin
-// (like depsync's manifest; no signatures are kept).
+// ManifestEntry records one copied target so a later push can find its origin.
+// OriginSig is the origin's signature at pull time (rw entries only): push
+// compares it against the live origin and skips on mismatch, so host edits made
+// after the pull are never silently overwritten.
 type ManifestEntry struct {
 	Mode        string `json:"mode"`
 	Origin      string `json:"origin"`
 	SandboxPath string `json:"sandboxPath"`
+	OriginSig   string `json:"originSig,omitempty"`
+}
+
+// PullOpts parameterizes CopyIn.
+type PullOpts struct {
+	ProfileFile  string // resolved profile JSON (roots+deps)
+	SandboxDir   string
+	ManifestFile string
+	Force        bool // overwrite sandbox targets that already exist
+	InContainer  bool // in-container pull: host roots aren't mounted (see resolveDeps)
+}
+
+// PushOpts parameterizes CopyOut.
+type PushOpts struct {
+	DryRun bool // report only, touch nothing
+	Force  bool // overwrite origins even when they changed on the host since pull
 }
 
 // target is a flattened copy job: origin -> dest with a mode.
@@ -225,6 +248,49 @@ func copyFile(src, dst string, perm os.FileMode, mtime time.Time) error {
 	return os.Chtimes(dst, mtime, mtime)
 }
 
+// originSignature fingerprints an origin tree cheaply (lstat only, no content
+// reads): a sha256 over every entry's relpath plus its mode, and for regular
+// files the size and mtime, for symlinks the target — in WalkDir's
+// deterministic sorted order. copyEntry preserves modes and mtimes, so a
+// pull/push round-trip leaves the signature stable, while any realistic host
+// edit (content, adds, deletes, renames) changes it. A pathological
+// mtime-preserving edit escapes detection — push --force is the escape hatch.
+// Directories contribute only relpath+mode: their size/mtime are fs noise, and
+// membership changes already show up as child entries.
+func originSignature(root string) (string, error) {
+	h := sha256.New()
+	err := filepath.WalkDir(root, func(p string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, rerr := filepath.Rel(root, p)
+		if rerr != nil {
+			return rerr
+		}
+		fi, ierr := d.Info()
+		if ierr != nil {
+			return ierr
+		}
+		switch {
+		case fi.Mode()&os.ModeSymlink != 0:
+			link, lerr := os.Readlink(p)
+			if lerr != nil {
+				return lerr
+			}
+			fmt.Fprintf(h, "%s\x00%v\x00%s\n", rel, fi.Mode(), link)
+		case fi.IsDir():
+			fmt.Fprintf(h, "%s\x00%v\n", rel, fi.Mode())
+		default:
+			fmt.Fprintf(h, "%s\x00%v\x00%d\x00%d\n", rel, fi.Mode(), fi.Size(), fi.ModTime().UnixNano())
+		}
+		return nil
+	})
+	if err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(h.Sum(nil)), nil
+}
+
 // readManifest loads a manifest. A missing file is not an error (it reads as an
 // empty manifest), but a present-but-corrupt file is reported so a push can't
 // silently no-op and claim success.
@@ -243,7 +309,10 @@ func readManifest(file string) ([]ManifestEntry, error) {
 	return m, nil
 }
 
-// writeManifest writes the manifest as indented JSON.
+// writeManifest writes the manifest as indented JSON — in place via
+// os.WriteFile, NEVER an atomic rename: in-container the manifest is a
+// single-file bind mount, and replacing the inode would detach it from the
+// host file.
 func writeManifest(file string, m []ManifestEntry) error {
 	if m == nil {
 		m = []ManifestEntry{}
@@ -255,12 +324,13 @@ func writeManifest(file string, m []ManifestEntry) error {
 	return os.WriteFile(file, data, 0o644)
 }
 
-// CopyIn pulls a profile's deps into sandboxDir and writes a manifest to
-// manifestOut. A target that already exists is KEPT untouched unless force is
-// set, in which case it is overwritten. Progress is reported to w. inContainer
-// marks an in-container pull, where host roots aren't mounted (see resolveDeps).
-func CopyIn(w io.Writer, profileFile, sandboxDir, manifestOut string, force, inContainer bool) error {
-	data, err := os.ReadFile(profileFile)
+// CopyIn pulls a profile's deps into the sandbox and writes a manifest. A
+// target that already exists is KEPT untouched unless Force is set, in which
+// case it is overwritten. Each copied rw origin's signature is recorded in the
+// manifest (a kept target carries its previous signature forward), so a later
+// push can detect host edits. Progress is reported to w.
+func CopyIn(w io.Writer, o PullOpts) error {
+	data, err := os.ReadFile(o.ProfileFile)
 	if err != nil {
 		return err
 	}
@@ -269,18 +339,40 @@ func CopyIn(w io.Writer, profileFile, sandboxDir, manifestOut string, force, inC
 		return err
 	}
 
-	targets := resolveDeps(profile, sandboxDir, w, inContainer)
+	targets := resolveDeps(profile, o.SandboxDir, w, o.InContainer)
+
+	// Previous signatures, carried forward for KEPT targets: a keep leaves the
+	// sandbox copy at its old sync point, so blessing the CURRENT origin state
+	// would let push silently overwrite host edits made before this pull.
+	prevSig := map[string]string{}
+	if prev, err := readManifest(o.ManifestFile); err == nil {
+		for _, e := range prev {
+			prevSig[e.Origin+"\x00"+e.SandboxPath] = e.OriginSig
+		}
+	}
 
 	manifest := []ManifestEntry{}
 	pulled, kept := 0, 0
 	for _, t := range targets {
 		entry := ManifestEntry{Mode: t.Mode, Origin: t.Origin, SandboxPath: t.Dest}
-		if exists(t.Dest) && !force {
-			rel, err := filepath.Rel(sandboxDir, t.Dest)
-			if err != nil {
-				rel = t.Dest
-			}
+		rel, rerr := filepath.Rel(o.SandboxDir, t.Dest)
+		if rerr != nil {
+			rel = t.Dest
+		}
+		// In-container the matched "origin" can be the sandbox copy itself (the
+		// sandbox dir is the cwd and thus a search root): copying it onto itself
+		// would destroy it (copyEntry removes dst first), so it is always KEPT —
+		// --force included.
+		if t.Origin == t.Dest {
+			fmt.Fprintf(w, "  KEEP  %s — origin is the sandbox copy itself\n", rel)
+			entry.OriginSig = prevSig[t.Origin+"\x00"+t.Dest]
+			manifest = append(manifest, entry)
+			kept++
+			continue
+		}
+		if exists(t.Dest) && !o.Force {
 			fmt.Fprintf(w, "  KEEP  %s — already exists (use --force to overwrite)\n", rel)
+			entry.OriginSig = prevSig[t.Origin+"\x00"+t.Dest]
 			manifest = append(manifest, entry)
 			kept++
 			continue
@@ -288,11 +380,18 @@ func CopyIn(w io.Writer, profileFile, sandboxDir, manifestOut string, force, inC
 		if err := copyEntry(t.Origin, t.Dest); err != nil {
 			return err
 		}
+		if t.Mode == "rw" {
+			// Best-effort: an unreadable origin leaves the signature empty, which
+			// push treats as "changed" — the safe direction.
+			if sig, serr := originSignature(t.Origin); serr == nil {
+				entry.OriginSig = sig
+			}
+		}
 		manifest = append(manifest, entry)
 		pulled++
 	}
 
-	if err := writeManifest(manifestOut, manifest); err != nil {
+	if err := writeManifest(o.ManifestFile, manifest); err != nil {
 		return err
 	}
 
@@ -308,19 +407,23 @@ func CopyIn(w io.Writer, profileFile, sandboxDir, manifestOut string, force, inC
 }
 
 // CopyOut pushes the rw entries of a manifest from the sandbox back over their
-// origins, always overwriting (like depsync's push). An entry whose sandbox
-// copy is missing is skipped. When dryRun is true, the changes are only
-// reported — no files are touched. Progress is reported to w.
-func CopyOut(w io.Writer, manifestFile string, dryRun bool) error {
+// origins. By default an origin whose signature no longer matches the one
+// recorded at pull time (or that has none) is SKIPped — a host edit made after
+// the pull is never silently overwritten; Force restores the old wholesale
+// overwrite. After a real push each pushed entry's signature is refreshed in
+// the manifest. An entry whose sandbox copy is missing is skipped. When DryRun
+// is set, the changes are only reported — no files are touched. Progress is
+// reported to w.
+func CopyOut(w io.Writer, manifestFile string, o PushOpts) error {
 	manifest, err := readManifest(manifestFile)
 	if err != nil {
 		return err
 	}
 	action := "PUSH"
-	if dryRun {
+	if o.DryRun {
 		action = "WOULD-PUSH"
 	}
-	back, missing := 0, 0
+	back, missing, changed := 0, 0, 0
 	for i := range manifest {
 		e := &manifest[i]
 		if e.Mode != "rw" {
@@ -331,21 +434,46 @@ func CopyOut(w io.Writer, manifestFile string, dryRun bool) error {
 			missing++
 			continue
 		}
+		if !o.Force {
+			// A signature error (origin unreadable/deleted) reads as "changed":
+			// skipping is the safe direction, and --force still pushes.
+			cur, serr := originSignature(e.Origin)
+			if serr != nil || e.OriginSig == "" || cur != e.OriginSig {
+				fmt.Fprintf(w, "  SKIP  %s — changed on the host since pull (push --force overwrites)\n", e.Origin)
+				changed++
+				continue
+			}
+		}
 		fmt.Fprintf(w, "  %s %s -> %s\n", action, e.SandboxPath, e.Origin)
-		if !dryRun {
+		if !o.DryRun {
 			if err := copyEntry(e.SandboxPath, e.Origin); err != nil {
 				return err
+			}
+			// The freshly written origin is the new sync point.
+			if sig, serr := originSignature(e.Origin); serr == nil {
+				e.OriginSig = sig
 			}
 		}
 		back++
 	}
+	if !o.DryRun && back > 0 {
+		// In-place rewrite (writeManifest uses os.WriteFile, never a rename):
+		// in-container the manifest is a single-file bind mount, and a rename
+		// would detach it from the host file.
+		if err := writeManifest(manifestFile, manifest); err != nil {
+			return err
+		}
+	}
 
 	tail := ""
 	if missing > 0 {
-		tail = fmt.Sprintf(" (%d missing)", missing)
+		tail += fmt.Sprintf(" (%d missing)", missing)
+	}
+	if changed > 0 {
+		tail += fmt.Sprintf(" (%d skipped: changed on the host)", changed)
 	}
 	summary := fmt.Sprintf("push: %d rw entries restored%s", back, tail)
-	if dryRun {
+	if o.DryRun {
 		summary = fmt.Sprintf("push (dry-run): %d rw entries would be restored%s", back, tail)
 	}
 	fmt.Fprintln(w, summary)
