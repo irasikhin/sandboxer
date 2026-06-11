@@ -35,6 +35,54 @@ commit messages with that in mind. See [CONTRIBUTING.md](./CONTRIBUTING.md).
 > with an `image:` section is rejected by older sandboxer binaries — upgrade
 > every machine sharing the profile before adopting it.
 
+## [0.21.0] — 2026-06-11
+
+### Added
+
+- add stable-ID sidecar variant with lookup, stop and start (829b5e0)
+- bake tmux and shipped tmux.conf into the image (340d925)
+- session lifecycle state machine and executor (6bb3e6e)
+- persistent enter with tmux attach and session-aware exec (c0830ed)
+- stop command and session-aware rm, list, show, doctor (bfde109)
+- print create+exec pair for persistent sessions (a882968)
+- expose embedded flake revs with pin-sync guard (68fd1a9)
+- image spec section with extraPkgs, nix hook and pin overrides (c937ab4)
+- content-addressed variant images with user nix contract (72352d6)
+- resolvable latest pins with cached stamps and build-image rev flags (c0fcc1e)
+- recreate persistent sessions when the image is rebuilt (7ad1ee3)
+
+### Fixed
+
+- remove branch filter — fire on all pushes and PRs (59df22a)
+- carry setup, tools, mcp and proxy.upstream through profile merge (c284039)
+- address swarm review findings (cd71ab3)
+- address image-feature review findings (ffb6cd7)
+
+### Refactored
+
+- factor argv builders, add session naming and config hash (c63fb92)
+
+### Docs
+
+- sessions design record and README delta (640de00)
+- image customization reference and examples (da71008)
+- retire actions references in README, CONTRIBUTING and pre-commit (d179ea4)
+
+### Tests
+
+- session lifecycle integration coverage (70f7098)
+
+### CI
+
+- port nix flake-check lane from dead act_runner (2ff9cd4)
+- port test, lint, commits and release lanes from retired actions (a93f885)
+- drop commits lane — netrc is clone-only, private repo can't fetch from lanes (057a58f)
+
+### Chores
+
+- retire .github/workflows — Woodpecker is now the CI (2122d94)
+
+
 ## [0.20.1] — 2026-06-10
 
 ### Fixed
@@ -376,3 +424,4 @@ commit messages with that in mind. See [CONTRIBUTING.md](./CONTRIBUTING.md).
 [0.19.0]: https://github.com/irasikhin/sandboxer/compare/v0.18.3...v0.19.0
 [0.20.0]: https://github.com/irasikhin/sandboxer/compare/v0.19.0...v0.20.0
 [0.20.1]: https://github.com/irasikhin/sandboxer/compare/v0.20.0...v0.20.1
+[0.21.0]: https://github.com/irasikhin/sandboxer/compare/v0.20.1...v0.21.0
