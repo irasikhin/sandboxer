@@ -47,7 +47,7 @@ jobs:
       # .golangci.yml is golangci-lint v2 config; Woodpecker pinned the binary
       # at v2.1.6. golangci-lint-action v8 supports golangci-lint >= v2.1.0 and
       # accepts a full patch version in its default binary install mode.
-      - uses: golangci/golangci-lint-action@v8
+      - uses: golangci/golangci-lint-action@v9
         with:
           version: v2.1.6
 
