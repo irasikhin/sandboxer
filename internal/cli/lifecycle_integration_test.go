@@ -54,7 +54,7 @@ func TestLifecycle_CreateDiffPush(t *testing.T) {
 	if code, out, errs := run("create", "--src", project, "--config", cfg); code != 0 {
 		t.Fatalf("create = %d\nout: %s\nerr: %s", code, out, errs)
 	}
-	sandboxFile := filepath.Join(project, ".sandboxer", "feat", "mylib", "d.txt")
+	sandboxFile := filepath.Join(project, ".sandboxer", "feat", "workspace", "mylib", "d.txt")
 	if b, err := os.ReadFile(sandboxFile); err != nil || string(b) != "v1\n" {
 		t.Fatalf("dep not vendored: got %q err %v", b, err)
 	}
@@ -99,7 +99,7 @@ func TestLifecycle_Container_ExecPush(t *testing.T) {
 	if code, out, errs := run("create", "--src", project, "--config", cfg); code != 0 {
 		t.Fatalf("create = %d\nout: %s\nerr: %s", code, out, errs)
 	}
-	if code, out, errs := run("exec", "feat", "--src", project, "--", "sh", "-c", "printf C0NTAINED > mylib/d.txt"); code != 0 {
+	if code, out, errs := run("exec", "feat", "--src", project, "--", "sh", "-c", "printf C0NTAINED > workspace/mylib/d.txt"); code != 0 {
 		t.Fatalf("exec = %d\nout: %s\nerr: %s", code, out, errs)
 	}
 	if b, _ := os.ReadFile(originFile); string(b) != "C0NTAINED" {

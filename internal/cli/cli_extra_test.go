@@ -297,7 +297,7 @@ func TestRunProfileFlow(t *testing.T) {
 	if code, out, errs := run("create", "--src", project, "--config", cfg); code != 0 || !strings.Contains(out, "created") {
 		t.Fatalf("create with profile = (%d, %q, %q)", code, out, errs)
 	}
-	if _, err := os.Stat(filepath.Join(project, ".sandboxer", "feat2", "lib", "dep.txt")); err != nil {
+	if _, err := os.Stat(filepath.Join(project, ".sandboxer", "feat2", "workspace", "lib", "dep.txt")); err != nil {
 		t.Errorf("dependency not pulled: %v", err)
 	}
 	if code, _, errs := run("pull", "--src", project, "--config", cfg); code != 0 {

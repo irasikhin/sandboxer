@@ -59,6 +59,11 @@ type PushOpts struct {
 	Force  bool // overwrite origins even when they changed on the host since pull
 }
 
+// WorkspaceDir is the sandbox subdirectory the deps are vendored into. It
+// keeps the working data apart from the sandbox root, which stays free for
+// sandbox-level files (e.g. agent context like CLAUDE.md).
+const WorkspaceDir = "workspace"
+
 // target is a flattened copy job: origin -> dest with a mode.
 type target struct {
 	Origin string
@@ -99,8 +104,8 @@ func walkAt(root string, depth, cur int, fn func(path string)) {
 
 // resolveDeps turns the roots+deps config into copy jobs: each dep is searched
 // (by path suffix) under every root — the cwd is always an implicit last root —
-// and the first match is copied to <sandbox>/<dep>. Not-found and multi-match
-// are reported to w. When inContainer
+// and the first match is copied to <sandbox>/workspace/<dep>. Not-found and
+// multi-match are reported to w. When inContainer
 // is set, roots that aren't visible on this filesystem trigger an upfront hint —
 // host roots aren't bind-mounted into the sandbox, so an in-container pull can
 // only refresh deps already vendored on the host.
@@ -108,6 +113,7 @@ func resolveDeps(p Profile, sandboxDir string, w io.Writer, inContainer bool) []
 	if len(p.Deps) == 0 {
 		return nil
 	}
+	ws := filepath.Join(sandboxDir, WorkspaceDir)
 	// The cwd is ALWAYS a search root, appended after the explicit roots (which
 	// win the deterministic first-match) — so a project profile can list deps
 	// from the project itself without any roots: stanza. Dedup by absolute path
@@ -125,11 +131,12 @@ func resolveDeps(p Profile, sandboxDir string, w io.Writer, inContainer bool) []
 	warnUnmountedRoots(w, roots, inContainer)
 	var out []target
 	for _, dep := range p.Deps {
-		dest := absJoin(sandboxDir, dep)
+		dest := absJoin(ws, dep)
 		// Never let a dep (absolute, or one with ../ segments) land outside the
-		// sandbox — that would have copy_in write over arbitrary host paths.
-		if !within(sandboxDir, dest) {
-			fmt.Fprintf(w, "  SKIP  %s — refusing to copy outside the sandbox (absolute or ../ path)\n", dep)
+		// workspace dir — that would have copy_in write over arbitrary host
+		// paths, or clobber sandbox-root files like the agent context.
+		if !within(ws, dest) {
+			fmt.Fprintf(w, "  SKIP  %s — refusing to copy outside the sandbox workspace (absolute or ../ path)\n", dep)
 			continue
 		}
 		matches := searchDep(roots, dep)
@@ -357,8 +364,16 @@ func CopyIn(w io.Writer, o PullOpts) error {
 	// would let push silently overwrite host edits made before this pull.
 	prevSig := map[string]string{}
 	if prev, err := readManifest(o.ManifestFile); err == nil {
+		ws := filepath.Join(o.SandboxDir, WorkspaceDir)
+		oldLayout := false
 		for _, e := range prev {
 			prevSig[e.Origin+"\x00"+e.SandboxPath] = e.OriginSig
+			oldLayout = oldLayout || (e.Mode == "rw" && !within(ws, e.SandboxPath))
+		}
+		// A pre-workspace manifest vendored deps at the sandbox root; those
+		// stale copies are not cleaned up here — point at recreate once.
+		if oldLayout {
+			fmt.Fprintf(w, "  NOTE  deps now land under %s/ — this sandbox still has the old flat layout; run `sandboxer recreate` to rebuild it cleanly\n", WorkspaceDir)
 		}
 	}
 

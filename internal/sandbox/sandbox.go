@@ -201,7 +201,9 @@ func (b *Base) SetDomains(domains string) error {
 // srcs pull is written to w.
 func (b *Base) MakeSandbox(slug string, w io.Writer) error {
 	dest := b.SandboxDir(slug)
-	if err := os.MkdirAll(dest, 0o755); err != nil {
+	// The workspace dir is created even for a deps-less sandbox, so agents
+	// always have the same predictable place to work in.
+	if err := os.MkdirAll(filepath.Join(dest, srcs.WorkspaceDir), 0o755); err != nil {
 		return err
 	}
 	if err := b.EnsureHome(slug); err != nil {

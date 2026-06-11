@@ -34,7 +34,7 @@ network:
 # resolve on either engine.
 
 # Search roots and the deps to find under them (matched by path suffix, copied
-# flat to <sandbox>/<dep>; rw entries are pushed back on `sandboxer push`).
+# flat to <sandbox>/workspace/<dep>; rw entries are pushed back on `sandboxer push`).
 # The current directory is always searched as an implicit last root; explicit
 # roots win when a dep matches under both.
 roots:

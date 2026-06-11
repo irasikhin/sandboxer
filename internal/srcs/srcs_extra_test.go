@@ -9,7 +9,8 @@ import (
 )
 
 func TestDepsSearchAndLayout(t *testing.T) {
-	// Two roots; a dep matched by path SUFFIX lands flat at <sandbox>/<dep>.
+	// Two roots; a dep matched by path SUFFIX lands flat at
+	// <sandbox>/workspace/<dep>.
 	base := t.TempDir()
 	rootA := filepath.Join(base, "a")
 	rootB := filepath.Join(base, "b")
@@ -30,11 +31,11 @@ func TestDepsSearchAndLayout(t *testing.T) {
 	if err := CopyIn(&out, PullOpts{ProfileFile: pf, SandboxDir: sandbox, ManifestFile: manifest}); err != nil {
 		t.Fatalf("CopyIn: %v", err)
 	}
-	// Suffix match → flat layout at <sandbox>/<dep>.
-	if got := readFile(t, filepath.Join(sandbox, "src", "lib", "util.go")); got != "deep\n" {
+	// Suffix match → flat layout at <sandbox>/workspace/<dep>.
+	if got := readFile(t, filepath.Join(sandbox, WorkspaceDir, "src", "lib", "util.go")); got != "deep\n" {
 		t.Errorf("dep landed wrong: %q", got)
 	}
-	if got := readFile(t, filepath.Join(sandbox, "config.yaml")); got != "cfg\n" {
+	if got := readFile(t, filepath.Join(sandbox, WorkspaceDir, "config.yaml")); got != "cfg\n" {
 		t.Errorf("dep from second root: %q", got)
 	}
 	// Not-found dep is reported, .git is skipped (so no util.go from .git won).
@@ -61,7 +62,7 @@ func TestDepsMultiMatchAndDefaultRoot(t *testing.T) {
 	if !strings.Contains(out.String(), "WARN") {
 		t.Errorf("expected WARN for multiple matches, got: %q", out.String())
 	}
-	if !exists(filepath.Join(sandbox, "x.txt")) {
+	if !exists(filepath.Join(sandbox, WorkspaceDir, "x.txt")) {
 		t.Error("dep not copied from the default (cwd) root")
 	}
 }
@@ -96,8 +97,12 @@ func TestCopyInRefusesEscapingDep(t *testing.T) {
 	if exists(filepath.Join(base, "escape.txt")) {
 		t.Error("../escape.txt was created outside the sandbox")
 	}
-	// The legitimate (in-sandbox) dep still lands.
-	if got := readFile(t, filepath.Join(sandbox, "etc", "hosts")); got != "rootfile\n" {
+	// A ../ dep must not land at the sandbox ROOT either (workspace escape).
+	if exists(filepath.Join(sandbox, "escape.txt")) {
+		t.Error("../escape.txt escaped the workspace into the sandbox root")
+	}
+	// The legitimate (in-workspace) dep still lands.
+	if got := readFile(t, filepath.Join(sandbox, WorkspaceDir, "etc", "hosts")); got != "rootfile\n" {
 		t.Errorf("legit dep not copied: %q", got)
 	}
 }

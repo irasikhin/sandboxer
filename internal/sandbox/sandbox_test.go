@@ -319,8 +319,8 @@ func TestPullDepsCorruptProfile(t *testing.T) {
 	}
 }
 
-// TestMakeSandboxEmpty: with no profile, nothing is copied — just the empty
-// sandbox dir and registration.
+// TestMakeSandboxEmpty: with no profile, nothing is copied — just the sandbox
+// dir with an empty workspace/ and the registration.
 func TestMakeSandboxEmpty(t *testing.T) {
 	b, err := ResolveBase(t.TempDir())
 	if err != nil {
@@ -333,9 +333,15 @@ func TestMakeSandboxEmpty(t *testing.T) {
 	if fi, err := os.Stat(dest); err != nil || !fi.IsDir() {
 		t.Errorf("sandbox dir not created: %v", err)
 	}
+	if fi, err := os.Stat(filepath.Join(dest, "workspace")); err != nil || !fi.IsDir() {
+		t.Errorf("workspace dir not created: %v", err)
+	}
 	entries, _ := os.ReadDir(dest)
-	if len(entries) != 0 {
-		t.Errorf("sandbox should be empty without srcs, has %d entries", len(entries))
+	if len(entries) != 1 { // only workspace/
+		t.Errorf("sandbox should hold only workspace/ without srcs, has %d entries", len(entries))
+	}
+	if ws, _ := os.ReadDir(filepath.Join(dest, "workspace")); len(ws) != 0 {
+		t.Errorf("workspace should be empty without srcs, has %d entries", len(ws))
 	}
 	if _, err := os.Stat(b.ManifestPath("feat")); !os.IsNotExist(err) {
 		t.Error("no manifest should be written when there is no profile")

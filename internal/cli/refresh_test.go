@@ -43,7 +43,7 @@ func TestPullRefreshesSnapshot(t *testing.T) {
 	if code, _, errs := run("create", "feat"); code != 0 {
 		t.Fatalf("create: %d %s", code, errs)
 	}
-	if _, err := os.Stat(filepath.Join(project, ".sandboxer", "feat", "lib")); err == nil {
+	if _, err := os.Stat(filepath.Join(project, ".sandboxer", "feat", "workspace", "lib")); err == nil {
 		t.Fatal("lib should not be vendored before it is listed")
 	}
 
@@ -53,7 +53,7 @@ func TestPullRefreshesSnapshot(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("pull: %d %s", code, errs)
 	}
-	vendored := filepath.Join(project, ".sandboxer", "feat", "lib", "util.txt")
+	vendored := filepath.Join(project, ".sandboxer", "feat", "workspace", "lib", "util.txt")
 	if got, err := os.ReadFile(vendored); err != nil || string(got) != "v1\n" {
 		t.Fatalf("dep not vendored after pull: out=%q err=%v", out, err)
 	}
@@ -109,7 +109,7 @@ func TestFlatProfileReloadsOnReenter(t *testing.T) {
 	if code, _, errs := run("pull", "feat"); code != 0 {
 		t.Fatalf("pull: %d %s", code, errs)
 	}
-	if _, err := os.Stat(filepath.Join(project, ".sandboxer", "feat", "lib", "util.txt")); err != nil {
+	if _, err := os.Stat(filepath.Join(project, ".sandboxer", "feat", "workspace", "lib", "util.txt")); err != nil {
 		t.Errorf("flat-file edit was not picked up on re-enter: %v", err)
 	}
 }
@@ -157,14 +157,14 @@ func TestEnterExecRefreshVendorsNewDeps(t *testing.T) {
 	if code, _, _ := run("enter", "en", "--backend", "native"); code != 1 {
 		t.Errorf("enter with invalid backend exit = %d, want 1", code)
 	}
-	if _, err := os.Stat(filepath.Join(project, ".sandboxer", "en", "lib", "util.txt")); err != nil {
+	if _, err := os.Stat(filepath.Join(project, ".sandboxer", "en", "workspace", "lib", "util.txt")); err != nil {
 		t.Errorf("enter did not vendor the new dep: %v", err)
 	}
 
 	if code, _, _ := run("exec", "ex", "--backend", "native", "--", "true"); code != 1 {
 		t.Errorf("exec with invalid backend exit = %d, want 1", code)
 	}
-	if _, err := os.Stat(filepath.Join(project, ".sandboxer", "ex", "lib", "util.txt")); err != nil {
+	if _, err := os.Stat(filepath.Join(project, ".sandboxer", "ex", "workspace", "lib", "util.txt")); err != nil {
 		t.Errorf("exec did not vendor the new dep: %v", err)
 	}
 }

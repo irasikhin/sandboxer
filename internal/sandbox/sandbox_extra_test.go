@@ -33,11 +33,11 @@ func TestMakeSandboxWithProfile(t *testing.T) {
 		t.Fatalf("MakeSandbox: %v", err)
 	}
 	dest := b.SandboxDir("feat")
-	if _, err := os.Stat(filepath.Join(dest, "lib", "dep.txt")); err != nil {
-		t.Errorf("dependency not vendored into sandbox: %v", err)
+	if _, err := os.Stat(filepath.Join(dest, "workspace", "lib", "dep.txt")); err != nil {
+		t.Errorf("dependency not vendored into the sandbox workspace: %v", err)
 	}
 	// main.txt is not a dep → must not be copied.
-	if _, err := os.Stat(filepath.Join(dest, "main.txt")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(dest, "workspace", "main.txt")); !os.IsNotExist(err) {
 		t.Error("non-dep file should not be copied into the sandbox")
 	}
 	if _, err := os.Stat(b.ManifestPath("feat")); err != nil {

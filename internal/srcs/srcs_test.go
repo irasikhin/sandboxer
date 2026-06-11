@@ -56,7 +56,7 @@ func TestRoundTrip(t *testing.T) {
 	if err := CopyIn(&out, PullOpts{ProfileFile: pf, SandboxDir: sandbox, ManifestFile: manifest}); err != nil {
 		t.Fatalf("CopyIn: %v", err)
 	}
-	dest := filepath.Join(sandbox, "pkg", "file.txt")
+	dest := filepath.Join(sandbox, WorkspaceDir, "pkg", "file.txt")
 	if got := readFile(t, dest); got != "original\n" {
 		t.Fatalf("dest after pull = %q, want original", got)
 	}
@@ -81,7 +81,7 @@ func TestPullKeepPushOverwrite(t *testing.T) {
 
 	sandbox := filepath.Join(base, "sandbox")
 	manifest := filepath.Join(base, "manifest.json")
-	dest := filepath.Join(sandbox, "pkg", "file.txt")
+	dest := filepath.Join(sandbox, WorkspaceDir, "pkg", "file.txt")
 
 	profile := Profile{Roots: []string{root}, Deps: []string{"pkg"}}
 	pf := writeProfile(t, base, profile)
@@ -150,7 +150,7 @@ func TestPushSigRefresh(t *testing.T) {
 	writeFile(t, originFile, "v1\n")
 	sandbox := filepath.Join(base, "sandbox")
 	manifest := filepath.Join(base, "manifest.json")
-	dest := filepath.Join(sandbox, "pkg", "file.txt")
+	dest := filepath.Join(sandbox, WorkspaceDir, "pkg", "file.txt")
 	pf := writeProfile(t, base, Profile{Roots: []string{root}, Deps: []string{"pkg"}})
 	pull := PullOpts{ProfileFile: pf, SandboxDir: sandbox, ManifestFile: manifest}
 
@@ -198,7 +198,7 @@ func TestPushSigRefresh(t *testing.T) {
 // it (copyEntry removes the destination first).
 func TestPullSelfOriginKept(t *testing.T) {
 	sandbox := t.TempDir()
-	writeFile(t, filepath.Join(sandbox, "pkg", "file.txt"), "vendored\n")
+	writeFile(t, filepath.Join(sandbox, WorkspaceDir, "pkg", "file.txt"), "vendored\n")
 	manifest := filepath.Join(t.TempDir(), "m.json")
 	pf := writeProfile(t, t.TempDir(), Profile{Roots: []string{sandbox}, Deps: []string{"pkg"}})
 
@@ -209,7 +209,7 @@ func TestPullSelfOriginKept(t *testing.T) {
 	if !strings.Contains(out.String(), "origin is the sandbox copy") {
 		t.Errorf("expected the self-origin KEEP, got: %q", out.String())
 	}
-	if got := readFile(t, filepath.Join(sandbox, "pkg", "file.txt")); got != "vendored\n" {
+	if got := readFile(t, filepath.Join(sandbox, WorkspaceDir, "pkg", "file.txt")); got != "vendored\n" {
 		t.Errorf("self-origin pull destroyed the copy: %q", got)
 	}
 }

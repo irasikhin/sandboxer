@@ -40,7 +40,7 @@ Key invariants (`internal/sandbox`):
 
 - The **`<slug>/` working dir holds only the listed `deps`** — nothing is copied
   by default, and no git is involved. Each `dep` is located by path-suffix under
-  the profile's `roots` and copied flat to `<slug>/<dep>`.
+  the profile's `roots` and copied flat to `<slug>/workspace/<dep>`.
 - **`_home/<slug>` lives outside `<slug>/`** deliberately, so the agent's `$HOME`
   is never swept up by `push` and copied back over a `dep` origin. It is `0700`
   because an in-sandbox `claude login` stores credentials there.

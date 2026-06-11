@@ -82,7 +82,7 @@ func TestRunDiffAndPush(t *testing.T) {
 	}
 
 	// Edit the pulled copy.
-	copyF := filepath.Join(project, ".sandboxer", "feat", "lib", "d.txt")
+	copyF := filepath.Join(project, ".sandboxer", "feat", "workspace", "lib", "d.txt")
 	if err := os.WriteFile(copyF, []byte("edited\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
