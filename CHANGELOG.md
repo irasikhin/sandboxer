@@ -6,6 +6,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.0] — 2026-06-11
+
 ### Added
 
 - A **direnv hook**: `sandboxer hook direnv` prints the active sandbox as
@@ -27,6 +29,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   image revisions while a project adds its own packages. A profile name resolves
   project → global → the named-profile store. `roots:`/`deps:` are
   project-specific and discouraged at global scope.
+- **`sandboxer recreate [--full]`** — rebuild a sandbox from its profile in
+  one step: the working copy, manifest and setup stamp are wiped (setup re-runs
+  on the next enter) and deps are pulled fresh. The private agent home —
+  logins, shell history — is preserved; `--full` wipes it too, making recreate
+  equivalent to `rm` + `create`. (6050cf9)
+- **Safe push**: `pull` records a signature of each rw origin in the manifest,
+  and `push` — including the automatic copy-back after `enter`/`exec` — skips
+  any origin edited on the host since that pull instead of silently
+  overwriting it; `push --force` restores the wholesale overwrite. Also fixes
+  the in-container `pull --force` self-destruct: an origin that IS the sandbox
+  copy is kept, never copied onto itself. (af4d4ce)
+- The current directory is always searched as an **implicit last root**, so a
+  project-local dep needs no `roots:` stanza; explicit roots win the
+  deterministic first-match. (1638993)
+- **Agent context files**: `CLAUDE.md`, `AGENTS.md` and `.claude/` (those that
+  exist in the project root) are copied read-only to the sandbox root, so
+  agents see the project's instructions; a non-empty `context:` profile list
+  replaces the default set. Refreshed on `pull`, never pushed back. (9490dc3)
+- A **JSON Schema** for the profile (`schema/config.schema.json`), generated
+  from the same Go structs the strict parser uses; the scaffolded config opens
+  with a `yaml-language-server` header so editors flag typos before sandboxer
+  runs. (1f16586)
+- `doctor` (and `create`) warn when the repo's gitignore hides
+  `.sandboxer/config.yaml` — a root-level `.sandboxer/` rule defeats the
+  generated allowlist. (5d53d5c)
 
 ### Changed (BREAKING)
 
@@ -44,6 +71,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   ```sh
   mkdir -p .sandboxer && git mv .sandboxer.yaml .sandboxer/config.yaml && git mv sandbox-image.nix .sandboxer/image.nix
   ```
+- Deps are vendored under **`<sandbox>/workspace/`** instead of the sandbox
+  root, keeping the root free for the agent context files. Existing sandboxes
+  keep the old flat layout (a pull prints a NOTE) — run
+  `sandboxer recreate <slug>`; `setup:` scripts that `cd` into a dep need the
+  `workspace/` prefix. (fa602ec)
+- `push` no longer overwrites an origin edited on the host since the last pull
+  (use `push --force`). Manifests written by older versions carry no
+  signatures, so the first push after upgrading reports skips — re-pull or
+  `push --force` once. (af4d4ce)
 
 ## [0.22.1]
 
@@ -58,3 +94,4 @@ isolated, containerized dev sandbox, on a local Linux machine:
 - Egress allowlist enforced by a forward-proxy sidecar (fail-closed).
 - Persistent tmux sessions (detach / reattach) and per-profile custom images.
 - A batch runner that drives one agent per task across parallel sandboxes.
+[0.23.0]: https://github.com/irasikhin/sandboxer/compare/v0.22.1...v0.23.0
