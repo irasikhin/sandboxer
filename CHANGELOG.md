@@ -35,6 +35,13 @@ commit messages with that in mind. See [CONTRIBUTING.md](./CONTRIBUTING.md).
 > with an `image:` section is rejected by older sandboxer binaries — upgrade
 > every machine sharing the profile before adopting it.
 
+## [0.22.1] — 2026-06-11
+
+### Fixed
+
+- pin engine in rm/stop session tests so CI is host-independent (5dd081f)
+
+
 ## [0.22.0] — 2026-06-11
 
 ### Added
@@ -433,3 +440,4 @@ commit messages with that in mind. See [CONTRIBUTING.md](./CONTRIBUTING.md).
 [0.20.1]: https://github.com/irasikhin/sandboxer/compare/v0.20.0...v0.20.1
 [0.21.0]: https://github.com/irasikhin/sandboxer/compare/v0.20.1...v0.21.0
 [0.22.0]: https://github.com/irasikhin/sandboxer/compare/v0.21.0...v0.22.0
+[0.22.1]: https://github.com/irasikhin/sandboxer/compare/v0.22.0...v0.22.1
