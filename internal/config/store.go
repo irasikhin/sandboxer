@@ -29,6 +29,47 @@ func ProfilesDir() string {
 	return filepath.Join(home, ".config", "sandboxer", "profiles")
 }
 
+// GlobalConfigPath is the location of the optional global config — a full
+// Document (defaults: plus an optional profiles:) that merges UNDER the project
+// config. Resolution order mirrors ProfilesDir:
+//   - $SANDBOXER_CONFIG (explicit override);
+//   - $XDG_CONFIG_HOME/sandboxer/config.yaml;
+//   - ~/.config/sandboxer/config.yaml.
+//
+// It returns "" only when the home directory cannot be determined and no
+// override is set.
+func GlobalConfigPath() string {
+	if c := os.Getenv("SANDBOXER_CONFIG"); c != "" {
+		return c
+	}
+	if x := os.Getenv("XDG_CONFIG_HOME"); x != "" {
+		return filepath.Join(x, "sandboxer", "config.yaml")
+	}
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		return ""
+	}
+	return filepath.Join(home, ".config", "sandboxer", "config.yaml")
+}
+
+// LoadGlobalConfig reads the optional global config as a Document. It is a clean
+// no-op — (nil, nil) — when no path can be resolved (no home and no override) or
+// the file does not exist, so callers can always call it and merge only when a
+// non-nil document comes back.
+func LoadGlobalConfig() (*Document, error) {
+	path := GlobalConfigPath()
+	if path == "" {
+		return nil, nil
+	}
+	if _, err := os.Stat(path); err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return LoadDocument(path)
+}
+
 // ProfileRef is a discovered named profile: its effective name and file path.
 type ProfileRef struct {
 	Name string

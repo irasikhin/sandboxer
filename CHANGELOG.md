@@ -6,6 +6,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- An optional **global config** that merges *under* the project config. It is a
+  full document (`defaults:` plus an optional `profiles:` map) read from
+  `$SANDBOXER_CONFIG` → `$XDG_CONFIG_HOME/sandboxer/config.yaml` →
+  `~/.config/sandboxer/config.yaml`; an absent file is a clean no-op. Its
+  `defaults:` sit below the project's so the project always wins — effective
+  precedence is flags > project profile section > project defaults > GLOBAL
+  defaults > `SANDBOXER_*` env > built-in. The per-field merge reuses the
+  existing one (`env` key-wise, `image:` per field), so the global can pin the
+  image revisions while a project adds its own packages. A profile name resolves
+  project → global → the named-profile store. `roots:`/`deps:` are
+  project-specific and discouraged at global scope.
+
 ### Changed (BREAKING)
 
 - The project profile and the nix image hook now live under the sandboxer-owned
