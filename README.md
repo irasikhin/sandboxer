@@ -285,6 +285,47 @@ otherwise it stays a plain sandbox slug, so existing `create feat` usage is
 unchanged. `-f`/`--config` works the same on `create`, `enter`, `exec`, `show`
 and `run`.
 
+### Global config
+
+A **global config** lets you set defaults once for every project. It is a full
+document — a `defaults:` block plus an optional `profiles:` map, the same shape
+as a project `.sandboxer/config.yaml` — read from the first of:
+
+```
+$SANDBOXER_CONFIG                          # explicit override
+$XDG_CONFIG_HOME/sandboxer/config.yaml
+~/.config/sandboxer/config.yaml            # the default
+```
+
+It is **optional**: an absent file is a clean no-op. When present, its
+**`defaults:` merge UNDER the project's** — the project always wins. The
+effective precedence for a resolved profile is, high → low:
+
+```
+flags  >  project profile section  >  project defaults  >  GLOBAL defaults  >  SANDBOXER_* env  >  built-in
+```
+
+The merge is per field (`env` merges key-by-key, `image:` per field), so the
+global can pin the image revisions (`image.llmAgentsRev` / `image.nixpkgsRev`)
+while a project adds its own `image.extraPkgs` and both apply. A profile **name**
+resolves project → global → store: a name not found in the project config falls
+back to a `profiles:` entry in the global config, then to the named-profile
+store above.
+
+```yaml
+# ~/.config/sandboxer/config.yaml
+defaults:
+  agent: claude                 # every project's default agent
+  image:
+    llmAgentsRev: <40-hex>      # pin the toolbox flake inputs org-wide
+    nixpkgsRev:   <40-hex>
+```
+
+> **Keep `roots:`/`deps:` out of the global config.** They are project-specific
+> (deps are located by path suffix under your roots, per project), so a global
+> `defaults.roots`/`defaults.deps` is a foot-gun — it would copy the wrong tree
+> into every sandbox. Put roots/deps in the project `.sandboxer/config.yaml`.
+
 ## Egress allowlist (container backend)
 
 The agent sits on an `--internal` network with no direct outbound; its only exit

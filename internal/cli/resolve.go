@@ -58,7 +58,7 @@ type target struct {
 //	-f/--config FILE   → that file (the positional is kept as a slug override)
 //	-f/--config DIR    → the profile the positional names inside DIR
 //	-f/--config NAME   → a named profile from the global store
-//	positional NAME    → a named profile from the global store
+//	positional NAME    → a named profile: project config → global config → store
 //	positional *.yaml  → that file
 //	.sandboxer/config.yaml → auto-discovered in the cwd
 //
@@ -88,6 +88,14 @@ func resolveProfileFile(configPath, pos string) (string, string, error) {
 	// frozen snapshot.
 	if pos != "" && !isYAML(pos) && !inContainer() && config.FileHasProfile(config.ConfigPath(), pos) {
 		return config.ConfigPath(), pos, nil
+	}
+	// Then a same-named profile in the global config (under the project, above
+	// the profile store) — its section is selected via SelectWithGlobal in
+	// resolveTarget, so the global defaults still apply.
+	if pos != "" && !isYAML(pos) {
+		if gp := config.GlobalConfigPath(); gp != "" && config.FileHasProfile(gp, pos) {
+			return gp, pos, nil
+		}
 	}
 	if pos != "" && !isYAML(pos) {
 		file, err := config.FindProfile(config.ProfilesDir(), pos)
@@ -176,11 +184,18 @@ func resolveTarget(f commonFlags, pos string) (*target, error) {
 		if err != nil {
 			return nil, err
 		}
+		// The optional global config layers UNDER the project document: its
+		// defaults merge below the project's, and a profile name absent from the
+		// project falls back to the global's profiles: map (SelectWithGlobal).
+		global, err := config.LoadGlobalConfig()
+		if err != nil {
+			return nil, err
+		}
 		root = firstNonEmpty(f.src, getwd())
 		if doc.Multi() {
 			// Multi-profile file: the positional (or default:) names the section,
 			// and that section name is the slug.
-			p, err := doc.Select(pos)
+			p, err := doc.SelectWithGlobal(pos, global)
 			if err != nil {
 				return nil, err
 			}
@@ -188,7 +203,7 @@ func resolveTarget(f commonFlags, pos string) (*target, error) {
 			slug = p.Name
 		} else {
 			// Flat file: exactly one profile; the slug is its (file-derived) name.
-			p, err := doc.Select("")
+			p, err := doc.SelectWithGlobal("", global)
 			if err != nil {
 				return nil, err
 			}

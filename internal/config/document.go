@@ -39,16 +39,21 @@ func LoadDocument(file string) (*Document, error) {
 		return nil, err
 	}
 
-	// Probe (non-strict) for the multi-profile marker.
+	// Probe (non-strict) for the document markers. Either a `profiles:` map or a
+	// `defaults:` block puts the file in the multi/document form — the latter so a
+	// defaults-only file (the common shape of the global config, which contributes
+	// a base under the project with no profiles of its own) parses as a Document
+	// rather than failing strict parse as a flat Profile.
 	var probe struct {
 		Profiles map[string]yaml.Node `yaml:"profiles"`
+		Defaults yaml.Node            `yaml:"defaults"`
 	}
 	if err := yaml.Unmarshal(data, &probe); err != nil {
 		return nil, err
 	}
 
 	dir := filepath.Dir(file)
-	if probe.Profiles == nil {
+	if probe.Profiles == nil && probe.Defaults.IsZero() {
 		p, err := decodeProfile(data)
 		if err != nil {
 			return nil, err
@@ -114,6 +119,55 @@ func (d *Document) Select(name string) (*Profile, error) {
 		return nil, fmt.Errorf("no profile %q (have: %s)", name, d.names())
 	}
 	eff := mergeProfile(d.Defaults, sec)
+	eff.Name = name
+	return &eff, nil
+}
+
+// SelectWithGlobal resolves a profile the same way Select does, but layers the
+// project document OVER an optional global document so the project always wins.
+//
+// The effective base for the selected section is mergeProfile(global.Defaults,
+// project.Defaults) — global defaults sit UNDER the project defaults — and the
+// selected section merges on top of that. A nil global makes this exactly
+// Select(name).
+//
+// Named-profile resolution falls back project -> global: a name found in this
+// (project) document selects its section; a name absent here but present in the
+// global document's profiles: map selects the global section (still over the
+// composed defaults, so a project default still overrides a field the global
+// profile inherited). An empty name uses this document's default: (or its sole
+// profile), never the global's — the global layer is a base, not the thing
+// being selected.
+func (d *Document) SelectWithGlobal(name string, global *Document) (*Profile, error) {
+	if global == nil {
+		return d.Select(name)
+	}
+	base := mergeProfile(global.Defaults, d.Defaults)
+
+	if name == "" {
+		name = d.Default
+	}
+	if name == "" {
+		if len(d.Profiles) == 1 {
+			for k := range d.Profiles {
+				name = k
+			}
+		} else {
+			return nil, fmt.Errorf("name a profile (have: %s)", d.names())
+		}
+	}
+
+	sec, ok := d.Profiles[name]
+	if !ok {
+		// Fall back to a same-named profile in the global document.
+		if g, gok := global.Profiles[name]; gok {
+			sec = g
+		} else {
+			return nil, fmt.Errorf("no profile %q (have: %s)", name, d.names())
+		}
+	}
+
+	eff := mergeProfile(base, sec)
 	eff.Name = name
 	return &eff, nil
 }
