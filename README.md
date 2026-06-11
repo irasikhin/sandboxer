@@ -335,6 +335,44 @@ is an allowlist proxy that permits just the domains in `network.allowedDomains`
 in the profile or `SANDBOXER_NO_EGRESS=1`. A configured upstream proxy holds the
 boundary itself.
 
+## direnv
+
+`sandboxer hook direnv` surfaces the **active** sandbox (the one set by
+`sandboxer use <slug>`) to your host shell, so an `.envrc` — or any prompt /
+editor that reads the environment — knows which sandbox is selected for the
+project. It prints host-shell `export` lines for evaluation:
+
+```sh
+# .envrc
+eval "$(sandboxer hook direnv)"
+```
+
+or, with the bundled [direnv](https://direnv.net) helper (copy
+`contrib/direnv/use_sandboxer.sh` into `~/.config/direnv/direnvrc` once):
+
+```sh
+# .envrc
+use sandboxer
+```
+
+`use sandboxer` also `watch_file .sandboxer/_meta/current`, so direnv reloads
+the moment you switch the active sandbox with `sandboxer use <slug>`.
+
+What gets exported (only when a sandbox is active):
+
+| var | source |
+| --- | --- |
+| `SANDBOXER_SLUG` | the active sandbox slug |
+| `SANDBOXER_SRC` | the project root (absolute) |
+| `SANDBOXER_MODEL` | the recorded model, if any |
+| `SANDBOXER_BACKEND` | the recorded backend, if any |
+| `SANDBOXER_ALLOW_DOMAINS` | the egress allowlist (csv), if any |
+
+The hook is **read-only**: it prints already-persisted state and never builds or
+starts anything — a `cd` into a project costs nothing. Outside a sandboxer
+project, or with no active sandbox, it emits nothing (exit 0), so an `.envrc`
+can call it unconditionally.
+
 ## Agents
 
 ```bash

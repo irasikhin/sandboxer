@@ -8,6 +8,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- A **direnv hook**: `sandboxer hook direnv` prints the active sandbox as
+  host-shell exports (`SANDBOXER_SLUG`/`SANDBOXER_SRC`, plus the recorded
+  `SANDBOXER_MODEL`/`SANDBOXER_BACKEND`/`SANDBOXER_ALLOW_DOMAINS`) for an
+  `.envrc`, with a bundled `use_sandboxer` helper
+  (`contrib/direnv/use_sandboxer.sh`) so an `.envrc` can `use sandboxer` and
+  reload on `sandboxer use <slug>`. It is read-only — nothing is built or
+  started on `cd` — and a no-op (exit 0) outside a sandboxer project or with no
+  active sandbox, so it is safe to call unconditionally.
 - An optional **global config** that merges *under* the project config. It is a
   full document (`defaults:` plus an optional `profiles:` map) read from
   `$SANDBOXER_CONFIG` → `$XDG_CONFIG_HOME/sandboxer/config.yaml` →
