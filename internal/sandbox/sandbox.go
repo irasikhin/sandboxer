@@ -298,15 +298,21 @@ func (b *Base) ClearCurrent() error {
 	return err
 }
 
-// Remove deletes all state for a single sandbox.
-func (b *Base) Remove(slug string) error {
+// RemoveState deletes a sandbox's on-disk working state: the sandbox dir, the
+// metadata/manifest/setup-stamp files and the rotating logs. keepHome preserves
+// the private agent home (_home/<slug> — login tokens, shell history), so a
+// recreated sandbox needs no re-login; the registration (agents.list, the
+// active-sandbox marker) is left to the caller.
+func (b *Base) RemoveState(slug string, keepHome bool) {
 	paths := []string{
 		b.SandboxDir(slug),
-		b.HomeDir(slug),
 		b.MetaFilePath(slug),
 		b.ProfileJSONPath(slug),
 		b.ManifestPath(slug),
 		b.setupStampPath(slug),
+	}
+	if !keepHome {
+		paths = append(paths, b.HomeDir(slug))
 	}
 	for _, p := range paths {
 		_ = os.RemoveAll(p)
@@ -319,6 +325,11 @@ func (b *Base) Remove(slug string) error {
 			}
 		}
 	}
+}
+
+// Remove deletes all state for a single sandbox, including its registration.
+func (b *Base) Remove(slug string) error {
+	b.RemoveState(slug, false)
 	if err := b.RemoveAgent(slug); err != nil {
 		return err
 	}
