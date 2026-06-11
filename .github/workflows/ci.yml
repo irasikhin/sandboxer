@@ -15,7 +15,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v6
         with:
           # Track the toolchain pinned in go.mod (do not hardcode the version).
           go-version-file: go.mod
@@ -41,7 +41,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
       # .golangci.yml is golangci-lint v2 config; Woodpecker pinned the binary
