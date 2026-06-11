@@ -31,7 +31,7 @@ steps:
         tag="${CI_COMMIT_TAG#v}"
         pkg_version=$(grep -oP 'version\s*=\s*"\K[^"]+' nix/package.nix | head -1)
         if [ "$tag" != "$pkg_version" ]; then
-          echo "Tag ${CI_COMMIT_TAG} does not match nix/package.nix version ${pkg_version}" >&2
+          echo "Tag ${CI_COMMIT_TAG} does not match nix/package.nix version $${pkg_version}" >&2
           exit 1
         fi
       - go test ./...
@@ -45,20 +45,20 @@ steps:
       - mkdir -p dist
       - |
         for pair in linux/amd64 linux/arm64; do
-          export GOOS="${pair%/*}" GOARCH="${pair#*/}"
-          out="sandboxer-${CI_COMMIT_TAG}-${GOOS}-${GOARCH}"
+          export GOOS="$${pair%/*}" GOARCH="$${pair#*/}"
+          out="sandboxer-${CI_COMMIT_TAG}-$${GOOS}-$${GOARCH}"
           go build -trimpath \
             -ldflags "-s -w -X main.version=${CI_COMMIT_TAG}" \
-            -o "dist/${out}/sandboxer" ./cmd/sandboxer
-          cp README.md CHANGELOG.md LICENSE "dist/${out}/" 2>/dev/null || true
-          tar -czf "dist/${out}.tar.gz" -C dist "${out}"
-          (cd dist && sha256sum "${out}.tar.gz" > "${out}.tar.gz.sha256")
+            -o "dist/$${out}/sandboxer" ./cmd/sandboxer
+          cp README.md CHANGELOG.md LICENSE "dist/$${out}/" 2>/dev/null || true
+          tar -czf "dist/$${out}.tar.gz" -C dist "$${out}"
+          (cd dist && sha256sum "$${out}.tar.gz" > "$${out}.tar.gz.sha256")
           # Smoke-test the host-native (amd64) binary only.
           if [ "$GOOS" = "linux" ] && [ "$GOARCH" = "amd64" ]; then
-            "dist/${out}/sandboxer" --version
-            "dist/${out}/sandboxer" --help >/dev/null
+            "dist/$${out}/sandboxer" --version
+            "dist/$${out}/sandboxer" --help >/dev/null
           fi
-          rm -rf "dist/${out}"
+          rm -rf "dist/$${out}"
         done
       # Extract this tag's CHANGELOG section into release-notes.md.
       - |
@@ -131,14 +131,14 @@ steps:
         }
         EOF
         body=$(go run /tmp/mkbody.go)
-        rid=$(curl -fsS -X POST -H "Authorization: token ${FORGEJO_TOKEN}" \
+        rid=$(curl -fsS -X POST -H "Authorization: token $${FORGEJO_TOKEN}" \
           -H "Content-Type: application/json" \
-          --data "${body}" "${api}/releases" | go run /tmp/getid.go)
-        echo "Created release ${CI_COMMIT_TAG} (id ${rid})"
+          --data "$${body}" "$${api}/releases" | go run /tmp/getid.go)
+        echo "Created release ${CI_COMMIT_TAG} (id $${rid})"
         for f in dist/*.tar.gz dist/*.tar.gz.sha256; do
           echo "  uploading $(basename "$f")"
-          curl -fsS -X POST -H "Authorization: token ${FORGEJO_TOKEN}" \
-            -F "attachment=@${f}" \
-            "${api}/releases/${rid}/assets?name=$(basename "$f")" >/dev/null
+          curl -fsS -X POST -H "Authorization: token $${FORGEJO_TOKEN}" \
+            -F "attachment=@$${f}" \
+            "$${api}/releases/$${rid}/assets?name=$(basename "$f")" >/dev/null
         done
         echo "Published ${CI_COMMIT_TAG}"
