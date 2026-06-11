@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"text/tabwriter"
@@ -20,6 +21,27 @@ func init() { register(newDoctorCmd) }
 // sessionOrphans is the orphan-enumeration seam, overridable in tests so
 // doctor's session rows render without a real engine.
 var sessionOrphans = backend.OrphanSessions
+
+// gitCheckIgnore reports whether rel is ignored by the repo's gitignore rules
+// at root (exit 0 = ignored; 1 = not; no git / not a repo = not ignored — the
+// check is purely advisory). Overridable in tests.
+var gitCheckIgnore = func(root, rel string) bool {
+	return exec.Command("git", "-C", root, "check-ignore", "-q", "--", rel).Run() == nil
+}
+
+// warnIgnoredConfig prints a one-line advisory when the user's repo gitignore
+// hides .sandboxer/config.yaml: git cannot re-include a file under an ignored
+// directory, so a root-level ".sandboxer/" rule defeats the generated
+// .sandboxer/.gitignore allowlist and the profile/image hook would silently
+// never be committed.
+func warnIgnoredConfig(w io.Writer, root string) {
+	rel := config.ConfigPath()
+	if !fileExists(filepath.Join(root, rel)) || !gitCheckIgnore(root, rel) {
+		return
+	}
+	fmt.Fprintf(w, "sandboxer: %s is ignored by your repo's gitignore (a %q rule?) — the %s/.gitignore allowlist can't override it; drop that rule so config.yaml/image.nix can be committed\n",
+		rel, config.StateDirName+"/", config.StateDirName)
+}
 
 func newDoctorCmd() *cobra.Command {
 	cmd := &cobra.Command{
@@ -113,6 +135,14 @@ Run this after a fresh install or when something isn't working.`,
 					ok++
 				} else {
 					fmt.Fprintf(tw, "%s\t⚠\t%v\n", cfgPath, err)
+					warn++
+				}
+				// The allowlist .sandboxer/.gitignore commits config.yaml/image.nix,
+				// but git can't re-include files under an ignored DIRECTORY — a
+				// user-level ".sandboxer/" rule silently defeats it.
+				if gitCheckIgnore(getwd(), cfgPath) {
+					fmt.Fprintf(tw, "%s\t⚠\tignored by the repo's gitignore — a %q rule defeats the allowlist; drop it so config.yaml/image.nix can be committed\n",
+						cfgPath, config.StateDirName+"/")
 					warn++
 				}
 			} else if fileExists(config.LegacyConfigFileName) {

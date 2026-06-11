@@ -73,6 +73,7 @@ func newCreateCmd() *cobra.Command {
 			if err := t.base.MakeSandbox(t.slug, cmd.ErrOrStderr()); err != nil {
 				return err
 			}
+			warnIgnoredConfig(cmd.ErrOrStderr(), t.base.Src)
 			rtCreate, err := t.runtime(f)
 			if err != nil {
 				return err

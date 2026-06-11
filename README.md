@@ -131,6 +131,13 @@ Structured fields (`roots`/`deps`, `context`, `extraMounts`, `env`, `setup`, `to
 the cwd is auto-discovered. See `examples/config.yaml`,
 `examples/with-deps.yaml` and `examples/profiles/`.
 
+> The generated `.sandboxer/.gitignore` is an **allowlist**: all generated
+> state stays out of git while `config.yaml` and `image.nix` are meant to be
+> **committed** with your repo. Don't add `.sandboxer/` to your repo's root
+> `.gitignore` — git cannot re-include files under an ignored directory, so
+> that rule would silently un-commit the profile (`sandboxer doctor` warns
+> when this happens).
+
 ```yaml
 name: feature-x
 backend: docker

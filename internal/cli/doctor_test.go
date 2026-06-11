@@ -2,6 +2,9 @@ package cli
 
 import (
 	"errors"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -118,5 +121,77 @@ func TestDoctorSessionsProbeFailure(t *testing.T) {
 	}
 	if strings.Contains(out, "never-reached") {
 		t.Errorf("orphans must not be probed after a failing tally:\n%s", out)
+	}
+}
+
+// stubGitCheckIgnore pins the advisory gitignore probe.
+func stubGitCheckIgnore(t *testing.T, ignored bool) {
+	t.Helper()
+	old := gitCheckIgnore
+	t.Cleanup(func() { gitCheckIgnore = old })
+	gitCheckIgnore = func(root, rel string) bool { return ignored }
+}
+
+// TestDoctorWarnsIgnoredConfig: when the repo's gitignore hides
+// .sandboxer/config.yaml, doctor adds a warning row; when it doesn't, no row.
+func TestDoctorWarnsIgnoredConfig(t *testing.T) {
+	project := newProject(t)
+	t.Chdir(project)
+	stubInstalledEngines(t, nil)
+	if err := os.MkdirAll(".sandboxer", 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(".sandboxer/config.yaml", []byte("name: feat\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	stubGitCheckIgnore(t, true)
+	if code, out, _ := run("doctor"); code != 0 || !strings.Contains(out, "ignored by the repo's gitignore") {
+		t.Errorf("doctor with ignored config = (%d, %q); want the gitignore warning", code, out)
+	}
+
+	stubGitCheckIgnore(t, false)
+	if code, out, _ := run("doctor"); code != 0 || strings.Contains(out, "ignored by the repo's gitignore") {
+		t.Errorf("doctor without ignored config = (%d, %q); want no gitignore warning", code, out)
+	}
+}
+
+// TestCreateWarnsIgnoredConfig: create prints the same advisory on stderr,
+// best-effort — it never fails the command.
+func TestCreateWarnsIgnoredConfig(t *testing.T) {
+	project := newProject(t)
+	stubGitCheckIgnore(t, true)
+	code, _, errs := run("create", "feat", "--src", project)
+	if code != 0 {
+		t.Fatalf("create = %d, %s", code, errs)
+	}
+	if !strings.Contains(errs, "ignored by your repo's gitignore") {
+		t.Errorf("create missing the gitignore advisory: %q", errs)
+	}
+}
+
+// TestGitCheckIgnoreReal exercises the real `git check-ignore` mapping: a
+// repo whose root gitignore has ".sandboxer/" ignores the config; a plain
+// directory (no repo) reads as not-ignored.
+func TestGitCheckIgnoreReal(t *testing.T) {
+	requireExec(t, "git")
+	dir := t.TempDir()
+	for _, args := range [][]string{{"init", "-q"}} {
+		cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Skipf("git unusable here: %v (%s)", err, out)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(dir, ".gitignore"), []byte(".sandboxer/\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(dir, ".sandboxer"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if !gitCheckIgnore(dir, ".sandboxer/config.yaml") {
+		t.Error("a .sandboxer/ rule must read as ignored")
+	}
+	if gitCheckIgnore(t.TempDir(), ".sandboxer/config.yaml") {
+		t.Error("a non-repo dir must read as not-ignored")
 	}
 }
