@@ -76,6 +76,27 @@ func ResolveBase(src string) (*Base, error) {
 	return b, nil
 }
 
+// OpenBase locates an existing project base read-only: it neither creates the
+// state dirs nor seeds run.env, so it is safe to call on a `cd` (e.g. the direnv
+// hook) without any side effects. It returns (nil, nil) when src has no
+// initialized .sandboxer state — the caller treats that as "not a sandboxer
+// project". Any run.env that is present is loaded for Domains/Model.
+func OpenBase(src string) (*Base, error) {
+	abs, err := filepath.Abs(src)
+	if err != nil {
+		return nil, err
+	}
+	if !RunEnvExists(abs) {
+		return nil, nil
+	}
+	b := &Base{Src: abs, Dir: filepath.Join(abs, config.StateDirName)}
+	if env, err := parseEnvFile(filepath.Join(b.metaDir(), "run.env")); err == nil {
+		b.Domains = env["DOMAINS"]
+		b.Model = env["MODEL"]
+	}
+	return b, nil
+}
+
 func (b *Base) metaDir() string  { return filepath.Join(b.Dir, "_meta") }
 func (b *Base) logsDir() string  { return filepath.Join(b.Dir, "_logs") }
 func (b *Base) homeRoot() string { return filepath.Join(b.Dir, "_home") }
