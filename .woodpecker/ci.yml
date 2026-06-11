@@ -1,10 +1,16 @@
-# Woodpecker port of the `test`, `lint` and `commits` jobs in the retired
+# Woodpecker port of the `test` and `lint` jobs in the retired
 # .github/workflows/ci.yml (removed in 2122d94; recover the original with
 #   git show 2122d94^:.github/workflows/ci.yml).
 #
+# The retired `commits` (conventional-commits) job is NOT ported: Woodpecker
+# injects the forge netrc only into the clone step, so on a private repo a
+# regular lane cannot `git fetch` the PR target branch (exit 128). Enforcement
+# stays in scripts/git-hooks/commit-msg (and release.sh's parser); revisit if
+# a server-side forge token secret ever exists.
+#
 # One file on purpose: each .woodpecker/ file is its own workflow, and the host
 # runs WOODPECKER_MAX_WORKFLOWS=1 so at most one heavy container is live at a
-# time. Keeping the three Go lanes here as sequential steps (depends_on chain,
+# time. Keeping the Go lanes here as sequential steps (depends_on chain,
 # no matrix) makes them queue as a single unit next to flake-check.yml instead
 # of competing for the node.
 #
@@ -45,28 +51,3 @@ steps:
     depends_on: [test]
     commands:
       - golangci-lint run
-
-  # Conventional-commit subject check on the PR range, reusing the same
-  # script the local commit-msg hook runs (scripts/git-hooks/commit-msg).
-  # Reuses the golang image (already cached from `test`) for git + bash.
-  commits:
-    image: golang:1.24.13
-    depends_on: [lint]
-    when:
-      - event: pull_request
-    commands:
-      # The default clone only fetches the PR head; fetch the target branch
-      # so the PR range can be enumerated.
-      - git fetch --no-tags origin "refs/heads/${CI_COMMIT_TARGET_BRANCH}"
-      - |
-        status=0
-        for sha in $(git rev-list --no-merges "FETCH_HEAD..HEAD"); do
-          msg_file="$(mktemp)"
-          git log -1 --format=%B "$sha" > "$msg_file"
-          if ! bash scripts/git-hooks/commit-msg "$msg_file"; then
-            echo "ERROR: commit $sha has a non-conforming message" >&2
-            status=1
-          fi
-          rm -f "$msg_file"
-        done
-        exit "$status"
