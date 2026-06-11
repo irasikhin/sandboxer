@@ -128,7 +128,8 @@ func maybeAutoScaffold(cmd *cobra.Command, f *commonFlags, pos string) error {
 // image.nix hook both init and auto-scaffold write alongside under .sandboxer/.
 func starterProfile(name string, d config.Defaults) string {
 	domains := strings.ReplaceAll(d.Domains, ",", ", ")
-	profile := fmt.Sprintf(`# sandboxer profile — edit to taste. Auto-discovered when you run sandboxer
+	profile := fmt.Sprintf(`# yaml-language-server: $schema=`+config.SchemaURL+`
+# sandboxer profile — edit to taste. Auto-discovered when you run sandboxer
 # in this directory (no -f needed). Full reference: examples/ in the repo.
 
 # Sandbox name (slug); drives .sandboxer/<name>/.
