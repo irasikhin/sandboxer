@@ -31,6 +31,9 @@ func stubRemoveSession(t *testing.T, dest string, err error) (calls *[]seamCall,
 // removes the files.
 func TestRmRemovesSessionBeforeFiles(t *testing.T) {
 	project := sessionProject(t)
+	// Pin the engine so the resolved seam value does not depend on whether the
+	// host happens to have docker on PATH (fakePodman only fakes podman).
+	t.Setenv("SANDBOXER_ENGINE", "docker")
 	dest := filepath.Join(project, ".sandboxer", "feat")
 	calls, dirExisted := stubRemoveSession(t, dest, nil)
 
