@@ -34,6 +34,14 @@ func TestRunAutoScaffold(t *testing.T) {
 	if p, _ := doc.Select(""); p.Name != "feat" {
 		t.Errorf("scaffold name should match the slug, got %+v", p)
 	}
+	// Auto-scaffold wires the active image: section and the sandbox-image.nix hook
+	// (same as `init`), so the custom image works on the auto-scaffold path too.
+	if p, _ := doc.Select(""); p.Image.Nix == "" {
+		t.Errorf("auto-scaffold should wire an active image hook, got %+v", p.Image)
+	}
+	if !fileExists(filepath.Join(project, imageNixFileName)) {
+		t.Errorf("auto-scaffold should write %s", imageNixFileName)
+	}
 
 	// Opt-out: no file written, and create without a profile is refused.
 	t.Setenv("SANDBOXER_NO_SCAFFOLD", "1")
@@ -46,8 +54,9 @@ func TestRunAutoScaffold(t *testing.T) {
 	}
 }
 
-// TestRunInit covers scaffolding a starter .sandboxer.yaml: it parses, refuses to
-// clobber an existing file, and --force rewrites it.
+// TestRunInit covers scaffolding a starter .sandboxer.yaml plus its
+// sandbox-image.nix hook: both parse/exist, the image: section is wired active,
+// init refuses to clobber either file, and --force rewrites them.
 func TestRunInit(t *testing.T) {
 	t.Setenv("SANDBOXER_IN_CONTAINER", "")
 	t.Chdir(t.TempDir())
@@ -63,11 +72,28 @@ func TestRunInit(t *testing.T) {
 	if err != nil || p.Name != "demo" || p.Agent == "" || p.Backend == "" {
 		t.Errorf("scaffold profile wrong: %+v (err %v)", p, err)
 	}
-	// Refuses to overwrite without --force.
+	// init also writes the image hook and wires an active image: section at it.
+	if !fileExists(imageNixFileName) {
+		t.Fatalf("init did not write %s", imageNixFileName)
+	}
+	if nb, err := os.ReadFile(imageNixFileName); err != nil || !strings.Contains(string(nb), "{ pkgs }") {
+		t.Errorf("%s missing the image-hook contract: %v", imageNixFileName, err)
+	}
+	if p.Image.Nix == "" {
+		t.Errorf("scaffold should wire an active image hook, got %+v", p.Image)
+	}
+	// Refuses to overwrite the config without --force.
 	if code, _, errs := run("init"); code != 1 || !strings.Contains(errs, "already exists") {
 		t.Errorf("init over existing = (%d, %q), want refusal", code, errs)
 	}
-	// --force rewrites.
+	// Refuses to clobber an existing sandbox-image.nix even when the config is gone.
+	if err := os.Remove(config.ConfigFileName); err != nil {
+		t.Fatal(err)
+	}
+	if code, _, errs := run("init"); code != 1 || !strings.Contains(errs, imageNixFileName) {
+		t.Errorf("init over existing %s = (%d, %q), want refusal", imageNixFileName, code, errs)
+	}
+	// --force rewrites both.
 	if code, _, errs := run("init", "other", "--force"); code != 0 {
 		t.Errorf("init --force = %d (%q)", code, errs)
 	}

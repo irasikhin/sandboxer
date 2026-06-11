@@ -82,7 +82,7 @@ func newRunCmd() *cobra.Command {
 	fl.StringVarP(&configPath, "config", "f", "", "profile: a file, a directory of profiles, or a named profile (store: ~/.config/sandboxer/profiles)")
 	fl.StringVar(&model, "model", "", "model override")
 	fl.StringVar(&agent, "agent", "", "agent override")
-	fl.StringVar(&backend, "backend", "", "backend: podman | docker")
+	fl.StringVar(&backend, "backend", "", "backend: docker | podman")
 	fl.StringVar(&doms, "allow-domains", "", "egress allowlist, csv (e.g. api.anthropic.com,github.com)")
 	fl.IntVar(&maxp, "max-parallel", d.MaxParallel, "max concurrent agents")
 	fl.StringVar(&mem, "mem", d.Mem, "per-agent memory cap, e.g. 2G (--memory)")

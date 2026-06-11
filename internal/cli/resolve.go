@@ -38,7 +38,7 @@ func bindExisting(cmd *cobra.Command, f *commonFlags) {
 	fl.StringVarP(&f.sandbox, "sandbox", "S", "", "sandbox slug")
 	fl.StringVar(&f.model, "model", "", "model override")
 	fl.StringVar(&f.agent, "agent", "", "agent override")
-	fl.StringVar(&f.backend, "backend", "", "backend: podman | docker")
+	fl.StringVar(&f.backend, "backend", "", "backend: docker | podman")
 	fl.StringVar(&f.domains, "allow-domains", "", "egress allowlist, csv (e.g. api.anthropic.com,github.com)")
 }
 
@@ -226,9 +226,9 @@ func (t *target) runtime(f commonFlags) (config.Runtime, error) {
 }
 
 // backendLabel reports the backend to show in the banner: for a container
-// backend it is the engine that will actually be used (podman→docker auto-
+// backend it is the engine that will actually be used (docker→podman auto-
 // detect, an explicitly requested engine honored when installed) rather than the
-// raw configured value, so the banner can never claim "podman" while docker
+// raw configured value, so the banner can never claim "docker" while podman
 // runs.
 func backendLabel(rt config.Runtime) string {
 	return backend.EngineLabel(rt.Backend, config.LoadDefaults())

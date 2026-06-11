@@ -128,9 +128,9 @@ func ValidateBackend(rt Runtime) error {
 	case "", "auto", "podman", "docker":
 		return nil
 	case "native":
-		return fmt.Errorf("the native backend was removed — sandboxer is container-only now; use backend: podman or docker")
+		return fmt.Errorf("the native backend was removed — sandboxer is container-only now; use backend: docker or podman")
 	default:
-		return fmt.Errorf("unknown backend %q — use podman or docker", rt.Backend)
+		return fmt.Errorf("unknown backend %q — use docker or podman", rt.Backend)
 	}
 }
 

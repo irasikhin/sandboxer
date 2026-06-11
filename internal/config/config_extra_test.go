@@ -37,7 +37,7 @@ func TestLoadDefaultsBareAndBadInt(t *testing.T) {
 	t.Setenv("SANDBOXER_MAX_PARALLEL", "not-an-int") // falls back to default
 
 	d := LoadDefaults()
-	if d.Agent != "claude" || d.Backend != "podman" || d.Domains != DefaultDomains || d.Image != DefaultImage {
+	if d.Agent != "claude" || d.Backend != "docker" || d.Domains != DefaultDomains || d.Image != DefaultImage {
 		t.Errorf("bare defaults = %+v", d)
 	}
 	if d.MaxParallel != 4 {

@@ -58,7 +58,7 @@ func TestComposeEngineError(t *testing.T) {
 	t.Setenv("PATH", "")
 	t.Setenv("SANDBOXER_ENGINE", "")
 	if code, _, errs := run("compose", "feat", "--src", project, "--backend", "podman"); code != 1 ||
-		!strings.Contains(errs, "podman or docker") {
+		!strings.Contains(errs, "docker or podman") {
 		t.Errorf("compose engine-error = (%d, %q)", code, errs)
 	}
 }
@@ -314,7 +314,7 @@ func TestBuildImageNoEngine(t *testing.T) {
 	t.Setenv("SANDBOXER_ENGINE", "")
 	t.Setenv("SANDBOXER_BACKEND", "podman")
 	t.Setenv("PATH", "") // neither podman nor docker discoverable
-	if code, _, errs := run("build-image"); code != 1 || !strings.Contains(errs, "podman or docker") {
+	if code, _, errs := run("build-image"); code != 1 || !strings.Contains(errs, "docker or podman") {
 		t.Errorf("build-image no-engine = (%d, %q)", code, errs)
 	}
 }

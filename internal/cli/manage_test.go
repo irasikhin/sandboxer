@@ -39,8 +39,8 @@ func TestRmRemovesSessionBeforeFiles(t *testing.T) {
 		t.Fatalf("rm = (%d, %q, %q)", code, out, errs)
 	}
 	wantBase := filepath.Join(project, ".sandboxer")
-	if len(*calls) != 1 || (*calls)[0] != (seamCall{"podman", "feat", wantBase}) {
-		t.Errorf("rm session calls = %+v, want [podman feat %s]", *calls, wantBase)
+	if len(*calls) != 1 || (*calls)[0] != (seamCall{"docker", "feat", wantBase}) {
+		t.Errorf("rm session calls = %+v, want [docker feat %s]", *calls, wantBase)
 	}
 	if !*dirExisted {
 		t.Error("the session must be removed BEFORE the sandbox files")

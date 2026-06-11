@@ -37,8 +37,8 @@ func TestStopHappyPath(t *testing.T) {
 		t.Fatalf("stop = %d, %s", code, errs)
 	}
 	wantBase := filepath.Join(project, ".sandboxer")
-	if len(*calls) != 1 || (*calls)[0] != (seamCall{"podman", "feat", wantBase}) {
-		t.Errorf("stop calls = %+v, want [podman feat %s]", *calls, wantBase)
+	if len(*calls) != 1 || (*calls)[0] != (seamCall{"docker", "feat", wantBase}) {
+		t.Errorf("stop calls = %+v, want [docker feat %s]", *calls, wantBase)
 	}
 	name := backend.SessionName("feat", wantBase)
 	if !strings.Contains(out, name) || !strings.Contains(out, "sandboxer enter feat") {
@@ -86,7 +86,7 @@ func TestStopEngineLessHost(t *testing.T) {
 	t.Setenv("SANDBOXER_ENGINE", "")
 
 	code, _, errs := run("stop", "feat", "--src", project)
-	if code != 1 || !strings.Contains(errs, "podman or docker") {
+	if code != 1 || !strings.Contains(errs, "docker or podman") {
 		t.Errorf("engine-less stop = (%d, %q), want exit 1 with the engine hint", code, errs)
 	}
 	if len(*calls) != 0 {
