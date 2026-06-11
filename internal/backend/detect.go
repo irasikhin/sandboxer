@@ -14,12 +14,12 @@ import (
 //
 //   - SANDBOXER_ENGINE (d.Engine) wins outright;
 //   - an explicitly requested engine (be == "podman"|"docker") is honored when
-//     that binary is installed — so --backend docker actually runs docker even
-//     when podman is also present;
-//   - otherwise auto-detect, preferring podman then docker.
+//     that binary is installed — so --backend podman actually runs podman even
+//     when docker is also present;
+//   - otherwise auto-detect, preferring docker then podman.
 //
 // A requested-but-missing engine is not an error: we fall back to whatever is
-// installed so the default backend ("podman") still works on a docker-only host.
+// installed so the default backend ("docker") still works on a podman-only host.
 // Callers display the engine we return (see EngineLabel), so the banner never
 // disagrees with what actually runs.
 func ResolveEngine(be string, d config.Defaults) (string, error) {
@@ -29,18 +29,18 @@ func ResolveEngine(be string, d config.Defaults) (string, error) {
 	if (be == "podman" || be == "docker") && hasExec(be) {
 		return be, nil
 	}
-	if hasExec("podman") {
-		return "podman", nil
-	}
 	if hasExec("docker") {
 		return "docker", nil
 	}
-	return "", errors.New("need podman or docker " +
-		"(NixOS: virtualisation.podman.enable)")
+	if hasExec("podman") {
+		return "podman", nil
+	}
+	return "", errors.New("need docker or podman " +
+		"(NixOS: virtualisation.docker.enable or virtualisation.podman.enable)")
 }
 
 // DetectEngine resolves the engine with no explicit backend preference (the
-// plain podman→docker auto-detect).
+// plain docker→podman auto-detect).
 func DetectEngine(d config.Defaults) (string, error) { return ResolveEngine("", d) }
 
 // InstalledEngines returns every engine a sandboxer-managed container could

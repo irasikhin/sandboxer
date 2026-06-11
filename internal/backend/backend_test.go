@@ -175,12 +175,12 @@ func TestDetectEngine(t *testing.T) {
 	if e, err := DetectEngine(config.Defaults{}); err != nil || e != "docker" {
 		t.Errorf("docker-only = %q, %v; want docker", e, err)
 	}
-	// podman takes precedence over docker.
+	// docker takes precedence over podman.
 	if err := os.WriteFile(filepath.Join(bin, "podman"), []byte("#!/bin/sh\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if e, err := DetectEngine(config.Defaults{}); err != nil || e != "podman" {
-		t.Errorf("podman+docker = %q, %v; want podman", e, err)
+	if e, err := DetectEngine(config.Defaults{}); err != nil || e != "docker" {
+		t.Errorf("podman+docker = %q, %v; want docker", e, err)
 	}
 }
 
@@ -197,7 +197,7 @@ func TestResolveEngine(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	// An explicitly requested, installed engine is honored even though podman
+	// An explicitly requested, installed engine is honored even though docker
 	// would otherwise win the auto-detect — the --backend choice must pin it.
 	if e, err := ResolveEngine("docker", config.Defaults{}); err != nil || e != "docker" {
 		t.Errorf("backend=docker (both installed) = %q, %v; want docker", e, err)
@@ -206,8 +206,8 @@ func TestResolveEngine(t *testing.T) {
 		t.Errorf("backend=podman (both installed) = %q, %v; want podman", e, err)
 	}
 
-	// A requested-but-missing engine falls back to whatever is installed, so the
-	// default "podman" still works on a docker-only host.
+	// A requested-but-missing engine falls back to whatever is installed, so a
+	// requested "podman" still works on a docker-only host.
 	dockerOnly := t.TempDir()
 	t.Setenv("PATH", dockerOnly)
 	if err := os.WriteFile(filepath.Join(dockerOnly, "docker"), []byte("#!/bin/sh\n"), 0o755); err != nil {

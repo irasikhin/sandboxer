@@ -119,7 +119,7 @@ is left behind. Use --cache to keep a nix-store volume for faster rebuilds.`,
 		},
 	}
 	fl := cmd.Flags()
-	fl.StringVar(&engineFlag, "engine", "", "container engine: podman | docker (default: auto-detect)")
+	fl.StringVar(&engineFlag, "engine", "", "container engine: docker | podman (default: auto-detect)")
 	fl.StringVarP(&configPath, "config", "f", "", "profile: a file, a directory of profiles, or a named profile (store: ~/.config/sandboxer/profiles)")
 	fl.StringVar(&nixImage, "nix-image", "", "builder image (default: pinned "+toolbox.NixImage+")")
 	fl.BoolVar(&cache, "cache", false, "keep a persistent nix-store volume for faster rebuilds")

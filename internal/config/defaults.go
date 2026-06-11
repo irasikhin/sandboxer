@@ -46,7 +46,7 @@ func LoadDefaults() Defaults {
 	return Defaults{
 		Model:       os.Getenv("SANDBOXER_MODEL"),
 		Agent:       envOr("SANDBOXER_AGENT", "claude"),
-		Backend:     envOr("SANDBOXER_BACKEND", "podman"),
+		Backend:     envOr("SANDBOXER_BACKEND", "docker"),
 		Session:     os.Getenv("SANDBOXER_SESSION"),
 		Domains:     envOr("SANDBOXER_DOMAINS", DefaultDomains),
 		Image:       envOr("SANDBOXER_IMAGE", DefaultImage),

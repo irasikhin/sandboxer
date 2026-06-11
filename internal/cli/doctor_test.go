@@ -83,8 +83,8 @@ func TestDoctorOrphanProbeFailureIsSilent(t *testing.T) {
 }
 
 // TestDoctorSessionsEveryEngine: with both engines installed doctor probes
-// each one — a docker-backed session must not be invisible just because
-// podman is the auto-detected default.
+// each one — a podman-backed session must not be invisible just because
+// docker is the auto-detected default.
 func TestDoctorSessionsEveryEngine(t *testing.T) {
 	doctorEnv(t)
 	stubInstalledEngines(t, []string{"podman", "docker"})

@@ -106,7 +106,7 @@ use 'sandboxer rm <slug>' to remove a single sandbox instead.`,
 			engines := backendInstalledEngines(config.LoadDefaults())
 			if len(engines) == 0 {
 				fmt.Fprintln(cmd.ErrOrStderr(),
-					"sandboxer: session cleanup skipped: no container engine (podman or docker) found")
+					"sandboxer: session cleanup skipped: no container engine (docker or podman) found")
 			}
 			for _, engine := range engines {
 				if err := backendRemoveAllSessions(engine, dir); err != nil {

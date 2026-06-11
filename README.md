@@ -33,14 +33,14 @@ when you're done. No git is involved.
   already exists unless `--force`; `sandboxer push` copies them back over their
   origins (always overwriting, like depsync).
 
-Isolation backend — a **podman / docker** container built from a toolbox image
+Isolation backend — a **docker / podman** container built from a toolbox image
 with the agents baked in (claude, opencode, crush, aider, pi, gemini). Any of
 them; each sandbox gets its own isolated home, and network, proxy and
 credentials are wired per config.
 
 ## Install
 
-Linux only. The container engine (podman or docker) is **not bundled** — it
+Linux only. The container engine (docker or podman) is **not bundled** — it
 comes from the host.
 
 ```bash
@@ -55,7 +55,7 @@ Or grab a [pre-built binary](https://github.com/irasikhin/sandboxer/releases)
 ## Quick start
 
 ```bash
-sandboxer init                            # scaffold a commented .sandboxer.yaml to edit (optional)
+sandboxer init                            # scaffold a commented .sandboxer.yaml + sandbox-image.nix to edit (optional)
 sandboxer create feat                     # create a sandbox named "feat" (deps come from a profile)
 sandboxer enter  feat                     # attach a shell (persistent session; Ctrl-q detaches)
 sandboxer exec   feat -- claude           # run an agent/command inside it
@@ -104,13 +104,13 @@ Scalars come from **flags** and `SANDBOXER_*` env vars:
 | Setting | Flag | Env |
 |---------|------|-----|
 | agent | `--agent` | `SANDBOXER_AGENT` (default `claude`) |
-| backend | `--backend` | `SANDBOXER_BACKEND` (default `podman`; `podman\|docker` pins that engine when installed, else falls back to whichever is) |
+| backend | `--backend` | `SANDBOXER_BACKEND` (default `docker`; `docker\|podman` pins that engine when installed, else falls back to whichever is) |
 | model | `--model` | `SANDBOXER_MODEL` |
 | session mode | `--ephemeral` | `SANDBOXER_SESSION` (default `persistent`; the env wins over a profile's `session:`) |
 | egress domains | `--allow-domains a,b` | `SANDBOXER_DOMAINS` |
 | disable egress | — | `SANDBOXER_NO_EGRESS=1` |
 | skip auto-scaffold | — | `SANDBOXER_NO_SCAFFOLD=1` (create/enter writes a default `.sandboxer.yaml` otherwise) |
-| container engine | — | `SANDBOXER_ENGINE` (default: auto-detect podman→docker) |
+| container engine | — | `SANDBOXER_ENGINE` (default: auto-detect docker→podman) |
 | image | — | `SANDBOXER_IMAGE` (default `sandboxer-toolbox:latest`) |
 
 Structured fields (`roots`/`deps`, `extraMounts`, `env`, `setup`, `tools`, `mcp`, `image`) live in an **optional**
@@ -122,7 +122,7 @@ the cwd is auto-discovered. See `examples/.sandboxer.yaml`,
 
 ```yaml
 name: feature-x
-backend: podman
+backend: docker
 agent: claude
 network:
   allowedDomains: [api.anthropic.com, registry.npmjs.org, github.com]
@@ -175,7 +175,9 @@ allowlist, so a sandboxed agent can use MCP without opening the network.
 
 A profile can customize the toolbox image itself — extra packages, files, env,
 even a nixpkgs overlay — **without nix on your machine** (the same builder
-container does everything) and without forking the image:
+container does everything) and without forking the image. `sandboxer init`
+scaffolds this section together with an inert, fully-commented
+`sandbox-image.nix` hook next to the profile, ready to edit:
 
 ```yaml
 image:

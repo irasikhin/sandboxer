@@ -248,7 +248,7 @@ func TestRunEngineDetectionFails(t *testing.T) {
 		Overrides: config.Overrides{Backend: "podman"},
 		Stdout:    &bytes.Buffer{}, Stderr: &bytes.Buffer{},
 	})
-	if err == nil || !strings.Contains(err.Error(), "podman or docker") {
+	if err == nil || !strings.Contains(err.Error(), "docker or podman") {
 		t.Errorf("missing engine should error, got %v", err)
 	}
 }
