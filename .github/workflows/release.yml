@@ -1,0 +1,102 @@
+# Tag-driven release: ported from the retired .woodpecker/release.yml.
+#
+# On a pushed v* tag: verify the tag matches nix/package.nix, build the
+# amd64+arm64 tarballs (+ .sha256), then publish a GitHub Release with the
+# matching CHANGELOG section as the body. Unlike Woodpecker (single workflow,
+# no artifact storage) this splits into three jobs and passes the tarballs
+# through actions/upload-artifact. Publishing uses the auto-provisioned
+# GITHUB_TOKEN — the old forgejo_token secret is gone.
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      # Tag and nix/package.nix must agree (scripts/release.sh keeps them in
+      # sync; this catches a hand-pushed tag).
+      - name: verify tag matches nix/package.nix
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          pkg_version=$(grep -oP 'version\s*=\s*"\K[^"]+' nix/package.nix | head -1)
+          if [ "$tag" != "$pkg_version" ]; then
+            echo "Tag ${GITHUB_REF_NAME} does not match nix/package.nix version ${pkg_version}" >&2
+            exit 1
+          fi
+      - run: go test ./...
+
+  build:
+    needs: verify
+    runs-on: ubuntu-latest
+    env:
+      CGO_ENABLED: "0"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: build tarballs
+        run: |
+          mkdir -p dist
+          for pair in linux/amd64 linux/arm64; do
+            export GOOS="${pair%/*}" GOARCH="${pair#*/}"
+            out="sandboxer-${GITHUB_REF_NAME}-${GOOS}-${GOARCH}"
+            go build -trimpath \
+              -ldflags "-s -w -X main.version=${GITHUB_REF_NAME}" \
+              -o "dist/${out}/sandboxer" ./cmd/sandboxer
+            cp README.md CHANGELOG.md LICENSE "dist/${out}/" 2>/dev/null || true
+            tar -czf "dist/${out}.tar.gz" -C dist "${out}"
+            (cd dist && sha256sum "${out}.tar.gz" > "${out}.tar.gz.sha256")
+            # Smoke-test the host-native (amd64) binary only.
+            if [ "$GOOS" = "linux" ] && [ "$GOARCH" = "amd64" ]; then
+              "dist/${out}/sandboxer" --version
+              "dist/${out}/sandboxer" --help >/dev/null
+            fi
+            rm -rf "dist/${out}"
+          done
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-tarballs
+          path: dist/*.tar.gz*
+          if-no-files-found: error
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-tarballs
+          path: dist
+      # Extract this tag's CHANGELOG section into release-notes.md (awk reused
+      # verbatim from .woodpecker/release.yml).
+      - name: extract release notes
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          awk -v tag="$tag" '
+            BEGIN { p = 0 }
+            /^## \[/ {
+              if (p) exit
+              if ($0 ~ "^## \\[" tag "\\]") { p = 1; next }
+            }
+            p { print }
+          ' CHANGELOG.md > release-notes.md
+          if [ ! -s release-notes.md ]; then
+            echo "_(no changelog section authored for this release)_" > release-notes.md
+          fi
+      - uses: softprops/action-gh-release@v2
+        with:
+          body_path: release-notes.md
+          files: dist/*.tar.gz*
+          token: ${{ secrets.GITHUB_TOKEN }}
