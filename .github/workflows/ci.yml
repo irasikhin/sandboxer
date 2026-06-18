@@ -58,9 +58,15 @@ jobs:
         with:
           extra_nix_config: |
             experimental-features = nix-command flakes
+            accept-flake-config = true
       - run: nix flake check --no-build --print-build-logs
       - run: nix build .#sandboxer --no-link --print-build-logs
       # The toolbox-image flake is an embedded asset built only inside the
       # ephemeral builder container, so `nix flake check` never sees it; parse
       # it here so a syntax error fails CI instead of a user's first build.
       - run: nix-instantiate --parse internal/toolbox/assets/flake.nix > /dev/null
+      # The egress proxy image is small (just squid), so actually BUILD it every
+      # run — a semantic flake regression in it is then caught in CI, not at a
+      # user's first sandbox enter. (The heavy toolbox image is built only on a
+      # tag release; see release.yml.)
+      - run: nix build .#proxyImage --no-link --print-build-logs

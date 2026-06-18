@@ -69,8 +69,29 @@ jobs:
           path: dist/*.tar.gz*
           if-no-files-found: error
 
+  # Build the container images on a tag so a release can never ship a revision
+  # whose toolbox/proxy image fails to build. They are NOT published (users build
+  # them locally with `sandboxer image build`); this is a build smoke test that
+  # gates publish. The proxy image is tiny; the toolbox image pulls the agents
+  # from the llm-agents binary cache (accept-flake-config), and the runner is
+  # cleared of large preinstalled toolchains first to fit the closure.
+  images:
+    needs: verify
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: free disk space
+        run: sudo rm -rf /opt/hostedtoolcache /usr/local/lib/android /usr/share/dotnet || true
+      - uses: cachix/install-nix-action@v31
+        with:
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+            accept-flake-config = true
+      - run: nix build .#proxyImage --no-link --print-build-logs
+      - run: nix build .#image --no-link --print-build-logs
+
   publish:
-    needs: build
+    needs: [build, images]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
