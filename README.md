@@ -66,7 +66,7 @@ Or grab a [pre-built binary](https://github.com/irasikhin/sandboxer/releases)
 ## Quick start
 
 ```bash
-sandboxer init                            # scaffold a commented .sandboxer/config.yaml + image.nix to edit (optional)
+sandboxer profile init                            # scaffold a commented .sandboxer/config.yaml + image.nix to edit (optional)
 sandboxer create feat                     # create a sandbox named "feat" (deps come from a profile)
 sandboxer enter  feat                     # attach a shell (persistent session; Ctrl-q detaches)
 sandboxer exec   feat -- claude           # run an agent/command inside it
@@ -83,12 +83,34 @@ To pull deps in, a profile must list them: drop a `.sandboxer/config.yaml` in th
 to a stored profile by name; the sandbox slug then comes from the profile's
 `name:`.
 
-Run a batch of autonomous agents — one sandbox per task:
+Commands group into three activities (also shown that way in `--help`): forming
+the **image** (`sandboxer image build|edit|rm`) and **config**
+(`sandboxer profile init|edit|validate|list|use`), forming the **data**
+(`pull` / `push` / `clean` / `diff`), and **entering/working** in the sandbox
+(`create` / `enter` / `exec` / `stop` / `rm` / `list` / `use`).
 
-```bash
-sandboxer run tasks.txt --agent claude --max-parallel 4
-# tasks file: [slug] sections + task text (see sandboxer.tasks.example)
-```
+## Config vs data
+
+`.sandboxer/` in your repo holds **only** the committed config — `config.yaml` and
+`image.nix` — so you can check it in as-is (no gitignore tricks). All runtime
+state (per-sandbox working copies, the private agent homes, logs and metadata)
+lives **outside** the repo under the XDG state dir
+(`$XDG_STATE_HOME/sandboxer/<project>`, default `~/.local/state/...`), so secrets
+and scratch data can never be committed by accident. `sandboxer clean` wipes that
+state for the project; the config stays.
+
+## How changes flow (no git)
+
+Dependency sync is plain file-copy, host-side — git is never involved:
+
+- **`pull`** locates each listed dep by path suffix under your roots and copies it
+  into the sandbox's `workspace/`, recording a content signature per dep.
+- **`diff`** runs `diff -ruN` between each dep's origin and the sandbox copy.
+- **`push`** copies modified deps back to their origins, but **skips** any origin
+  that changed on the host since the pull (signature mismatch) unless `--force`,
+  so host edits are never silently overwritten.
+- Agent **context** files (`CLAUDE.md`, `.claude`, …) are copied read-only and
+  never pushed back.
 
 ## Persistent sessions
 
@@ -201,7 +223,7 @@ allowlist, so a sandboxed agent can use MCP without opening the network.
 
 A profile can customize the toolbox image itself — extra packages, files, env,
 even a nixpkgs overlay — **without nix on your machine** (the same builder
-container does everything) and without forking the image. `sandboxer init`
+container does everything) and without forking the image. `sandboxer profile init`
 scaffolds this section together with an inert, fully-commented
 `image.nix` hook next to the profile under `.sandboxer/`, ready to edit:
 
@@ -246,7 +268,7 @@ newer agents without waiting for a sandboxer release. A full 40-hex commit
 hash pins exactly; `latest` is resolved to the remote head **once**, inside the
 builder container at build time, and stamped into the per-user pins cache
 (`~/.cache/sandboxer/image-pins.json`). `enter`/`exec` reuse the stamp and
-never re-resolve; only `sandboxer build-image --refresh` moves it.
+never re-resolve; only `sandboxer image build --refresh` moves it.
 
 ### Multiple profiles in one file
 
@@ -278,7 +300,7 @@ default: api               # sandboxer create   (no name → api)
 
 `sandboxer create <name>` selects the section by name (that name becomes the
 sandbox slug); a name that matches no section falls back to the store / a plain
-slug. A batch `sandboxer run` uses the `default:` (or sole) profile.
+slug. With no name, `create` uses the `default:` (or sole) profile.
 
 ### Named profiles
 
@@ -291,7 +313,7 @@ order:
 sandboxer create ./feat.yaml          # an explicit file
 sandboxer create api  -f ./envs        # the profile named "api" inside a directory
 sandboxer create web                   # a named profile from the global store
-sandboxer profiles                     # list the store; `profiles -f ./envs` lists a dir
+sandboxer profile list                 # list the store; `profile list -f ./envs` lists a dir
 ```
 
 The global store is **`~/.config/sandboxer/profiles/`** (override with
@@ -346,10 +368,12 @@ defaults:
 
 The agent sits on an `--internal` network with no direct outbound; its only exit
 is an allowlist proxy that permits just the domains in `network.allowedDomains`
-(everything else → 403). The proxy is **the same binary** in a hidden
-`sandboxer _proxy` mode (no external dependency). Disable with `egress: false`
-in the profile or `SANDBOXER_NO_EGRESS=1`. A configured upstream proxy holds the
-boundary itself.
+(everything else → 403). The proxy is a minimal **squid** sidecar (the
+`sandboxer-proxy` image, built beside the toolbox image) running a generated
+`squid.conf` — the `sandboxer` binary is **not** in the network path, and is not
+baked into the toolbox image at all (it is a host tool). Disable with
+`egress: false` in the profile or `SANDBOXER_NO_EGRESS=1`. A configured upstream
+proxy is chained via a squid `cache_peer`.
 
 ## direnv
 
@@ -371,8 +395,9 @@ or, with the bundled [direnv](https://direnv.net) helper (copy
 use sandboxer
 ```
 
-`use sandboxer` also `watch_file .sandboxer/_meta/current`, so direnv reloads
-the moment you switch the active sandbox with `sandboxer use <slug>`.
+`use sandboxer` also watches the active-sandbox marker (under the project's XDG
+state dir), so direnv reloads the moment you switch the active sandbox with
+`sandboxer use <slug>`.
 
 What gets exported (only when a sandbox is active):
 
@@ -404,22 +429,23 @@ The container backend runs the agents inside the bundled `sandboxer-toolbox:late
 image. Build it with **only docker/podman** — no nix on your machine:
 
 ```bash
-sandboxer build-image      # build + load the toolbox image (docker/podman only)
+sandboxer image build      # build + load the toolbox image (docker/podman only)
 ```
 
 It drives an ephemeral, public `nixos/nix` container that builds a minimal OCI
-image (agents from [llm-agents.nix](https://github.com/numtide/llm-agents.nix);
-the sandboxer binary injected by copy) and loads it into your engine. It is clean
-by default — the builder container and the `nixos/nix` image it pulled are removed
-afterward, leaving only the toolbox image; pass `--cache` to keep a nix-store
+image (agents from [llm-agents.nix](https://github.com/numtide/llm-agents.nix))
+plus the small `sandboxer-proxy` (squid) egress image, and loads both into your
+engine. The `sandboxer` binary is **not** baked in — it is a host tool. It is
+clean by default — the builder container and the `nixos/nix` image it pulled are
+removed afterward, leaving only the images; pass `--cache` to keep a nix-store
 volume for faster rebuilds, `--keep-builder` to keep the `nixos/nix` image.
 
-`create`/`enter`/`exec`/`run` **auto-build** the image on first use when it's
-missing (disable with `SANDBOXER_NO_AUTOBUILD=1`) — the stock image and any
-`var-` variant alike. Inspect or hand-run the container config with
+`create`/`enter`/`exec` **auto-build** the images on first use when missing
+(disable with `SANDBOXER_NO_AUTOBUILD=1`) — the stock image and any `var-`
+variant alike. Inspect or hand-run the container config with
 `sandboxer compose <slug>` (or `--print-run`).
 
-`sandboxer build-image [profile]` (a positional name or `-f`, resolved like
+`sandboxer image build [profile]` (a positional name or `-f`, resolved like
 enter/exec) builds that profile's customized variant instead of the stock
 image. `--llm-agents-rev`/`--nixpkgs-rev` override the input revs for this one
 build, on top of the profile's values; `--refresh` re-fetches the flake inputs
@@ -462,20 +488,19 @@ go tool cover -func=cov.out | tail -1         # total coverage
 go tool cover -html=cov.out -o cov.html       # browseable report
 ```
 
-Current coverage: **92.2%** total. Per package:
+Current coverage: **91.4%** total. Per package:
 
 | Package             | Coverage |
 | ------------------- | -------- |
 | `cmd/sandboxer`     | 100.0%   |
-| `internal/config`   | 99.0%    |
-| `internal/backend`  | 96.0%    |
-| `internal/runner`   | 95.6%    |
-| `internal/egress`   | 94.3%    |
-| `internal/registry` | 94.1%    |
-| `internal/cli`      | 90.9%    |
-| `internal/proxy`    | 90.3%    |
-| `internal/srcs`     | 87.0%    |
-| `internal/sandbox`  | 88.8%    |
+| `internal/config`   | 97.1%    |
+| `internal/backend`  | 96.2%    |
+| `internal/registry` | 93.7%    |
+| `internal/egress`   | 92.0%    |
+| `internal/toolbox`  | 91.1%    |
+| `internal/sandbox`  | 89.9%    |
+| `internal/cli`      | 89.7%    |
+| `internal/srcs`     | 88.8%    |
 
 Backend tests use fake engine/agent stubs on `PATH`, so they run without
 containers or touching real credentials; the few tests that shell out (`diff`,

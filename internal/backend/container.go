@@ -42,10 +42,10 @@ type RunOpts struct {
 // and (when applicable) the egress allowlist. It returns the container exit
 // code.
 func Run(o RunOpts) (int, error) {
-	// Make sure the toolbox image is present before anything else (egress's
-	// sidecar uses the same image). The bundled default is never published, so
-	// a missing one is auto-built instead of letting the engine attempt a
-	// doomed pull and drop the user back to the host shell.
+	// Make sure the toolbox image is present before anything else. The bundled
+	// default is never published, so a missing one is auto-built instead of
+	// letting the engine attempt a doomed pull and drop the user back to the
+	// host shell.
 	if err := ensureImage(o); err != nil {
 		return 0, err
 	}
@@ -59,7 +59,10 @@ func Run(o RunOpts) (int, error) {
 		if len(o.RT.Domains) == 0 {
 			return 0, errEmptyAllowlist
 		}
-		e, err := egress.Up(o.Engine, o.Image, o.Slug, o.RT.Domains, o.RT.UpstreamProxy, o.Stderr)
+		if err := ensureProxyImage(o); err != nil {
+			return 0, err
+		}
+		e, err := egress.Up(o.Engine, o.Slug, o.RT.Domains, o.RT.UpstreamProxy, o.BaseDir, o.Stderr)
 		if err != nil {
 			return 0, fmt.Errorf("egress allowlist proxy failed to start: %w — "+
 				"refusing to run on an open network (disable with egress: false or SANDBOXER_NO_EGRESS=1)", err)
@@ -195,6 +198,18 @@ var (
 	buildImage  = toolbox.BuildImage
 )
 
+// ensureProxyImage guarantees the egress squid image is present before the
+// sidecar starts. It is built locally beside the toolbox image (a fresh
+// `sandboxer image build`, or the toolbox auto-build, produces both), so a
+// missing one is a clear actionable error rather than a doomed engine pull.
+func ensureProxyImage(o RunOpts) error {
+	img := config.ProxyImage()
+	if o.Engine == "" || imageExists(o.Engine, img) {
+		return nil
+	}
+	return fmt.Errorf("egress proxy image %q not found — build it with:\n  sandboxer image build", img)
+}
+
 // ensureImage guarantees o.Image is present before the run. The bundled default
 // image is never published: when it is missing we auto-build it (unless
 // SANDBOXER_NO_AUTOBUILD is set, in which case we fail fast with a build hint).
@@ -210,11 +225,11 @@ func ensureImage(o RunOpts) error {
 	if o.Image != config.DefaultImage && o.Spec.Empty() {
 		return nil
 	}
-	// A bare `sandboxer build-image` builds the STOCK image — a missing var-
+	// A bare `sandboxer image build` builds the STOCK image — a missing var-
 	// variant needs its profile named, or the hint cannot fix the error.
-	hint := "sandboxer build-image"
+	hint := "sandboxer image build"
 	if !o.Spec.Empty() {
-		hint = "sandboxer build-image <profile> (this variant image needs its profile, by name or -f)"
+		hint = "sandboxer image build <profile> (this variant image needs its profile, by name or -f)"
 	}
 	if os.Getenv("SANDBOXER_NO_AUTOBUILD") != "" {
 		return fmt.Errorf("toolbox image %q is not present and is built locally "+
@@ -253,6 +268,16 @@ func ImageID(engine, image string) string {
 		return ""
 	}
 	return strings.TrimPrefix(strings.TrimSpace(string(out)), "sha256:")
+}
+
+// RemoveImage force-removes a local image by name/tag (force so a stopped
+// container referencing it does not block removal). An already-absent image is
+// success — `image rm` is idempotent — so only a real engine failure errors.
+func RemoveImage(engine, image string) error {
+	if !ImageExists(engine, image) {
+		return nil
+	}
+	return exec.Command(engine, "image", "rm", "-f", image).Run()
 }
 
 // exitCode maps a command error to a process exit code (0 success, the child's

@@ -27,6 +27,16 @@ const LegacyConfigFileName = ".sandboxer.yaml"
 // DefaultImage is the toolbox image reference used by the container backend.
 const DefaultImage = "sandboxer-toolbox:latest"
 
+// DefaultProxyImage is the egress-proxy image: a minimal squid that enforces the
+// domain allowlist for a sandbox. It is built locally beside the toolbox image
+// (sandboxer image build) and runs as the egress sidecar — the sandboxer binary
+// is never in the network path.
+const DefaultProxyImage = "sandboxer-proxy:latest"
+
+// ProxyImage returns the egress-proxy image reference (SANDBOXER_PROXY_IMAGE
+// override, else the built-in default).
+func ProxyImage() string { return envOr("SANDBOXER_PROXY_IMAGE", DefaultProxyImage) }
+
 // DefaultDomains is the egress allowlist used when none is configured: AI API
 // endpoints plus common package registries across ecosystems.
 const DefaultDomains = "api.anthropic.com,api.openai.com,api.deepseek.com," +

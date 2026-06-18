@@ -384,7 +384,10 @@ func createSession(o RunOpts, name, hash string) (string, error) {
 	var eg *egress.Egress
 	egNet, egProxyURL := "", ""
 	if egressRequired(o) {
-		e, err := egress.UpNamed(o.Engine, o.Image, name, o.RT.Domains, o.RT.UpstreamProxy, o.Stderr)
+		if err := ensureProxyImage(o); err != nil {
+			return "", err
+		}
+		e, err := egress.UpNamed(o.Engine, name, o.RT.Domains, o.RT.UpstreamProxy, o.BaseDir, o.Stderr)
 		if err != nil {
 			return "", fmt.Errorf("egress allowlist proxy failed to start: %w — "+
 				"refusing to run on an open network (disable with egress: false or SANDBOXER_NO_EGRESS=1)", err)

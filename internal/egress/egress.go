@@ -1,16 +1,19 @@
 // Package egress brings up the container egress allowlist: the agent runs on an
 // --internal network with no direct outbound, and its sole exit is a forward
-// proxy that only permits the configured domains. The proxy is the sandboxer
-// binary itself (baked into the toolbox image) running in `_proxy` mode, so
-// there is no external proxy dependency.
+// proxy that only permits the configured domains. The proxy is a minimal squid
+// (config.ProxyImage) running a generated squid.conf — a stock proxy, NOT the
+// sandboxer binary, so nothing reaches the host through sandboxer and the
+// toolbox image needs no binary baked in.
 package egress
 
 import (
 	"errors"
 	"fmt"
 	"io"
+	"net/url"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -27,6 +30,7 @@ type Egress struct {
 	net    string // --internal network the agent joins
 	extNet string // external network giving the proxy outbound
 	proxy  string // proxy container name
+	conf   string // host path of the generated squid.conf (removed on Down)
 	active bool
 }
 
@@ -42,11 +46,13 @@ func (e *Egress) Active() bool { return e != nil && e.active }
 // Up creates the networks and starts the allowlist proxy sidecar. The
 // resources get per-invocation names (the PID keeps concurrent runs of the
 // same sandbox apart). When upstream is non-empty the sidecar chains allowed
-// traffic through that parent proxy (the allowlist is still enforced). On any
-// failure it tears down whatever it created and returns an error.
-func Up(engine, image, slug string, domains []string, upstream string, w io.Writer) (*Egress, error) {
+// traffic through that parent proxy (the allowlist is still enforced). confDir
+// is where the generated squid.conf is written (the session's state dir for a
+// persistent session; "" falls back to a temp dir). On any failure it tears
+// down whatever it created and returns an error.
+func Up(engine, slug string, domains []string, upstream, confDir string, w io.Writer) (*Egress, error) {
 	id := fmt.Sprintf("sbx-%s-%d", config.Sanitize(slug), os.Getpid())
-	return upWithID(engine, image, id, domains, upstream, w)
+	return upWithID(engine, id, domains, upstream, confDir, w)
 }
 
 // UpNamed is Up with caller-chosen stable resource names (<id>-int, <id>-ext,
@@ -54,12 +60,12 @@ func Up(engine, image, slug string, domains []string, upstream string, w io.Writ
 // a later CLI invocation. It is only called when (re)creating the session
 // container, so any same-named resources are leftovers from a previous life —
 // they are removed first (Down semantics) so the creates cannot collide.
-func UpNamed(engine, image, id string, domains []string, upstream string, w io.Writer) (*Egress, error) {
+func UpNamed(engine, id string, domains []string, upstream, confDir string, w io.Writer) (*Egress, error) {
 	if len(domains) == 0 {
 		return nil, errNoDomains
 	}
 	Lookup(engine, id).Down()
-	return upWithID(engine, image, id, domains, upstream, w)
+	return upWithID(engine, id, domains, upstream, confDir, w)
 }
 
 // Lookup constructs a handle onto the resources UpNamed(id) names — the proxy
@@ -76,13 +82,25 @@ func Lookup(engine, id string) *Egress {
 }
 
 // upWithID brings up the allowlist under id-derived resource names; both Up
-// (ephemeral, PID-suffixed id) and UpNamed (stable id) funnel through it. The
-// writer is part of the seam for progress output but currently unused.
-func upWithID(engine, image, id string, domains []string, upstream string, _ io.Writer) (*Egress, error) {
+// (ephemeral, PID-suffixed id) and UpNamed (stable id) funnel through it. It
+// writes a generated squid.conf (the domain allowlist) and bind-mounts it into
+// the squid sidecar. The writer is part of the seam for progress output but
+// currently unused.
+func upWithID(engine, id string, domains []string, upstream, confDir string, _ io.Writer) (*Egress, error) {
 	if len(domains) == 0 {
 		return nil, errNoDomains
 	}
 	e := Lookup(engine, id)
+	if confDir == "" {
+		confDir = os.TempDir()
+	}
+	e.conf = filepath.Join(confDir, id+"-squid.conf")
+	if err := os.MkdirAll(confDir, 0o755); err != nil {
+		return nil, fmt.Errorf("egress: %w", err)
+	}
+	if err := os.WriteFile(e.conf, []byte(squidConf(domains, upstream)), 0o644); err != nil {
+		return nil, fmt.Errorf("egress: write squid.conf: %w", err)
+	}
 	steps := [][]string{
 		{"network", "create", "--internal", e.net},
 		{"network", "create", e.extNet},
@@ -94,16 +112,15 @@ func upWithID(engine, image, id string, domains []string, upstream string, _ io.
 		}
 	}
 	userns := strconv.Itoa(os.Getuid()) + ":" + strconv.Itoa(os.Getgid())
+	// The proxy image's entrypoint runs `squid -N -f /etc/sandboxer/squid.conf`;
+	// we only bind-mount the generated config. cap-drop=ALL + the unprivileged
+	// run user are fine because the config keeps no on-disk cache and logs to
+	// std streams (no writable image dirs needed).
 	runArgs := []string{
 		"run", "-d", "--name", e.proxy, "--network", e.net,
 		"--user", userns, "--cap-drop=ALL", "--security-opt", "no-new-privileges",
-		image, "sandboxer", "_proxy", "--listen", ":8888",
-	}
-	for _, d := range domains {
-		runArgs = append(runArgs, "--allow", d)
-	}
-	if upstream != "" {
-		runArgs = append(runArgs, "--upstream", upstream)
+		"--volume", e.conf + ":/etc/sandboxer/squid.conf:ro",
+		config.ProxyImage(),
 	}
 	if err := e.run(runArgs...); err != nil {
 		e.Down()
@@ -115,6 +132,65 @@ func upWithID(engine, image, id string, domains []string, upstream string, _ io.
 	}
 	e.active = true
 	return e, nil
+}
+
+// squidConf renders the squid configuration enforcing the domain allowlist:
+// only the listed domains (and their subdomains) are reachable over HTTP and
+// HTTPS (CONNECT to 443); everything else is denied. It keeps no on-disk cache
+// and logs to std streams so squid runs as an unprivileged, capability-dropped
+// sidecar with no writable image dirs. A non-empty upstream chains allowed
+// traffic through that parent proxy.
+func squidConf(domains []string, upstream string) string {
+	var b strings.Builder
+	b.WriteString("http_port 8888\n")
+	b.WriteString("acl allowed dstdomain")
+	for _, d := range domains {
+		d = strings.TrimSpace(d)
+		if d == "" {
+			continue
+		}
+		// A leading dot matches the domain itself AND its subdomains.
+		if !strings.HasPrefix(d, ".") {
+			d = "." + d
+		}
+		b.WriteString(" ")
+		b.WriteString(d)
+	}
+	b.WriteString("\n")
+	b.WriteString("acl SSL_ports port 443\n")
+	b.WriteString("acl CONNECT method CONNECT\n")
+	b.WriteString("http_access deny CONNECT !SSL_ports\n")
+	b.WriteString("http_access allow allowed\n")
+	b.WriteString("http_access deny all\n")
+	b.WriteString("cache deny all\n")
+	b.WriteString("access_log stdio:/dev/stdout\n")
+	b.WriteString("cache_log stdio:/dev/stderr\n")
+	b.WriteString("pid_filename none\n")
+	b.WriteString("coredump_dir /tmp\n")
+	b.WriteString("logfile_rotate 0\n")
+	if host, port, ok := parseUpstream(upstream); ok {
+		fmt.Fprintf(&b, "cache_peer %s parent %s 0 no-query default\n", host, port)
+		b.WriteString("never_direct allow all\n")
+	}
+	return b.String()
+}
+
+// parseUpstream splits an upstream proxy URL (http://host:port) into host and
+// port for a squid cache_peer line. Returns ok=false for an empty or
+// unparseable value (no upstream chaining then).
+func parseUpstream(upstream string) (host, port string, ok bool) {
+	if strings.TrimSpace(upstream) == "" {
+		return "", "", false
+	}
+	u, err := url.Parse(upstream)
+	if err != nil || u.Hostname() == "" {
+		return "", "", false
+	}
+	port = u.Port()
+	if port == "" {
+		port = "3128"
+	}
+	return u.Hostname(), port, true
 }
 
 // Down removes the proxy container and networks. Idempotent and best-effort.
@@ -130,6 +206,9 @@ func (e *Egress) Down() {
 	}
 	if e.extNet != "" {
 		_ = exec.Command(e.engine, "network", "rm", e.extNet).Run()
+	}
+	if e.conf != "" {
+		_ = os.Remove(e.conf)
 	}
 	e.active = false
 }

@@ -668,11 +668,14 @@ func TestEnsureSessionImageRebuilt(t *testing.T) {
 
 // egressOpts is the egress-enabled variant; its hash is computed with the
 // session's stable egress identifiers, exactly as EnsureSession does.
-func egressOpts(engine string) (o RunOpts, name, hash string) {
+func egressOpts(t *testing.T, engine string) (o RunOpts, name, hash string) {
 	o = sessionOpts(engine)
 	o.NoEgress = false
 	o.RT = config.Runtime{Egress: true, Domains: []string{"x.com"}}
-	name = SessionName("s", "/b")
+	// A writable BaseDir: the egress sidecar writes its generated squid.conf
+	// there (it doubles as the session's state dir at run time).
+	o.BaseDir = t.TempDir()
+	name = SessionName("s", o.BaseDir)
 	hash = ConfigHash(o, name+"-int", "http://"+name+"-proxy:8888")
 	return o, name, hash
 }
@@ -682,7 +685,7 @@ func TestEnsureSessionEgress(t *testing.T) {
 
 	t.Run("create brings up the named sidecar first", func(t *testing.T) {
 		engine, logPath := sessionEngine(t)
-		o, name, hash := egressOpts(engine)
+		o, name, hash := egressOpts(t, engine)
 
 		t.Setenv("SBX_INSPECT_FAIL", "1") // not found
 		if got, err := EnsureSession(o); err != nil || got != name {
@@ -712,7 +715,7 @@ func TestEnsureSessionEgress(t *testing.T) {
 
 	t.Run("adopt with a healthy proxy", func(t *testing.T) {
 		engine, logPath := sessionEngine(t)
-		o, name, hash := egressOpts(engine)
+		o, name, hash := egressOpts(t, engine)
 
 		t.Setenv("SBX_INSPECT_OUT", "true "+hash)
 		t.Setenv("SBX_PROXY_RUNNING", "1")
@@ -727,7 +730,7 @@ func TestEnsureSessionEgress(t *testing.T) {
 
 	t.Run("dead proxy forces recreate", func(t *testing.T) {
 		engine, logPath := sessionEngine(t)
-		o, name, hash := egressOpts(engine)
+		o, name, hash := egressOpts(t, engine)
 		stderr := &bytes.Buffer{}
 		o.Stderr = stderr
 
@@ -747,7 +750,7 @@ func TestEnsureSessionEgress(t *testing.T) {
 
 	t.Run("dead proxy with attached clients refuses", func(t *testing.T) {
 		engine, logPath := sessionEngine(t)
-		o, _, hash := egressOpts(engine)
+		o, _, hash := egressOpts(t, engine)
 
 		t.Setenv("SBX_INSPECT_OUT", "true "+hash) // fresh container…
 		// …whose proxy is missing (SBX_PROXY_RUNNING unset) while a client is
@@ -766,7 +769,7 @@ func TestEnsureSessionEgress(t *testing.T) {
 
 	t.Run("stopped fresh restarts the proxy too", func(t *testing.T) {
 		engine, logPath := sessionEngine(t)
-		o, name, hash := egressOpts(engine)
+		o, name, hash := egressOpts(t, engine)
 
 		t.Setenv("SBX_INSPECT_OUT", "false "+hash)
 		if got, err := EnsureSession(o); err != nil || got != name {
@@ -782,7 +785,7 @@ func TestEnsureSessionEgress(t *testing.T) {
 
 	t.Run("unstartable proxy forces recreate", func(t *testing.T) {
 		engine, logPath := sessionEngine(t)
-		o, name, hash := egressOpts(engine)
+		o, name, hash := egressOpts(t, engine)
 
 		t.Setenv("SBX_INSPECT_OUT", "false "+hash)
 		t.Setenv("SBX_FAIL_ON", "start") // proxy start fails → rebuild both
@@ -797,7 +800,7 @@ func TestEnsureSessionEgress(t *testing.T) {
 
 	t.Run("empty allowlist fails before any engine call", func(t *testing.T) {
 		engine, logPath := sessionEngine(t)
-		o, _, _ := egressOpts(engine)
+		o, _, _ := egressOpts(t, engine)
 		o.RT.Domains = nil
 
 		if _, err := EnsureSession(o); !errors.Is(err, errEmptyAllowlist) {
@@ -810,7 +813,7 @@ func TestEnsureSessionEgress(t *testing.T) {
 
 	t.Run("sidecar failure fails closed", func(t *testing.T) {
 		engine, _ := sessionEngine(t)
-		o, _, _ := egressOpts(engine)
+		o, _, _ := egressOpts(t, engine)
 
 		t.Setenv("SBX_INSPECT_FAIL", "1")
 		t.Setenv("SBX_FAIL_ON", "network") // network create fails
@@ -863,7 +866,7 @@ func TestEnsureSessionCreateFailure(t *testing.T) {
 		t.Setenv("SBX_INSPECT_FAIL", "1") // not found → create path
 		t.Setenv("SBX_FAIL_ON", "image")  // the `image inspect` probe: absent
 		t.Setenv("SANDBOXER_NO_AUTOBUILD", "1")
-		if _, err := EnsureSession(o); err == nil || !strings.Contains(err.Error(), "sandboxer build-image") {
+		if _, err := EnsureSession(o); err == nil || !strings.Contains(err.Error(), "sandboxer image build") {
 			t.Errorf("missing image = %v, want the build-image hint", err)
 		}
 	})

@@ -1,0 +1,68 @@
+package cli
+
+import (
+	"fmt"
+	"os"
+	"path/filepath"
+
+	"github.com/spf13/cobra"
+
+	"github.com/irasikhin/sandboxer/internal/config"
+)
+
+func init() { register(newCleanCmd) }
+
+// newCleanCmd removes ALL runtime data for a project (replacing the old
+// rm-all): the entire state directory — sandboxes, agent homes, logs, metadata
+// — which now lives under config.StateDir, outside the repo. The committed
+// config (.sandboxer/config.yaml + image.nix) is deliberately left untouched,
+// which is the whole point of the config/data split.
+func newCleanCmd() *cobra.Command {
+	var force bool
+	cmd := &cobra.Command{
+		Use:   "clean [src]",
+		Short: "Remove all runtime data for the project (keeps the committed config)",
+		Long: `Remove the project's entire runtime state — every sandbox, agent home, log and
+metadata file under the state directory (outside the repo). The committed config
+(.sandboxer/config.yaml + image.nix) is left untouched.
+
+Requires --force to protect against accidental deletion; use 'sandboxer rm <slug>'
+to remove a single sandbox instead.`,
+		Args: cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if !force {
+				return fmt.Errorf("clean requires --force; use 'sandboxer rm <slug>' to remove a single sandbox")
+			}
+			src := firstNonEmpty(posArg(args), getwd())
+			abs, err := filepath.Abs(src)
+			if err != nil {
+				return fmt.Errorf("no such directory: %s", src)
+			}
+			dir := config.StateDir(abs)
+			if dir == "" {
+				return fmt.Errorf("cannot determine state directory: set $XDG_STATE_HOME or $SANDBOXER_STATE")
+			}
+			// Sweep the session containers labeled with this state dir first — on
+			// every installed engine, since per-profile backends may have created
+			// sessions on either; best-effort — the state dir must go even with
+			// no engine installed.
+			engines := backendInstalledEngines(config.LoadDefaults())
+			if len(engines) == 0 {
+				fmt.Fprintln(cmd.ErrOrStderr(),
+					"sandboxer: session cleanup skipped: no container engine (docker or podman) found")
+			}
+			for _, engine := range engines {
+				if err := backendRemoveAllSessions(engine, dir); err != nil {
+					fmt.Fprintf(cmd.ErrOrStderr(), "sandboxer: session cleanup failed: %v\n", err)
+				}
+			}
+			if err := os.RemoveAll(dir); err != nil {
+				return err
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "removed: %s\n", dir)
+			return nil
+		},
+	}
+	cmd.Flags().BoolVar(&force, "force", false, "required to confirm deletion")
+	return cmd
+}

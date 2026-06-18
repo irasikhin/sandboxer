@@ -295,7 +295,7 @@ func TestRunLifecycle(t *testing.T) {
 	if code, out, errs := run("create", "feat", "--src", project); code != 0 || !strings.Contains(out, "created") {
 		t.Fatalf("create = (%d, %q, %q)", code, out, errs)
 	}
-	dest := filepath.Join(project, ".sandboxer", "feat")
+	dest := stateDir(project, "feat")
 	if fi, err := os.Stat(dest); err != nil || !fi.IsDir() {
 		t.Errorf("sandbox dir not created: %v", err)
 	}
@@ -314,15 +314,15 @@ func TestRunLifecycle(t *testing.T) {
 	if code, out, _ := run("rm", "feat", "--src", project); code != 0 || !strings.Contains(out, "removed") {
 		t.Errorf("rm = (%d, %q)", code, out)
 	}
-	if code, out, _ := run("rm-all", "--force", project); code != 0 || !strings.Contains(out, "removed") {
-		t.Errorf("rm-all = (%d, %q)", code, out)
+	if code, out, _ := run("clean", "--force", project); code != 0 || !strings.Contains(out, "removed") {
+		t.Errorf("clean = (%d, %q)", code, out)
 	}
-	if _, err := os.Stat(filepath.Join(project, ".sandboxer")); !os.IsNotExist(err) {
-		t.Error(".sandboxer should be gone after rm-all")
+	if _, err := os.Stat(stateDir(project)); !os.IsNotExist(err) {
+		t.Error("state dir should be gone after clean")
 	}
-	// rm-all without --force is rejected.
-	if code, _, errs := run("rm-all", project); code != 1 || !strings.Contains(errs, "--force") {
-		t.Errorf("rm-all without --force = (%d, %q); want error mentioning --force", code, errs)
+	// clean without --force is rejected.
+	if code, _, errs := run("clean", project); code != 1 || !strings.Contains(errs, "--force") {
+		t.Errorf("clean without --force = (%d, %q); want error mentioning --force", code, errs)
 	}
 }
 
@@ -332,7 +332,7 @@ func TestRunInContainerRestriction(t *testing.T) {
 	if code != 1 {
 		t.Errorf("create in container exit = %d, want 1", code)
 	}
-	if !strings.Contains(errs, "not available inside the container") {
+	if !strings.Contains(errs, "not available inside the sandbox") {
 		t.Errorf("missing restriction message: %q", errs)
 	}
 }

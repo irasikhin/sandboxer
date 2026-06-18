@@ -29,7 +29,7 @@ func init() {
 func baseOnly(src string) (*sandbox.Base, error) {
 	root := firstNonEmpty(src, getwd())
 	if !sandbox.RunEnvExists(root) {
-		return nil, fmt.Errorf("no sandboxes in %s/.sandboxer (create one: sandboxer create <slug>)", root)
+		return nil, fmt.Errorf("no sandboxes for %s (create one: sandboxer create <slug>)", root)
 	}
 	return sandbox.ResolveBase(root)
 }

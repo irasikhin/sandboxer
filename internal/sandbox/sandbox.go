@@ -1,5 +1,9 @@
-// Package sandbox owns the on-disk state under .sandboxer/: the base metadata
-// (run.env), per-sandbox directories, dependency manifests and logs.
+// Package sandbox owns the on-disk runtime state for a project: the base
+// metadata (run.env), per-sandbox directories, dependency manifests and logs.
+// This state lives under config.StateDir (an XDG state dir outside the repo),
+// kept separate from the committed config (.sandboxer/config.yaml + image.nix)
+// so runtime data — including agent homes that may hold login tokens — never
+// lands in git.
 //
 // A sandbox is driven entirely by `srcs`: nothing is copied by default. The
 // sandbox directory holds exactly the entries listed in the profile's srcs
@@ -22,16 +26,18 @@ import (
 	"github.com/irasikhin/sandboxer/internal/srcs"
 )
 
-// Base is a resolved project root and its .sandboxer state.
+// Base is a resolved project root and its runtime state directory.
 type Base struct {
 	Src     string // absolute project root
-	Dir     string // <Src>/.sandboxer
+	Dir     string // config.StateDir(Src) — the XDG state dir, outside the repo
 	Domains string
 	Model   string
 }
 
 // ResolveBase resolves src to an absolute path, ensures the state dirs exist,
-// seeds run.env on first use, and loads it.
+// seeds run.env on first use, and loads it. The runtime state lives under
+// config.StateDir (outside the repo); the committed config stays under
+// <Src>/.sandboxer and is handled separately by the config package.
 func ResolveBase(src string) (*Base, error) {
 	abs, err := filepath.Abs(src)
 	if err != nil {
@@ -40,20 +46,15 @@ func ResolveBase(src string) (*Base, error) {
 	if fi, err := os.Stat(abs); err != nil || !fi.IsDir() {
 		return nil, fmt.Errorf("no such directory: %s", src)
 	}
-	b := &Base{Src: abs, Dir: filepath.Join(abs, config.StateDirName)}
+	dir := config.StateDir(abs)
+	if dir == "" {
+		return nil, fmt.Errorf("cannot determine state directory: set $XDG_STATE_HOME or $SANDBOXER_STATE (no home directory found)")
+	}
+	b := &Base{Src: abs, Dir: dir}
 	if err := os.MkdirAll(b.metaDir(), 0o755); err != nil {
 		return nil, err
 	}
 	if err := os.MkdirAll(b.logsDir(), 0o755); err != nil {
-		return nil, err
-	}
-	// The state tree holds working copies and per-sandbox agent homes (which can
-	// store login tokens after an in-sandbox `claude login`). Drop an allowlisting
-	// .gitignore so none of it can be committed into the user's repo by accident —
-	// only the three committed sandboxer-owned files (the .gitignore itself, the
-	// project profile and the image hook) are un-ignored; _meta/_home/_logs/<slug>
-	// stay ignored by the leading "*", which is the credential-leak guard.
-	if err := ensureGitignore(filepath.Join(b.Dir, ".gitignore")); err != nil {
 		return nil, err
 	}
 	runEnv := filepath.Join(b.metaDir(), "run.env")
@@ -86,10 +87,12 @@ func OpenBase(src string) (*Base, error) {
 	if err != nil {
 		return nil, err
 	}
+	// RunEnvExists already resolved (and found) the state dir, so config.StateDir
+	// is guaranteed non-empty here.
 	if !RunEnvExists(abs) {
 		return nil, nil
 	}
-	b := &Base{Src: abs, Dir: filepath.Join(abs, config.StateDirName)}
+	b := &Base{Src: abs, Dir: config.StateDir(abs)}
 	if env, err := parseEnvFile(filepath.Join(b.metaDir(), "run.env")); err == nil {
 		b.Domains = env["DOMAINS"]
 		b.Model = env["MODEL"]
@@ -168,7 +171,11 @@ func RunEnvExists(src string) bool {
 	if err != nil {
 		return false
 	}
-	_, err = os.Stat(filepath.Join(abs, config.StateDirName, "_meta", "run.env"))
+	dir := config.StateDir(abs)
+	if dir == "" {
+		return false
+	}
+	_, err = os.Stat(filepath.Join(dir, "_meta", "run.env"))
 	return err == nil
 }
 
@@ -345,39 +352,6 @@ func (b *Base) Remove(slug string) error {
 		return b.ClearCurrent()
 	}
 	return nil
-}
-
-// gitignoreAllowlist is the .sandboxer/.gitignore body: ignore everything, then
-// un-ignore only the three committed sandboxer-owned top-level files. The
-// generated state (_meta/, _home/, _logs/, <slug>/) stays ignored by the leading
-// "*" — un-ignoring a directory's contents would require re-listing the dir, so
-// the allowlist deliberately names only files, keeping the credential-leak guard
-// intact.
-const gitignoreAllowlist = "*\n!.gitignore\n!" + config.ConfigFileName + "\n!image.nix\n"
-
-// legacyBlanketGitignore is the pre-consolidation body ("ignore everything"),
-// which would keep a now-committed config.yaml/image.nix invisible to git.
-const legacyBlanketGitignore = "*\n"
-
-// ensureGitignore writes the allowlisting .gitignore, idempotently: it creates
-// it when missing and upgrades an existing blanket "*\n" (so an old sandbox's
-// committed config stops being ignored). A user-customized gitignore (neither
-// the allowlist nor the legacy blanket) is left untouched.
-func ensureGitignore(path string) error {
-	cur, err := os.ReadFile(path)
-	switch {
-	case os.IsNotExist(err):
-		// create below
-	case err != nil:
-		return err
-	case string(cur) == gitignoreAllowlist:
-		return nil // already current
-	case string(cur) == legacyBlanketGitignore:
-		// upgrade the blanket guard to the allowlist
-	default:
-		return nil // user-customized; leave it alone
-	}
-	return os.WriteFile(path, []byte(gitignoreAllowlist), 0o644)
 }
 
 func fileExists(p string) bool {

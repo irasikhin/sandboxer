@@ -1,0 +1,57 @@
+package config
+
+import (
+	"path/filepath"
+	"strings"
+	"testing"
+)
+
+// TestStateDir pins the resolution order: SANDBOXER_STATE override, then
+// $XDG_STATE_HOME, then ~/.local/state — and "" when no home can be found.
+func TestStateDir(t *testing.T) {
+	proj := "/work/myproj"
+	id := projectID(proj)
+
+	t.Setenv("SANDBOXER_STATE", "/explicit")
+	t.Setenv("XDG_STATE_HOME", "/xdg")
+	t.Setenv("HOME", "/home/u")
+	if got, want := StateDir(proj), filepath.Join("/explicit", id); got != want {
+		t.Errorf("override: StateDir = %q, want %q", got, want)
+	}
+
+	t.Setenv("SANDBOXER_STATE", "")
+	if got, want := StateDir(proj), filepath.Join("/xdg", "sandboxer", id); got != want {
+		t.Errorf("xdg: StateDir = %q, want %q", got, want)
+	}
+
+	t.Setenv("XDG_STATE_HOME", "")
+	if got, want := StateDir(proj), filepath.Join("/home/u", ".local", "state", "sandboxer", id); got != want {
+		t.Errorf("home: StateDir = %q, want %q", got, want)
+	}
+
+	t.Setenv("HOME", "")
+	if got := StateDir(proj); got != "" {
+		t.Errorf("no home: StateDir = %q, want \"\"", got)
+	}
+}
+
+// TestProjectID: the id embeds the base name (readable) and a short path hash
+// (so same-named checkouts in different paths never collide).
+func TestProjectID(t *testing.T) {
+	a := projectID("/a/myproj")
+	b := projectID("/b/myproj")
+	if a == b {
+		t.Errorf("same-named projects at different paths collided: %q", a)
+	}
+	if !strings.HasPrefix(a, "myproj-") {
+		t.Errorf("projectID = %q, want it to start with the base name", a)
+	}
+	// Stable for the same path.
+	if projectID("/a/myproj") != a {
+		t.Error("projectID is not deterministic")
+	}
+	// A root-ish path still yields a usable id.
+	if id := projectID("/"); !strings.HasPrefix(id, "root-") {
+		t.Errorf("projectID(/) = %q, want it to start with root-", id)
+	}
+}

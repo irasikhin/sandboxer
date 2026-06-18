@@ -45,7 +45,7 @@ func TestRunEnterAutoCreate(t *testing.T) {
 	if code, _, errs := run("enter", "fresh", "--src", project, "--backend", "podman"); code != 0 {
 		t.Fatalf("enter auto-create = %d, %s", code, errs)
 	}
-	if _, err := os.Stat(filepath.Join(project, ".sandboxer", "fresh")); err != nil {
+	if _, err := os.Stat(stateDir(project, "fresh")); err != nil {
 		t.Errorf("enter did not create the sandbox: %v", err)
 	}
 }
@@ -55,7 +55,7 @@ func TestRunCreateWithDomains(t *testing.T) {
 	if code, _, errs := run("create", "feat", "--src", project, "--allow-domains", "a.com,b.com"); code != 0 {
 		t.Fatalf("create with domains = %d, %s", code, errs)
 	}
-	runEnv, _ := os.ReadFile(filepath.Join(project, ".sandboxer", "_meta", "run.env"))
+	runEnv, _ := os.ReadFile(stateDir(project, "_meta", "run.env"))
 	if !strings.Contains(string(runEnv), "DOMAINS=a.com,b.com") {
 		t.Errorf("create --allow-domains not applied:\n%s", runEnv)
 	}
@@ -82,7 +82,7 @@ func TestRunDiffAndPush(t *testing.T) {
 	}
 
 	// Edit the pulled copy.
-	copyF := filepath.Join(project, ".sandboxer", "feat", "workspace", "lib", "d.txt")
+	copyF := stateDir(project, "feat", "workspace", "lib", "d.txt")
 	if err := os.WriteFile(copyF, []byte("edited\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -126,7 +126,7 @@ func TestRunExecPushFailureExitsNonzero(t *testing.T) {
 	// then fails with EISDIR — a perms-independent way to fail the push (works
 	// even when tests run as root). (Sabotaging the origin no longer fails the
 	// push: a changed/unreadable origin is now SKIPped by the safe default.)
-	mf := filepath.Join(project, ".sandboxer", "_meta", "feat.manifest.json")
+	mf := stateDir(project, "_meta", "feat.manifest.json")
 	if err := os.RemoveAll(mf); err != nil {
 		t.Fatal(err)
 	}

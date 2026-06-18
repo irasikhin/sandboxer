@@ -57,7 +57,7 @@ func TestTmuxEnterArgs(t *testing.T) {
 	for _, want := range []string{
 		"command -v tmux",
 		"tmux -L sandboxer -f /etc/sandboxer/tmux.conf new-session -A -s main",
-		"rebuild: sandboxer build-image",
+		"rebuild: sandboxer image build",
 		"--rcfile", "exec bash -i",
 	} {
 		if !strings.Contains(script, want) {

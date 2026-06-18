@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/irasikhin/sandboxer/internal/backend"
+	"github.com/irasikhin/sandboxer/internal/config"
 )
 
 // stubSessionStates replaces the list/doctor enumeration seam with a fixed
@@ -105,7 +106,7 @@ func TestListStateBestEffort(t *testing.T) {
 // and the fresh/stale verdict from the recorded vs recomputed config hash.
 func TestShowSessionBlock(t *testing.T) {
 	project := sessionProject(t)
-	name := backend.SessionName("feat", filepath.Join(project, ".sandboxer"))
+	name := backend.SessionName("feat", config.StateDir(project))
 
 	cases := []struct {
 		desc string

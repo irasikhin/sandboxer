@@ -9,14 +9,14 @@ import (
 	"github.com/irasikhin/sandboxer/internal/config"
 )
 
-func init() { register(newProfilesCmd) }
-
-func newProfilesCmd() *cobra.Command {
+// newProfileListCmd is the `list` verb of the `profile` group (see profile.go):
+// it lists the named profiles available to create/enter/exec.
+func newProfileListCmd() *cobra.Command {
 	var dir string
 	cmd := &cobra.Command{
-		Use:   "profiles",
+		Use:   "list",
 		Short: "List named profiles (the global store, or a -f directory)",
-		Long: `List the named profiles available to create/enter/exec/run.
+		Long: `List the named profiles available to create/enter/exec.
 
 A profile is a YAML file; its name is the file's base name unless it sets an
 explicit name:. The global store is ~/.config/sandboxer/profiles (override with
@@ -24,8 +24,8 @@ $SANDBOXER_PROFILES or $XDG_CONFIG_HOME). Use one by name, e.g.:
 
   sandboxer create web        # ~/.config/sandboxer/profiles/web.yaml
   sandboxer create web -f ./envs`,
-		Example: `  sandboxer profiles            # the global store
-  sandboxer profiles -f ./envs  # a directory of profiles`,
+		Example: `  sandboxer profile list            # the global store
+  sandboxer profile list -f ./envs  # a directory of profiles`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			d := dir

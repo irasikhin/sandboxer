@@ -2,11 +2,11 @@ package cli
 
 import (
 	"errors"
-	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/irasikhin/sandboxer/internal/backend"
+	"github.com/irasikhin/sandboxer/internal/config"
 )
 
 // seamCall records one (engine, slug, baseDir) lifecycle-seam invocation.
@@ -39,7 +39,7 @@ func TestStopHappyPath(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("stop = %d, %s", code, errs)
 	}
-	wantBase := filepath.Join(project, ".sandboxer")
+	wantBase := config.StateDir(project)
 	if len(*calls) != 1 || (*calls)[0] != (seamCall{"docker", "feat", wantBase}) {
 		t.Errorf("stop calls = %+v, want [docker feat %s]", *calls, wantBase)
 	}
@@ -117,7 +117,7 @@ func TestStopInvalidBackend(t *testing.T) {
 func TestStopBlockedInContainer(t *testing.T) {
 	t.Setenv("SANDBOXER_IN_CONTAINER", "1")
 	code, _, errs := run("stop")
-	if code != 1 || !strings.Contains(errs, "not available inside the container") {
+	if code != 1 || !strings.Contains(errs, "not available inside the sandbox") {
 		t.Errorf("in-container stop = (%d, %q)", code, errs)
 	}
 }

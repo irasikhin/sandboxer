@@ -79,7 +79,7 @@ func EnsureToolboxImage(t *testing.T, engine string) string {
 		return img
 	}
 	if os.Getenv("SANDBOXER_ITEST_BUILD_IMAGE") != "1" {
-		t.Skipf("toolbox image %q absent — build it (sandboxer build-image) or set SANDBOXER_ITEST_BUILD_IMAGE=1", img)
+		t.Skipf("toolbox image %q absent — build it (sandboxer image build) or set SANDBOXER_ITEST_BUILD_IMAGE=1", img)
 	}
 	if err := toolbox.BuildImage(toolbox.BuildOpts{Engine: engine, Image: img, Stdout: os.Stderr, Stderr: os.Stderr}); err != nil {
 		t.Fatalf("build toolbox image: %v", err)

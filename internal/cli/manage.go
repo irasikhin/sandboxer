@@ -3,8 +3,6 @@ package cli
 import (
 	"fmt"
 	"io"
-	"os"
-	"path/filepath"
 	"strings"
 	"text/tabwriter"
 
@@ -28,7 +26,6 @@ var (
 
 func init() {
 	register(newRmCmd)
-	register(newRmAllCmd)
 	register(newUseCmd)
 	register(newAgentsCmd)
 }
@@ -78,50 +75,6 @@ func removeSessionBestEffort(t *target, f commonFlags, errOut io.Writer) {
 	if err := backendRemoveSession(engine, t.slug, t.base.Dir); err != nil {
 		fmt.Fprintf(errOut, "sandboxer: session cleanup failed: %v\n", err)
 	}
-}
-
-func newRmAllCmd() *cobra.Command {
-	var force bool
-	cmd := &cobra.Command{
-		Use:   "rm-all [src]",
-		Short: "Remove the entire .sandboxer state directory",
-		Long: `Remove the entire .sandboxer state directory — all sandboxes, logs and metadata
-for the project. Requires --force to protect against accidental deletion;
-use 'sandboxer rm <slug>' to remove a single sandbox instead.`,
-		Args: cobra.MaximumNArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			if !force {
-				return fmt.Errorf("rm-all requires --force; use 'sandboxer rm <slug>' to remove a single sandbox")
-			}
-			src := firstNonEmpty(posArg(args), getwd())
-			abs, err := filepath.Abs(src)
-			if err != nil {
-				return fmt.Errorf("no such directory: %s", src)
-			}
-			dir := filepath.Join(abs, config.StateDirName)
-			// Sweep the session containers labeled with this base dir first — on
-			// every installed engine, since per-profile backends may have created
-			// sessions on either; best-effort — the state dir must go even with
-			// no engine installed.
-			engines := backendInstalledEngines(config.LoadDefaults())
-			if len(engines) == 0 {
-				fmt.Fprintln(cmd.ErrOrStderr(),
-					"sandboxer: session cleanup skipped: no container engine (docker or podman) found")
-			}
-			for _, engine := range engines {
-				if err := backendRemoveAllSessions(engine, dir); err != nil {
-					fmt.Fprintf(cmd.ErrOrStderr(), "sandboxer: session cleanup failed: %v\n", err)
-				}
-			}
-			if err := os.RemoveAll(dir); err != nil {
-				return err
-			}
-			fmt.Fprintf(cmd.OutOrStdout(), "removed: %s\n", dir)
-			return nil
-		},
-	}
-	cmd.Flags().BoolVar(&force, "force", false, "required to confirm deletion")
-	return cmd
 }
 
 func newUseCmd() *cobra.Command {
@@ -177,8 +130,11 @@ func orDash(s string) string {
 func newAgentsCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "agents",
-		Short: "List the agent catalog",
-		Args:  cobra.NoArgs,
+		Short: "List the coding agents you can put in a profile's agent: field",
+		Long: `List the coding agents baked into the toolbox image — the valid values for a
+profile's agent: field (and the --agent flag). For each: its binary, whether it
+ships in the image, its credential dirs and the env vars it authenticates with.`,
+		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			tw := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 2, ' ', 0)
 			fmt.Fprintln(tw, "AGENT\tBIN\tIMAGE\tAUTH DIRS\tENV")

@@ -62,7 +62,7 @@ func TestRunInit(t *testing.T) {
 	t.Setenv("SANDBOXER_IN_CONTAINER", "")
 	t.Chdir(t.TempDir())
 
-	if code, out, errs := run("init", "demo"); code != 0 || !strings.Contains(out, "wrote "+config.ConfigPath()) {
+	if code, out, errs := run("profile", "init", "demo"); code != 0 || !strings.Contains(out, "wrote "+config.ConfigPath()) {
 		t.Fatalf("init = (%d, %q, %q)", code, out, errs)
 	}
 	doc, err := config.LoadDocument(config.ConfigPath())
@@ -89,18 +89,18 @@ func TestRunInit(t *testing.T) {
 		t.Errorf("scaffolded image.nix should resolve under .sandboxer/: got %q, want %q", p.Image.Nix, wantNix)
 	}
 	// Refuses to overwrite the config without --force.
-	if code, _, errs := run("init"); code != 1 || !strings.Contains(errs, "already exists") {
+	if code, _, errs := run("profile", "init"); code != 1 || !strings.Contains(errs, "already exists") {
 		t.Errorf("init over existing = (%d, %q), want refusal", code, errs)
 	}
 	// Refuses to clobber an existing image.nix even when the config is gone.
 	if err := os.Remove(config.ConfigPath()); err != nil {
 		t.Fatal(err)
 	}
-	if code, _, errs := run("init"); code != 1 || !strings.Contains(errs, imageNixFileName) {
+	if code, _, errs := run("profile", "init"); code != 1 || !strings.Contains(errs, imageNixFileName) {
 		t.Errorf("init over existing %s = (%d, %q), want refusal", imageNixPath(), code, errs)
 	}
 	// --force rewrites both.
-	if code, _, errs := run("init", "other", "--force"); code != 0 {
+	if code, _, errs := run("profile", "init", "other", "--force"); code != 0 {
 		t.Errorf("init --force = %d (%q)", code, errs)
 	}
 	doc2, _ := config.LoadDocument(config.ConfigPath())
@@ -297,7 +297,7 @@ func TestRunProfileFlow(t *testing.T) {
 	if code, out, errs := run("create", "--src", project, "--config", cfg); code != 0 || !strings.Contains(out, "created") {
 		t.Fatalf("create with profile = (%d, %q, %q)", code, out, errs)
 	}
-	if _, err := os.Stat(filepath.Join(project, ".sandboxer", "feat2", "workspace", "lib", "dep.txt")); err != nil {
+	if _, err := os.Stat(stateDir(project, "feat2", "workspace", "lib", "dep.txt")); err != nil {
 		t.Errorf("dependency not pulled: %v", err)
 	}
 	if code, _, errs := run("pull", "--src", project, "--config", cfg); code != 0 {
@@ -335,53 +335,25 @@ func TestRunUseClear(t *testing.T) {
 	}
 }
 
-func TestRunInContainerInspect(t *testing.T) {
+// TestRunInContainerDenyAll: sandboxer is a host tool — inside the sandbox
+// EVERY command refuses (deny-all), including the read-only ones that used to be
+// allowed. The agent works on the vendored copies; data ops run on the host.
+func TestRunInContainerDenyAll(t *testing.T) {
 	t.Setenv("SANDBOXER_IN_CONTAINER", "1")
 	t.Setenv("SANDBOXER_SANDBOX_DIR", t.TempDir())
-	if code, out, _ := run("show"); code != 0 || !strings.Contains(out, "profile") {
-		t.Errorf("show in-container = (%d, %q)", code, out)
-	}
-	if code, _, _ := run("pull"); code != 1 {
-		t.Errorf("pull in-container (no profile.json) exit = %d, want 1", code)
-	}
-	// push with no manifest is a no-op (nothing to return), like depsync.
-	if code, out, _ := run("push"); code != 0 || !strings.Contains(out, "0 rw entries") {
-		t.Errorf("push in-container (no manifest) = (%d, %q)", code, out)
+	for _, cmd := range []string{"show", "pull", "push", "list", "diff"} {
+		code, _, errs := run(cmd)
+		if code != 1 || !strings.Contains(errs, "not available inside the sandbox") {
+			t.Errorf("%s in-container = (%d, %q), want exit 1 deny-all", cmd, code, errs)
+		}
 	}
 }
 
-func TestRunBatchDryRun(t *testing.T) {
-	t.Setenv("SANDBOXER_IN_CONTAINER", "")
-	project := t.TempDir()
-	if err := os.WriteFile(filepath.Join(project, "sandboxer.tasks"), []byte("[alpha]\ndo a\n\n[beta]\ndo b\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	code, out, errs := run("run", "--src", project, "--dry-run", "--backend", "docker")
-	if code != 0 {
-		t.Fatalf("run batch = %d, %s", code, errs)
-	}
-	if !strings.Contains(out, "alpha") || !strings.Contains(out, "beta") {
-		t.Errorf("run batch list output missing slugs:\n%s", out)
-	}
-}
-
-func TestRmAllNonexistent(t *testing.T) {
-	if code, out, _ := run("rm-all", "--force", filepath.Join(t.TempDir(), "sub")); code != 0 || !strings.Contains(out, "removed") {
-		t.Errorf("rm-all nonexistent = (%d, %q)", code, out)
-	}
-}
-
-// TestRunBackendNativeRejected: the removed native backend is rejected with a
-// clear migration message instead of silently running a container.
-func TestRunBackendNativeRejected(t *testing.T) {
-	t.Setenv("SANDBOXER_IN_CONTAINER", "")
-	project := t.TempDir()
-	if err := os.WriteFile(filepath.Join(project, "sandboxer.tasks"), []byte("[a]\ndo a\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	code, _, errs := run("run", "--src", project, "--backend", "native")
-	if code != 1 || !strings.Contains(errs, "native backend was removed") {
-		t.Errorf("native run = (%d, %q), want exit 1 with the removal message", code, errs)
+// TestCleanNonexistent: clean of a project with no state dir is a clean no-op
+// (the state dir simply does not exist yet) — still reports the path it removed.
+func TestCleanNonexistent(t *testing.T) {
+	if code, out, _ := run("clean", "--force", filepath.Join(t.TempDir(), "sub")); code != 0 || !strings.Contains(out, "removed") {
+		t.Errorf("clean nonexistent = (%d, %q)", code, out)
 	}
 }
 
@@ -420,7 +392,7 @@ default: web
 	if code, out, errs := run("create", "api"); code != 0 || !strings.Contains(out, `"api"`) {
 		t.Fatalf("create api = (%d, %q, %q)", code, out, errs)
 	}
-	pj, _ := os.ReadFile(filepath.Join(project, ".sandboxer", "_meta", "api.profile.json"))
+	pj, _ := os.ReadFile(stateDir(project, "_meta", "api.profile.json"))
 	s := string(pj)
 	for _, want := range []string{`"backend": "docker"`, `"model": "opus"`, `"agent": "claude"`, "api.anthropic.com"} {
 		if !strings.Contains(s, want) {
@@ -593,14 +565,12 @@ func TestRunAutoDiscoversProfile(t *testing.T) {
 	if err := os.WriteFile(config.ConfigPath(), []byte("name: disco\nbackend: docker\nagent: claude\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile("sandboxer.tasks", []byte("[a]\ndo a\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	code, out, errs := run("run", "--dry-run")
+	code, _, errs := run("create")
 	if code != 0 {
-		t.Fatalf("run = %d, %s", code, errs)
+		t.Fatalf("create = %d, %s", code, errs)
 	}
-	if !strings.Contains(out, "backend=docker") {
-		t.Errorf("auto-discovered %s not applied (want backend=docker):\n%s", config.ConfigPath(), out)
+	// The resolved-config banner (on stderr) must reflect the discovered profile.
+	if !strings.Contains(errs, "backend=docker") {
+		t.Errorf("auto-discovered %s not applied (want backend=docker):\n%s", config.ConfigPath(), errs)
 	}
 }

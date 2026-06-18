@@ -25,7 +25,7 @@ func TestCreateCopiesAgentContext(t *testing.T) {
 	if code, _, errs := run("create", "feat", "--src", project); code != 0 {
 		t.Fatalf("create: %d %s", code, errs)
 	}
-	dest := filepath.Join(project, ".sandboxer", "feat")
+	dest := stateDir(project, "feat")
 	if got, err := os.ReadFile(filepath.Join(dest, "CLAUDE.md")); err != nil || string(got) != "rules\n" {
 		t.Errorf("CLAUDE.md not copied to the sandbox root: %q, %v", got, err)
 	}
@@ -69,7 +69,7 @@ func TestRecreateRefreshesContext(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(project, "CLAUDE.md"), []byte("v2\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	dest := filepath.Join(project, ".sandboxer", "feat")
+	dest := stateDir(project, "feat")
 	stubRemoveSession(t, dest, nil)
 	code, out, errs := run("recreate", "feat", "--src", project)
 	if code != 0 || !strings.Contains(out, "recreated") {

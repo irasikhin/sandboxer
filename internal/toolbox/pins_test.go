@@ -201,7 +201,7 @@ func TestPinSpec(t *testing.T) {
 
 	// Cold cache + no engine → fail-closed with build-image guidance.
 	if _, err := PinSpec(Spec{NixpkgsRev: "latest"}, "", "", false, nil); err == nil ||
-		!strings.Contains(err.Error(), "build-image") {
+		!strings.Contains(err.Error(), "image build") {
 		t.Errorf("cold cache without an engine = %v, want build-image guidance", err)
 	}
 
