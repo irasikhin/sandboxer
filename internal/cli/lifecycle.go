@@ -387,7 +387,7 @@ func tmuxEnterArgs(session string) []string {
 		"if command -v tmux >/dev/null && test -r /etc/sandboxer/tmux.conf; then " +
 			"exec tmux -L sandboxer -f /etc/sandboxer/tmux.conf new-session -A -s " + session + "; " +
 			"else " +
-			"echo 'sandboxer: tmux not in image — plain shell (rebuild: sandboxer build-image)' >&2; " +
+			"echo 'sandboxer: tmux not in image — plain shell (rebuild: sandboxer image build)' >&2; " +
 			"test -r /etc/sandboxer/rc.sh && exec bash --rcfile /etc/sandboxer/rc.sh -i || exec bash -i; fi"}
 }
 

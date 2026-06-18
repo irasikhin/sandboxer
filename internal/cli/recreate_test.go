@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/irasikhin/sandboxer/internal/config"
 )
 
 // seedRecreateState drops marker files into a created sandbox: junk in the
@@ -13,9 +15,9 @@ import (
 // the three classes of state recreate must treat differently.
 func seedRecreateState(t *testing.T, project string) (junk, cred, stamp string) {
 	t.Helper()
-	junk = filepath.Join(project, ".sandboxer", "feat", "junk.txt")
-	cred = filepath.Join(project, ".sandboxer", "_home", "feat", "cred.json")
-	stamp = filepath.Join(project, ".sandboxer", "_meta", "feat.setup")
+	junk = stateDir(project, "feat", "junk.txt")
+	cred = stateDir(project, "_home", "feat", "cred.json")
+	stamp = stateDir(project, "_meta", "feat.setup")
 	for _, p := range []string{junk, cred, stamp} {
 		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
 			t.Fatal(err)
@@ -34,7 +36,7 @@ func seedRecreateState(t *testing.T, project string) (junk, cred, stamp string) 
 func TestRecreateKeepsAgentHome(t *testing.T) {
 	project := sessionProject(t)
 	t.Setenv("SANDBOXER_ENGINE", "docker")
-	dest := filepath.Join(project, ".sandboxer", "feat")
+	dest := stateDir(project, "feat")
 	calls, dirExisted := stubRemoveSession(t, dest, nil)
 	junk, cred, stamp := seedRecreateState(t, project)
 
@@ -54,10 +56,10 @@ func TestRecreateKeepsAgentHome(t *testing.T) {
 	if !fileExists(cred) {
 		t.Error("agent home was wiped by a default recreate")
 	}
-	if !fileExists(filepath.Join(project, ".sandboxer", "_meta", "feat.profile.json")) {
+	if !fileExists(stateDir(project, "_meta", "feat.profile.json")) {
 		t.Error("profile snapshot was not restored")
 	}
-	wantBase := filepath.Join(project, ".sandboxer")
+	wantBase := config.StateDir(project)
 	if len(*calls) != 1 || (*calls)[0] != (seamCall{"docker", "feat", wantBase}) {
 		t.Errorf("recreate session calls = %+v, want [docker feat %s]", *calls, wantBase)
 	}
@@ -71,7 +73,7 @@ func TestRecreateKeepsAgentHome(t *testing.T) {
 // restored afterwards.
 func TestRecreateFullWipesHome(t *testing.T) {
 	project := sessionProject(t)
-	dest := filepath.Join(project, ".sandboxer", "feat")
+	dest := stateDir(project, "feat")
 	stubRemoveSession(t, dest, nil)
 	if code, _, errs := run("use", "feat", "--src", project); code != 0 {
 		t.Fatalf("use: %s", errs)
@@ -88,7 +90,7 @@ func TestRecreateFullWipesHome(t *testing.T) {
 	if fileExists(cred) {
 		t.Error("agent home survived --full")
 	}
-	agents, err := os.ReadFile(filepath.Join(project, ".sandboxer", "_meta", "agents.list"))
+	agents, err := os.ReadFile(stateDir(project, "_meta", "agents.list"))
 	if err != nil || !strings.Contains(string(agents), "feat") {
 		t.Errorf("sandbox not re-registered after --full: %q, %v", agents, err)
 	}
@@ -101,7 +103,7 @@ func TestRecreateFullWipesHome(t *testing.T) {
 // block the rebuild — one warning line, exit 0.
 func TestRecreateSessionFailureOnlyWarns(t *testing.T) {
 	project := sessionProject(t)
-	dest := filepath.Join(project, ".sandboxer", "feat")
+	dest := stateDir(project, "feat")
 	stubRemoveSession(t, dest, errors.New("engine on fire"))
 	junk, _, _ := seedRecreateState(t, project)
 
@@ -133,7 +135,7 @@ func TestRecreateNoProfile(t *testing.T) {
 func TestRecreateInContainerBlocked(t *testing.T) {
 	t.Setenv("SANDBOXER_IN_CONTAINER", "1")
 	code, _, errs := run("recreate", "x", "--src", t.TempDir())
-	if code != 1 || !strings.Contains(errs, "not available inside the container") {
+	if code != 1 || !strings.Contains(errs, "not available inside the sandbox") {
 		t.Errorf("recreate in container = (%d, %q)", code, errs)
 	}
 }

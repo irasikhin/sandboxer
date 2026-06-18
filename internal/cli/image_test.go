@@ -66,7 +66,7 @@ func TestResolveImageLatest(t *testing.T) {
 	prof := &config.Profile{Image: config.ImageSpec{NixpkgsRev: "latest"}}
 
 	if _, _, err := resolveImage(prof, "", io.Discard); err == nil ||
-		!strings.Contains(err.Error(), "build-image") {
+		!strings.Contains(err.Error(), "image build") {
 		t.Errorf("cold cache without an engine = %v, want build-image guidance", err)
 	}
 

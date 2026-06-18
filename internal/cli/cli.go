@@ -46,23 +46,70 @@ func newRootCmd() *cobra.Command {
 		Version:       Version,
 		SilenceUsage:  true,
 		SilenceErrors: true,
-		// Inside the container only inspection / dependency sync is allowed.
+		// sandboxer is a HOST tool. The binary is not baked into the toolbox image
+		// (egress is a separate squid sidecar), so it is normally absent inside the
+		// sandbox; this guard is belt-and-suspenders for a custom image that bakes
+		// it in anyway — deny-all when SANDBOXER_IN_CONTAINER is set. The agent
+		// works on the vendored copies; pull/push/clean run from the host.
 		PersistentPreRunE: func(cmd *cobra.Command, _ []string) error {
-			if !inContainer() {
-				return nil
-			}
-			switch cmd.Name() {
-			case "create", "recreate", "enter", "exec", "run", "rm", "rm-all", "use", "stop":
-				return fmt.Errorf("command %q is not available inside the container (only pull/push/show/list/diff)", cmd.Name())
+			if inContainer() {
+				return fmt.Errorf("sandboxer is a host tool and is not available inside the sandbox — run %q on the host", cmd.Name())
 			}
 			return nil
 		},
 	}
+	// Help is organized into three activity groups (image / data / sandbox)
+	// plus a catch-all — flat verbs, grouped only for readability.
+	root.AddGroup(
+		&cobra.Group{ID: groupSetup, Title: "Image & config:"},
+		&cobra.Group{ID: groupSandbox, Title: "Sandbox (enter & work):"},
+		&cobra.Group{ID: groupData, Title: "Data (pull / push / clean):"},
+		&cobra.Group{ID: groupOther, Title: "Other:"},
+	)
 	// Subcommands are registered by their respective files via register().
 	for _, add := range commandFactories {
-		root.AddCommand(add())
+		c := add()
+		if g, ok := commandGroups[c.Name()]; ok {
+			c.GroupID = g
+		}
+		root.AddCommand(c)
 	}
 	return root
+}
+
+// Command groups for --help. Flat verbs, grouped for readability only — there is
+// no nesting except the genuine noun groups (image, profile).
+const (
+	groupSetup   = "setup"
+	groupSandbox = "sandbox"
+	groupData    = "data"
+	groupOther   = "other"
+)
+
+// commandGroups maps a top-level command name to its help group. Names absent
+// here (completion, hook) fall under cobra's "Additional Commands".
+var commandGroups = map[string]string{
+	"image":   groupSetup,
+	"profile": groupSetup,
+
+	"create":   groupSandbox,
+	"enter":    groupSandbox,
+	"exec":     groupSandbox,
+	"stop":     groupSandbox,
+	"recreate": groupSandbox,
+	"rm":       groupSandbox,
+	"list":     groupSandbox,
+	"use":      groupSandbox,
+
+	"pull":  groupData,
+	"push":  groupData,
+	"clean": groupData,
+	"diff":  groupData,
+	"show":  groupData,
+
+	"compose": groupOther,
+	"agents":  groupOther,
+	"doctor":  groupOther,
 }
 
 // commandFactories is populated by each command file's init() so the command

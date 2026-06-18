@@ -39,11 +39,37 @@ func readLog(t *testing.T, path string) string {
 }
 
 func TestUpNoDomains(t *testing.T) {
-	if _, err := Up("podman", "img", "slug", nil, "", io.Discard); err == nil {
+	if _, err := Up("podman", "slug", nil, "", "", io.Discard); err == nil {
 		t.Error("Up with no domains should error")
 	}
-	if _, err := Up("podman", "img", "slug", []string{}, "", io.Discard); err == nil {
+	if _, err := Up("podman", "slug", []string{}, "", "", io.Discard); err == nil {
 		t.Error("Up with empty domains should error")
+	}
+}
+
+// TestSquidConf pins the generated allowlist config: each domain becomes a
+// leading-dot dstdomain (host + subdomains), HTTP and CONNECT-to-443 for allowed
+// domains are permitted, everything else denied; a non-empty upstream chains via
+// cache_peer.
+func TestSquidConf(t *testing.T) {
+	c := squidConf([]string{"a.com", ".b.com"}, "")
+	for _, want := range []string{
+		"http_port 8888",
+		"acl allowed dstdomain .a.com .b.com",
+		"http_access allow allowed",
+		"http_access deny all",
+		"http_access deny CONNECT !SSL_ports",
+	} {
+		if !strings.Contains(c, want) {
+			t.Errorf("squidConf missing %q in:\n%s", want, c)
+		}
+	}
+	if strings.Contains(c, "cache_peer") {
+		t.Errorf("no upstream should mean no cache_peer:\n%s", c)
+	}
+	withUp := squidConf([]string{"a.com"}, "http://proxy.host:3128")
+	if !strings.Contains(withUp, "cache_peer proxy.host parent 3128") || !strings.Contains(withUp, "never_direct allow all") {
+		t.Errorf("upstream should produce a cache_peer line:\n%s", withUp)
 	}
 }
 
@@ -81,7 +107,8 @@ func TestUpDownSuccess(t *testing.T) {
 	engine, logPath := fakeEngine(t)
 	t.Setenv("SBX_FAIL_ON", "")
 
-	e, err := Up(engine, "toolbox:latest", "my/slug", []string{"a.com", "b.com"}, "", io.Discard)
+	confDir := t.TempDir()
+	e, err := Up(engine, "my/slug", []string{"a.com", "b.com"}, "", confDir, io.Discard)
 	if err != nil {
 		t.Fatalf("Up: %v", err)
 	}
@@ -95,14 +122,19 @@ func TestUpDownSuccess(t *testing.T) {
 	if !strings.HasSuffix(e.Net(), "-int") {
 		t.Errorf("internal net %q should end with -int", e.Net())
 	}
+	// The squid.conf was written with the allowlist.
+	conf, err := os.ReadFile(e.conf)
+	if err != nil || !strings.Contains(string(conf), ".a.com") || !strings.Contains(string(conf), "http_access deny all") {
+		t.Errorf("squid.conf not written with the allowlist: %q err=%v", conf, err)
+	}
 
 	log := readLog(t, logPath)
 	for _, want := range []string{
 		"network create --internal",
 		"run -d --name",
 		"--cap-drop=ALL",
-		"--allow a.com",
-		"--allow b.com",
+		"/etc/sandboxer/squid.conf:ro",
+		"sandboxer-proxy",
 		"network connect",
 	} {
 		if !strings.Contains(log, want) {
@@ -111,6 +143,10 @@ func TestUpDownSuccess(t *testing.T) {
 	}
 
 	e.Down()
+	// Down removes the generated config.
+	if _, err := os.Stat(e.conf); !os.IsNotExist(err) {
+		t.Errorf("Down should remove the squid.conf (err=%v)", err)
+	}
 	if e.Active() {
 		t.Error("Egress should be inactive after Down")
 	}
@@ -121,17 +157,19 @@ func TestUpDownSuccess(t *testing.T) {
 }
 
 func TestUpWithUpstream(t *testing.T) {
-	engine, logPath := fakeEngine(t)
+	engine, _ := fakeEngine(t)
 	t.Setenv("SBX_FAIL_ON", "")
 
-	e, err := Up(engine, "toolbox:latest", "slug", []string{"a.com"}, "http://host.docker.internal:3128", io.Discard)
+	e, err := Up(engine, "slug", []string{"a.com"}, "http://host.docker.internal:3128", t.TempDir(), io.Discard)
 	if err != nil {
 		t.Fatalf("Up: %v", err)
 	}
 	t.Cleanup(e.Down)
 
-	if log := readLog(t, logPath); !strings.Contains(log, "--upstream http://host.docker.internal:3128") {
-		t.Errorf("sidecar argv missing --upstream:\n%s", log)
+	// The upstream is chained via a squid cache_peer in the generated config.
+	conf, _ := os.ReadFile(e.conf)
+	if !strings.Contains(string(conf), "cache_peer host.docker.internal parent 3128") {
+		t.Errorf("squid.conf missing upstream cache_peer:\n%s", conf)
 	}
 }
 
@@ -140,7 +178,7 @@ func TestUpProxyFailureTearsDown(t *testing.T) {
 	// Networks succeed; the proxy `run` fails, forcing Up to tear down.
 	t.Setenv("SBX_FAIL_ON", "run")
 
-	e, err := Up(engine, "img", "slug", []string{"a.com"}, "", io.Discard)
+	e, err := Up(engine, "slug", []string{"a.com"}, "", t.TempDir(), io.Discard)
 	if err == nil {
 		t.Fatal("Up should fail when the proxy sidecar cannot start")
 	}
@@ -157,7 +195,7 @@ func TestUpNetworkFailure(t *testing.T) {
 	engine, _ := fakeEngine(t)
 	t.Setenv("SBX_FAIL_ON", "network") // first `network create` fails
 
-	e, err := Up(engine, "img", "slug", []string{"a.com"}, "", io.Discard)
+	e, err := Up(engine, "slug", []string{"a.com"}, "", t.TempDir(), io.Discard)
 	if err == nil || e != nil {
 		t.Errorf("Up should fail and return nil when network creation fails (err=%v e=%v)", err, e)
 	}
@@ -167,7 +205,7 @@ func TestUpNamedStableNamesAndPreClean(t *testing.T) {
 	engine, logPath := fakeEngine(t)
 	t.Setenv("SBX_FAIL_ON", "")
 
-	e, err := UpNamed(engine, "toolbox:latest", "sbx-mysess", []string{"a.com"}, "", io.Discard)
+	e, err := UpNamed(engine, "sbx-mysess", []string{"a.com"}, "", t.TempDir(), io.Discard)
 	if err != nil {
 		t.Fatalf("UpNamed: %v", err)
 	}
@@ -211,7 +249,7 @@ func TestUpNamedNoDomains(t *testing.T) {
 	engine, logPath := fakeEngine(t)
 	t.Setenv("SBX_FAIL_ON", "")
 
-	if _, err := UpNamed(engine, "img", "sbx-x", nil, "", io.Discard); err == nil {
+	if _, err := UpNamed(engine, "sbx-x", nil, "", "", io.Discard); err == nil {
 		t.Error("UpNamed with no domains should error")
 	}
 	// Validation precedes the pre-clean: nothing was removed or created.

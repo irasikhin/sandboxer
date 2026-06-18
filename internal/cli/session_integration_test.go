@@ -53,7 +53,7 @@ func TestSessionLifecycle_Container_EnterStopRm(t *testing.T) {
 	if code, out, errs := run("create", "--src", project, "--config", cfg); code != 0 {
 		t.Fatalf("create = %d\nout: %s\nerr: %s", code, out, errs)
 	}
-	name := backend.SessionName("feat", filepath.Join(project, ".sandboxer"))
+	name := backend.SessionName("feat", config.StateDir(project))
 	// Cleanups run LIFO: register networks first so the containers holding them
 	// are removed first.
 	itest.CleanupNetwork(t, engine, name+"-int")

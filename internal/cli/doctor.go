@@ -30,17 +30,16 @@ var gitCheckIgnore = func(root, rel string) bool {
 }
 
 // warnIgnoredConfig prints a one-line advisory when the user's repo gitignore
-// hides .sandboxer/config.yaml: git cannot re-include a file under an ignored
-// directory, so a root-level ".sandboxer/" rule defeats the generated
-// .sandboxer/.gitignore allowlist and the profile/image hook would silently
-// never be committed.
+// hides .sandboxer/config.yaml. Runtime state lives outside the repo now, so
+// .sandboxer/ holds only the committed config.yaml + image.nix — a stale
+// ".sandboxer/" ignore rule (from before the split) would keep them out of git.
 func warnIgnoredConfig(w io.Writer, root string) {
 	rel := config.ConfigPath()
 	if !fileExists(filepath.Join(root, rel)) || !gitCheckIgnore(root, rel) {
 		return
 	}
-	fmt.Fprintf(w, "sandboxer: %s is ignored by your repo's gitignore (a %q rule?) — the %s/.gitignore allowlist can't override it; drop that rule so config.yaml/image.nix can be committed\n",
-		rel, config.StateDirName+"/", config.StateDirName)
+	fmt.Fprintf(w, "sandboxer: %s is ignored by your repo's gitignore (a %q rule?) — drop that rule so config.yaml/image.nix can be committed (runtime state now lives outside the repo)\n",
+		rel, config.StateDirName+"/")
 }
 
 func newDoctorCmd() *cobra.Command {
@@ -74,7 +73,7 @@ Run this after a fresh install or when something isn't working.`,
 					fmt.Fprintf(tw, "toolbox image %s\t✓\tpresent\n", image)
 					ok++
 				} else {
-					fmt.Fprintf(tw, "toolbox image %s\t⚠\tnot found — build with: sandboxer build-image\n", image)
+					fmt.Fprintf(tw, "toolbox image %s\t⚠\tnot found — build with: sandboxer image build\n", image)
 					warn++
 				}
 			}
@@ -137,11 +136,10 @@ Run this after a fresh install or when something isn't working.`,
 					fmt.Fprintf(tw, "%s\t⚠\t%v\n", cfgPath, err)
 					warn++
 				}
-				// The allowlist .sandboxer/.gitignore commits config.yaml/image.nix,
-				// but git can't re-include files under an ignored DIRECTORY — a
-				// user-level ".sandboxer/" rule silently defeats it.
+				// .sandboxer/ now holds only the committed config.yaml/image.nix;
+				// a stale ".sandboxer/" ignore rule would keep them out of git.
 				if gitCheckIgnore(getwd(), cfgPath) {
-					fmt.Fprintf(tw, "%s\t⚠\tignored by the repo's gitignore — a %q rule defeats the allowlist; drop it so config.yaml/image.nix can be committed\n",
+					fmt.Fprintf(tw, "%s\t⚠\tignored by the repo's gitignore — drop the %q rule so config.yaml/image.nix can be committed\n",
 						cfgPath, config.StateDirName+"/")
 					warn++
 				}
@@ -149,6 +147,15 @@ Run this after a fresh install or when something isn't working.`,
 				// An upgrading user with the stale root-level profile: flag the move.
 				fmt.Fprintf(tw, "./%s\t⚠\tlegacy location — move it to %s (no longer read)\n",
 					config.LegacyConfigFileName, cfgPath)
+				warn++
+			}
+
+			// Pre-split leftovers: runtime state used to live under .sandboxer/;
+			// it now lives outside the repo (config.StateDir). Flag the old dirs
+			// so an upgrading user can delete them.
+			if legacyStateLeftover(getwd()) {
+				fmt.Fprintf(tw, "%s/_meta\t⚠\tpre-split runtime state — data now lives in %s; safe to delete the old _meta/_home/_logs/<slug> dirs\n",
+					config.StateDirName, config.StateDir(getwd()))
 				warn++
 			}
 
@@ -168,7 +175,7 @@ Run this after a fresh install or when something isn't working.`,
 // sandboxer.base directory gone — together with a removal hint. The orphan
 // probe is purely advisory, so its failure is not a finding.
 func reportSessions(tw io.Writer, engine string, ok, warn *int) {
-	baseDir := filepath.Join(getwd(), config.StateDirName)
+	baseDir := config.StateDir(getwd())
 	states, err := sessionStates(engine, baseDir)
 	if err != nil {
 		fmt.Fprintf(tw, "sessions (%s)\t⚠\t%v\n", engine, err)
@@ -191,6 +198,13 @@ func reportSessions(tw io.Writer, engine string, ok, warn *int) {
 	fmt.Fprintf(tw, "orphan sessions (%s)\t⚠\t%s — their projects are gone; remove: %s rm -f %s\n",
 		engine, strings.Join(orphans, " "), engine, strings.Join(orphans, " "))
 	*warn++
+}
+
+// legacyStateLeftover reports whether the pre-split runtime state directory
+// (<root>/.sandboxer/_meta) is still present — runtime state has moved to
+// config.StateDir, so its lingering presence is worth a one-line cleanup hint.
+func legacyStateLeftover(root string) bool {
+	return fileExists(filepath.Join(root, config.StateDirName, "_meta"))
 }
 
 func expandHome(p, home string) string {

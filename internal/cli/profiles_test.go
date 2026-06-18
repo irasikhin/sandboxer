@@ -21,7 +21,7 @@ func TestCreateFromNamedProfile(t *testing.T) {
 	if code != 0 || !strings.Contains(out, "web") {
 		t.Fatalf("create web = (%d, %q, %q)", code, out, errs)
 	}
-	if fi, err := os.Stat(filepath.Join(project, ".sandboxer", "web")); err != nil || !fi.IsDir() {
+	if fi, err := os.Stat(stateDir(project, "web")); err != nil || !fi.IsDir() {
 		t.Errorf("sandbox dir for named profile not created: %v", err)
 	}
 	// The resolved profile is stored, so `show` reports it (not "no profile").
@@ -41,7 +41,7 @@ func TestCreateFromProfileDir(t *testing.T) {
 	if code, out, errs := run("create", "api", "-f", envs, "--src", project); code != 0 || !strings.Contains(out, "api") {
 		t.Fatalf("create api -f dir = (%d, %q, %q)", code, out, errs)
 	}
-	if _, err := os.Stat(filepath.Join(project, ".sandboxer", "api")); err != nil {
+	if _, err := os.Stat(stateDir(project, "api")); err != nil {
 		t.Errorf("sandbox dir for dir-selected profile not created: %v", err)
 	}
 	// An unknown name in the directory fails with the available listing.
@@ -82,16 +82,16 @@ func TestProfilesCommand(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Lists the global store.
-	if code, out, _ := run("profiles"); code != 0 || !strings.Contains(out, "web") {
+	if code, out, _ := run("profile", "list"); code != 0 || !strings.Contains(out, "web") {
 		t.Errorf("profiles = (%d, %q)", code, out)
 	}
 	// Empty store reports so cleanly.
 	t.Setenv("SANDBOXER_PROFILES", t.TempDir())
-	if code, out, _ := run("profiles"); code != 0 || !strings.Contains(out, "no profiles") {
+	if code, out, _ := run("profile", "list"); code != 0 || !strings.Contains(out, "no profiles") {
 		t.Errorf("profiles (empty) = (%d, %q)", code, out)
 	}
 	// A -f directory overrides the store.
-	if code, out, _ := run("profiles", "-f", dir); code != 0 || !strings.Contains(out, "web") {
+	if code, out, _ := run("profile", "list", "-f", dir); code != 0 || !strings.Contains(out, "web") {
 		t.Errorf("profiles -f dir = (%d, %q)", code, out)
 	}
 }

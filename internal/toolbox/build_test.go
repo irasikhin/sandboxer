@@ -115,10 +115,15 @@ func TestWriteContext(t *testing.T) {
 	if err := writeContext(dir, Spec{Attrs: []string{"nodejs", "go"}}); err != nil {
 		t.Fatalf("writeContext: %v", err)
 	}
-	for _, f := range []string{"flake.nix", "agents.nix", "tools.nix", "user.nix", "sandboxer"} {
+	for _, f := range []string{"flake.nix", "agents.nix", "tools.nix", "user.nix"} {
 		if _, err := os.Stat(filepath.Join(dir, f)); err != nil {
 			t.Errorf("missing %s in context: %v", f, err)
 		}
+	}
+	// The sandboxer binary is NOT copied into the image context anymore — it is a
+	// host tool, kept out of the toolbox image (egress is a squid sidecar).
+	if _, err := os.Stat(filepath.Join(dir, "sandboxer")); !os.IsNotExist(err) {
+		t.Errorf("sandboxer binary must not be in the image context (err=%v)", err)
 	}
 	agents, _ := os.ReadFile(filepath.Join(dir, "agents.nix"))
 	if !strings.Contains(string(agents), `"claude-code"`) {

@@ -54,11 +54,11 @@ func TestLifecycle_CreateDiffPush(t *testing.T) {
 	if code, out, errs := run("create", "--src", project, "--config", cfg); code != 0 {
 		t.Fatalf("create = %d\nout: %s\nerr: %s", code, out, errs)
 	}
-	sandboxFile := filepath.Join(project, ".sandboxer", "feat", "workspace", "mylib", "d.txt")
+	sandboxFile := stateDir(project, "feat", "workspace", "mylib", "d.txt")
 	if b, err := os.ReadFile(sandboxFile); err != nil || string(b) != "v1\n" {
 		t.Fatalf("dep not vendored: got %q err %v", b, err)
 	}
-	if _, err := os.Stat(filepath.Join(project, ".sandboxer", "_meta", "feat.manifest.json")); err != nil {
+	if _, err := os.Stat(stateDir(project, "_meta", "feat.manifest.json")); err != nil {
 		t.Fatalf("manifest missing: %v", err)
 	}
 

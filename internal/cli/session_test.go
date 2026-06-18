@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/irasikhin/sandboxer/internal/backend"
+	"github.com/irasikhin/sandboxer/internal/config"
 )
 
 // sessionCalls records what the stubbed backend seams were asked to do.
@@ -94,7 +95,7 @@ func TestEnterPersistentByDefault(t *testing.T) {
 		t.Fatalf("calls: ensure=%d exec=%d run=%d, want 1/1/0", len(c.ensure), len(c.exec), len(c.run))
 	}
 	o := c.ensure[0]
-	wantBase := filepath.Join(project, ".sandboxer")
+	wantBase := config.StateDir(project)
 	if o.Slug != "feat" || o.BaseDir != wantBase {
 		t.Errorf("ensure opts slug=%q base=%q, want feat/%s", o.Slug, o.BaseDir, wantBase)
 	}
@@ -346,7 +347,7 @@ func TestExecSessionErrorPropagates(t *testing.T) {
 		return 0, errors.New("engine exploded")
 	}
 	// An (empty) manifest makes the post-run push observable on stderr.
-	mf := filepath.Join(project, ".sandboxer", "_meta", "feat.manifest.json")
+	mf := stateDir(project, "_meta", "feat.manifest.json")
 	if err := os.MkdirAll(filepath.Dir(mf), 0o755); err != nil {
 		t.Fatal(err)
 	}

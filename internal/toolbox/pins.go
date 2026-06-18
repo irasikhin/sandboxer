@@ -201,7 +201,7 @@ func PinSpec(s Spec, engine, nixImage string, refresh bool, stderr io.Writer) (S
 	if refresh || (latestNixpkgs && !haveNixpkgs) || (latestLLMAgents && !haveLLMAgents) {
 		if engine == "" {
 			return Spec{}, errors.New(`unresolved "latest" image revs and no container engine to ` +
-				`resolve them — run 'sandboxer build-image' once to resolve and stamp the pins`)
+				`resolve them — run 'sandboxer image build' once to resolve and stamp the pins`)
 		}
 		resolved, err := ResolveLatest(engine, nixImage, stderr)
 		if err != nil {

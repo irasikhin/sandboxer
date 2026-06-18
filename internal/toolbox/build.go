@@ -63,7 +63,7 @@ type BuildOpts struct {
 // for, and cleans up after itself (clean by default — see the cleanup steps).
 func BuildImage(o BuildOpts) error {
 	if o.Engine == "" {
-		return errors.New("no container engine for build-image")
+		return errors.New("no container engine for image build")
 	}
 	if o.NixImage == "" {
 		o.NixImage = NixImage
@@ -133,6 +133,17 @@ func BuildImage(o BuildOpts) error {
 		return fmt.Errorf("image load failed: %w", err)
 	}
 
+	// Load the egress squid proxy image (stock name:tag, no retag) — built
+	// alongside the toolbox image so a single `image build` readies both.
+	proxyTar := filepath.Join(outDir, "proxy.tar.gz")
+	fmt.Fprintf(progress, "sandboxer: loading egress proxy image into %s…\n", o.Engine)
+	loadProxy := exec.Command(o.Engine, loadArgv(proxyTar)...)
+	loadProxy.Stdout = o.Stdout
+	loadProxy.Stderr = o.Stderr
+	if err := loadProxy.Run(); err != nil {
+		return fmt.Errorf("proxy image load failed: %w", err)
+	}
+
 	// Retag to the real target, then restore the stock tag to the image it
 	// pointed at before the load (or drop it when there was none, so a custom
 	// tag still leaves exactly one new image behind).
@@ -197,14 +208,9 @@ func writeContext(ctxDir string, spec Spec) error {
 	} else if err := os.WriteFile(userNix, []byte(stubUserNix), 0o644); err != nil {
 		return err
 	}
-	exe, err := os.Executable()
-	if err != nil {
-		return fmt.Errorf("locate sandboxer binary: %w", err)
-	}
-	if resolved, err := filepath.EvalSymlinks(exe); err == nil {
-		exe = resolved
-	}
-	return copyFile(exe, filepath.Join(ctxDir, "sandboxer"))
+	// The sandboxer binary is NOT copied into the image anymore — it is a host
+	// tool, and egress is a separate squid sidecar (the flake's proxyImage).
+	return nil
 }
 
 // builderArgv builds the host engine `run` argv for the ephemeral nix builder.
@@ -246,12 +252,15 @@ func builderScript(refresh bool, nixpkgsRev, llmAgentsRev string) string {
 	if llmAgentsRev != "" && llmAgentsRev != embLLMAgents {
 		flags += "--override-input llm-agents github:numtide/llm-agents.nix/" + llmAgentsRev + " "
 	}
+	// Build BOTH the toolbox image and the egress squid proxyImage in one nix
+	// invocation (shared eval), copying each realized tarball to /out.
+	nixBuild := "nix --extra-experimental-features 'nix-command flakes' " +
+		"--accept-flake-config build " + flags + "--no-write-lock-file --no-link --print-out-paths "
 	return "set -e; " +
-		"nix --extra-experimental-features 'nix-command flakes' " +
-		"--accept-flake-config build " + flags +
-		"--no-write-lock-file --no-link --print-out-paths " +
-		"path:/src#image > /out/storepath && " +
-		`cp -L "$(cat /out/storepath)" /out/image.tar.gz`
+		nixBuild + "path:/src#image > /out/storepath && " +
+		`cp -L "$(cat /out/storepath)" /out/image.tar.gz && ` +
+		nixBuild + "path:/src#proxyImage > /out/proxypath && " +
+		`cp -L "$(cat /out/proxypath)" /out/proxy.tar.gz`
 }
 
 // loadArgv is the engine `load` argv (engine binary supplied by the caller).

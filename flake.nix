@@ -48,9 +48,11 @@
           map (n: llmAgents.${registry.${n}.nixPackage or n} or null) imageAgentNames
         );
 
-        # OCI toolbox image: base userland + the agents + the sandboxer binary
-        # (which also serves as the `_proxy` egress sidecar). Credentials are NOT
-        # baked — they are bind-mounted at run time.
+        # OCI toolbox image: base userland + the agents. The sandboxer binary is
+        # deliberately NOT baked in — it is a HOST tool, never reachable from
+        # inside the sandbox. Egress is enforced by a separate squid sidecar
+        # (proxyImage), not by the binary. Credentials are NOT baked — they are
+        # bind-mounted at run time.
         image = pkgs.dockerTools.buildLayeredImage {
           name = "sandboxer-toolbox";
           tag = "latest";
@@ -70,11 +72,10 @@
               openssh
               which
             ])
-            ++ agentPkgs
-            ++ [ pkgs.sandboxer ];
+            ++ agentPkgs;
           config = {
             # No Entrypoint: `docker run img <cmd…>` runs <cmd> directly (the
-            # launcher always passes a full command: bash -lc …, sandboxer _proxy …).
+            # launcher always passes a full command, e.g. bash -lc …).
             Cmd = [
               "bash"
               "-l"
@@ -83,15 +84,39 @@
             Env = [
               "PATH=/bin"
               "SSL_CERT_FILE=${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt"
-              # Guard: inside the container only pull/push/show/list/diff are allowed.
-              "SANDBOXER_IN_CONTAINER=1"
             ];
           };
           fakeRootCommands = ''
-            mkdir -p /work /tmp /run/sandboxer
+            mkdir -p /work /tmp
             chmod 1777 /tmp
           '';
           enableFakechroot = true; # let npm-agent postinstall scripts run
+        };
+
+        # Egress proxy image: a minimal squid that enforces the domain allowlist
+        # for a sandbox. It runs our generated /etc/sandboxer/squid.conf (bind-
+        # mounted at run time by the egress package) as the unprivileged run user;
+        # the config logs to std streams and keeps no on-disk cache, so no
+        # writable image dirs are needed. No sandboxer binary anywhere in the
+        # network path.
+        proxyImage = pkgs.dockerTools.buildLayeredImage {
+          name = "sandboxer-proxy";
+          tag = "latest";
+          contents = [ pkgs.squid ];
+          config = {
+            Entrypoint = [
+              "${pkgs.squid}/bin/squid"
+              "-N"
+              "-f"
+              "/etc/sandboxer/squid.conf"
+            ];
+            WorkingDir = "/tmp";
+          };
+          fakeRootCommands = ''
+            mkdir -p /tmp /etc/sandboxer
+            chmod 1777 /tmp
+          '';
+          enableFakechroot = true;
         };
       in
       {
@@ -99,6 +124,7 @@
           default = pkgs.sandboxer;
           sandboxer = pkgs.sandboxer;
           image = image;
+          proxyImage = proxyImage;
         };
 
         apps = {
@@ -111,19 +137,24 @@
             program = "${pkgs.sandboxer}/bin/sandboxer";
           };
 
-          # Build the image and load it into host podman/docker. Does not touch
-          # host systemd.
+          # Build the toolbox + egress-proxy images and load them into host
+          # podman/docker. Does not touch host systemd.
           build-image = {
             type = "app";
-            meta.description = "Build the sandboxer toolbox image and load it into podman/docker";
+            meta.description = "Build the sandboxer toolbox + proxy images and load them into podman/docker";
             program = "${
               pkgs.writeShellApplication {
                 name = "sandboxer-build-image";
                 text = ''
+                  load() {
+                    if command -v podman >/dev/null 2>&1; then podman load < "$1";
+                    elif command -v docker >/dev/null 2>&1; then docker load < "$1";
+                    else echo "need podman or docker on the host" >&2; exit 1; fi
+                  }
                   img=$(nix build --no-link --print-out-paths "${self}#image")
-                  if command -v podman >/dev/null 2>&1; then podman load < "$img";
-                  elif command -v docker >/dev/null 2>&1; then docker load < "$img";
-                  else echo "need podman or docker on the host" >&2; exit 1; fi
+                  load "$img"
+                  prox=$(nix build --no-link --print-out-paths "${self}#proxyImage")
+                  load "$prox"
                 '';
               }
             }/bin/sandboxer-build-image";

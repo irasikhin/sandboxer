@@ -10,17 +10,16 @@ import (
 	"github.com/irasikhin/sandboxer/internal/toolbox"
 )
 
-func init() { register(newBuildImageCmd) }
-
-// newBuildImageCmd builds the toolbox image with only docker/podman on the host
+// newImageBuildCmd builds the toolbox image with only docker/podman on the host
 // (no host nix): an ephemeral, public nixos/nix container realizes the image
-// from a flake embedded in the binary, then the engine loads it.
-func newBuildImageCmd() *cobra.Command {
+// from a flake embedded in the binary, then the engine loads it. It is the
+// `build` verb of the `image` command group (see image.go).
+func newImageBuildCmd() *cobra.Command {
 	var engineFlag, nixImage, configPath, llmAgentsRev, nixpkgsRev string
 	var cache, keepBuilder, refresh bool
 	var builderArgs []string
 	cmd := &cobra.Command{
-		Use:   "build-image [profile]",
+		Use:   "build [profile]",
 		Short: "Build the toolbox image using only docker/podman (no host nix)",
 		Long: `Build the sandboxer toolbox image without needing nix on this machine.
 

@@ -47,20 +47,21 @@ was extracted from:
 
 ## Repo-only knowledge (owned by no skill)
 
-- **Isolation backends** (`internal/backend`): `container` (podman/docker via the toolbox image) and `native`
-  (Claude Code's own `/sandbox`, claude-only). `PersistentPreRunE` in `cli.go` blocks the mutating commands
-  (create/enter/exec/run/rm/rm-all/use/stop) when running **inside** the container — only pull/push/show/list/diff
-  are allowed there.
-- **Sandbox state** (`internal/sandbox`): a sandbox is `.sandboxer/<slug>/` holding only the listed deps
-  (each located by path suffix under your roots and copied in — nothing by default, no git involved), alongside
-  `.sandboxer/_meta`, `_logs`, and a per-sandbox private `$HOME` at `.sandboxer/_home/<slug>` (v0.16.0). The
-  generated `.sandboxer/.gitignore` is an **allowlist** (`*` + `!.gitignore` + `!config.yaml` + `!image.nix`):
-  it commits the project profile and image hook while the leading `*` keeps the generated state
-  (`_meta`/`_home`/`_logs`/`<slug>`) out of the user's repo — the credential-leak guard. `ensureGitignore`
-  upgrades an old blanket `*` gitignore to the allowlist in place.
-- **Egress** (`internal/proxy`, `internal/egress`): outbound traffic is restricted to an allowlist
-  (`network.allowedDomains` / `--allow-domains`) through a forward-proxy sidecar; disable with
-  `SANDBOXER_NO_EGRESS=1`.
+- **Isolation backend** (`internal/backend`): `container` (podman/docker via the toolbox image). sandboxer is a
+  HOST tool — its binary is NOT baked into the toolbox image, so it is normally absent inside the sandbox;
+  `PersistentPreRunE` in `cli.go` is a belt-and-suspenders **deny-all** (every command refuses when
+  `SANDBOXER_IN_CONTAINER` is set, injected per-run by `commonArgs`).
+- **Config vs data split** (`internal/config`, `internal/sandbox`): the committed config lives at
+  `.sandboxer/config.yaml` + `.sandboxer/image.nix` (commit the whole `.sandboxer/` dir; no gitignore trick).
+  ALL runtime state lives OUTSIDE the repo under `config.StateDir(project)` =
+  `$XDG_STATE_HOME/sandboxer/<project-id>` (`<project-id>` = basename + short hash of the abs path) — the
+  `_meta`/`_logs`/`_home/<slug>`/`<slug>` dirs, so credentials/scratch can never be committed. `sandboxer clean`
+  wipes that state (config stays). A sandbox is `<stateDir>/<slug>/` holding only the listed deps (located by
+  path suffix under your roots, copied in — nothing by default, no git).
+- **Egress** (`internal/egress`): outbound traffic is restricted to an allowlist
+  (`network.allowedDomains` / `--allow-domains`) through a **squid** sidecar (the `sandboxer-proxy` image, built
+  beside the toolbox image; `config.ProxyImage()`) running a generated `squid.conf` — the binary is never in the
+  network path. Disable with `SANDBOXER_NO_EGRESS=1`.
 - **Agent registry** (`internal/registry/registry.json`): the single-source catalog of agents — embedded in the
   binary AND consumed by the Nix flake (`llm-agents.nix`). Edit the JSON, never duplicate it.
 - **Toolbox image** (`internal/toolbox` + flake `dockerTools.buildLayeredImage`): the OCI image with the agents

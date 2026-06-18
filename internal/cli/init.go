@@ -11,30 +11,31 @@ import (
 	"github.com/irasikhin/sandboxer/internal/config"
 )
 
-func init() { register(newInitCmd) }
-
-// imageNixFileName is the starter image hook `sandboxer init` writes beside the
-// profile under .sandboxer/; the scaffolded image.nix points at it by its bare
-// relative name (see starterImageSection), resolved against .sandboxer/.
+// imageNixFileName is the starter image hook `sandboxer profile init` writes
+// beside the profile under .sandboxer/; the scaffolded image.nix points at it
+// by its bare relative name (see starterImageSection), resolved against
+// .sandboxer/.
 const imageNixFileName = "image.nix"
 
 // imageNixPath is the cwd-relative location of the scaffolded image hook —
 // .sandboxer/image.nix — beside .sandboxer/config.yaml.
 func imageNixPath() string { return filepath.Join(config.StateDirName, imageNixFileName) }
 
-func newInitCmd() *cobra.Command {
+// newProfileInitCmd is the `init` verb of the `profile` group (see profile.go):
+// it scaffolds a commented .sandboxer/config.yaml (and the image.nix hook).
+func newProfileInitCmd() *cobra.Command {
 	var force bool
 	cmd := &cobra.Command{
 		Use:   "init [name]",
 		Short: "Write a starter " + config.ConfigPath() + " (and " + imageNixPath() + ")",
 		Long: `Scaffold a commented ` + config.ConfigPath() + ` so you have a concrete config
 to edit instead of relying on the silent defaults. It is auto-discovered by
-create/enter/exec/run here (no -f needed). A starter ` + imageNixFileName + ` image hook is
+create/enter/exec here (no -f needed). A starter ` + imageNixFileName + ` image hook is
 written alongside it under ` + config.StateDirName + `/, wired in via the profile's image:
 section (delete that block for the stock toolbox image).`,
-		Example: `  sandboxer init            # name defaults to the directory
-  sandboxer init web        # set the profile name
-  sandboxer init --force    # overwrite an existing ` + config.ConfigPath(),
+		Example: `  sandboxer profile init            # name defaults to the directory
+  sandboxer profile init web        # set the profile name
+  sandboxer profile init --force    # overwrite an existing ` + config.ConfigPath(),
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			path := config.ConfigPath()
@@ -141,6 +142,13 @@ backend: %s
 # Coding agent — see: sandboxer agents.
 agent: %s
 
+# Model override passed to the agent (optional; agent's default when unset).
+# model: opus
+
+# Session mode for enter/exec: persistent (default; one detached container
+# reused across invocations) | ephemeral (a fresh one-shot container each time).
+# session: persistent
+
 # Egress allowlist: the ONLY domains the sandbox may reach (everything else is
 # blocked). Seeded with the effective defaults (SANDBOXER_DOMAINS or the built-in
 # set — AI APIs + the common package registries: npm, PyPI, Maven, Gradle,
@@ -151,10 +159,12 @@ network:
 # Sandbox content. Nothing is copied unless listed here: each dep is located by
 # path suffix under roots — this directory is always searched as an implicit
 # last root — copied INTO the sandbox's workspace/, and pushed back with
-# 'sandboxer push'. Uncomment and adjust (roots: only needed to search OTHER
-# trees):
+# 'sandboxer push'. Uncomment and adjust:
 # deps:
 #   - src/lib
+# roots: only needed to search OTHER trees besides this directory:
+# roots:
+#   - ~/work/other-repo
 
 # Agent context: project files copied to the sandbox ROOT (beside workspace/)
 # so agents see your instructions — refreshed on pull, never pushed back.
@@ -167,6 +177,26 @@ network:
 #   - { source: /data/cache, target: /data/cache, mode: rw }
 # env:
 #   NODE_ENV: development
+
+# One-time setup script (bash -lc) run inside the sandbox before the agent takes
+# over — re-run only when the script changes:
+# setup: |
+#   npm ci
+
+# Language/runtime tool packs baked into a per-profile image variant
+# (see registry/tools.json: node, python, go, rust, …):
+# tools: [node, python]
+
+# MCP servers wired into the agent (see registry/mcp.json); their domains are
+# folded into the egress allowlist automatically:
+# mcp: [context7]
+
+# Turn the egress allowlist off entirely for this profile (default: on):
+# egress: false
+
+# Route egress through an upstream/parent proxy instead of direct (optional):
+# proxy:
+#   upstream: http://proxy.internal:3128
 `, name, d.Backend, d.Agent, domains)
 	profile += starterImageSection
 	return profile
@@ -192,7 +222,7 @@ image:
 // Every example is commented, so it evaluates to { } (the variant is content-
 // equivalent to the stock image) until the user uncomments something.
 const starterImageNix = `# image.nix — the image hook this profile's image: section points at,
-# imported by the embedded toolbox flake during 'sandboxer build-image' (or the
+# imported by the embedded toolbox flake during 'sandboxer image build' (or the
 # auto-build on first enter). A function over { pkgs } returning any of FOUR
 # keys: packages, files, env, overlay. The contract is fail-closed — an unknown
 # key aborts the build, so a typo never silently drops a customization.

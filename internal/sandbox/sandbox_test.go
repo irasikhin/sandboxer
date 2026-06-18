@@ -10,6 +10,20 @@ import (
 	"github.com/irasikhin/sandboxer/internal/config"
 )
 
+// TestMain isolates runtime state into a throwaway directory so the suite never
+// writes into the developer's real ~/.local/state. Each test still uses a unique
+// project root (t.TempDir()), which config.StateDir maps to a unique subdir.
+func TestMain(m *testing.M) {
+	dir, err := os.MkdirTemp("", "sandboxer-state-test-")
+	if err != nil {
+		panic(err)
+	}
+	_ = os.Setenv("SANDBOXER_STATE", dir)
+	code := m.Run()
+	_ = os.RemoveAll(dir)
+	os.Exit(code)
+}
+
 func writeFile(t *testing.T, path, content string) {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
@@ -50,60 +64,44 @@ func TestResolveBaseSeedsState(t *testing.T) {
 	}
 }
 
-// TestResolveBaseGitignoreAllowlist pins the .sandboxer/.gitignore body: an
-// allowlist that commits only the .gitignore, config.yaml and image.nix while
-// the leading "*" keeps the generated state (_meta/_home/_logs/<slug>) ignored —
-// the credential-leak guard.
-func TestResolveBaseGitignoreAllowlist(t *testing.T) {
-	b, err := ResolveBase(t.TempDir())
+// TestResolveBaseStateOutsideProject pins the config/data split: runtime state
+// lives under config.StateDir (outside the project root), NOT under the project's
+// .sandboxer/, so it can never be committed by accident. No .gitignore is written
+// into the project anymore.
+func TestResolveBaseStateOutsideProject(t *testing.T) {
+	src := t.TempDir()
+	b, err := ResolveBase(src)
 	if err != nil {
 		t.Fatalf("ResolveBase: %v", err)
 	}
-	got, err := os.ReadFile(filepath.Join(b.Dir, ".gitignore"))
-	if err != nil {
-		t.Fatalf("read .gitignore: %v", err)
+	if b.Dir != config.StateDir(src) {
+		t.Errorf("Base.Dir = %q, want config.StateDir = %q", b.Dir, config.StateDir(src))
 	}
-	want := "*\n!.gitignore\n!config.yaml\n!image.nix\n"
-	if string(got) != want {
-		t.Errorf(".gitignore = %q, want %q", got, want)
+	if strings.HasPrefix(b.Dir, src) {
+		t.Errorf("state dir %q must live OUTSIDE the project root %q", b.Dir, src)
 	}
-	// The leading "*" still ignores the state dirs — those names are NOT in the
-	// allowlist, so the credential-leak guard is intact.
-	for _, ignored := range []string{"_meta", "_home", "_logs"} {
-		if strings.Contains(string(got), "!"+ignored) {
-			t.Errorf(".gitignore must not un-ignore %s:\n%s", ignored, got)
-		}
+	// Nothing is written into the project's .sandboxer/ — no gitignore guard.
+	if _, err := os.Stat(filepath.Join(src, config.StateDirName)); !os.IsNotExist(err) {
+		t.Errorf("ResolveBase must not create %s/ in the project (err=%v)", config.StateDirName, err)
 	}
 }
 
-// TestResolveBaseUpgradesBlanketGitignore pins the migration: an old sandbox's
-// blanket "*\n" .gitignore is upgraded to the allowlist on the next ResolveBase,
-// so a committed config.yaml/image.nix stops being ignored. A user-customized
-// gitignore is left untouched.
-func TestResolveBaseUpgradesBlanketGitignore(t *testing.T) {
-	allow := "*\n!.gitignore\n!config.yaml\n!image.nix\n"
-
-	// Blanket "*\n" → upgraded to the allowlist.
+// TestNoResolvableStateDir: with no override, no XDG_STATE_HOME and no HOME,
+// the state dir cannot be resolved — ResolveBase errors and the read-only
+// probes degrade cleanly (RunEnvExists false, OpenBase a clean nil/nil).
+func TestNoResolvableStateDir(t *testing.T) {
+	t.Setenv("SANDBOXER_STATE", "")
+	t.Setenv("XDG_STATE_HOME", "")
+	t.Setenv("HOME", "")
 	src := t.TempDir()
-	gi := filepath.Join(src, config.StateDirName, ".gitignore")
-	writeFile(t, gi, "*\n")
-	if _, err := ResolveBase(src); err != nil {
-		t.Fatalf("ResolveBase: %v", err)
+	if _, err := ResolveBase(src); err == nil {
+		t.Error("ResolveBase with no resolvable state dir should error")
 	}
-	if got, _ := os.ReadFile(gi); string(got) != allow {
-		t.Errorf("blanket gitignore not upgraded: %q", got)
+	if RunEnvExists(src) {
+		t.Error("RunEnvExists should be false when no state dir resolves")
 	}
-
-	// A user-customized gitignore is preserved as-is.
-	src2 := t.TempDir()
-	gi2 := filepath.Join(src2, config.StateDirName, ".gitignore")
-	custom := "*\n!keep-me\n"
-	writeFile(t, gi2, custom)
-	if _, err := ResolveBase(src2); err != nil {
-		t.Fatalf("ResolveBase: %v", err)
-	}
-	if got, _ := os.ReadFile(gi2); string(got) != custom {
-		t.Errorf("customized gitignore was overwritten: %q", got)
+	if b, err := OpenBase(src); b != nil || err != nil {
+		t.Errorf("OpenBase with no state dir = (%v, %v), want (nil, nil)", b, err)
 	}
 }
 
@@ -123,8 +121,9 @@ func TestPathHelpers(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	pid := filepath.Base(b.Dir)
 	cases := []struct{ got, suffix string }{
-		{b.SandboxDir("s"), filepath.Join(".sandboxer", "s")},
+		{b.SandboxDir("s"), filepath.Join(pid, "s")},
 		{b.ProfileJSONPath("s"), filepath.Join("_meta", "s.profile.json")},
 		{b.ManifestPath("s"), filepath.Join("_meta", "s.manifest.json")},
 		{b.MetaFilePath("s"), filepath.Join("_meta", "s.meta")},

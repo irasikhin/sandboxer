@@ -314,7 +314,7 @@ func TestBuildImageNoEngine(t *testing.T) {
 	t.Setenv("SANDBOXER_ENGINE", "")
 	t.Setenv("SANDBOXER_BACKEND", "podman")
 	t.Setenv("PATH", "") // neither podman nor docker discoverable
-	if code, _, errs := run("build-image"); code != 1 || !strings.Contains(errs, "docker or podman") {
+	if code, _, errs := run("image", "build"); code != 1 || !strings.Contains(errs, "docker or podman") {
 		t.Errorf("build-image no-engine = (%d, %q)", code, errs)
 	}
 }
@@ -325,7 +325,7 @@ func TestBuildImageCommand(t *testing.T) {
 	fakePodman(t) // podman on PATH, exits 0 for every subcommand
 
 	// With a no-op engine, build → load → (no retag) all succeed.
-	if code, _, errs := run("build-image", "--engine", "podman"); code != 0 {
+	if code, _, errs := run("image", "build", "--engine", "podman"); code != 0 {
 		t.Fatalf("build-image = %d %s", code, errs)
 	}
 
@@ -335,7 +335,7 @@ func TestBuildImageCommand(t *testing.T) {
 	if err := os.WriteFile(cfg, []byte("name: feat\nimage:\n  extraPkgs: [ripgrep]\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	code, _, errs := run("build-image", "--engine", "podman", "-f", cfg)
+	code, _, errs := run("image", "build", "--engine", "podman", "-f", cfg)
 	if code != 0 {
 		t.Fatalf("build-image -f = %d %s", code, errs)
 	}
@@ -349,13 +349,13 @@ func TestBuildImageCommand(t *testing.T) {
 		[]byte("profiles:\n  web:\n    tools: [node]\n  plain: {}\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	code, _, errs = run("build-image", "web", "--engine", "podman", "-f", multi)
+	code, _, errs = run("image", "build", "web", "--engine", "podman", "-f", multi)
 	if code != 0 || !strings.Contains(errs, "sandboxer-toolbox:var-") {
 		t.Errorf("build-image multi-profile = (%d, %q), want a var- build", code, errs)
 	}
 
 	// A positional that names no profile fails before any engine work.
-	if code, _, errs := run("build-image", "no-such-profile", "--engine", "podman"); code != 1 ||
+	if code, _, errs := run("image", "build", "no-such-profile", "--engine", "podman"); code != 1 ||
 		!strings.Contains(errs, "no profile") {
 		t.Errorf("build-image bogus profile = (%d, %q)", code, errs)
 	}
@@ -365,7 +365,7 @@ func TestBuildImageCommand(t *testing.T) {
 	if err := os.WriteFile(noNix, []byte("name: feat\nimage:\n  nix: missing.nix\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if code, _, errs := run("build-image", "--engine", "podman", "-f", noNix); code != 1 ||
+	if code, _, errs := run("image", "build", "--engine", "podman", "-f", noNix); code != 1 ||
 		!strings.Contains(errs, "image.nix") {
 		t.Errorf("build-image missing image.nix = (%d, %q)", code, errs)
 	}
@@ -375,7 +375,7 @@ func TestBuildImageCommand(t *testing.T) {
 	if err := os.WriteFile(broken, []byte("image: [not a map\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if code, _, errs := run("build-image", "--engine", "podman", "-f", broken); code != 1 || errs == "" {
+	if code, _, errs := run("image", "build", "--engine", "podman", "-f", broken); code != 1 || errs == "" {
 		t.Errorf("build-image malformed profile = (%d, %q)", code, errs)
 	}
 }
@@ -411,11 +411,11 @@ func TestBuildImageRevFlags(t *testing.T) {
 
 	// A malformed rev is rejected by the ValidateImageSpec rules before
 	// profile or engine work.
-	if code, _, errs := run("build-image", "--llm-agents-rev", "ZZZ"); code != 1 ||
+	if code, _, errs := run("image", "build", "--llm-agents-rev", "ZZZ"); code != 1 ||
 		!strings.Contains(errs, "image.llmAgentsRev") {
 		t.Errorf("bad --llm-agents-rev = (%d, %q)", code, errs)
 	}
-	if code, _, errs := run("build-image", "--nixpkgs-rev", "also bad"); code != 1 ||
+	if code, _, errs := run("image", "build", "--nixpkgs-rev", "also bad"); code != 1 ||
 		!strings.Contains(errs, "image.nixpkgsRev") {
 		t.Errorf("bad --nixpkgs-rev = (%d, %q)", code, errs)
 	}
@@ -428,7 +428,7 @@ func TestBuildImageRevFlags(t *testing.T) {
 
 	rev := strings.Repeat("d", 40)
 	pinPodman(t, rev)
-	code, _, errs := run("build-image", "--engine", "podman", "--nixpkgs-rev", "latest")
+	code, _, errs := run("image", "build", "--engine", "podman", "--nixpkgs-rev", "latest")
 	if code != 0 {
 		t.Fatalf("build-image latest = %d %s", code, errs)
 	}
@@ -451,13 +451,13 @@ func TestBuildImageRevFlags(t *testing.T) {
 	// Warm stamp: a plain no-op podman (no resolver) still builds — the pins
 	// cache is hit, never re-resolved.
 	fakePodman(t)
-	if code, _, errs := run("build-image", "--engine", "podman", "--nixpkgs-rev", "latest"); code != 0 {
+	if code, _, errs := run("image", "build", "--engine", "podman", "--nixpkgs-rev", "latest"); code != 0 {
 		t.Errorf("warm-stamp build-image = %d %s", code, errs)
 	}
 
 	// --refresh forces a re-resolve; the no-op podman writes no rev files, so
 	// the resolve fails loudly instead of silently reusing the stamp.
-	if code, _, errs := run("build-image", "--engine", "podman", "--nixpkgs-rev", "latest", "--refresh"); code != 1 ||
+	if code, _, errs := run("image", "build", "--engine", "podman", "--nixpkgs-rev", "latest", "--refresh"); code != 1 ||
 		!strings.Contains(errs, "resolve latest") {
 		t.Errorf("refresh with a dead resolver = (%d, %q), want a resolve failure", code, errs)
 	}
@@ -469,7 +469,7 @@ func TestBuildImageRevFlags(t *testing.T) {
 		t.Fatal(err)
 	}
 	override := strings.Repeat("e", 40)
-	if code, _, errs := run("build-image", "--engine", "podman", "-f", cfg, "--nixpkgs-rev", override); code != 0 {
+	if code, _, errs := run("image", "build", "--engine", "podman", "-f", cfg, "--nixpkgs-rev", override); code != 0 {
 		t.Fatalf("build-image concrete override = %d %s", code, errs)
 	}
 	if captured.Spec.NixpkgsRev != override {

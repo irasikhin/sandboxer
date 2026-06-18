@@ -34,8 +34,9 @@ func TestContainerRunWithEgress(t *testing.T) {
 	}
 	log, _ := os.ReadFile(logPath)
 	s := string(log)
-	// The sidecar was created and the agent run joined its network with proxy env.
-	for _, want := range []string{"network create --internal", "--allow a.com", "--network ", "HTTP_PROXY=http://"} {
+	// The squid sidecar was created (with the generated allowlist config) and the
+	// agent run joined its network with proxy env.
+	for _, want := range []string{"network create --internal", "/etc/sandboxer/squid.conf:ro", "sandboxer-proxy", "--network ", "HTTP_PROXY=http://"} {
 		if !strings.Contains(s, want) {
 			t.Errorf("egress Run missing %q in:\n%s", want, s)
 		}
@@ -169,8 +170,8 @@ func TestEnsureImage(t *testing.T) {
 	t.Setenv("SANDBOXER_NO_AUTOBUILD", "1")
 	built = false
 	err := ensureImage(RunOpts{Engine: "e", Image: config.DefaultImage})
-	if err == nil || !strings.Contains(err.Error(), "sandboxer build-image") {
-		t.Errorf("autobuild-disabled: err=%v; want a 'sandboxer build-image' hint", err)
+	if err == nil || !strings.Contains(err.Error(), "sandboxer image build") {
+		t.Errorf("autobuild-disabled: err=%v; want a 'sandboxer image build' hint", err)
 	}
 	if built {
 		t.Error("autobuild-disabled should not build")
@@ -209,7 +210,7 @@ func TestEnsureImage(t *testing.T) {
 	built = false
 	buildImage = func(toolbox.BuildOpts) error { built = true; return nil }
 	err = ensureImage(RunOpts{Engine: "e", Image: variant, Spec: spec})
-	if err == nil || !strings.Contains(err.Error(), "sandboxer build-image") || built {
+	if err == nil || !strings.Contains(err.Error(), "sandboxer image build") || built {
 		t.Errorf("variant autobuild-disabled: err=%v built=%v; want a build-image hint, no build", err, built)
 	}
 	t.Setenv("SANDBOXER_NO_AUTOBUILD", "")
