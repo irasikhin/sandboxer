@@ -6,6 +6,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.24.1] — 2026-06-18
+
+### CI
+
+- build proxy image every run, both images on tag release (a31fdc9)
+
+
 ## [0.24.0] — 2026-06-18
 
 ### Added
@@ -103,3 +110,4 @@ isolated, containerized dev sandbox, on a local Linux machine:
 - A batch runner that drives one agent per task across parallel sandboxes.
 [0.23.0]: https://github.com/irasikhin/sandboxer/compare/v0.22.1...v0.23.0
 [0.24.0]: https://github.com/irasikhin/sandboxer/compare/v0.23.0...v0.24.0
+[0.24.1]: https://github.com/irasikhin/sandboxer/compare/v0.24.0...v0.24.1
