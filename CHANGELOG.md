@@ -6,6 +6,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.24.0] — 2026-06-18
+
+### Added
+
+- host-only sandboxer — squid egress, XDG config/data split, CLI regroup (24ff79e)
+
+
 ## [0.23.0] — 2026-06-11
 
 ### Added
@@ -95,3 +102,4 @@ isolated, containerized dev sandbox, on a local Linux machine:
 - Persistent tmux sessions (detach / reattach) and per-profile custom images.
 - A batch runner that drives one agent per task across parallel sandboxes.
 [0.23.0]: https://github.com/irasikhin/sandboxer/compare/v0.22.1...v0.23.0
+[0.24.0]: https://github.com/irasikhin/sandboxer/compare/v0.23.0...v0.24.0
