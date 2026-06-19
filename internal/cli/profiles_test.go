@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/irasikhin/sandboxer/internal/config"
 )
 
 // TestCreateFromNamedProfile drives the headline flow: a named profile in the
@@ -75,23 +77,44 @@ func TestSelectFromDir(t *testing.T) {
 
 func TestProfilesCommand(t *testing.T) {
 	t.Setenv("SANDBOXER_IN_CONTAINER", "")
-	dir := t.TempDir()
-	t.Setenv("SANDBOXER_PROFILES", dir)
-	if err := os.WriteFile(filepath.Join(dir, "web.yaml"),
+	// Isolate the project config (read relative to the cwd) and the global config
+	// so the listing reflects only the fixtures, never the host's.
+	t.Chdir(t.TempDir())
+	t.Setenv("SANDBOXER_CONFIG", filepath.Join(t.TempDir(), "none.yaml"))
+
+	store := t.TempDir()
+	t.Setenv("SANDBOXER_PROFILES", store)
+	if err := os.WriteFile(filepath.Join(store, "web.yaml"),
 		[]byte("name: web\nbackend: docker\nagent: claude\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	// Lists the global store.
-	if code, out, _ := run("profile", "list"); code != 0 || !strings.Contains(out, "web") {
-		t.Errorf("profiles = (%d, %q)", code, out)
+	// The store profile is listed and tagged as its source.
+	if code, out, _ := run("profile", "list"); code != 0 || !strings.Contains(out, "web") || !strings.Contains(out, "store") {
+		t.Errorf("profile list (store) = (%d, %q)", code, out)
 	}
-	// Empty store reports so cleanly.
+
+	// A project .sandboxer/config.yaml is listed too, tagged project — the gap
+	// this command had before (it only ever read the store).
+	if err := os.MkdirAll(config.StateDirName, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(config.ConfigPath(),
+		[]byte("name: feat\nbackend: docker\nagent: claude\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if code, out, _ := run("profile", "list"); code != 0 || !strings.Contains(out, "feat") || !strings.Contains(out, "project") {
+		t.Errorf("profile list (project) = (%d, %q)", code, out)
+	}
+
+	// A -f directory overrides the sources and lists just that dir (no project).
+	if code, out, _ := run("profile", "list", "-f", store); code != 0 || !strings.Contains(out, "web") || strings.Contains(out, "feat") {
+		t.Errorf("profile list -f dir = (%d, %q)", code, out)
+	}
+
+	// Nothing in any source reports the actionable hint.
+	t.Chdir(t.TempDir())
 	t.Setenv("SANDBOXER_PROFILES", t.TempDir())
-	if code, out, _ := run("profile", "list"); code != 0 || !strings.Contains(out, "no profiles") {
-		t.Errorf("profiles (empty) = (%d, %q)", code, out)
-	}
-	// A -f directory overrides the store.
-	if code, out, _ := run("profile", "list", "-f", dir); code != 0 || !strings.Contains(out, "web") {
-		t.Errorf("profiles -f dir = (%d, %q)", code, out)
+	if code, out, _ := run("profile", "list"); code != 0 || !strings.Contains(out, "no profiles found") {
+		t.Errorf("profile list (empty) = (%d, %q)", code, out)
 	}
 }

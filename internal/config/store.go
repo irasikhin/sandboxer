@@ -122,6 +122,94 @@ func ListProfilesIn(dir string) []ProfileRef {
 	return out
 }
 
+// ProfileSource names where a profile was discovered, in the precedence order
+// resolveProfileFile consults them.
+type ProfileSource string
+
+const (
+	SourceProject ProfileSource = "project" // .sandboxer/config.yaml
+	SourceGlobal  ProfileSource = "global"  // ~/.config/sandboxer/config.yaml
+	SourceStore   ProfileSource = "store"   // ~/.config/sandboxer/profiles/*.yaml
+)
+
+// ProfileEntry is one profile discovered by ListAllProfiles: its name, the
+// source it lives in and the file backing it, the effective backend/agent it
+// would run with, whether it is the project config's default:, and whether a
+// higher-precedence source already defines the same name (so this entry is
+// shadowed at resolution time).
+type ProfileEntry struct {
+	Name      string
+	Source    ProfileSource
+	Path      string
+	Backend   string
+	Agent     string
+	IsDefault bool
+	Shadowed  bool
+}
+
+// ListAllProfiles enumerates every profile reachable by name across the three
+// sources resolveProfileFile consults, in that precedence order: the project
+// config, then the global config, then the named-profile store. projectConfig
+// and globalConfig are file paths and storeDir a directory; any that is empty,
+// absent, or unparseable simply contributes nothing (a stray file never breaks
+// the listing). When the same name appears in more than one source, the
+// higher-precedence one wins and every later same-name entry is marked
+// Shadowed — mirroring which profile create/enter/exec would actually pick.
+func ListAllProfiles(projectConfig, globalConfig, storeDir string) []ProfileEntry {
+	out := documentProfiles(projectConfig, SourceProject)
+	out = append(out, documentProfiles(globalConfig, SourceGlobal)...)
+	for _, r := range ListProfilesIn(storeDir) {
+		e := ProfileEntry{Name: r.Name, Source: SourceStore, Path: r.Path}
+		if p, err := Load(r.Path); err == nil {
+			e.Backend, e.Agent = p.Backend, p.Agent
+		}
+		out = append(out, e)
+	}
+	seen := make(map[string]bool, len(out))
+	for i := range out {
+		if seen[out[i].Name] {
+			out[i].Shadowed = true
+		} else {
+			seen[out[i].Name] = true
+		}
+	}
+	return out
+}
+
+// documentProfiles enumerates the named profiles in a single config Document
+// (the project or global file), sorted by name. It returns nothing when path is
+// empty, missing, or unparseable. Backend/Agent are the effective values after
+// the document's defaults: merge under the section (via Select). IsDefault flags
+// the document's default:, but only for the project source — an empty profile
+// name resolves against the project's default:, never the global's.
+func documentProfiles(path string, src ProfileSource) []ProfileEntry {
+	if path == "" {
+		return nil
+	}
+	d, err := LoadDocument(path)
+	if err != nil {
+		return nil
+	}
+	out := make([]ProfileEntry, 0, len(d.Profiles))
+	for name := range d.Profiles {
+		e := ProfileEntry{
+			Name:      name,
+			Source:    src,
+			Path:      path,
+			IsDefault: src == SourceProject && name == d.Default,
+		}
+		if p, err := d.Select(name); err == nil {
+			e.Backend, e.Agent = p.Backend, p.Agent
+		} else {
+			sec := d.Profiles[name]
+			e.Backend, e.Agent = sec.Backend, sec.Agent
+		}
+		out = append(out, e)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	return out
+}
+
 // FindProfile returns the path of the profile named name under dir, matching by
 // effective name (an explicit name: overrides the file's base name). It returns
 // "" when nothing matches and an error when more than one file claims the name.

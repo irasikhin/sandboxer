@@ -22,11 +22,11 @@ func newProfileCmd() *cobra.Command {
 		Short: "Select, scaffold, edit, validate and list profiles",
 		Long: `Work with profiles — the per-project config that drives a sandbox.
 
-  sandboxer profile use [name]   select/show the active profile (alias of 'use')
+  sandboxer profile use [slug]   select/show the active sandbox (alias of 'use')
   sandboxer profile init         scaffold a commented .sandboxer/config.yaml
   sandboxer profile edit         edit it in $EDITOR
   sandboxer profile validate     check it parses (unknown fields are errors)
-  sandboxer profile list         list named profiles in the store`,
+  sandboxer profile list         list profiles (project + global + store)`,
 	}
 	cmd.AddCommand(
 		newUseCmd(),
