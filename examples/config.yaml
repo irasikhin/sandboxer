@@ -69,18 +69,26 @@ network:
 # credentials you don't need.
 # agents: [opencode, claude]
 
-# Proxy — two mutually-exclusive modes:
-#  1) http/https/no: a corporate proxy the agent talks to directly, forwarded as
-#     HTTP(S)_PROXY / NO_PROXY. This BYPASSES the egress allowlist (the proxy is
-#     trusted to police egress).
-#     # proxy: { http: "http://proxy:3128", https: "http://proxy:3128", no: "localhost,127.0.0.1" }
-#  2) upstream: keep the egress allowlist ON and chain allowed traffic through a
-#     parent proxy — sandboxer still enforces allowedDomains. http upstream only.
-#     # proxy: { upstream: "http://host.docker.internal:3128" }
+# Proxy — ONE URL, the egress toggle (below) decides the trust model:
+#   - egress on (the default): the allowlist stays ON and traffic is CHAINED
+#     through the proxy — sandboxer still enforces allowedDomains. http:// only.
+#   - egress off: the agent talks to the proxy DIRECTLY (HTTP(S)_PROXY); the proxy
+#     is trusted to police egress. http:// or https://.
+# proxy: http://localhost:9999
+# noProxy: localhost,127.0.0.1,.corp   # NO_PROXY, direct mode only (egress off)
 #
-# To reach a proxy running on the HOST, use host.docker.internal (Docker) or
-# host.containers.internal (podman) — sandboxer maps BOTH names to the host
-# gateway on either engine, so either works (incl. Linux Docker).
+# A proxy on localhost/127.0.0.1 means a proxy on your HOST: sandboxer rewrites it
+# to the host gateway (host.docker.internal) automatically, so the obvious URL
+# just works on either engine (incl. Linux Docker). A real host/IP is left as-is.
+#
+# Per-agent proxy: set once (handy in the global ~/.config/sandboxer/config.yaml)
+# keyed by agent name; used when the selected profile sets no proxy of its own.
+# agentProxy:
+#   claude: http://localhost:9999
+#   codex:  http://localhost:8080
+#
+# Global default for every project: defaults.proxy in the global config, or the
+# SANDBOXER_PROXY env var (lowest precedence).
 
 # Container backends force the allowlist proxy by default (agent on an
 # --internal network, sole exit via the forward-proxy). Set to false to disable.

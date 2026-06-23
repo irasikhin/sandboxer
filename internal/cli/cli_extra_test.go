@@ -200,16 +200,16 @@ func TestConfigLine(t *testing.T) {
 		}
 	}
 
-	// Upstream-chaining mode: allowlist stays on, chained through a parent proxy.
-	up := config.Runtime{Agent: "claude", Backend: "docker", Egress: true, UpstreamProxy: "http://p:3128", Domains: []string{"a.com"}}
-	if l := configLine(up, "feat", nil, "docker"); !strings.Contains(l, "egress=on→upstream (1 domains)") {
-		t.Errorf("configLine upstream branch: %q", l)
+	// Chained mode: allowlist stays on, traffic routed through the proxy.
+	up := config.Runtime{Agent: "claude", Backend: "docker", Egress: true, Proxy: "http://p:3128", Domains: []string{"a.com"}}
+	if l := configLine(up, "feat", nil, "docker"); !strings.Contains(l, "egress=on→proxy (1 domains)") {
+		t.Errorf("configLine chained-proxy branch: %q", l)
 	}
 
-	// Bypass-proxy mode: corporate proxy, the sidecar is off.
-	byp := config.Runtime{Agent: "claude", Backend: "docker", HTTPProxy: "http://p:3128"}
-	if l := configLine(byp, "feat", nil, "docker"); !strings.Contains(l, "egress=bypass-proxy") {
-		t.Errorf("configLine bypass branch: %q", l)
+	// Direct mode: egress off, the agent talks to the proxy directly.
+	byp := config.Runtime{Agent: "claude", Backend: "docker", Proxy: "http://p:3128"}
+	if l := configLine(byp, "feat", nil, "docker"); !strings.Contains(l, "egress=off → proxy (direct)") {
+		t.Errorf("configLine direct-proxy branch: %q", l)
 	}
 
 	// Disabled via env is called out explicitly.

@@ -372,8 +372,15 @@ is an allowlist proxy that permits just the domains in `network.allowedDomains`
 `sandboxer-proxy` image, built beside the toolbox image) running a generated
 `squid.conf` — the `sandboxer` binary is **not** in the network path, and is not
 baked into the toolbox image at all (it is a host tool). Disable with
-`egress: false` in the profile or `SANDBOXER_NO_EGRESS=1`. A configured upstream
-proxy is chained via a squid `cache_peer`.
+`egress: false` in the profile or `SANDBOXER_NO_EGRESS=1`.
+
+A single `proxy:` URL routes outbound traffic; the egress toggle picks the mode.
+With egress **on** the allowlist stays enforced and the sidecar chains allowed
+traffic through the proxy (squid `cache_peer`, http:// only). With egress **off**
+the agent talks to the proxy directly (`HTTP(S)_PROXY`). A per-agent default goes
+in `agentProxy: { claude: http://…, codex: http://… }` (handy in the global
+config); the env fallback is `SANDBOXER_PROXY`. A `localhost`/`127.0.0.1` proxy is
+rewritten to the host gateway, so a proxy on your host works with the obvious URL.
 
 ## direnv
 

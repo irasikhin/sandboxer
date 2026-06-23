@@ -30,22 +30,21 @@ type Network struct {
 	AllowedDomains []string `yaml:"allowedDomains,omitempty" json:"allowedDomains,omitempty"`
 }
 
-// Proxy configures how the sandbox reaches the outside world through a proxy.
+// Proxy handling: a sandbox reaches the outside world through ONE proxy URL
+// (Profile.Proxy, an `http://host:port` or `https://host:port`). There is no
+// separate "upstream" vs "corporate" mode — the egress allowlist toggle decides
+// the trust model:
 //
-// HTTP/HTTPS/No are a corporate proxy forwarded to the agent as HTTP(S)_PROXY /
-// NO_PROXY: they BYPASS the egress allowlist sidecar (the agent talks to the
-// proxy directly and that proxy is trusted to police egress).
+//   - egress ON (the default): the allowlist sidecar stays up and CHAINS allowed
+//     traffic through the proxy (squid cache_peer). sandboxer keeps enforcing
+//     the domain allowlist AND the traffic still leaves via the proxy. Only an
+//     http:// proxy works here (the sidecar cannot speak TLS to a parent yet).
+//   - egress OFF: the agent talks to the proxy DIRECTLY (HTTP(S)_PROXY env) and
+//     that proxy is trusted to police egress. http:// or https:// both work.
 //
-// Upstream is the opposite trust model: the egress allowlist sidecar stays on
-// and chains allowed traffic through this parent proxy, so sandboxer keeps
-// enforcing the domain allowlist AND the traffic still leaves via the proxy.
-// Upstream is mutually exclusive with HTTP/HTTPS (see ValidateProxy).
-type Proxy struct {
-	HTTP     string `yaml:"http,omitempty"     json:"http,omitempty"`
-	HTTPS    string `yaml:"https,omitempty"    json:"https,omitempty"`
-	No       string `yaml:"no,omitempty"       json:"no,omitempty"`
-	Upstream string `yaml:"upstream,omitempty" json:"upstream,omitempty"`
-}
+// A proxy whose host is localhost/127.0.0.1 is rewritten to the host gateway
+// (host.docker.internal) at container-launch time, so "a proxy on my host" works
+// with the obvious URL — see backend.ContainerProxyURL.
 
 // ImageSpec customizes the toolbox image a profile's sandbox runs in: extra
 // nixpkgs packages, a user nix file hooked into the image build, and overrides
@@ -114,12 +113,20 @@ func (p *Profile) resolveImageNix(dir string) {
 // is driven by roots+deps (depsync-style): deps are searched by path suffix
 // under roots and copied into the sandbox.
 type Profile struct {
-	Name    string   `yaml:"name,omitempty"        json:"name,omitempty"`
-	Backend string   `yaml:"backend,omitempty"     json:"backend,omitempty"`
-	Agent   string   `yaml:"agent,omitempty"       json:"agent,omitempty"`
-	Model   string   `yaml:"model,omitempty"       json:"model,omitempty"`
-	Network Network  `yaml:"network,omitempty"     json:"network,omitempty"`
-	Proxy   Proxy    `yaml:"proxy,omitempty"       json:"proxy,omitempty"`
+	Name    string  `yaml:"name,omitempty"        json:"name,omitempty"`
+	Backend string  `yaml:"backend,omitempty"     json:"backend,omitempty"`
+	Agent   string  `yaml:"agent,omitempty"       json:"agent,omitempty"`
+	Model   string  `yaml:"model,omitempty"       json:"model,omitempty"`
+	Network Network `yaml:"network,omitempty"     json:"network,omitempty"`
+	// Proxy is the single proxy URL the sandbox routes through (http://host:port,
+	// or https:// only with egress off). Empty means no proxy. The egress toggle
+	// decides whether it CHAINS through the allowlist sidecar (egress on) or the
+	// agent talks to it DIRECTLY (egress off). A localhost/127.0.0.1 host is
+	// rewritten to the host gateway at launch (see backend.ContainerProxyURL).
+	Proxy string `yaml:"proxy,omitempty" json:"proxy,omitempty"`
+	// NoProxy is the NO_PROXY list applied only in direct mode (egress off); it
+	// is ignored when traffic is chained through the allowlist sidecar.
+	NoProxy string   `yaml:"noProxy,omitempty" json:"noProxy,omitempty"`
 	Agents  []string `yaml:"agents,omitempty"      json:"agents,omitempty"`
 	Egress  *bool    `yaml:"egress,omitempty"      json:"egress,omitempty"`
 	Roots   []string `yaml:"roots,omitempty"       json:"roots,omitempty"`

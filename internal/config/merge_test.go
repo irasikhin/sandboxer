@@ -19,7 +19,8 @@ func TestMergeProfileOverrides(t *testing.T) {
 	egress := true
 	over := Profile{
 		Network:     Network{AllowedDomains: []string{"over.example"}},
-		Proxy:       Proxy{HTTP: "http://p:1", HTTPS: "http://p:2", No: "localhost", Upstream: "http://up:3"},
+		Proxy:       "http://p:1",
+		NoProxy:     "localhost",
 		Agents:      []string{"codex"},
 		Egress:      &egress,
 		ExtraMounts: []Mount{{}},
@@ -36,7 +37,10 @@ func TestMergeProfileOverrides(t *testing.T) {
 		t.Errorf("AllowedDomains = %v, want [over.example]", got.Network.AllowedDomains)
 	}
 	if got.Proxy != over.Proxy {
-		t.Errorf("Proxy = %+v, want %+v", got.Proxy, over.Proxy)
+		t.Errorf("Proxy = %q, want %q", got.Proxy, over.Proxy)
+	}
+	if got.NoProxy != over.NoProxy {
+		t.Errorf("NoProxy = %q, want %q", got.NoProxy, over.NoProxy)
 	}
 	if len(got.Agents) != 1 || got.Agents[0] != "codex" {
 		t.Errorf("Agents = %v, want [codex]", got.Agents)
@@ -109,7 +113,7 @@ func populateValue(t *testing.T, v reflect.Value, path string) {
 // every exported field (recursively) is set non-zero via reflection, and the
 // merge over an empty base must reproduce it exactly. mergeProfile is a
 // hand-enumerated field list, and this class of bug has recurred (Session,
-// then Setup/Tools/MCP/Proxy.Upstream were silently dropped) — with this
+// then Setup/Tools/MCP/Proxy/NoProxy were silently dropped) — with this
 // test, adding a Profile field without a merge case fails CI instead of
 // silently disabling the feature downstream.
 func TestMergeProfileExhaustive(t *testing.T) {

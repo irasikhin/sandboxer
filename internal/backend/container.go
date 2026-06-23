@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/url"
 	"os"
 	"os/exec"
 	"strconv"
@@ -13,6 +14,41 @@ import (
 	"github.com/irasikhin/sandboxer/internal/egress"
 	"github.com/irasikhin/sandboxer/internal/toolbox"
 )
+
+// hostGatewayAlias is the hostname that resolves to the host from inside a
+// container on either engine (commonArgs maps it via --add-host=host-gateway).
+// A proxy a user runs "on localhost" is really on the host, which is NOT the
+// container's own loopback — so ContainerProxyURL rewrites a localhost proxy to
+// this name and the egress sidecar gets the same --add-host (see egress.Up).
+const hostGatewayAlias = "host.docker.internal"
+
+// ContainerProxyURL adapts a configured proxy URL for use from inside a
+// container: a host of localhost / 127.0.0.1 / ::1 is rewritten to the host
+// gateway (hostGatewayAlias), since the user means "a proxy on my host", not the
+// container's own loopback. Any other host (a real hostname or LAN IP) is left
+// untouched. An empty or unparseable URL is returned unchanged.
+func ContainerProxyURL(raw string) string {
+	if raw == "" {
+		return ""
+	}
+	u, err := url.Parse(raw)
+	if err != nil || u.Host == "" {
+		return raw
+	}
+	host := u.Hostname()
+	switch host {
+	case "localhost", "127.0.0.1", "::1":
+		port := u.Port()
+		newHost := hostGatewayAlias
+		if port != "" {
+			newHost += ":" + port
+		}
+		u.Host = newHost
+		return u.String()
+	default:
+		return raw
+	}
+}
 
 // RunOpts configures a single container invocation.
 type RunOpts struct {
@@ -62,7 +98,7 @@ func Run(o RunOpts) (int, error) {
 		if err := ensureProxyImage(o); err != nil {
 			return 0, err
 		}
-		e, err := egress.Up(o.Engine, o.Slug, o.RT.Domains, o.RT.UpstreamProxy, o.BaseDir, o.Stderr)
+		e, err := egress.Up(o.Engine, o.Slug, o.RT.Domains, ContainerProxyURL(o.RT.Proxy), o.BaseDir, o.Stderr)
 		if err != nil {
 			return 0, fmt.Errorf("egress allowlist proxy failed to start: %w — "+
 				"refusing to run on an open network (disable with egress: false or SANDBOXER_NO_EGRESS=1)", err)
@@ -160,27 +196,29 @@ func commonArgs(o RunOpts, egNet, egProxyURL string) []string {
 	if cpus := cpusFromQuota(o.CPU); cpus != "" {
 		args = append(args, "--cpus", cpus)
 	}
+	// Proxy wiring. Two modes, decided by whether the egress sidecar is active:
+	//   - egNet != "": allowlist on. The agent's sole exit is the squid sidecar,
+	//     so HTTP(S)_PROXY point at it; when a proxy URL is configured the sidecar
+	//     itself chains to it (squid cache_peer, set in egress.Up).
+	//   - egNet == "" with a proxy URL: allowlist off (direct mode). The agent
+	//     talks to the proxy directly; NO_PROXY carries the configured bypass list.
 	if egNet != "" {
 		args = append(args, "--network", egNet,
 			"--env", "HTTP_PROXY="+egProxyURL, "--env", "http_proxy="+egProxyURL,
 			"--env", "HTTPS_PROXY="+egProxyURL, "--env", "https_proxy="+egProxyURL,
 			"--env", "NO_PROXY=localhost,127.0.0.1", "--env", "no_proxy=localhost,127.0.0.1")
+	} else if p := ContainerProxyURL(o.RT.Proxy); p != "" {
+		args = append(args, "--env", "HTTP_PROXY="+p, "--env", "http_proxy="+p,
+			"--env", "HTTPS_PROXY="+p, "--env", "https_proxy="+p)
+		if o.RT.NoProxy != "" {
+			args = append(args, "--env", "NO_PROXY="+o.RT.NoProxy, "--env", "no_proxy="+o.RT.NoProxy)
+		}
 	}
 	if o.ProfileJSONPath != "" && pathExists(o.ProfileJSONPath) {
 		args = append(args, "--volume", o.ProfileJSONPath+":/run/sandboxer/profile.json:ro")
 	}
 	if o.ManifestPath != "" && pathExists(o.ManifestPath) {
 		args = append(args, "--volume", o.ManifestPath+":/run/sandboxer/manifest.json:rw")
-	}
-	// Upstream proxy (corporate) takes precedence over the egress sidecar.
-	if o.RT.HTTPProxy != "" {
-		args = append(args, "--env", "HTTP_PROXY="+o.RT.HTTPProxy, "--env", "http_proxy="+o.RT.HTTPProxy)
-	}
-	if o.RT.HTTPSProxy != "" {
-		args = append(args, "--env", "HTTPS_PROXY="+o.RT.HTTPSProxy, "--env", "https_proxy="+o.RT.HTTPSProxy)
-	}
-	if o.RT.NoProxy != "" {
-		args = append(args, "--env", "NO_PROXY="+o.RT.NoProxy, "--env", "no_proxy="+o.RT.NoProxy)
 	}
 	if csv := o.RT.DomainsCSV(); csv != "" {
 		args = append(args, "--env", "SANDBOXER_ALLOW_DOMAINS="+csv)

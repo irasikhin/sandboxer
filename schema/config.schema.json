@@ -72,7 +72,10 @@
           "$ref": "#/$defs/Network"
         },
         "proxy": {
-          "$ref": "#/$defs/Proxy"
+          "type": "string"
+        },
+        "noProxy": {
+          "type": "string"
         },
         "agents": {
           "items": {
@@ -138,24 +141,6 @@
       "additionalProperties": false,
       "type": "object"
     },
-    "Proxy": {
-      "properties": {
-        "http": {
-          "type": "string"
-        },
-        "https": {
-          "type": "string"
-        },
-        "no": {
-          "type": "string"
-        },
-        "upstream": {
-          "type": "string"
-        }
-      },
-      "additionalProperties": false,
-      "type": "object"
-    },
     "schemaDocument": {
       "properties": {
         "defaults": {
@@ -169,6 +154,12 @@
         },
         "default": {
           "type": "string"
+        },
+        "agentProxy": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object"
         }
       },
       "additionalProperties": false,

@@ -46,9 +46,14 @@ package install almost always means the host isn't allowed.
 - The one-time `setup:` hook runs under the **same** allowlist — a network step
   in `setup:` needs its domains allowed too.
 - To rule egress out while debugging, disable it deliberately:
-  `SANDBOXER_NO_EGRESS=1` or `egress: false` in the profile. (A configured
-  upstream `proxy.http`/`proxy.https` *replaces* the allowlist — then the proxy's
-  own policy decides what's reachable.)
+  `SANDBOXER_NO_EGRESS=1` or `egress: false` in the profile. (With `egress: false`
+  a configured `proxy:` *replaces* the allowlist — then the proxy's own policy
+  decides what's reachable. With egress on, the proxy is chained through the
+  allowlist, which still applies.)
+- Proxy not taking effect after editing the config? A **persistent** session
+  reuses its container, so proxy/egress changes only apply to a fresh one — run
+  `sandboxer recreate`. The banner's `egress:` line shows what's actually in
+  effect (`on→proxy (N domains)` when chained).
 
 ## Setup hook failed
 

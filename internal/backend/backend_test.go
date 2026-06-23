@@ -276,7 +276,7 @@ func TestContainerRunProxyAndExit(t *testing.T) {
 
 	code, err := Run(RunOpts{
 		Engine: engine, Image: "img", Dest: t.TempDir(), Slug: "s",
-		RT:       config.Runtime{HTTPProxy: "http://p", Domains: []string{"x.com"}},
+		RT:       config.Runtime{Proxy: "http://p", Domains: []string{"x.com"}},
 		NoEgress: true, Interactive: true, Args: []string{"true"},
 		Stdin: strings.NewReader(""), Stdout: &bytes.Buffer{}, Stderr: &bytes.Buffer{},
 	})

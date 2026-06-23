@@ -25,13 +25,13 @@ network:
 # --internal network, sole exit via the forward-proxy). Disable with:
 # egress: false        # or set env SANDBOXER_NO_EGRESS=1
 
-# Proxy — two mutually-exclusive modes (see examples/config.yaml for detail):
-#  - http/https/no: corporate proxy the agent uses directly, BYPASSING egress.
-#    # proxy: { http: "http://proxy.corp:3128", https: "http://proxy.corp:3128", no: "localhost,127.0.0.1,.corp" }
-#  - upstream: keep the egress allowlist ON and chain through a parent proxy.
-#    # proxy: { upstream: "http://host.docker.internal:3128" }
-# Host-running proxy: use host.docker.internal / host.containers.internal — both
-# resolve on either engine.
+# Proxy — ONE URL; the egress toggle (above) decides the mode (see
+# examples/config.yaml for detail). egress on → allowlist stays on, traffic
+# CHAINED through the proxy (http:// only). egress off → agent uses the proxy
+# DIRECTLY (http:// or https://). A localhost proxy means one on your HOST and is
+# rewritten to the host gateway automatically.
+# proxy: http://localhost:9999
+# noProxy: localhost,127.0.0.1,.corp   # NO_PROXY, direct mode only
 
 # Search roots and the deps to find under them (matched by path suffix, copied
 # flat to <sandbox>/workspace/<dep>; rw entries are pushed back on `sandboxer push`).

@@ -192,10 +192,13 @@ func resolveTarget(f commonFlags, pos string) (*target, error) {
 			return nil, err
 		}
 		root = firstNonEmpty(f.src, getwd())
+		// The agent that will run drives the per-agent proxy (agentProxy:): the
+		// --agent flag override, else the profile's agent, else the env default.
+		envAgent := config.LoadDefaults().Agent
 		if doc.Multi() {
 			// Multi-profile file: the positional (or default:) names the section,
 			// and that section name is the slug.
-			p, err := doc.SelectWithGlobal(pos, global)
+			p, err := doc.SelectWithGlobal(pos, f.agent, envAgent, global)
 			if err != nil {
 				return nil, err
 			}
@@ -203,7 +206,7 @@ func resolveTarget(f commonFlags, pos string) (*target, error) {
 			slug = p.Name
 		} else {
 			// Flat file: exactly one profile; the slug is its (file-derived) name.
-			p, err := doc.SelectWithGlobal("", global)
+			p, err := doc.SelectWithGlobal("", f.agent, envAgent, global)
 			if err != nil {
 				return nil, err
 			}
@@ -278,12 +281,12 @@ func configLine(rt config.Runtime, slug string, prof *config.Profile, backendSho
 	switch {
 	case noEgress():
 		egress = "off (SANDBOXER_NO_EGRESS)"
-	case rt.HTTPProxy != "" || rt.HTTPSProxy != "":
-		egress = "bypass-proxy"
-	case rt.UpstreamProxy != "" && rt.Egress:
-		egress = fmt.Sprintf("on→upstream (%d domains)", len(rt.Domains))
+	case rt.Egress && rt.Proxy != "":
+		egress = fmt.Sprintf("on→proxy (%d domains)", len(rt.Domains))
 	case rt.Egress:
 		egress = fmt.Sprintf("on (%d domains)", len(rt.Domains))
+	case rt.Proxy != "":
+		egress = "off → proxy (direct)"
 	}
 	profile, deps := "none (defaults)", 0
 	if prof != nil {
