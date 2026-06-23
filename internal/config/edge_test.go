@@ -39,10 +39,11 @@ func TestResolveRuntimeValidation(t *testing.T) {
 		t.Error("ResolveRuntime(invalid domain) = nil error, want error")
 	}
 
-	// proxy.upstream and proxy.http are mutually exclusive
-	p := &Profile{Proxy: Proxy{Upstream: "http://up:3128", HTTP: "http://corp:8080"}}
+	// an https proxy is rejected while the egress allowlist is on (chained mode
+	// cannot speak TLS to a parent)
+	p := &Profile{Proxy: "https://corp:8080"}
 	if _, err := ResolveRuntime(p, Defaults{}, "", "", Overrides{}); err == nil {
-		t.Error("ResolveRuntime(upstream+http) = nil error, want error")
+		t.Error("ResolveRuntime(https proxy + egress on) = nil error, want error")
 	}
 }
 

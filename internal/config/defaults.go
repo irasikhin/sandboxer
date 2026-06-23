@@ -56,6 +56,8 @@ type Defaults struct {
 	Domains     string
 	Image       string
 	Engine      string
+	Proxy       string // SANDBOXER_PROXY — global proxy URL, lowest precedence
+	NoProxy     string // SANDBOXER_NO_PROXY — NO_PROXY for direct mode
 	MaxParallel int
 	Mem         string
 	CPU         string
@@ -72,6 +74,8 @@ func LoadDefaults() Defaults {
 		Domains:     envOr("SANDBOXER_DOMAINS", DefaultDomains),
 		Image:       envOr("SANDBOXER_IMAGE", DefaultImage),
 		Engine:      os.Getenv("SANDBOXER_ENGINE"),
+		Proxy:       os.Getenv("SANDBOXER_PROXY"),
+		NoProxy:     os.Getenv("SANDBOXER_NO_PROXY"),
 		MaxParallel: envInt("SANDBOXER_MAX_PARALLEL", 4),
 		Mem:         os.Getenv("SANDBOXER_MEM"),
 		CPU:         os.Getenv("SANDBOXER_CPU"),

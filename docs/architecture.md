@@ -148,9 +148,14 @@ Outbound network is fenced by an allowlist forward-proxy
   (or no domains are allowed), the run is **refused** rather than falling back to
   an open network. Disable deliberately with `egress: false` /
   `SANDBOXER_NO_EGRESS=1`.
-- A configured upstream proxy (`proxy.http`/`proxy.https`) **replaces** the
-  allowlist — sandboxer assumes that proxy is the boundary and does not start the
-  sidecar.
+- A configured `proxy:` URL routes outbound traffic; the egress toggle decides
+  the trust model. With egress **on** (the default) the allowlist stays enforced
+  and the sidecar **chains** allowed traffic through the proxy (squid
+  `cache_peer`, http:// only). With egress **off** the proxy **replaces** the
+  allowlist — the agent talks to it directly via `HTTP(S)_PROXY` and that proxy
+  is trusted to police egress (http:// or https://). A `localhost` proxy is
+  rewritten to the host gateway so a proxy on the host is reachable from the
+  sidecar (which is mapped to `host.docker.internal` for exactly this).
 
 ## Agent registry (single source)
 

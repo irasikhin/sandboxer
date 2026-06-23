@@ -76,14 +76,37 @@ func TestContainerRunEgressFailRefuses(t *testing.T) {
 	}
 }
 
+// TestContainerProxyURL pins the localhost→host-gateway rewrite: a proxy a user
+// runs "on localhost" is on the host, not the container's own loopback, so it is
+// rewritten to host.docker.internal; any other host (and unparseable/empty
+// input) is left untouched.
+func TestContainerProxyURL(t *testing.T) {
+	cases := []struct{ in, want string }{
+		{"", ""},
+		{"http://localhost:9999", "http://host.docker.internal:9999"},
+		{"http://127.0.0.1:3128", "http://host.docker.internal:3128"},
+		{"http://[::1]:3128", "http://host.docker.internal:3128"},
+		{"http://localhost", "http://host.docker.internal"},
+		{"https://localhost:8443", "https://host.docker.internal:8443"},
+		{"http://proxy.internal:3128", "http://proxy.internal:3128"},
+		{"http://10.0.0.5:3128", "http://10.0.0.5:3128"},
+		{"not a url", "not a url"},
+	}
+	for _, c := range cases {
+		if got := ContainerProxyURL(c.in); got != c.want {
+			t.Errorf("ContainerProxyURL(%q) = %q, want %q", c.in, got, c.want)
+		}
+	}
+}
+
 // TestRunArgv exercises the pure run-argv builder across the resource-limit,
-// upstream-proxy, egress-env and wall-timeout branches without a real engine.
+// proxy, egress-env and wall-timeout branches without a real engine.
 func TestRunArgv(t *testing.T) {
 	argv, err := RunArgv(RunOpts{
 		Engine: "podman", Image: "img:1", Dest: "/d", Slug: "s", HomeDir: "/d/.home",
 		RT: config.Runtime{
-			HTTPProxy: "http://p", HTTPSProxy: "http://p", NoProxy: "x",
-			Domains: []string{"a.com"}, Egress: true,
+			Proxy: "http://p", NoProxy: "x",
+			Domains: []string{"a.com"}, Egress: false, // egress off → direct proxy env
 		},
 		Mem: "2G", CPU: "150%", Wall: "60", Interactive: true,
 		Args: []string{"bash", "-l"},
@@ -113,7 +136,7 @@ func TestRunArgv(t *testing.T) {
 func TestRunArgvExact(t *testing.T) {
 	argv, err := RunArgv(RunOpts{
 		Engine: "docker", Image: "img:1", Dest: "/d", Slug: "s", HomeDir: "/h",
-		RT:  config.Runtime{HTTPProxy: "http://p", NoProxy: "x", Domains: []string{"a.com"}},
+		RT:  config.Runtime{Proxy: "http://p", NoProxy: "x", Domains: []string{"a.com"}},
 		Mem: "1G", CPU: "2", Wall: "30", Interactive: true,
 		Args:  []string{"echo", "hi"},
 		Stdin: strings.NewReader(""), Stdout: &bytes.Buffer{},
@@ -133,6 +156,7 @@ func TestRunArgvExact(t *testing.T) {
 		"--add-host=host.containers.internal:host-gateway",
 		"--memory", "1G", "--cpus", "2",
 		"--env", "HTTP_PROXY=http://p", "--env", "http_proxy=http://p",
+		"--env", "HTTPS_PROXY=http://p", "--env", "https_proxy=http://p",
 		"--env", "NO_PROXY=x", "--env", "no_proxy=x",
 		"--env", "SANDBOXER_ALLOW_DOMAINS=a.com",
 		"img:1", "timeout", "--signal=TERM", "30",

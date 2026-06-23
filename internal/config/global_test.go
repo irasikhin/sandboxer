@@ -99,7 +99,7 @@ func TestResolveWithGlobalDefaults(t *testing.T) {
 		Default:  "web",
 	}
 
-	got, err := project.SelectWithGlobal("web", global)
+	got, err := project.SelectWithGlobal("web", "", "", global)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -125,7 +125,7 @@ func TestProjectOverridesGlobal(t *testing.T) {
 		Default:  "web",
 	}
 
-	got, err := project.SelectWithGlobal("web", global)
+	got, err := project.SelectWithGlobal("web", "", "", global)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -154,7 +154,7 @@ func TestImageGlobalAndProject(t *testing.T) {
 		Default: "web",
 	}
 
-	got, err := project.SelectWithGlobal("web", global)
+	got, err := project.SelectWithGlobal("web", "", "", global)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -171,7 +171,7 @@ func TestImageGlobalAndProject(t *testing.T) {
 	web.Env = map[string]string{"PROJECT_KEY": "p", "SHARED": "project"}
 	project.Profiles["web"] = web
 
-	got, err = project.SelectWithGlobal("web", global)
+	got, err = project.SelectWithGlobal("web", "", "", global)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -194,7 +194,7 @@ func TestGlobalConfigNotRequired(t *testing.T) {
 		Default:  "web",
 	}
 
-	withNil, err := project.SelectWithGlobal("web", nil)
+	withNil, err := project.SelectWithGlobal("web", "", "", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -212,7 +212,7 @@ func TestGlobalConfigNotRequired(t *testing.T) {
 		Defaults: Profile{Backend: "podman"},
 		Profiles: map[string]Profile{"ops": {Model: "opus"}},
 	}
-	got, err := project.SelectWithGlobal("ops", global)
+	got, err := project.SelectWithGlobal("ops", "", "", global)
 	if err != nil {
 		t.Fatalf("global-only profile should resolve: %v", err)
 	}
@@ -227,7 +227,73 @@ func TestGlobalConfigNotRequired(t *testing.T) {
 	}
 
 	// An unknown name (neither project nor global) still errors.
-	if _, err := project.SelectWithGlobal("nope", global); err == nil {
+	if _, err := project.SelectWithGlobal("nope", "", "", global); err == nil {
 		t.Error("unknown profile name should error")
+	}
+}
+
+// TestAgentProxyResolution pins the per-agent proxy precedence:
+// section.proxy > agentProxy[agent] > defaults.proxy, project agentProxy over
+// global, keyed by the agent that will run (flag > profile > env default).
+func TestAgentProxyResolution(t *testing.T) {
+	// section proxy wins over a per-agent entry for the same agent.
+	d := &Document{
+		Profiles:   map[string]Profile{"web": {Agent: "claude", Proxy: "http://section:1"}},
+		Default:    "web",
+		AgentProxy: map[string]string{"claude": "http://agent:2"},
+	}
+	got, err := d.SelectWithGlobal("web", "", "claude", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Proxy != "http://section:1" {
+		t.Errorf("section proxy must win: %q", got.Proxy)
+	}
+
+	// no section proxy: agentProxy[agent] beats the defaults proxy.
+	d2 := &Document{
+		Defaults:   Profile{Proxy: "http://default:3"},
+		Profiles:   map[string]Profile{"web": {Agent: "codex"}},
+		Default:    "web",
+		AgentProxy: map[string]string{"codex": "http://agent:4"},
+	}
+	got2, err := d2.SelectWithGlobal("web", "", "claude", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got2.Proxy != "http://agent:4" {
+		t.Errorf("agentProxy must beat defaults proxy: %q", got2.Proxy)
+	}
+
+	// the --agent flag drives which agentProxy entry is picked.
+	got3, err := d2.SelectWithGlobal("web", "claude", "", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got3.Proxy != "http://default:3" {
+		t.Errorf("flag agent=claude has no agentProxy entry, so defaults apply: %q", got3.Proxy)
+	}
+
+	// project agentProxy overrides a global one for the same agent; a global-only
+	// agent entry still applies.
+	global := &Document{AgentProxy: map[string]string{"claude": "http://gclaude", "codex": "http://gcodex"}}
+	project := &Document{
+		Profiles:   map[string]Profile{"web": {Agent: "claude"}},
+		Default:    "web",
+		AgentProxy: map[string]string{"claude": "http://pclaude"},
+	}
+	got4, err := project.SelectWithGlobal("web", "", "claude", global)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got4.Proxy != "http://pclaude" {
+		t.Errorf("project agentProxy must beat global: %q", got4.Proxy)
+	}
+	got5, err := project.SelectWithGlobal("web", "codex", "", global)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got5.Proxy != "http://gcodex" {
+		t.Errorf("global-only agentProxy entry should apply: %q", got5.Proxy)
 	}
 }

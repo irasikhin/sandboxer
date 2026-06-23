@@ -39,7 +39,7 @@ func TestResolveRuntimePrecedence(t *testing.T) {
 		Agent:   "opencode",
 		Model:   "m1",
 		Network: Network{AllowedDomains: []string{"x.com", "y.com"}},
-		Proxy:   Proxy{HTTP: "http://p"},
+		Proxy:   "http://p",
 	}
 	d := Defaults{Agent: "claude", Backend: "podman"}
 
@@ -60,8 +60,8 @@ func TestResolveRuntimePrecedence(t *testing.T) {
 	if rt.Backend != "podman" {
 		t.Errorf("backend: default should apply, got %q", rt.Backend)
 	}
-	if rt.HTTPProxy != "http://p" {
-		t.Errorf("proxy not carried: %q", rt.HTTPProxy)
+	if rt.Proxy != "http://p" {
+		t.Errorf("proxy not carried: %q", rt.Proxy)
 	}
 	if !rt.Egress {
 		t.Error("egress should default true")
@@ -85,46 +85,63 @@ func TestResolveRuntimePrecedence(t *testing.T) {
 
 func TestValidateProxy(t *testing.T) {
 	cases := []struct {
-		name string
-		p    Proxy
-		ok   bool
+		name   string
+		url    string
+		egress bool
+		ok     bool
 	}{
-		{"empty", Proxy{}, true},
-		{"valid http upstream", Proxy{Upstream: "http://host.docker.internal:3128"}, true},
-		{"upstream + http rejected", Proxy{Upstream: "http://p:3128", HTTP: "http://q"}, false},
-		{"upstream + https rejected", Proxy{Upstream: "http://p:3128", HTTPS: "http://q"}, false},
-		{"https upstream rejected", Proxy{Upstream: "https://p:3128"}, false},
-		{"scheme-less upstream rejected", Proxy{Upstream: "p:3128"}, false},
+		{"empty", "", true, true},
+		{"valid http, egress on", "http://host.docker.internal:3128", true, true},
+		{"valid http, egress off", "http://host.docker.internal:3128", false, true},
+		{"https with egress on rejected", "https://p:3128", true, false},
+		{"https with egress off ok", "https://p:3128", false, true},
+		{"scheme-less rejected", "p:3128", true, false},
+		{"hostless rejected", "http://", true, false},
+		{"unparseable rejected", "http://%zz", true, false},
 	}
 	for _, c := range cases {
-		err := ValidateProxy(c.p)
+		err := ValidateProxy(c.url, c.egress)
 		if (err == nil) != c.ok {
 			t.Errorf("%s: ValidateProxy err=%v, want ok=%v", c.name, err, c.ok)
 		}
 	}
 }
 
-func TestResolveRuntimeUpstreamProxy(t *testing.T) {
-	// proxy.upstream is carried into Runtime, sets no bypass env, and keeps egress on.
-	p := &Profile{Proxy: Proxy{Upstream: "http://host.docker.internal:3128"}}
+func TestResolveRuntimeProxy(t *testing.T) {
+	// A single proxy URL is carried into Runtime and keeps egress on (chained).
+	p := &Profile{Proxy: "http://host.docker.internal:3128"}
 	rt, err := ResolveRuntime(p, Defaults{Agent: "claude"}, "base.com", "bm", Overrides{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if rt.UpstreamProxy != "http://host.docker.internal:3128" {
-		t.Errorf("upstream not carried into Runtime: %q", rt.UpstreamProxy)
-	}
-	if rt.HTTPProxy != "" || rt.HTTPSProxy != "" {
-		t.Errorf("upstream mode must not set bypass proxy env (HTTP=%q HTTPS=%q)", rt.HTTPProxy, rt.HTTPSProxy)
+	if rt.Proxy != "http://host.docker.internal:3128" {
+		t.Errorf("proxy not carried into Runtime: %q", rt.Proxy)
 	}
 	if !rt.Egress {
-		t.Error("upstream mode must keep the egress allowlist on")
+		t.Error("a proxy with egress on must keep the allowlist on (chained mode)")
 	}
 
-	// The mutual-exclusion rule is enforced at resolve time.
-	bad := &Profile{Proxy: Proxy{Upstream: "http://p:3128", HTTP: "http://q"}}
+	// SANDBOXER_PROXY (Defaults.Proxy) is the lowest-precedence fallback.
+	rt2, err := ResolveRuntime(&Profile{}, Defaults{Agent: "claude", Proxy: "http://env:9999"}, "base.com", "bm", Overrides{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rt2.Proxy != "http://env:9999" {
+		t.Errorf("env proxy default not applied: %q", rt2.Proxy)
+	}
+	// A profile proxy beats the env default.
+	rt3, err := ResolveRuntime(&Profile{Proxy: "http://prof:1"}, Defaults{Proxy: "http://env:9999"}, "base.com", "bm", Overrides{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rt3.Proxy != "http://prof:1" {
+		t.Errorf("profile proxy should beat env default: %q", rt3.Proxy)
+	}
+
+	// https + egress on is rejected at resolve time.
+	bad := &Profile{Proxy: "https://p:3128"}
 	if _, err := ResolveRuntime(bad, Defaults{}, "base.com", "bm", Overrides{}); err == nil {
-		t.Error("ResolveRuntime should reject proxy.upstream combined with proxy.http")
+		t.Error("ResolveRuntime should reject an https proxy with egress on")
 	}
 }
 

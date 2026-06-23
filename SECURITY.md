@@ -61,12 +61,13 @@ hardened security boundary. Understand the model before trusting it:
   determined adversary — DNS tricks, abuse of an allowed domain, and similar
   techniques can defeat it.
 
-  > **A configured upstream proxy replaces the allowlist.** If you set
-  > `proxy.http`/`proxy.https` (e.g. a corporate proxy), sandboxer assumes that
-  > proxy is the egress boundary and does **not** start the allowlist sidecar —
-  > outbound traffic is governed by your proxy's policy, not by
-  > `network.allowedDomains`. Don't set an upstream proxy expecting the domain
-  > allowlist to also apply.
+  > **With `egress: false`, a configured proxy replaces the allowlist.** A
+  > `proxy:` URL combined with `egress: false` makes sandboxer treat that proxy as
+  > the egress boundary: it does **not** start the allowlist sidecar, so outbound
+  > traffic is governed by your proxy's policy, not by `network.allowedDomains`.
+  > With egress **on** (the default) the proxy is instead chained *through* the
+  > allowlist, which keeps applying — so don't run `egress: false` + proxy
+  > expecting the domain allowlist to also apply.
 
 - **Credentials (container backend).** Each sandbox has its own private agent
   home (`.sandboxer/_home/<slug>`), mounted as `$HOME`. The host's real agent

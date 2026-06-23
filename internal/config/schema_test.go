@@ -17,7 +17,6 @@ func TestYAMLJSONTagParity(t *testing.T) {
 		reflect.TypeOf(Profile{}),
 		reflect.TypeOf(Mount{}),
 		reflect.TypeOf(Network{}),
-		reflect.TypeOf(Proxy{}),
 		reflect.TypeOf(ImageSpec{}),
 	} {
 		for i := range typ.NumField() {

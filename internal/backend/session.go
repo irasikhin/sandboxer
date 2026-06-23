@@ -139,12 +139,14 @@ var errEmptyAllowlist = errors.New("egress allowlist is enabled but no domains a
 	"(egress: false, or SANDBOXER_NO_EGRESS=1)")
 
 // egressRequired reports whether o must run behind the egress allowlist
-// sidecar: not explicitly disabled (NoEgress / egress: false) and no upstream
-// corporate proxy already holding the boundary. The single policy predicate
-// for Run and the session lifecycle — they must never disagree, because the
-// session ConfigHash depends on it.
+// sidecar: enabled (egress: true, the default) and not killed by the operator
+// (NoEgress / SANDBOXER_NO_EGRESS). A configured proxy no longer disables the
+// allowlist — with egress on the proxy is CHAINED through the sidecar; only
+// egress: false drops to direct mode. The single policy predicate for Run and
+// the session lifecycle — they must never disagree, because the session
+// ConfigHash depends on it.
 func egressRequired(o RunOpts) bool {
-	return !o.NoEgress && o.RT.Egress && o.RT.HTTPProxy == "" && o.RT.HTTPSProxy == ""
+	return !o.NoEgress && o.RT.Egress
 }
 
 // SessionWantHash computes the ConfigHash a fresh persistent session for o
@@ -387,7 +389,7 @@ func createSession(o RunOpts, name, hash string) (string, error) {
 		if err := ensureProxyImage(o); err != nil {
 			return "", err
 		}
-		e, err := egress.UpNamed(o.Engine, name, o.RT.Domains, o.RT.UpstreamProxy, o.BaseDir, o.Stderr)
+		e, err := egress.UpNamed(o.Engine, name, o.RT.Domains, ContainerProxyURL(o.RT.Proxy), o.BaseDir, o.Stderr)
 		if err != nil {
 			return "", fmt.Errorf("egress allowlist proxy failed to start: %w — "+
 				"refusing to run on an open network (disable with egress: false or SANDBOXER_NO_EGRESS=1)", err)

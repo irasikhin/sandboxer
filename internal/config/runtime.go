@@ -11,17 +11,19 @@ import (
 // Runtime is the fully-resolved set of effective settings for one sandbox
 // invocation (the bash load_runtime result). It carries no filesystem state.
 type Runtime struct {
-	HTTPProxy     string
-	HTTPSProxy    string
-	NoProxy       string
-	UpstreamProxy string   // parent proxy the egress sidecar chains through (allowlist stays on)
-	Domains       []string // resolved egress allowlist
-	Model         string
-	Agent         string
-	Backend       string
-	Session       string   // SessionPersistent or SessionEphemeral (resolved; never empty)
-	AuthAgents    []string // whose creds to bind in the container
-	Egress        bool
+	// Proxy is the resolved proxy URL (empty = none). With Egress on it is the
+	// parent the allowlist sidecar chains through; with Egress off the agent
+	// talks to it directly. The backend rewrites a localhost host to the host
+	// gateway before use (see backend.ContainerProxyURL).
+	Proxy      string
+	NoProxy    string   // NO_PROXY, applied only in direct mode (Egress off)
+	Domains    []string // resolved egress allowlist
+	Model      string
+	Agent      string
+	Backend    string
+	Session    string   // SessionPersistent or SessionEphemeral (resolved; never empty)
+	AuthAgents []string // whose creds to bind in the container
+	Egress     bool
 }
 
 // Session modes for Runtime.Session: a persistent detached container reused
@@ -49,13 +51,11 @@ func ResolveRuntime(p *Profile, d Defaults, baseDomains, baseModel string, f Ove
 		p = &Profile{}
 	}
 	rt := Runtime{
-		HTTPProxy:     p.Proxy.HTTP,
-		HTTPSProxy:    p.Proxy.HTTPS,
-		NoProxy:       p.Proxy.No,
-		UpstreamProxy: p.Proxy.Upstream,
-		Egress:        p.EgressEnabled(),
+		Proxy:   firstNonEmpty(p.Proxy, d.Proxy),
+		NoProxy: firstNonEmpty(p.NoProxy, d.NoProxy),
+		Egress:  p.EgressEnabled(),
 	}
-	if err := ValidateProxy(p.Proxy); err != nil {
+	if err := ValidateProxy(rt.Proxy, rt.Egress); err != nil {
 		return Runtime{}, err
 	}
 	if err := ValidateImageSpec(p.Image); err != nil {
@@ -146,30 +146,33 @@ func ValidateSession(rt Runtime) error {
 	}
 }
 
-// ValidateProxy rejects an incoherent proxy configuration. proxy.upstream
-// (chain through the egress sidecar, allowlist enforced) and proxy.http/https
-// (bypass the sidecar, trust the corporate proxy) are opposite trust models and
-// may not be combined. An upstream URL must parse and use an http scheme — an
-// https upstream needs a TLS dial that is not implemented yet.
-func ValidateProxy(p Proxy) error {
-	if p.Upstream == "" {
+// ValidateProxy rejects a malformed proxy URL. The proxy must parse to an
+// http:// or https:// URL with a host. When the egress allowlist is on the proxy
+// is chained through the sidecar (squid cache_peer), which cannot speak TLS to a
+// parent yet — so an https:// proxy is only accepted with egress off (direct
+// mode). An empty proxy is valid (no proxy).
+func ValidateProxy(proxyURL string, egress bool) error {
+	if proxyURL == "" {
 		return nil
 	}
-	if p.HTTP != "" || p.HTTPS != "" {
-		return fmt.Errorf("proxy.upstream chains through the egress allowlist and is mutually " +
-			"exclusive with proxy.http/https, which bypass it — set one or the other, not both")
-	}
-	u, err := url.Parse(p.Upstream)
+	u, err := url.Parse(proxyURL)
 	if err != nil {
-		return fmt.Errorf("invalid proxy.upstream %q: %w", p.Upstream, err)
+		return fmt.Errorf("invalid proxy %q: %w", proxyURL, err)
+	}
+	if u.Host == "" {
+		return fmt.Errorf("invalid proxy %q — expected an http://host:port URL", proxyURL)
 	}
 	switch u.Scheme {
 	case "http":
 		return nil
 	case "https":
-		return fmt.Errorf("proxy.upstream %q uses https — only http upstream proxies are supported", p.Upstream)
+		if egress {
+			return fmt.Errorf("proxy %q uses https — with the egress allowlist on only an http:// proxy "+
+				"works (the sidecar chains over http); set egress: false to use it as a direct https proxy", proxyURL)
+		}
+		return nil
 	default:
-		return fmt.Errorf("invalid proxy.upstream %q — expected an http://host:port URL", p.Upstream)
+		return fmt.Errorf("invalid proxy %q — expected an http://host:port URL", proxyURL)
 	}
 }
 
