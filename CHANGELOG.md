@@ -6,6 +6,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.26.0] — 2026-06-23
+
+### Added
+
+- single proxy URL + per-agent and global proxy (1a0997e)
+
+### Fixed
+
+- give the proxy sidecar the host-gateway alias (185ba71)
+
+
 ## [0.25.0] — 2026-06-19
 
 ### Added
@@ -123,3 +134,4 @@ isolated, containerized dev sandbox, on a local Linux machine:
 [0.24.0]: https://github.com/irasikhin/sandboxer/compare/v0.23.0...v0.24.0
 [0.24.1]: https://github.com/irasikhin/sandboxer/compare/v0.24.0...v0.24.1
 [0.25.0]: https://github.com/irasikhin/sandboxer/compare/v0.24.1...v0.25.0
+[0.26.0]: https://github.com/irasikhin/sandboxer/compare/v0.25.0...v0.26.0
