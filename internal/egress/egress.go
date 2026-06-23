@@ -120,6 +120,15 @@ func upWithID(engine, id string, domains []string, upstream, confDir string, _ i
 		"run", "-d", "--name", e.proxy, "--network", e.net,
 		"--user", userns, "--cap-drop=ALL", "--security-opt", "no-new-privileges",
 		"--volume", e.conf + ":/etc/sandboxer/squid.conf:ro",
+		// Map the host gateway INSIDE the sidecar too. When a proxy chains through
+		// squid (cache_peer below), it is the sidecar — not the agent container —
+		// that dials the parent. A user's proxy on the host is addressed as
+		// host.docker.internal / host.containers.internal, which Linux Docker only
+		// resolves with an explicit --add-host (Docker Desktop / podman provide one
+		// of them, but not both, so map both). Without this a host proxy is
+		// unreachable from the sidecar and all chained egress dies.
+		"--add-host=host.docker.internal:host-gateway",
+		"--add-host=host.containers.internal:host-gateway",
 		config.ProxyImage(),
 	}
 	if err := e.run(runArgs...); err != nil {
