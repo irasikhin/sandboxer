@@ -232,8 +232,9 @@ func builderArgv(o BuildOpts, ctxDir, outDir, cacheVol string) []string {
 
 // builderScript is the in-container shell run by the nix builder: build the
 // `#image` derivation from the mounted /src flake and copy the realized image
-// tarball to the bind-mounted /out. `--accept-flake-config` lets the
-// llm-agents binary cache substituter be used (no agent compiles from source);
+// tarball to the bind-mounted /out. `--accept-flake-config` applies the
+// embedded flake's nixConfig (the llm-agents binary cache, restated there
+// because nix ignores an input's nixConfig) so no agent compiles from source;
 // `--no-write-lock-file` keeps the read-only /src untouched. A rev override
 // becomes an --override-input flag only when it differs from the embedded pin
 // — when the effective rev IS the pin the script stays byte-identical to a
