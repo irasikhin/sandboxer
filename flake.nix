@@ -1,6 +1,18 @@
 {
   description = "sandboxer — config-driven, multi-agent, containerized dev sandboxes";
 
+  # llm-agents' binary cache, restated here because nix only honors the
+  # nixConfig of the top-level flake — an input's nixConfig is ignored. Without
+  # it, `nix run .#build-image` compiles every agent from source (gemini-cli's
+  # large npm-deps fetch can then OOM the builder). Keep in sync with the
+  # embedded toolbox flake (internal/toolbox/assets/flake.nix) and llm-agents.
+  nixConfig = {
+    extra-substituters = [ "https://cache.numtide.com" ];
+    extra-trusted-public-keys = [
+      "niks3.numtide.com-1:DTx8wZduET09hRmMtKdQDxNNthLQETkc/yaX7M4qK0g="
+    ];
+  };
+
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
     flake-utils.url = "github:numtide/flake-utils";
