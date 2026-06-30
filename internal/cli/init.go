@@ -152,7 +152,9 @@ agent: %s
 # Egress allowlist: the ONLY domains the sandbox may reach (everything else is
 # blocked). Seeded with the effective defaults (SANDBOXER_DOMAINS or the built-in
 # set — AI APIs + the common package registries: npm, PyPI, Maven, Gradle,
-# crates, Go, RubyGems, GitHub). Trim to what your task needs.
+# crates, Go, RubyGems, GitHub). Setting allowedDomains REPLACES that default set
+# wholesale — re-list EVERY domain you need (not just additions), or delete this
+# block to keep the full defaults. Trim to what your task needs.
 network:
   allowedDomains: [%s]
 
@@ -194,9 +196,15 @@ network:
 # Turn the egress allowlist off entirely for this profile (default: on):
 # egress: false
 
-# Route egress through an upstream/parent proxy instead of direct (optional):
-# proxy:
-#   upstream: http://proxy.internal:3128
+# Proxy — ONE URL; the egress toggle (above) decides the mode:
+#   egress on  (default): allowlist stays on, traffic is CHAINED through the
+#               proxy (allowedDomains still enforced). http:// only.
+#   egress off: the agent talks to the proxy DIRECTLY; the proxy polices egress.
+#               http:// or https://; noProxy applies.
+# A localhost/127.0.0.1 proxy means a proxy on your HOST (rewritten to the host
+# gateway automatically). Global default: agentProxy: / SANDBOXER_PROXY.
+# proxy: http://localhost:9999
+# noProxy: localhost,127.0.0.1,.corp   # direct mode only (egress off)
 `, name, d.Backend, d.Agent, domains)
 	profile += starterImageSection
 	return profile

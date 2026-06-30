@@ -87,6 +87,14 @@ restart.
 
 ## FAQ
 
+**What is an "upstream" / "parent" proxy?** Old terminology. There is no separate
+upstream vs corporate proxy mode anymore — there is one `proxy:` URL and the
+`egress:` toggle decides how it is used (on = chained through the allowlist
+sidecar, http:// only; off = the agent talks to it directly, http/https,
+`noProxy` applies). If you see `parent` in squid logs that is the same single
+`proxy:` — squid's internal name for the peer it forwards to. See "An agent can't
+reach a host" above for the behavior.
+
 **Which platforms are supported?** Linux only. There is no macOS or Windows
 build — sandboxer relies on a Linux container engine (docker/podman) on the host.
 
