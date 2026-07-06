@@ -30,13 +30,13 @@ pre-commit run --all-files      # all hooks at once
 go build ./cmd/sandboxer        # local binary
 ```
 
-### Integration tests (opt-in, not run in CI)
+### Integration tests
 
 The default `go test ./...` runs only the in-process unit tests. A separate
 real end-to-end suite, behind the `integration` build tag, drives a **real**
-container engine (podman or docker), real networks and the real egress proxy —
-only the coding agent is stubbed (the proprietary `claude`/`codex` binaries are
-never invoked). Run it explicitly, inside `nix develop`:
+container engine (podman or docker), real networks and the real **squid** egress
+proxy sidecar — only the coding agent is stubbed (the proprietary `claude`/`codex`
+binaries are never invoked). Run it explicitly, inside `nix develop`:
 
 ```bash
 scripts/itest.sh                                   # whole suite (./...)
@@ -48,12 +48,17 @@ SANDBOXER_ITEST_ENGINE=docker scripts/itest.sh ./internal/egress/
 ```
 
 Each test skips cleanly when its prerequisite is missing — no usable engine, no
-pre-pulled smoke image (`docker pull alpine`), or (for the sidecar tests) no
-toolbox image — so a partial environment never fails the run. The few tests that
-need the toolbox image build it only when `SANDBOXER_ITEST_BUILD_IMAGE=1`.
+pre-pulled smoke image (`docker pull alpine`), or no built image (the egress
+tests need the `sandboxer-proxy` image; the sandbox tests need the toolbox
+image) — so a partial environment never fails the run. The tests that need a
+built image build it only when `SANDBOXER_ITEST_BUILD_IMAGE=1` (one build
+produces both images).
 
-These tests are **not** part of CI or the 90% coverage gate: the tag excludes
-them from the normal build, so they contribute neither lines nor coverage. The
+These tests are excluded from the **GitHub Actions** CI and its 90% coverage
+gate (the tag excludes them from the normal build, so they contribute neither
+lines nor coverage) — that gate stays engine-free. Instead the full container
+suite runs on the **homelab Jenkins** e2e job (`Jenkinsfile`), which builds the
+images and runs `scripts/itest.sh` against a real Docker daemon on every PR. The
 mapping of every exported function to its unit/integration coverage lives in
 [`docs/test-coverage-audit.md`](docs/test-coverage-audit.md).
 
