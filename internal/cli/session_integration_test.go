@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/irasikhin/sandboxer/internal/backend"
+	"github.com/irasikhin/sandboxer/internal/config"
 	"github.com/irasikhin/sandboxer/internal/itest"
 )
 
@@ -30,11 +31,12 @@ func engineQuery(t *testing.T, engine string, args ...string) string {
 // exec rides the running session (tmux probed detached — never an interactive
 // TTY), stop parks the container and proxy but keeps the networks, re-enter
 // resumes the same container with its state, and rm sweeps every engine
-// resource (container, proxy, networks). Needs the toolbox image: the egress
-// proxy runs the baked sandboxer binary and the probes need the baked tmux.
+// resource (container, proxy, networks). Needs the toolbox image (the sandbox +
+// its baked tmux) and the squid proxy image (the egress sidecar).
 func TestSessionLifecycle_Container_EnterStopRm(t *testing.T) {
 	engine := itest.Engine(t)
 	image := itest.EnsureToolboxImage(t, engine)
+	itest.EnsureProxyImage(t, engine) // egress is on below — the squid sidecar needs it
 	t.Setenv("SANDBOXER_ENGINE", engine)
 	t.Setenv("SANDBOXER_IMAGE", image)
 	t.Setenv("SANDBOXER_NO_EGRESS", "")

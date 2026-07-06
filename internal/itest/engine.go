@@ -86,3 +86,27 @@ func EnsureToolboxImage(t *testing.T, engine string) string {
 	}
 	return img
 }
+
+// EnsureProxyImage guarantees the egress squid proxy image (config.ProxyImage,
+// the sidecar the container backend runs) is present, else skips. Like
+// EnsureToolboxImage it builds only when SANDBOXER_ITEST_BUILD_IMAGE=1 — and one
+// toolbox.BuildImage run produces BOTH the toolbox image and the proxy image, so
+// a suite that needs both pays the multi-minute nix build once. It honours the
+// SANDBOXER_PROXY_IMAGE override via config.ProxyImage, so a test that points
+// that at a bogus tag (to force a sidecar failure) must NOT call this.
+func EnsureProxyImage(t *testing.T, engine string) string {
+	t.Helper()
+	img := config.ProxyImage()
+	if exec.Command(engine, "image", "inspect", img).Run() == nil {
+		return img
+	}
+	if os.Getenv("SANDBOXER_ITEST_BUILD_IMAGE") != "1" {
+		t.Skipf("proxy image %q absent — build it (sandboxer image build) or set SANDBOXER_ITEST_BUILD_IMAGE=1", img)
+	}
+	// BuildImage builds and loads the toolbox image and the squid proxy image in
+	// one nix run; the toolbox image is a harmless by-product here.
+	if err := toolbox.BuildImage(toolbox.BuildOpts{Engine: engine, Image: config.DefaultImage, Stdout: os.Stderr, Stderr: os.Stderr}); err != nil {
+		t.Fatalf("build proxy image: %v", err)
+	}
+	return img
+}

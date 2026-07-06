@@ -91,11 +91,14 @@ func TestSession_RealEngine_Lifecycle(t *testing.T) {
 	}
 	id1 := engineOut(t, engine, "container", "inspect", "--format", "{{.Id}}", name)
 
-	// 4. Stale config: a changed create argv flips the hash; with no tmux client
-	// attached (the smoke image has no tmux — that counts as idle) the session
-	// is recreated under the same name.
+	// 4. Stale config: a changed create argv flips the ConfigHash; with no tmux
+	// client attached (the smoke image has no tmux — that counts as idle) the
+	// session is recreated under the same name. A memory limit is a create-argv
+	// field that ALWAYS participates in the hash — unlike RT.NoProxy, which only
+	// enters the argv when a proxy URL is also configured (see commonArgs), so it
+	// would be a no-op mutation here.
 	o2 := o
-	o2.RT.NoProxy = "stale.invalid"
+	o2.Mem = "256m"
 	if _, err := EnsureSession(o2); err != nil {
 		t.Fatalf("EnsureSession (stale): %v\n%s", err, notices.String())
 	}
