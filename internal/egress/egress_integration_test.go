@@ -12,15 +12,15 @@ import (
 )
 
 // TestUpDown_RealNetworks brings the egress allowlist up against a REAL engine:
-// two networks plus the proxy sidecar (which runs `sandboxer _proxy` from the
-// toolbox image), verifies they exist, then tears it all down and verifies they
-// are gone. Needs the toolbox image (the sidecar binary lives in it).
+// two networks plus the squid proxy sidecar (config.ProxyImage), verifies they
+// exist, then tears it all down and verifies they are gone. Needs the proxy
+// image (the sidecar runs it — the sandboxer binary is never in the net path).
 func TestUpDown_RealNetworks(t *testing.T) {
 	engine := itest.Engine(t)
-	image := itest.EnsureToolboxImage(t, engine)
+	itest.EnsureProxyImage(t, engine)
 	slug := itest.Slug("updown")
 
-	e, err := Up(engine, image, slug, []string{"example.com"}, "", io.Discard)
+	e, err := Up(engine, slug, []string{"example.com"}, "", "", io.Discard)
 	if err != nil {
 		t.Fatalf("Up: %v", err)
 	}
@@ -49,12 +49,13 @@ func TestUpDown_RealNetworks(t *testing.T) {
 // TestUp_RealEngine_TearsDownOnSidecarFailure: with a bogus sidecar image the
 // proxy cannot start, so Up must fail AND remove the two networks it created
 // (the real-engine counterpart of the fake TestUpProxyFailureTearsDown). Needs
-// only an engine — no valid image.
+// only an engine — the bogus SANDBOXER_PROXY_IMAGE is never pulled.
 func TestUp_RealEngine_TearsDownOnSidecarFailure(t *testing.T) {
 	engine := itest.Engine(t)
 	slug := itest.Slug("sidecarfail")
+	t.Setenv("SANDBOXER_PROXY_IMAGE", "sandboxer-bogus-image:does-not-exist")
 
-	e, err := Up(engine, "sandboxer-bogus-image:does-not-exist", slug, []string{"example.com"}, "", io.Discard)
+	e, err := Up(engine, slug, []string{"example.com"}, "", "", io.Discard)
 	if err == nil {
 		t.Fatal("Up should fail when the sidecar image is missing")
 	}

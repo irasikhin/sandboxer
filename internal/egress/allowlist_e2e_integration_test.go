@@ -51,60 +51,20 @@ func assertAllowVsBlock(t *testing.T, engine, image, clientNet, proxyURL string)
 	}
 }
 
-// TestProxyInContainer_RealProxyBinary stands up the egress topology by hand —
-// WITHOUT the toolbox image — using the host-built sandboxer binary as the
-// `_proxy` sidecar. It is the real allowlist end-to-end test that runs on a
-// plain docker/podman box: a client on the --internal network reaches the
-// allowed host through the proxy and is denied the blocked one.
-func TestProxyInContainer_RealProxyBinary(t *testing.T) {
-	engine := itest.Engine(t)
-	image := itest.SmokeImage(t, engine)
-	bin := itest.BuildBinary(t)
-
-	intNet := itest.Slug("sbx-e2e-int")
-	extNet := itest.Slug("sbx-e2e-ext")
-	proxy := itest.Slug("sbx-e2e-proxy")
-
-	mustRun(t, engine, "network", "create", "--internal", intNet)
-	itest.CleanupNetwork(t, engine, intNet)
-	mustRun(t, engine, "network", "create", extNet)
-	itest.CleanupNetwork(t, engine, extNet)
-
-	// Proxy: the host-built sandboxer binary, on the internal net, also attached
-	// to the external net so it (and only it) can reach the allowed host.
-	itest.CleanupContainer(t, engine, proxy)
-	mustRun(t, engine, "run", "-d", "--name", proxy, "--network", intNet,
-		"-v", bin+":/sbx:ro", image,
-		"/sbx", "_proxy", "--listen", ":8888", "--allow", allowDomain)
-	mustRun(t, engine, "network", "connect", extNet, proxy)
-
-	assertAllowVsBlock(t, engine, image, intNet, "http://"+proxy+":8888")
-}
-
-// TestEgressAllowlist_AllowVsBlock_RealSidecar is the same allow/deny assertion
+// TestEgressAllowlist_AllowVsBlock_RealSidecar is the allow/deny assertion
 // driven through the real egress.Up sidecar (toolbox image). Needs the toolbox
 // image for the sidecar and a smoke image for the client.
 func TestEgressAllowlist_AllowVsBlock_RealSidecar(t *testing.T) {
 	engine := itest.Engine(t)
-	toolbox := itest.EnsureToolboxImage(t, engine)
+	itest.EnsureProxyImage(t, engine)
 	smoke := itest.SmokeImage(t, engine)
 	slug := itest.Slug("allow")
 
-	e, err := Up(engine, toolbox, slug, []string{allowDomain}, "", io.Discard)
+	e, err := Up(engine, slug, []string{allowDomain}, "", "", io.Discard)
 	if err != nil {
 		t.Fatalf("Up: %v", err)
 	}
 	t.Cleanup(e.Down)
 
 	assertAllowVsBlock(t, engine, smoke, e.Net(), e.ProxyURL())
-}
-
-func mustRun(t *testing.T, engine string, args ...string) {
-	t.Helper()
-	var buf bytes.Buffer
-	cmd := exec.Command(engine, args...)
-	cmd.Stdout, cmd.Stderr = &buf, &buf
-	if err := cmd.Run(); err != nil {
-		t.Fatalf("%s %s: %v\n%s", engine, strings.Join(args, " "), err, buf.String())
-	}
 }
