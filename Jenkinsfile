@@ -40,6 +40,11 @@ spec:
       securityContext: {privileged: true}
       env:
         - {name: DOCKER_TLS_CERTDIR, value: ""}
+        # This cluster's direct external egress is blocked/degraded (RU); route
+        # dockerd's registry pulls (alpine) through the AmneziaWG HTTP proxy.
+        - {name: HTTP_PROXY,  value: "http://awg-http-proxy.media.svc.cluster.local:8888"}
+        - {name: HTTPS_PROXY, value: "http://awg-http-proxy.media.svc.cluster.local:8888"}
+        - {name: NO_PROXY, value: "localhost,127.0.0.1,::1,.svc,.cluster.local,10.42.0.0/16,10.43.0.0/16,.rgband.ru"}
       resources:
         requests: {cpu: "500m", memory: "1Gi"}
         limits: {memory: "3Gi"}
@@ -54,9 +59,30 @@ spec:
       env:
         - {name: NIX_CONFIG, value: "experimental-features = nix-command flakes"}
         - {name: DOCKER_HOST, value: "tcp://localhost:2375"}
+        # Route external egress (nix caches, channels, git) through the AmneziaWG
+        # HTTP proxy — direct external egress from this cluster is blocked/degraded.
+        # Both cases: nix/libcurl + git honour lower-case, some tools upper-case.
+        - {name: HTTP_PROXY,  value: "http://awg-http-proxy.media.svc.cluster.local:8888"}
+        - {name: HTTPS_PROXY, value: "http://awg-http-proxy.media.svc.cluster.local:8888"}
+        - {name: http_proxy,  value: "http://awg-http-proxy.media.svc.cluster.local:8888"}
+        - {name: https_proxy, value: "http://awg-http-proxy.media.svc.cluster.local:8888"}
+        - {name: NO_PROXY, value: "localhost,127.0.0.1,::1,.svc,.cluster.local,10.42.0.0/16,10.43.0.0/16,.rgband.ru"}
+        - {name: no_proxy, value: "localhost,127.0.0.1,::1,.svc,.cluster.local,10.42.0.0/16,10.43.0.0/16,.rgband.ru"}
       resources:
         requests: {cpu: "1", memory: "2Gi"}
         limits: {memory: "6Gi"}
+    # The auto-injected agent container — declared here only to give the SCM
+    # checkout (git clone of the repo) the egress proxy; direct external egress
+    # is blocked/degraded, so without this the checkout fails to resolve the host.
+    # The kubernetes plugin fills in the inbound-agent image + connection args.
+    - name: jnlp
+      env:
+        - {name: HTTP_PROXY,  value: "http://awg-http-proxy.media.svc.cluster.local:8888"}
+        - {name: HTTPS_PROXY, value: "http://awg-http-proxy.media.svc.cluster.local:8888"}
+        - {name: http_proxy,  value: "http://awg-http-proxy.media.svc.cluster.local:8888"}
+        - {name: https_proxy, value: "http://awg-http-proxy.media.svc.cluster.local:8888"}
+        - {name: NO_PROXY, value: "localhost,127.0.0.1,::1,.svc,.cluster.local,10.42.0.0/16,10.43.0.0/16,.rgband.ru"}
+        - {name: no_proxy, value: "localhost,127.0.0.1,::1,.svc,.cluster.local,10.42.0.0/16,10.43.0.0/16,.rgband.ru"}
   volumes:
     - name: docker-storage
       emptyDir: {}
