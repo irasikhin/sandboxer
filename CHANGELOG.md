@@ -6,6 +6,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.26.3] — 2026-07-08
+
+### Fixed
+
+- make the Jenkins e2e build work on the homelab agent (94b7c65)
+- make the Jenkins e2e resilient to throttled egress (01bb1fe)
+- route Jenkins egress through the AmneziaWG proxy (91cfa3f)
+- build both images + share tmp with dind so bind-mount tests pass (1b7d13f)
+- retry the alpine pull (transient 503 through the egress proxy) (5d2b662)
+
+### Docs
+
+- correct the test-coverage audit and note the Jenkins e2e run (0296f5c)
+
+### Tests
+
+- repair rotted e2e suite for the squid egress path (688f7ed)
+- add real-behaviour e2e for the squid proxy mechanism (0ef76e8)
+- add real-engine e2e for agent env/home isolation and recreate (09a891a)
+- skip live-internet egress tests where containers have no direct egress (afdc8c7)
+
+### CI
+
+- add container e2e pipeline for the homelab Jenkins (c0b6534)
+
+
 ## [0.26.2] — 2026-06-30
 
 ### Fixed
@@ -151,3 +177,4 @@ isolated, containerized dev sandbox, on a local Linux machine:
 [0.26.0]: https://github.com/irasikhin/sandboxer/compare/v0.25.0...v0.26.0
 [0.26.1]: https://github.com/irasikhin/sandboxer/compare/v0.26.0...v0.26.1
 [0.26.2]: https://github.com/irasikhin/sandboxer/compare/v0.26.1...v0.26.2
+[0.26.3]: https://github.com/irasikhin/sandboxer/compare/v0.26.2...v0.26.3
