@@ -50,6 +50,8 @@ spec:
         limits: {memory: "3Gi"}
       volumeMounts:
         - {name: docker-storage, mountPath: /var/lib/docker}
+        # shared with the nix container so bind mounts the tests create resolve here
+        - {name: itest-tmp, mountPath: /itest-tmp}
     # Build + test container: nix (images), the repo devShell (go), and the
     # docker CLI / gotestsum installed below. Talks to the dind daemon.
     - name: nix
@@ -71,6 +73,8 @@ spec:
       resources:
         requests: {cpu: "1", memory: "2Gi"}
         limits: {memory: "6Gi"}
+      volumeMounts:
+        - {name: itest-tmp, mountPath: /itest-tmp}
     # The auto-injected agent container — declared here only to give the SCM
     # checkout (git clone of the repo) the egress proxy; direct external egress
     # is blocked/degraded, so without this the checkout fails to resolve the host.
@@ -85,6 +89,8 @@ spec:
         - {name: no_proxy, value: "localhost,127.0.0.1,::1,.svc,.cluster.local,10.42.0.0/16,10.43.0.0/16,.rgband.ru"}
   volumes:
     - name: docker-storage
+      emptyDir: {}
+    - name: itest-tmp
       emptyDir: {}
 '''
         }
@@ -125,17 +131,24 @@ http-connections = 10"
             # failing the whole run. Each attempt is time-bounded. --accept-flake-config
             # trusts the numtide cache (root is trusted here) so agents come prebuilt.
             proxy=no; toolbox=no
-            if timeout 720 nix build --accept-flake-config .#proxyImage -o result-proxy; then
-              docker load -i result-proxy && proxy=yes
-            else echo "WARN: proxy image unavailable (egress) — egress sidecar tests will skip"; fi
-            if timeout 1500 nix build --accept-flake-config .#image -o result-toolbox; then
+            # Build the toolbox FIRST — it pulls the full set of flake inputs
+            # (slow through the proxy); the proxy image then reuses them from the
+            # nix store and builds fast. No per-image timeout (the pipeline
+            # timeout is the backstop); best-effort so a miss skips, not fails.
+            if nix build --accept-flake-config .#image -o result-toolbox; then
               docker load -i result-toolbox && toolbox=yes
-            else echo "WARN: toolbox image unavailable (egress) — sandbox/toolbox tests will skip"; fi
-            echo "=== images ready: proxy=$proxy toolbox=$toolbox (absent => those tests skip) ==="
+            else echo "WARN: toolbox image unavailable — sandbox/toolbox tests will skip"; fi
+            if nix build --accept-flake-config .#proxyImage -o result-proxy; then
+              docker load -i result-proxy && proxy=yes
+            else echo "WARN: proxy image unavailable — egress sidecar tests will skip"; fi
+            echo "=== images ready: proxy=$proxy toolbox=$toolbox ==="
 
-            # Run the whole suite against the real daemon; tests whose image is
-            # absent skip cleanly. gotestsum emits JUnit and sets the exit code.
-            nix develop --accept-flake-config --command bash -c 'export PATH="$HOME/.nix-profile/bin:$PATH"; export SANDBOXER_ITEST_ENGINE=docker; gotestsum --junitfile itest-report.xml --format standard-verbose -- -tags integration -count=1 -timeout 40m ./...'
+            # Run the whole suite against the real daemon. TMPDIR points at the
+            # emptyDir SHARED with the dind container (mounted at the same path in
+            # both), so the sandbox/home/dep dirs the tests bind-mount into
+            # containers resolve on dind's fs too — without this, dind runs
+            # containers on its own fs and the bind mounts are empty.
+            nix develop --accept-flake-config --command bash -c 'export PATH="$HOME/.nix-profile/bin:$PATH"; export SANDBOXER_ITEST_ENGINE=docker; export TMPDIR=/itest-tmp TMP=/itest-tmp TEMP=/itest-tmp; gotestsum --junitfile itest-report.xml --format standard-verbose -- -tags integration -count=1 -timeout 40m ./...'
           '''
         }
       }
