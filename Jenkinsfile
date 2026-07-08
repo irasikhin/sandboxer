@@ -148,7 +148,12 @@ http-connections = 10"
             # both), so the sandbox/home/dep dirs the tests bind-mount into
             # containers resolve on dind's fs too — without this, dind runs
             # containers on its own fs and the bind mounts are empty.
-            nix develop --accept-flake-config --command bash -c 'export PATH="$HOME/.nix-profile/bin:$PATH"; export SANDBOXER_ITEST_ENGINE=docker; export TMPDIR=/itest-tmp TMP=/itest-tmp TEMP=/itest-tmp; gotestsum --junitfile itest-report.xml --format standard-verbose -- -tags integration -count=1 -timeout 40m ./...'
+            # SANDBOXER_ITEST_SKIP_LIVE_EGRESS: this cluster blocks direct
+            # container egress (external traffic must traverse the awg proxy,
+            # which the nested dind daemon's containers cannot use), so the
+            # squid sidecar can't reach an allowlisted host. Those live-egress
+            # allow-path tests skip here; the deny path + orchestration still run.
+            nix develop --accept-flake-config --command bash -c 'export PATH="$HOME/.nix-profile/bin:$PATH"; export SANDBOXER_ITEST_ENGINE=docker; export SANDBOXER_ITEST_SKIP_LIVE_EGRESS=1; export TMPDIR=/itest-tmp TMP=/itest-tmp TEMP=/itest-tmp; gotestsum --junitfile itest-report.xml --format standard-verbose -- -tags integration -count=1 -timeout 40m ./...'
           '''
         }
       }

@@ -21,6 +21,7 @@ import (
 // sandbox + baked curl) and the squid proxy image (the egress sidecar), plus
 // outbound network from the test host.
 func TestExec_Container_EgressOn_OneShot(t *testing.T) {
+	itest.RequireLiveEgress(t) // needs the sandbox container to reach the allowlisted host
 	engine := itest.Engine(t)
 	image := itest.EnsureToolboxImage(t, engine)
 	itest.EnsureProxyImage(t, engine)

@@ -34,6 +34,7 @@ func engineQuery(t *testing.T, engine string, args ...string) string {
 // resource (container, proxy, networks). Needs the toolbox image (the sandbox +
 // its baked tmux) and the squid proxy image (the egress sidecar).
 func TestSessionLifecycle_Container_EnterStopRm(t *testing.T) {
+	itest.RequireLiveEgress(t) // egress-on session; the sidecar needs to reach the allowlisted host
 	engine := itest.Engine(t)
 	image := itest.EnsureToolboxImage(t, engine)
 	itest.EnsureProxyImage(t, engine) // egress is on below — the squid sidecar needs it

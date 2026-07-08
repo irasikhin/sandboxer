@@ -55,6 +55,7 @@ func assertAllowVsBlock(t *testing.T, engine, image, clientNet, proxyURL string)
 // driven through the real egress.Up sidecar (toolbox image). Needs the toolbox
 // image for the sidecar and a smoke image for the client.
 func TestEgressAllowlist_AllowVsBlock_RealSidecar(t *testing.T) {
+	itest.RequireLiveEgress(t) // needs a container to reach the allowlisted host
 	engine := itest.Engine(t)
 	itest.EnsureProxyImage(t, engine)
 	smoke := itest.SmokeImage(t, engine)

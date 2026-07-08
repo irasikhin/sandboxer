@@ -87,6 +87,22 @@ func EnsureToolboxImage(t *testing.T, engine string) string {
 	return img
 }
 
+// RequireLiveEgress skips a test that needs a CONTAINER to reach the real
+// internet directly (e.g. a client probing an allowlisted host through the squid
+// sidecar). Some CI environments block direct outbound egress from containers
+// (traffic must traverse an HTTP/SOCKS proxy the nested docker-in-docker daemon
+// can't use), so the "allowed host is reachable" assertion cannot hold there.
+// Set SANDBOXER_ITEST_SKIP_LIVE_EGRESS=1 in such an environment; the test then
+// skips instead of failing. It still runs anywhere with direct container egress
+// (a dev box, or a CI runner whose containers reach the internet).
+func RequireLiveEgress(t *testing.T) {
+	t.Helper()
+	if os.Getenv("SANDBOXER_ITEST_SKIP_LIVE_EGRESS") == "1" {
+		t.Skip("SANDBOXER_ITEST_SKIP_LIVE_EGRESS=1 — this environment has no direct container egress; " +
+			"the squid sidecar cannot reach the allowlisted host (the deny path and orchestration are still covered)")
+	}
+}
+
 // EnsureProxyImage guarantees the egress squid proxy image (config.ProxyImage,
 // the sidecar the container backend runs) is present, else skips. Like
 // EnsureToolboxImage it builds only when SANDBOXER_ITEST_BUILD_IMAGE=1 — and one

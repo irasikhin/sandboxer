@@ -64,6 +64,7 @@ func upExampleAllow(t *testing.T, engine string) *Egress {
 // squid conf emits: allowing example.com also admits its subdomain
 // www.example.com, while a non-listed domain is refused.
 func TestProxy_SubdomainMatch_RealSidecar(t *testing.T) {
+	itest.RequireLiveEgress(t) // needs a container to reach the allowlisted host
 	engine := itest.Engine(t)
 	itest.EnsureProxyImage(t, engine)
 	smoke := itest.SmokeImage(t, engine)
