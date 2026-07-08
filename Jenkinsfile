@@ -122,8 +122,10 @@ http-connections = 10"
             printf '[safe]\n\tdirectory = *\n' > "$HOME/.gitconfig"
 
             # the smoke image the client-side probes need (pulled first so the
-            # smoke-tier tests run even if the image builds below cannot)
-            docker pull alpine:latest
+            # smoke-tier tests run even if the image builds below cannot).
+            # Retry: the egress proxy occasionally returns a transient 503.
+            for i in 1 2 3 4 5 6; do docker pull alpine:latest && break || { echo "alpine pull retry $i"; sleep 10; }; done
+            docker image inspect alpine:latest >/dev/null 2>&1 || { echo "ERROR: alpine unavailable after retries"; exit 1; }
 
             # Build the images BEST-EFFORT and load whatever succeeds. The cluster
             # egress can starve the nix caches; when an image can't be built its
