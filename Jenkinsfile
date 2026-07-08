@@ -77,6 +77,11 @@ spec:
             for i in $(seq 1 60); do docker info >/dev/null 2>&1 && break; sleep 2; done
             docker version
 
+            # The workspace is checked out as the jenkins uid but this container
+            # runs as root, so nix's flake git read fails with "dubious ownership".
+            # Trust it (written directly — the base image may not have the git CLI).
+            printf '[safe]\n\tdirectory = *\n' > "$HOME/.gitconfig"
+
             # build BOTH images with nix and load them into dind. --accept-flake-config
             # trusts the numtide cache (root is a trusted nix user here), so the agents
             # come prebuilt and gemini-cli never compiles from source.
@@ -97,7 +102,10 @@ spec:
       }
       post {
         always {
-          junit testResults: 'itest-report.xml', allowEmptyResults: true
+          // Archive the JUnit XML as a build artifact. (The `junit` step needs
+          // the junit plugin, which is not installed on this controller; add it
+          // to additionalPlugins to get test-result trends in the UI.)
+          archiveArtifacts artifacts: 'itest-report.xml', allowEmptyArchive: true
         }
       }
     }
