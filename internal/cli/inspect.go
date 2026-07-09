@@ -280,8 +280,9 @@ func sessionHashOpts(t *target, rt config.Runtime, engine string) (backend.RunOp
 	return backend.RunOpts{
 		Engine: engine, Image: image, Spec: spec,
 		Dest: t.base.SandboxDir(t.slug), Slug: t.slug, BaseDir: t.base.Dir,
-		HomeDir: t.base.HomeDir(t.slug),
-		RT:      rt, Profile: t.profile,
+		GitCommonDir: t.base.GitDir,
+		HomeDir:      t.base.HomeDir(t.slug),
+		RT:           rt, Profile: t.profile,
 		ProfileJSONPath: t.base.ProfileJSONPath(t.slug), ManifestPath: t.base.ManifestPath(t.slug),
 		NoEgress: noEgress(),
 	}, true

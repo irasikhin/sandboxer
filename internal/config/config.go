@@ -109,9 +109,13 @@ func (p *Profile) resolveImageNix(dir string) {
 }
 
 // Profile is a sandbox configuration. All fields are optional; an empty profile
-// is valid (everything then comes from flags/env/defaults). The sandbox content
-// is driven by roots+deps (depsync-style): deps are searched by path suffix
-// under roots and copied into the sandbox.
+// is valid (everything then comes from flags/env/defaults) — in a git repo that
+// yields a full-repo worktree with zero config. A sandbox is normally a git
+// worktree of the project on branch sandbox/<slug>; deps then narrow it to a
+// subset of repo-relative directories via sparse-checkout (empty = the whole
+// repo). When the project is not a git repository (or SANDBOXER_NO_WORKTREE is
+// set) the sandbox falls back to the copy model: deps are searched by path
+// suffix under roots and copied in.
 type Profile struct {
 	Name    string  `yaml:"name,omitempty"        json:"name,omitempty"`
 	Backend string  `yaml:"backend,omitempty"     json:"backend,omitempty"`
@@ -129,14 +133,19 @@ type Profile struct {
 	NoProxy string   `yaml:"noProxy,omitempty" json:"noProxy,omitempty"`
 	Agents  []string `yaml:"agents,omitempty"      json:"agents,omitempty"`
 	Egress  *bool    `yaml:"egress,omitempty"      json:"egress,omitempty"`
-	Roots   []string `yaml:"roots,omitempty"       json:"roots,omitempty"`
-	Deps    []string `yaml:"deps,omitempty"        json:"deps,omitempty"`
-	// Context lists project files copied to the sandbox ROOT (beside
-	// workspace/) so agents see the project's instructions — paths relative to
-	// the project root, refreshed on pull, never pushed back (read-only).
-	// Unset means the default set (CLAUDE.md, AGENTS.md, .claude), existing
-	// entries only; a non-empty list REPLACES that set (re-list what you keep)
-	// and warns about missing entries.
+	// Roots are the copy-mode search roots (ignored in git-worktree mode).
+	Roots []string `yaml:"roots,omitempty"       json:"roots,omitempty"`
+	// Deps, in git-worktree mode, are the repo-relative directories the worktree
+	// is narrowed to via sparse-checkout (empty = the whole repo). In copy mode
+	// they are the dependencies located by path suffix under Roots and copied in.
+	Deps []string `yaml:"deps,omitempty"        json:"deps,omitempty"`
+	// Context (copy mode only — a git-worktree sandbox already contains these
+	// files) lists project files copied to the sandbox ROOT (beside workspace/)
+	// so agents see the project's instructions — paths relative to the project
+	// root, refreshed on pull, never pushed back (read-only). Unset means the
+	// default set (CLAUDE.md, AGENTS.md, .claude), existing entries only; a
+	// non-empty list REPLACES that set (re-list what you keep) and warns about
+	// missing entries.
 	Context     []string          `yaml:"context,omitempty"     json:"context,omitempty"`
 	ExtraMounts []Mount           `yaml:"extraMounts,omitempty" json:"extraMounts,omitempty"`
 	Env         map[string]string `yaml:"env,omitempty"         json:"env,omitempty"`

@@ -167,6 +167,36 @@ func TestRunArgvExact(t *testing.T) {
 	}
 }
 
+// TestRunArgvGitCommonDir pins the git-worktree mount: the shared git dir is
+// bound rw at its own path and safe.directory=* is injected — only when set, so
+// copy-mode runs (and their ConfigHash) are untouched.
+func TestRunArgvGitCommonDir(t *testing.T) {
+	o := RunOpts{
+		Engine: "docker", Image: "img:1", Dest: "/d", Slug: "s", HomeDir: "/h",
+		GitCommonDir: "/repo/.git", Args: []string{"true"},
+	}
+	argv, err := RunArgv(o)
+	if err != nil {
+		t.Fatalf("RunArgv: %v", err)
+	}
+	s := strings.Join(argv, " ")
+	for _, w := range []string{
+		"--volume /repo/.git:/repo/.git:rw",
+		"GIT_CONFIG_COUNT=1", "GIT_CONFIG_KEY_0=safe.directory", "GIT_CONFIG_VALUE_0=*",
+	} {
+		if !strings.Contains(s, w) {
+			t.Errorf("git-mode RunArgv missing %q in:\n%s", w, s)
+		}
+	}
+
+	// copy mode (no GitCommonDir) carries none of it
+	o.GitCommonDir = ""
+	argv2, _ := RunArgv(o)
+	if s2 := strings.Join(argv2, " "); strings.Contains(s2, "GIT_CONFIG") || strings.Contains(s2, "/repo/.git") {
+		t.Errorf("copy-mode RunArgv leaked the git mount:\n%s", s2)
+	}
+}
+
 // TestEnsureImage covers the preflight: present image is a no-op; a missing
 // custom image is left to the engine; a missing bundled default is auto-built
 // (or fails fast with a build hint when auto-build is disabled).

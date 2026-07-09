@@ -56,8 +56,16 @@ was extracted from:
   ALL runtime state lives OUTSIDE the repo under `config.StateDir(project)` =
   `$XDG_STATE_HOME/sandboxer/<project-id>` (`<project-id>` = basename + short hash of the abs path) — the
   `_meta`/`_logs`/`_home/<slug>`/`<slug>` dirs, so credentials/scratch can never be committed. `sandboxer clean`
-  wipes that state (config stays). A sandbox is `<stateDir>/<slug>/` holding only the listed deps (located by
-  path suffix under your roots, copied in — nothing by default, no git).
+  wipes that state (config stays).
+- **Sandbox backing = git worktree** (`internal/worktree`, `internal/sandbox`): a sandbox `<stateDir>/<slug>/` is
+  normally a **git worktree** of the project repo on branch `sandbox/<slug>` (off HEAD) — the agent gets a real
+  git and its work returns as an ordinary branch (no copy, no push-back). Zero-config: empty profile → whole-repo
+  worktree. `deps` narrows it to repo-relative dirs via cone `sparse-checkout` (empty = whole repo). The shared
+  repo git dir (`git rev-parse --git-common-dir`) is bind-mounted at its host path so git resolves in-container;
+  `safe.directory=*` is injected via `GIT_CONFIG_*`. Teardown routes through `git worktree remove`/`prune` and
+  KEEPS the branch (delete only via `recreate --full`). **Fallback** to the legacy copy model (`internal/srcs`:
+  deps by path-suffix under `roots`, copied into `<slug>/workspace/`, pushed back via manifest) when the project
+  is not a git repo, has no commit, or `SANDBOXER_NO_WORKTREE=1`.
 - **Egress** (`internal/egress`): outbound traffic is restricted to an allowlist
   (`network.allowedDomains` / `--allow-domains`) through a **squid** sidecar (the `sandboxer-proxy` image, built
   beside the toolbox image; `config.ProxyImage()`) running a generated `squid.conf` — the binary is never in the

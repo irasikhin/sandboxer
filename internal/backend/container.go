@@ -55,7 +55,8 @@ type RunOpts struct {
 	Engine          string
 	Image           string
 	Spec            toolbox.Spec // image variant customization; drives the auto-build of a missing variant
-	Dest            string       // sandbox copy dir, mounted and used as workdir
+	Dest            string       // sandbox working tree (git worktree or copy dir), mounted and used as workdir
+	GitCommonDir    string       // shared git dir bind-mounted (rw) so git works in-container; "" in copy mode
 	Slug            string
 	BaseDir         string // host .sandboxer dir; names/labels the persistent session (zero value fine for one-shot runs)
 	HomeDir         string // sandbox-private agent home, mounted as $HOME (isolated per sandbox)
@@ -176,6 +177,19 @@ func commonArgs(o RunOpts, egNet, egProxyURL string) []string {
 	if o.HomeDir != "" {
 		args = append(args, "--env", "HOME="+o.HomeDir,
 			"--volume", o.HomeDir+":"+o.HomeDir+":rw")
+	}
+	// In git-worktree mode the shared (common) git dir is bind-mounted at its own
+	// host path so the worktree's gitdir pointer and object store resolve inside
+	// the container — the agent gets a real git (branch, commit, diff). The repo
+	// is owned by the host uid while the container runs as a mapped user, so
+	// safe.directory=* is injected (via GIT_CONFIG_*) to disable git's
+	// dubious-ownership guard. "" in copy mode leaves the argv (and ConfigHash)
+	// untouched.
+	if o.GitCommonDir != "" {
+		args = append(args, "--volume", o.GitCommonDir+":"+o.GitCommonDir+":rw",
+			"--env", "GIT_CONFIG_COUNT=1",
+			"--env", "GIT_CONFIG_KEY_0=safe.directory",
+			"--env", "GIT_CONFIG_VALUE_0=*")
 	}
 	if o.Engine == "podman" {
 		args = append(args, "--userns=keep-id")

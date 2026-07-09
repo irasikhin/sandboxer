@@ -8,6 +8,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/irasikhin/sandboxer/internal/config"
+	"github.com/irasikhin/sandboxer/internal/worktree"
 )
 
 func init() { register(newCleanCmd) }
@@ -58,6 +59,12 @@ to remove a single sandbox instead.`,
 			}
 			if err := os.RemoveAll(dir); err != nil {
 				return err
+			}
+			// The wiped sandbox dirs were git worktrees in git mode; prune their
+			// now-dangling admin entries from the repo. Branches are kept — they
+			// live in the user's repo, not the state dir; delete any by hand.
+			if top, _, ok := worktree.Detect(abs); ok {
+				_ = worktree.Prune(top)
 			}
 			fmt.Fprintf(cmd.OutOrStdout(), "removed: %s\n", dir)
 			return nil

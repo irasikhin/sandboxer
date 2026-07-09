@@ -5,17 +5,19 @@
 // so runtime data — including agent homes that may hold login tokens — never
 // lands in git.
 //
-// A sandbox is driven entirely by `srcs`: nothing is copied by default. The
-// sandbox directory holds exactly the entries listed in the profile's srcs
-// (pulled in via the srcs package); an empty srcs means an empty sandbox.
-// Changes to read-write entries are pushed back to their origins. No git is
-// involved.
+// A sandbox is normally a git worktree of the project repo on branch
+// sandbox/<slug> (see internal/worktree), optionally narrowed to a subset of
+// directories via sparse-checkout. When the project is not a git repository (or
+// SANDBOXER_NO_WORKTREE is set) the sandbox falls back to the `srcs` copy path:
+// it holds exactly the deps listed in the profile, pulled in via the srcs
+// package, and read-write entries are pushed back to their origins.
 package sandbox
 
 import (
 	"bufio"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -24,14 +26,34 @@ import (
 
 	"github.com/irasikhin/sandboxer/internal/config"
 	"github.com/irasikhin/sandboxer/internal/srcs"
+	"github.com/irasikhin/sandboxer/internal/worktree"
 )
 
 // Base is a resolved project root and its runtime state directory.
 type Base struct {
-	Src     string // absolute project root
-	Dir     string // config.StateDir(Src) — the XDG state dir, outside the repo
+	Src string // absolute project root
+	Dir string // config.StateDir(Src) — the XDG state dir, outside the repo
+	// RepoRoot is the git top-level of Src; "" when Src is not a git repository
+	// (or SANDBOXER_NO_WORKTREE is set), which selects the copy-mode fallback.
+	// A non-empty RepoRoot means a sandbox is a git worktree.
+	RepoRoot string
+	// GitDir is the shared (common) git directory, bind-mounted into the
+	// container so git resolves the worktree's gitdir pointer and object store.
+	GitDir  string
 	Domains string
 	Model   string
+}
+
+// detectRepo populates RepoRoot/GitDir when Src is inside a git repository with
+// at least one commit and worktree mode is not disabled. It is cheap and
+// read-only (a couple of `git rev-parse` calls), so it runs on every resolve.
+func (b *Base) detectRepo() {
+	if os.Getenv("SANDBOXER_NO_WORKTREE") != "" {
+		return
+	}
+	if top, common, ok := worktree.Detect(b.Src); ok {
+		b.RepoRoot, b.GitDir = top, common
+	}
 }
 
 // ResolveBase resolves src to an absolute path, ensures the state dirs exist,
@@ -51,6 +73,7 @@ func ResolveBase(src string) (*Base, error) {
 		return nil, fmt.Errorf("cannot determine state directory: set $XDG_STATE_HOME or $SANDBOXER_STATE (no home directory found)")
 	}
 	b := &Base{Src: abs, Dir: dir}
+	b.detectRepo()
 	if err := os.MkdirAll(b.metaDir(), 0o755); err != nil {
 		return nil, err
 	}
@@ -93,6 +116,7 @@ func OpenBase(src string) (*Base, error) {
 		return nil, nil
 	}
 	b := &Base{Src: abs, Dir: config.StateDir(abs)}
+	b.detectRepo()
 	if env, err := parseEnvFile(filepath.Join(b.metaDir(), "run.env")); err == nil {
 		b.Domains = env["DOMAINS"]
 		b.Model = env["MODEL"]
@@ -203,17 +227,24 @@ func (b *Base) SetDomains(domains string) error {
 	return os.WriteFile(runEnv, []byte(sb.String()), 0o644)
 }
 
-// MakeSandbox creates the sandbox directory and pulls its srcs (if the profile
-// has any). Nothing is copied unless it is listed in srcs. Progress from the
-// srcs pull is written to w.
+// MakeSandbox creates a sandbox's working tree. In git mode (RepoRoot set) that
+// is a git worktree of the repo on branch sandbox/<slug>, narrowed to the
+// profile's deps when it lists any (empty = the whole repo). Otherwise it falls
+// back to the copy path: a workspace dir plus the profile's vendored deps.
+// Progress is written to w.
 func (b *Base) MakeSandbox(slug string, w io.Writer) error {
-	dest := b.SandboxDir(slug)
-	// The workspace dir is created even for a deps-less sandbox, so agents
-	// always have the same predictable place to work in.
-	if err := os.MkdirAll(filepath.Join(dest, srcs.WorkspaceDir), 0o755); err != nil {
+	if err := b.EnsureHome(slug); err != nil {
 		return err
 	}
-	if err := b.EnsureHome(slug); err != nil {
+	if b.RepoRoot != "" {
+		if err := worktree.Ensure(b.RepoRoot, b.SandboxDir(slug), worktree.Branch(slug), b.sandboxDeps(slug), w); err != nil {
+			return err
+		}
+		return b.AppendAgent(slug)
+	}
+	// Copy-mode fallback: the workspace dir is created even for a deps-less
+	// sandbox, so agents always have the same predictable place to work in.
+	if err := os.MkdirAll(filepath.Join(b.SandboxDir(slug), srcs.WorkspaceDir), 0o755); err != nil {
 		return err
 	}
 	if err := b.PullDeps(slug, w); err != nil {
@@ -222,11 +253,33 @@ func (b *Base) MakeSandbox(slug string, w io.Writer) error {
 	return b.AppendAgent(slug)
 }
 
+// sandboxDeps reads the deps list from the sandbox's stored profile.json. In
+// git mode these are repo-relative directories for the worktree's sparse
+// checkout; an absent profile or empty list means the whole repo.
+func (b *Base) sandboxDeps(slug string) []string {
+	data, err := os.ReadFile(b.ProfileJSONPath(slug))
+	if err != nil {
+		return nil
+	}
+	var p struct {
+		Deps []string `json:"deps"`
+	}
+	if err := json.Unmarshal(data, &p); err != nil {
+		return nil
+	}
+	return p.Deps
+}
+
 // PullDeps vendors the sandbox's deps (host-side) from its stored profile.json
 // into the sandbox directory, refreshing the manifest. It is a no-op when the
 // sandbox has no stored profile. Callers run it whenever the profile changed so
 // newly-listed deps land before the sandbox is entered. Progress is written to w.
 func (b *Base) PullDeps(slug string, w io.Writer) error {
+	if b.RepoRoot != "" {
+		// git mode: a sandbox's contents are its worktree sparse-checkout,
+		// applied at creation. Editing deps takes effect on `recreate`.
+		return nil
+	}
 	pj := b.ProfileJSONPath(slug)
 	if !fileExists(pj) {
 		return nil
@@ -317,10 +370,17 @@ func (b *Base) ClearCurrent() error {
 // metadata/manifest/setup-stamp files and the rotating logs. keepHome preserves
 // the private agent home (_home/<slug> — login tokens, shell history), so a
 // recreated sandbox needs no re-login; the registration (agents.list, the
-// active-sandbox marker) is left to the caller.
+// active-sandbox marker) is left to the caller. In git mode the sandbox dir is
+// a worktree, so it is unregistered from the repo (and its admin entry pruned)
+// first; the sandbox branch is kept so the agent's commits survive (use
+// RemoveSandboxBranch for a full reset).
 func (b *Base) RemoveState(slug string, keepHome bool) {
+	dest := b.SandboxDir(slug)
+	if b.RepoRoot != "" && worktree.IsWorktree(dest) {
+		_ = worktree.Remove(b.RepoRoot, dest)
+	}
 	paths := []string{
-		b.SandboxDir(slug),
+		dest,
 		b.MetaFilePath(slug),
 		b.ProfileJSONPath(slug),
 		b.ManifestPath(slug),
@@ -352,6 +412,16 @@ func (b *Base) Remove(slug string) error {
 		return b.ClearCurrent()
 	}
 	return nil
+}
+
+// RemoveSandboxBranch force-deletes the sandbox's git branch (git mode only, a
+// no-op otherwise). Normal teardown keeps the branch so work survives; a full
+// reset (recreate --full) calls this for a clean slate.
+func (b *Base) RemoveSandboxBranch(slug string) {
+	if b.RepoRoot == "" {
+		return
+	}
+	_ = worktree.DeleteBranch(b.RepoRoot, worktree.Branch(slug))
 }
 
 func fileExists(p string) bool {

@@ -16,28 +16,30 @@ drives.
 > or support guarantees. Use at your own risk.
 
 > ⚠️ **Pre-1.0.** CLI flags and the on-disk `.sandboxer/` layout may change
-> between minor versions until 1.0. The **`.sandboxer/config.yaml` schema has settled**
-> on `roots`+`deps` and is treated as stable through 0.x (the shipped
-> `examples/` are CI-verified against the strict parser); any future change will
-> be called out in the changelog.
+> between minor versions until 1.0. Sandboxes are **git worktrees** by default;
+> `deps` narrows which directories are checked out (see below). Any future change
+> will be called out in the changelog.
 
 ## How it works
 
-A **sandbox** is a directory under `.sandboxer/<slug>/` holding exactly the
-`deps` you list — **nothing is copied by default**. The agent runs inside that
-directory (isolated by the backend); the copies are pushed back to their origins
-when you're done. No git is involved.
+A **sandbox** is a **git worktree** of your repo on its own branch
+`sandbox/<slug>`, checked out under the state dir. Run sandboxer inside a repo and
+it just works — **zero config**: the whole repo is checked out, the agent runs
+there with a real git (branch, commit, diff), and its work comes back as an
+ordinary branch you review and merge. Your working tree and current branch are
+never touched, and nothing is copied.
 
-- **Sandbox** — the directory `.sandboxer/<slug>/`. Its `workspace/` holds what `deps`
-  pulled in; no `deps` means an empty sandbox.
+- **Sandbox** — a git worktree on branch `sandbox/<slug>`, off the current HEAD.
+  The agent commits there; there is no copy and no push-back.
 - **slug** — a short sandbox name (`feat`, `bugfix-auth`, …), set at `create`.
-- **roots / deps** — the single source of a sandbox's contents: each `dep` is
-  located by **path suffix** under the `roots` and copied flat to
-  `<sandbox>/workspace/<dep>` (depsync-style). The current directory is always searched
-  as an implicit last root, so a project-local dep needs no `roots:` at all.
-- **pull / push** — `sandboxer pull` copies the `deps` in, keeping a target that
-  already exists unless `--force`; `sandboxer push` copies them back over their
-  origins (always overwriting, like depsync).
+- **deps (optional)** — repo-relative directories to **narrow** the sandbox to,
+  via cone-mode `git sparse-checkout`. Omit them to get the whole repo.
+- **review** — the work is on `sandbox/<slug>` in your repo: `git log
+  sandbox/<slug>`, `git diff …sandbox/<slug>`, then merge or cherry-pick.
+
+Not a git repo (or `SANDBOXER_NO_WORKTREE=1`)? sandboxer falls back to the
+**copy model**: each `dep` is located by path suffix under `roots` and copied
+into `<sandbox>/workspace/<dep>`, then pushed back to its origin (`pull`/`push`).
 
 Isolation backend — a **docker / podman** container built from a toolbox image
 with the agents baked in (claude, opencode, crush, aider, pi, gemini). Any of
@@ -99,9 +101,16 @@ lives **outside** the repo under the XDG state dir
 and scratch data can never be committed by accident. `sandboxer clean` wipes that
 state for the project; the config stays.
 
-## How changes flow (no git)
+## How changes flow
 
-Dependency sync is plain file-copy, host-side — git is never involved:
+In the default **git-worktree** mode, changes flow through git: the agent commits
+on `sandbox/<slug>` in your repo's shared object store, so its work is a branch
+you review and merge (`git log`/`git diff`/`git merge sandbox/<slug>`). Teardown
+(`rm`, `recreate`) keeps the branch; `recreate --full` deletes it for a fresh
+start. There is no `pull`/`push`.
+
+In the **copy-mode fallback** (non-git project, or `SANDBOXER_NO_WORKTREE=1`),
+dependency sync is plain host-side file-copy:
 
 - **`pull`** locates each listed dep by path suffix under your roots and copies it
   into the sandbox's `workspace/`, recording a content signature per dep.
@@ -110,7 +119,7 @@ Dependency sync is plain file-copy, host-side — git is never involved:
   that changed on the host since the pull (signature mismatch) unless `--force`,
   so host edits are never silently overwritten.
 - Agent **context** files (`CLAUDE.md`, `.claude`, …) are copied read-only and
-  never pushed back.
+  never pushed back (in git mode they are already in the worktree).
 
 ## Persistent sessions
 

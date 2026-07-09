@@ -13,6 +13,7 @@ import (
 	"github.com/irasikhin/sandboxer/internal/config"
 	"github.com/irasikhin/sandboxer/internal/sandbox"
 	"github.com/irasikhin/sandboxer/internal/srcs"
+	"github.com/irasikhin/sandboxer/internal/worktree"
 )
 
 // announceFreshState prints a one-time notice when this command initialised the
@@ -83,7 +84,11 @@ func newCreateCmd() *cobra.Command {
 			fmt.Fprintf(out, "sandbox %q created: %s\n", t.slug, t.base.SandboxDir(t.slug))
 			fmt.Fprintf(out, "enter:  sandboxer enter %s\n", t.slug)
 			fmt.Fprintf(out, "run:    sandboxer exec %s -- claude\n", t.slug)
-			fmt.Fprintf(out, "return: sandboxer push %s\n", t.slug)
+			if t.base.RepoRoot != "" {
+				fmt.Fprintf(out, "review: git -C %s log %s\n", t.base.RepoRoot, worktree.Branch(t.slug))
+			} else {
+				fmt.Fprintf(out, "return: sandboxer push %s\n", t.slug)
+			}
 			return nil
 		},
 	}
@@ -176,8 +181,9 @@ func newEnterCmd() *cobra.Command {
 			}
 			o := backend.RunOpts{
 				Engine: engine, Image: image, Spec: spec, Dest: dest, Slug: t.slug,
-				HomeDir: t.base.HomeDir(t.slug),
-				RT:      rt, Profile: t.profile,
+				GitCommonDir: t.base.GitDir,
+				HomeDir:      t.base.HomeDir(t.slug),
+				RT:           rt, Profile: t.profile,
 				ProfileJSONPath: t.base.ProfileJSONPath(t.slug), ManifestPath: t.base.ManifestPath(t.slug),
 				Interactive: true, Args: interactiveShellArgs(),
 				NoEgress: noEgress(),
@@ -201,6 +207,11 @@ func newEnterCmd() *cobra.Command {
 			// Always return rw deps, even when the shell/run failed. pushDeps (via
 			// srcs.CopyOut) prints what it actually returned, so we just note we're done.
 			pushErr := pushDeps(t, cmd)
+			if t.base.RepoRoot != "" {
+				br := worktree.Branch(t.slug)
+				fmt.Fprintf(errOut, "sandboxer: work is on branch %s — review with: git -C %s log %s\n",
+					br, t.base.RepoRoot, br)
+			}
 			fmt.Fprintf(errOut, "sandboxer: done in %s\n", dest)
 			if runErr != nil {
 				return silentErr{runErr}
@@ -287,8 +298,9 @@ func newExecCmd() *cobra.Command {
 			}
 			o := backend.RunOpts{
 				Engine: engine, Image: image, Spec: spec, Dest: dest, Slug: t.slug,
-				HomeDir: t.base.HomeDir(t.slug),
-				RT:      rt, Profile: t.profile,
+				GitCommonDir: t.base.GitDir,
+				HomeDir:      t.base.HomeDir(t.slug),
+				RT:           rt, Profile: t.profile,
 				ProfileJSONPath: t.base.ProfileJSONPath(t.slug), ManifestPath: t.base.ManifestPath(t.slug),
 				Interactive: true, Args: rest,
 				NoEgress: noEgress(),
@@ -349,6 +361,11 @@ func newExecCmd() *cobra.Command {
 // (not just printed) so the caller can exit non-zero — otherwise the user could
 // believe work was returned when the copy-back actually failed.
 func pushDeps(t *target, cmd *cobra.Command) error {
+	if t.base.RepoRoot != "" {
+		// git mode: the agent's work is committed on its branch in the shared
+		// repo — there is nothing to copy back.
+		return nil
+	}
 	mf := t.base.ManifestPath(t.slug)
 	if !fileExists(mf) {
 		return nil
@@ -470,6 +487,7 @@ func runSetup(t *target, rt config.Runtime, engine string, noSetup bool, errOut 
 	code, err := backendRun(backend.RunOpts{
 		Engine: engine, Image: image, Spec: spec,
 		Dest: t.base.SandboxDir(t.slug), Slug: t.slug,
+		GitCommonDir:    t.base.GitDir,
 		HomeDir:         t.base.HomeDir(t.slug),
 		RT:              rt,
 		Profile:         t.profile,

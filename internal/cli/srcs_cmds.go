@@ -9,6 +9,7 @@ import (
 
 	"github.com/irasikhin/sandboxer/internal/config"
 	"github.com/irasikhin/sandboxer/internal/srcs"
+	"github.com/irasikhin/sandboxer/internal/worktree"
 )
 
 func init() {
@@ -59,6 +60,9 @@ func newPullCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			if t.base.RepoRoot != "" {
+				return fmt.Errorf("%q is a git worktree — pull applies to copy-mode sandboxes only; edit deps then 'sandboxer recreate'", t.slug)
+			}
 			// Refresh the stored snapshot from the live profile first, so a pull
 			// after editing .sandboxer/config.yaml sees the new roots/deps.
 			if _, err := t.syncSnapshot(); err != nil {
@@ -106,6 +110,9 @@ func newPushCmd() *cobra.Command {
 			t, err := resolveTarget(f, posArg(args))
 			if err != nil {
 				return err
+			}
+			if t.base.RepoRoot != "" {
+				return fmt.Errorf("%q is a git worktree — push applies to copy-mode sandboxes only; the agent's work is already on branch %s", t.slug, worktree.Branch(t.slug))
 			}
 			mf := t.base.ManifestPath(t.slug)
 			if !fileExists(mf) {

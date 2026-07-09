@@ -14,13 +14,14 @@ func newRecreateCmd() *cobra.Command {
 	var full bool
 	cmd := &cobra.Command{
 		Use:   "recreate [slug|profile|file.yaml]",
-		Short: "Re-create a sandbox from scratch (re-pulls deps; keeps the agent home)",
-		Long: `Tear a sandbox's working copy down and build it again from the profile: the
-sandbox dir, manifest and setup stamp are removed (the setup script re-runs on
-the next enter), then deps are pulled fresh. The private agent home
-(.sandboxer/_home/<slug> — logins, shell history) is preserved so agents need
-no re-authentication; --full removes it too, making recreate equivalent to
-'sandboxer rm' + 'sandboxer create'.`,
+		Short: "Re-create a sandbox from scratch (keeps the agent home; --full also drops the branch)",
+		Long: `Tear a sandbox down and build it again from the profile. In git-worktree mode the
+worktree is removed and re-created off HEAD, reusing the sandbox branch so the
+agent's prior commits survive; in copy mode the sandbox dir, manifest and setup
+stamp are removed and deps are pulled fresh. The setup script re-runs on the next
+enter. The private agent home (_home/<slug> — logins, shell history) is preserved
+so agents need no re-authentication; --full removes it too AND drops the sandbox
+branch, making recreate a full reset.`,
 		Example: `  # rebuild the active sandbox's working copy, keep agent logins
   sandboxer recreate
 
@@ -49,6 +50,10 @@ no re-authentication; --full removes it too, making recreate equivalent to
 				if err := t.base.Remove(t.slug); err != nil {
 					return err
 				}
+				// A full reset starts from a clean slate: drop the sandbox branch too
+				// (git mode) so MakeSandbox re-branches off HEAD. A normal recreate
+				// keeps the branch, so the agent's prior commits are reused.
+				t.base.RemoveSandboxBranch(t.slug)
 			} else {
 				t.base.RemoveState(t.slug, true)
 			}
