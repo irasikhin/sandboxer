@@ -6,6 +6,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.27.0] — 2026-07-09
+
+### Added
+
+- back sandboxes with git worktrees instead of copy-in (4a20eff)
+
+### Fixed
+
+- discover .sandboxer/config.yaml under --src, not just the cwd (a7d5cef)
+
+
 ## [0.26.3] — 2026-07-08
 
 ### Fixed
@@ -178,3 +189,4 @@ isolated, containerized dev sandbox, on a local Linux machine:
 [0.26.1]: https://github.com/irasikhin/sandboxer/compare/v0.26.0...v0.26.1
 [0.26.2]: https://github.com/irasikhin/sandboxer/compare/v0.26.1...v0.26.2
 [0.26.3]: https://github.com/irasikhin/sandboxer/compare/v0.26.2...v0.26.3
+[0.27.0]: https://github.com/irasikhin/sandboxer/compare/v0.26.3...v0.27.0
