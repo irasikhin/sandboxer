@@ -130,6 +130,28 @@
           '';
           enableFakechroot = true;
         };
+
+        # A tiny busybox image for the integration suite's smoke tier, sourced
+        # from the nix cache (cache.nixos.org) instead of Docker Hub. The homelab
+        # CI cluster's egress is RU-degraded and 503s on registry-1.docker.io, so
+        # `docker pull alpine` there is unreliable; nix builds go through the
+        # trusted binary caches that already back the toolbox build. Tagged
+        # alpine:latest because internal/itest/engine.go looks for an
+        # already-present alpine/busybox smoke image (busybox is an accepted one).
+        smokeImage = pkgs.dockerTools.buildLayeredImage {
+          name = "alpine";
+          tag = "latest";
+          contents = [ pkgs.busybox ];
+          config = {
+            Cmd = [ "/bin/sh" ];
+            WorkingDir = "/tmp";
+          };
+          fakeRootCommands = ''
+            mkdir -p /tmp
+            chmod 1777 /tmp
+          '';
+          enableFakechroot = true;
+        };
       in
       {
         packages = {
@@ -137,6 +159,7 @@
           sandboxer = pkgs.sandboxer;
           image = image;
           proxyImage = proxyImage;
+          smokeImage = smokeImage;
         };
 
         apps = {

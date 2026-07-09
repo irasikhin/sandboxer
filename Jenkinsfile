@@ -121,11 +121,17 @@ http-connections = 10"
             # Trust it (written directly — the base image may not have the git CLI).
             printf '[safe]\n\tdirectory = *\n' > "$HOME/.gitconfig"
 
-            # the smoke image the client-side probes need (pulled first so the
-            # smoke-tier tests run even if the image builds below cannot).
-            # Retry: the egress proxy occasionally returns a transient 503.
-            for i in 1 2 3 4 5 6; do docker pull alpine:latest && break || { echo "alpine pull retry $i"; sleep 10; }; done
-            docker image inspect alpine:latest >/dev/null 2>&1 || { echo "ERROR: alpine unavailable after retries"; exit 1; }
+            # The smoke image the client-side probes need (loaded first so the
+            # smoke-tier tests run even if the heavier image builds below cannot).
+            # Built from nix (cache.nixos.org) and loaded as alpine:latest rather
+            # than `docker pull`ed from Docker Hub: this cluster's RU-degraded
+            # egress 503s on registry-1.docker.io, but the nix binary caches that
+            # already back the toolbox build are reliable. `.#smokeImage` is a
+            # busybox image tagged alpine:latest (internal/itest/engine.go accepts
+            # a busybox smoke image).
+            nix build --accept-flake-config .#smokeImage -o result-smoke
+            docker load -i result-smoke
+            docker image inspect alpine:latest >/dev/null 2>&1 || { echo "ERROR: smoke image build/load failed"; exit 1; }
 
             # Build the images BEST-EFFORT and load whatever succeeds. The cluster
             # egress can starve the nix caches; when an image can't be built its
