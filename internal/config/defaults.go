@@ -16,8 +16,16 @@ const StateDirName = ".sandboxer"
 const ConfigFileName = "config.yaml"
 
 // ConfigPath is the cwd-relative location of the project profile —
-// .sandboxer/config.yaml — used for auto-discovery and scaffolding.
+// .sandboxer/config.yaml — used for display and as the default when no project
+// root is known.
 func ConfigPath() string { return filepath.Join(StateDirName, ConfigFileName) }
+
+// ConfigPathIn is the project profile under a given project root (absolute or
+// relative): <root>/.sandboxer/config.yaml. Discovery and scaffolding use it so
+// --src (or any explicit project root) locates the config, not just the cwd.
+func ConfigPathIn(root string) string {
+	return filepath.Join(root, StateDirName, ConfigFileName)
+}
 
 // LegacyConfigFileName is the pre-consolidation root-level profile path. It is
 // no longer read; discovery only uses it to print a one-line migration hint
