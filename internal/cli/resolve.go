@@ -60,10 +60,11 @@ type target struct {
 //	-f/--config NAME   → a named profile from the global store
 //	positional NAME    → a named profile: project config → global config → store
 //	positional *.yaml  → that file
-//	.sandboxer/config.yaml → auto-discovered in the cwd
+//	.sandboxer/config.yaml → auto-discovered under the project root (--src or cwd)
 //
-// Anything else leaves the positional as a bare slug ("", pos).
-func resolveProfileFile(configPath, pos string) (string, string, error) {
+// Anything else leaves the positional as a bare slug ("", pos). root is the
+// project root the project config is discovered under (--src, else cwd).
+func resolveProfileFile(configPath, root, pos string) (string, string, error) {
 	if configPath != "" {
 		if isDir(configPath) {
 			file, err := selectFromDir(configPath, pos)
@@ -86,8 +87,8 @@ func resolveProfileFile(configPath, pos string) (string, string, error) {
 	// profile is named pos (project-local wins over the global store). This is
 	// what lets a re-`enter <slug>` re-read an edited project file instead of the
 	// frozen snapshot.
-	if pos != "" && !isYAML(pos) && !inContainer() && config.FileHasProfile(config.ConfigPath(), pos) {
-		return config.ConfigPath(), pos, nil
+	if pos != "" && !isYAML(pos) && !inContainer() && config.FileHasProfile(config.ConfigPathIn(root), pos) {
+		return config.ConfigPathIn(root), pos, nil
 	}
 	// Then a same-named profile in the global config (under the project, above
 	// the profile store) — its section is selected via SelectWithGlobal in
@@ -109,8 +110,8 @@ func resolveProfileFile(configPath, pos string) (string, string, error) {
 	if pos != "" && isYAML(pos) && fileExists(pos) {
 		return pos, "", nil
 	}
-	if pos == "" && !inContainer() && fileExists(config.ConfigPath()) {
-		return config.ConfigPath(), "", nil
+	if pos == "" && !inContainer() && fileExists(config.ConfigPathIn(root)) {
+		return config.ConfigPathIn(root), "", nil
 	}
 	return "", pos, nil
 }
@@ -128,7 +129,7 @@ func legacyConfigHint(w io.Writer, root string) {
 	current := filepath.Join(root, config.StateDirName, config.ConfigFileName)
 	if fileExists(legacy) && !fileExists(current) {
 		fmt.Fprintf(w, "sandboxer: found legacy %s — move it to %s (it is no longer read here)\n",
-			filepath.Join(root, config.LegacyConfigFileName), config.ConfigPath())
+			legacy, current)
 	}
 }
 
@@ -170,14 +171,15 @@ func profileNames(refs []config.ProfileRef) string {
 // the profile (if any), the project root and the sandbox slug, and loads the
 // base state.
 func resolveTarget(f commonFlags, pos string) (*target, error) {
-	file, pos, err := resolveProfileFile(f.config, pos)
+	root := firstNonEmpty(f.src, getwd())
+	file, pos, err := resolveProfileFile(f.config, root, pos)
 	if err != nil {
 		return nil, err
 	}
 
 	var prof *config.Profile
 	var profJSON []byte
-	var slug, root string
+	var slug string
 
 	if file != "" {
 		doc, err := config.LoadDocument(file)
@@ -191,7 +193,6 @@ func resolveTarget(f commonFlags, pos string) (*target, error) {
 		if err != nil {
 			return nil, err
 		}
-		root = firstNonEmpty(f.src, getwd())
 		// The agent that will run drives the per-agent proxy (agentProxy:): the
 		// --agent flag override, else the profile's agent, else the env default.
 		envAgent := config.LoadDefaults().Agent
@@ -218,7 +219,6 @@ func resolveTarget(f commonFlags, pos string) (*target, error) {
 			return nil, errors.New("profile has no name")
 		}
 	} else {
-		root = firstNonEmpty(f.src, getwd())
 		slug = firstNonEmpty(f.sandbox, pos)
 	}
 

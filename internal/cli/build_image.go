@@ -144,7 +144,7 @@ func buildImageProfile(configPath, pos string) (*config.Profile, error) {
 	if configPath == "" && pos == "" {
 		return nil, nil
 	}
-	file, sel, err := resolveProfileFile(configPath, pos)
+	file, sel, err := resolveProfileFile(configPath, getwd(), pos)
 	if err != nil {
 		return nil, err
 	}

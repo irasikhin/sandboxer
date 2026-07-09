@@ -182,7 +182,7 @@ func TestResolveProfileFile(t *testing.T) {
 	}
 
 	// -f *.yaml wins; the positional is kept as a slug override.
-	f, p, err := resolveProfileFile("cfg.yaml", "leftover")
+	f, p, err := resolveProfileFile("cfg.yaml", ".", "leftover")
 	must("config precedence", "cfg.yaml", "leftover", f, p, err)
 
 	dir := t.TempDir()
@@ -190,7 +190,7 @@ func TestResolveProfileFile(t *testing.T) {
 	if err := os.WriteFile("p.yaml", []byte("name: x\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	f, p, err = resolveProfileFile("", "p.yaml")
+	f, p, err = resolveProfileFile("", ".", "p.yaml")
 	must("positional yaml", "p.yaml", "", f, p, err)
 
 	if err := os.MkdirAll(config.StateDirName, 0o755); err != nil {
@@ -199,11 +199,11 @@ func TestResolveProfileFile(t *testing.T) {
 	if err := os.WriteFile(config.ConfigPath(), []byte("name: y\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	f, p, err = resolveProfileFile("", "")
+	f, p, err = resolveProfileFile("", ".", "")
 	must("auto-discovery", config.ConfigPath(), "", f, p, err)
 
 	// A bare positional naming nothing stays a slug.
-	f, p, err = resolveProfileFile("", "slug")
+	f, p, err = resolveProfileFile("", ".", "slug")
 	must("non-yaml positional", "", "slug", f, p, err)
 
 	// A named profile from the global store, by positional and by -f NAME.
@@ -211,9 +211,9 @@ func TestResolveProfileFile(t *testing.T) {
 	if err := os.WriteFile(web, []byte("name: web\nbackend: docker\nagent: claude\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	f, p, err = resolveProfileFile("", "web")
+	f, p, err = resolveProfileFile("", ".", "web")
 	must("store by positional", web, "", f, p, err)
-	f, p, err = resolveProfileFile("web", "")
+	f, p, err = resolveProfileFile("web", ".", "")
 	must("store by -f name", web, "", f, p, err)
 
 	// A bare positional naming a profile only in the global config resolves to
@@ -222,7 +222,7 @@ func TestResolveProfileFile(t *testing.T) {
 	if err := os.WriteFile(globalCfg, []byte("profiles:\n  ops:\n    backend: docker\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	f, p, err = resolveProfileFile("", "ops")
+	f, p, err = resolveProfileFile("", ".", "ops")
 	must("global config by positional", globalCfg, "ops", f, p, err)
 
 	// -f DIR selects by name; an unknown name errors with the listing.
@@ -231,10 +231,43 @@ func TestResolveProfileFile(t *testing.T) {
 	if err := os.WriteFile(api, []byte("name: api\nbackend: podman\nagent: opencode\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	f, p, err = resolveProfileFile(envs, "api")
+	f, p, err = resolveProfileFile(envs, ".", "api")
 	must("dir by name", api, "", f, p, err)
-	if _, _, err := resolveProfileFile(envs, "nope"); err == nil {
+	if _, _, err := resolveProfileFile(envs, ".", "nope"); err == nil {
 		t.Error("unknown profile in -f dir should error")
+	}
+}
+
+// TestResolveProfileFileUsesRoot pins the fix: an existing project config is
+// discovered under the given root (--src), not only the process cwd.
+func TestResolveProfileFileUsesRoot(t *testing.T) {
+	t.Setenv("SANDBOXER_CONFIG", filepath.Join(t.TempDir(), "none.yaml")) // isolate the global config
+	t.Chdir(t.TempDir())                                                  // cwd deliberately has no .sandboxer
+
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, config.StateDirName), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cfg := config.ConfigPathIn(root)
+
+	// Multi-profile config under root: a positional selects a section, found via root.
+	if err := os.WriteFile(cfg, []byte("profiles:\n  svc:\n    backend: docker\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if f, p, err := resolveProfileFile("", root, "svc"); err != nil || f != cfg || p != "svc" {
+		t.Errorf("multi under root = (%q,%q,%v), want (%q,\"svc\",nil)", f, p, err, cfg)
+	}
+	// The same positional from a config-less cwd finds nothing (stays a bare slug).
+	if f, _, _ := resolveProfileFile("", ".", "svc"); f != "" {
+		t.Errorf("cwd discovery = %q, want empty (no project config in cwd)", f)
+	}
+
+	// Flat config under root: no positional, discovered via root.
+	if err := os.WriteFile(cfg, []byte("name: svc\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if f, _, err := resolveProfileFile("", root, ""); err != nil || f != cfg {
+		t.Errorf("flat under root = (%q,%v), want (%q,nil)", f, err, cfg)
 	}
 }
 
