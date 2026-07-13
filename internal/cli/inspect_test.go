@@ -160,27 +160,3 @@ func TestShowSessionBlock(t *testing.T) {
 		}
 	})
 }
-
-// TestShowSessionUnknownMCP: a profile whose mcp: entry cannot be resolved
-// leaves the freshness verdict unjudged (plain state, no fresh/stale claim)
-// instead of failing show — the same degrade as an unresolvable image.
-func TestShowSessionUnknownMCP(t *testing.T) {
-	project := newProject(t)
-	fakePodman(t)
-	cfg := filepath.Join(t.TempDir(), "p.yaml")
-	if err := os.WriteFile(cfg, []byte("name: feat\nmcp: [no-such-server]\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if code, _, errs := run("create", "--src", project, "--config", cfg); code != 0 {
-		t.Fatalf("create: %d %s", code, errs)
-	}
-	stubSessionSeams(t, backend.SessionInfo{Exists: true, Running: true, Hash: "h"}, "h")
-
-	code, out, errs := run("show", "--src", project, "--config", cfg)
-	if code != 0 {
-		t.Fatalf("show = %d, %s", code, errs)
-	}
-	if !strings.Contains(out, "state: running\n") || strings.Contains(out, "fresh") || strings.Contains(out, "stale") {
-		t.Errorf("unjudged state expected, got:\n%s", out)
-	}
-}

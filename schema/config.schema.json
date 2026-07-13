@@ -131,12 +131,6 @@
         "image": {
           "$ref": "#/$defs/ImageSpec"
         },
-        "mcp": {
-          "items": {
-            "type": "string"
-          },
-          "type": "array"
-        },
         "session": {
           "type": "string"
         },

@@ -1,8 +1,9 @@
 # Terminal UX, agent tooling & plugins — design
 
 Status: **all implemented** — T1–T3 (prompt+MOTD, tooling pack, `setup:` hook +
-shell drop-ins) plus tool packs (3c, per-profile nix image variant) and the MCP
-registry (3d). Scope: make the in-sandbox
+shell drop-ins) plus tool packs (3c, per-profile nix image variant). The MCP
+registry (3d) was implemented and later **removed** in v0.29.0 (see that
+section). Scope: make the in-sandbox
 shell pleasant and oriented, bake the baseline tooling humans and agents expect,
 and lay the extensibility primitives a "plugin" would be built from. Sequenced as
 four incremental PRs (T1 → T2 → T3) plus two deferred milestones.
@@ -270,13 +271,16 @@ Key a `tools:` list off a curated nix-package map, mirroring the agent-registry
 single-source pattern (a `tools.json` embedded **and** consumed by the flake,
 like `registry.json` / `llm-agents.nix`). Its own milestone.
 
-### 3d. MCP-server registry — IMPLEMENTED (claude seeding first)
+### 3d. MCP-server registry — REMOVED in v0.29.0
 
-Mirror `registry.json`: a catalog of MCP servers (name → package/command → which
-agents), with config seeded into the agent's per-sandbox HOME (`~/.claude.json`
-`mcpServers`, …) and the server's domains folded into the allowlist. A real
-differentiator (sandboxed MCP) but orthogonal to terminal UX — its own design
-doc.
+Was: a catalog of MCP servers (name → package/command), with config seeded into
+the agent's per-sandbox HOME (`~/.claude.json` `mcpServers`) and the server's
+domains folded into the allowlist. Removed because the git-worktree redesign
+(v0.27.0) made it redundant: the sandbox **is** the repo, so agent-level MCP
+config committed there (e.g. `.mcp.json`) travels in by itself, and the seeding
+was claude-only anyway — the same agent-specific-config category the `agent:`/
+`model:` cleanup already dropped. Egress domains for MCP servers are declared
+explicitly via `network.allowedDomains`.
 
 ### The plugin model (unifying)
 
@@ -298,7 +302,7 @@ loads.
 | PR2 | `feat` (T2) | flake `contents` += tool pack; `/etc/gitconfig` delta pager; `EDITOR`/`PAGER` wired |
 | PR3 | `feat` (T3a) | `setup:` profile field + run-once lifecycle + sentinel/hash + `--no-setup` |
 | PR4 | `feat`/`docs` (T3b) | formalize + test the `rc.d` / `~/.config/sandboxer/rc` drop-in contract |
-| later | — | tool packs (3c), MCP registry (3d) — separate design docs |
+| later | — | tool packs (3c) — separate design doc; MCP registry (3d) shipped then removed in v0.29.0 |
 
 Each PR green-gates (`gofmt` + `go vet` + `golangci-lint run` + `go test ./...`,
 90% engine-free) before it lands; conventional-commit `feat` → minor bump.

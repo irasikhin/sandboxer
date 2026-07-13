@@ -148,7 +148,7 @@ The sandbox container's resource caps come from the profile's `limits:` block
 defaults; `pids` (a `--pids-limit`, bounding fork-bomb blast radius) is
 profile-only. Empty means uncapped.
 
-Structured fields (`deps`, `extraMounts`, `env`, `setup`, `tools`, `mcp`, `image`, `limits`) live in an **optional**
+Structured fields (`deps`, `extraMounts`, `env`, `setup`, `tools`, `image`, `limits`) live in an **optional**
 `.sandboxer/config.yaml`. Point at it with `-f`/`--config`, which accepts a **file**, a
 **directory** of profiles, or the **name** of a profile in the store (see
 [Named profiles](#named-profiles)); with nothing given, a `.sandboxer/config.yaml` in
@@ -173,7 +173,6 @@ deps:                    # narrow the worktree to these repo-relative dirs
 setup: |                 # one-time prep, run once inside the sandbox
   npm ci
 tools: [node, go]        # runtime tool packs baked into a per-profile image
-mcp: [context7]          # MCP servers wired into the agent
 ```
 
 `deps` narrows the worktree to the listed **repo-relative directories** via cone
@@ -200,10 +199,11 @@ plugins) or write `~/.config/sandboxer/rc` (per-sandbox `$HOME`).
 `tools` names language/runtime packs (`node`, `python`, `go`, `rust`, … — see
 `internal/registry/tools.json`) baked into a **per-profile toolbox image**
 variant, built on demand and content-addressed (see
-[Custom toolbox image](#custom-toolbox-image-image)). `mcp` names MCP servers
-(see `internal/registry/mcp.json`): the server config is seeded into the agent's
-sandbox home (claude today) and each server's domains are folded into the egress
-allowlist, so a sandboxed agent can use MCP without opening the network.
+[Custom toolbox image](#custom-toolbox-image-image)).
+
+MCP servers need no sandboxer wiring: the sandbox is a worktree of your repo,
+so agent-level MCP config committed there (e.g. a `.mcp.json`) works as-is —
+just add the servers' domains to `network.allowedDomains`.
 
 ### Custom toolbox image (`image:`)
 

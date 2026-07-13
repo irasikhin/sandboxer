@@ -251,40 +251,6 @@ func shellUnquoteToken(s string) string {
 	return s
 }
 
-// TestComposePrintRunMCPDomains: compose folds the profile's MCP-server
-// domains into the printed allowlist env, same as a real enter/exec.
-func TestComposePrintRunMCPDomains(t *testing.T) {
-	project := newProject(t)
-	fakePodman(t)
-	t.Setenv("SANDBOXER_SESSION", "")
-	cfg := filepath.Join(t.TempDir(), "p.yaml")
-	// context7's domains are NOT in the default allowlist, so this cannot
-	// pass vacuously.
-	if err := os.WriteFile(cfg, []byte("name: feat\nmcp: [context7]\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if code, _, errs := run("create", "--src", project, "--config", cfg); code != 0 {
-		t.Fatalf("create: %d %s", code, errs)
-	}
-
-	code, out, errs := run("compose", "feat", "--src", project, "--backend", "podman", "--print-run")
-	if code != 0 {
-		t.Fatalf("compose --print-run = %d %s", code, errs)
-	}
-	if !strings.Contains(out, "mcp.context7.com") {
-		t.Errorf("printed argv missing the MCP server's domain:\n%s", out)
-	}
-
-	// An unresolvable mcp: entry fails compose the same way enter would fail.
-	if err := os.WriteFile(cfg, []byte("name: feat\nmcp: [no-such-server]\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if code, _, errs := run("compose", "--src", project, "--config", cfg, "--backend", "podman"); code != 1 ||
-		!strings.Contains(errs, "unknown MCP server") {
-		t.Errorf("compose with a bogus MCP server = (%d, %q)", code, errs)
-	}
-}
-
 // TestComposePrintRunImageVariant: an image-customized profile's printed
 // create line names the spec's content-addressed var- tag, not the stock
 // default — compose must show the image a real enter would run.

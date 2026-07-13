@@ -49,14 +49,6 @@ equivalent — its purpose is "run it with your own tooling".`,
 			if err := config.ValidateSession(rt); err != nil {
 				return err
 			}
-			// Fold the profile's MCP-server domains into the allowlist exactly
-			// as enter/exec do (minus the config seeding), so the printed argv
-			// carries the same SANDBOXER_ALLOW_DOMAINS a real run gets.
-			domains, err := mcpAllowDomains(t.profile, rt.Domains)
-			if err != nil {
-				return err
-			}
-			rt.Domains = domains
 			engine, err := backend.ResolveEngine(rt.Backend, config.LoadDefaults())
 			if err != nil {
 				return err

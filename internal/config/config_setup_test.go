@@ -34,17 +34,13 @@ func TestProfileSetupDecodes(t *testing.T) {
 	}
 }
 
-// TestProfileToolsAndMCPDecode checks the `tools:` and `mcp:` list fields decode
-// from YAML.
-func TestProfileToolsAndMCPDecode(t *testing.T) {
-	p, err := decodeProfile([]byte("name: web\ntools: [node, go]\nmcp: [context7]\n"))
+// TestProfileToolsDecode checks the `tools:` list field decodes from YAML.
+func TestProfileToolsDecode(t *testing.T) {
+	p, err := decodeProfile([]byte("name: web\ntools: [node, go]\n"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(p.Tools) != 2 || p.Tools[0] != "node" || p.Tools[1] != "go" {
 		t.Errorf("tools = %v", p.Tools)
-	}
-	if len(p.MCP) != 1 || p.MCP[0] != "context7" {
-		t.Errorf("mcp = %v", p.MCP)
 	}
 }

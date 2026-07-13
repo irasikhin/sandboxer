@@ -23,7 +23,6 @@ func TestMergeProfileOverrides(t *testing.T) {
 		ExtraMounts: []Mount{{}},
 		Setup:       "npm ci",
 		Tools:       []string{"node"},
-		MCP:         []string{"fetch"},
 	}
 
 	// when
@@ -48,18 +47,14 @@ func TestMergeProfileOverrides(t *testing.T) {
 	if len(got.ExtraMounts) != 1 {
 		t.Errorf("ExtraMounts len = %d, want 1", len(got.ExtraMounts))
 	}
-	// Setup/Tools/MCP must survive the merge — Select runs EVERY profile load
+	// Setup/Tools must survive the merge — Select runs EVERY profile load
 	// (flat files included) through it, so a dropped field here silently
-	// disables the whole feature downstream (no setup run, no tool-pack image,
-	// no MCP wiring).
+	// disables the whole feature downstream (no setup run, no tool-pack image).
 	if got.Setup != "npm ci" {
 		t.Errorf("Setup = %q, want npm ci", got.Setup)
 	}
 	if len(got.Tools) != 1 || got.Tools[0] != "node" {
 		t.Errorf("Tools = %v, want [node]", got.Tools)
-	}
-	if len(got.MCP) != 1 || got.MCP[0] != "fetch" {
-		t.Errorf("MCP = %v, want [fetch]", got.MCP)
 	}
 	// and: fields left empty on over keep the base value
 	if got.Backend != "podman" {

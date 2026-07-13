@@ -68,11 +68,6 @@ network:
 #   cpus: 2
 #   pids: 512
 
-# MCP servers wired into the agent: the server config is seeded into the agent's
-# sandbox home (claude today) and each server's domains are folded into the
-# egress allowlist above. See registry/mcp.json for the catalog.
-# mcp: [context7, fetch]
-
 # Which agents' credentials to bind into the container (container backends
 # only). Defaults to every agent in the registry; narrow it to avoid mounting
 # credentials you don't need.

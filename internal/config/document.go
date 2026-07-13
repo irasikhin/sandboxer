@@ -256,9 +256,6 @@ func mergeProfile(base, over Profile) Profile {
 	if over.Image.NixpkgsRev != "" {
 		out.Image.NixpkgsRev = over.Image.NixpkgsRev
 	}
-	if len(over.MCP) > 0 {
-		out.MCP = over.MCP
-	}
 	if over.Session != "" {
 		out.Session = over.Session
 	}

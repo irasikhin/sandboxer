@@ -207,10 +207,6 @@ network:
 #   cpus: 2
 #   pids: 512
 
-# MCP servers wired into the agent (see registry/mcp.json); their domains are
-# folded into the egress allowlist automatically:
-# mcp: [context7]
-
 # Turn the egress allowlist off entirely for this profile (default: on):
 # egress: false
 

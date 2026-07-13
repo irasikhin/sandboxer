@@ -4,7 +4,6 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 	"testing"
 
@@ -353,47 +352,6 @@ func TestExecSessionErrorPropagates(t *testing.T) {
 	}
 	if len(c.run) != 0 {
 		t.Error("a failing session exec must not fall back to a one-shot run")
-	}
-}
-
-// TestShowEnterAgreeOnMCPDomains: show's freshness verdict and enter's
-// session hash must be computed over the same allowlist — including the MCP
-// servers' domains the profile pulls in (applyMCP merges them before enter
-// builds its RunOpts; show folds them in via mcpAllowDomains).
-func TestShowEnterAgreeOnMCPDomains(t *testing.T) {
-	project := newProject(t)
-	fakePodman(t)
-	cfg := filepath.Join(t.TempDir(), "p.yaml")
-	// context7's domains are NOT in the default allowlist, so the asserts
-	// below cannot pass vacuously.
-	if err := os.WriteFile(cfg, []byte("name: feat\nmcp: [context7]\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if code, _, errs := run("create", "--src", project, "--config", cfg); code != 0 {
-		t.Fatalf("create: %d %s", code, errs)
-	}
-	c := stubSessionSeams(t, backend.SessionInfo{Exists: true, Running: true, Hash: "h"}, "h")
-
-	// Both legs resolve the same profile file (--config skips the
-	// auto-scaffold, which would otherwise shadow it with an mcp-less default).
-	if code, _, errs := run("show", "--src", project, "--config", cfg); code != 0 {
-		t.Fatalf("show = %d, %s", code, errs)
-	}
-	if len(c.hash) != 1 {
-		t.Fatalf("show hash calls = %d, want 1", len(c.hash))
-	}
-	if code, _, errs := run("enter", "--src", project, "--config", cfg); code != 0 {
-		t.Fatalf("enter = %d, %s", code, errs)
-	}
-	if len(c.ensure) != 1 {
-		t.Fatalf("enter ensure calls = %d, want 1", len(c.ensure))
-	}
-	showDomains, enterDomains := c.hash[0].RT.Domains, c.ensure[0].RT.Domains
-	if !slices.Contains(showDomains, "mcp.context7.com") {
-		t.Errorf("show hashed without the MCP domain: %v", showDomains)
-	}
-	if !slices.Equal(showDomains, enterDomains) {
-		t.Errorf("show and enter hash different domain sets:\nshow:  %v\nenter: %v", showDomains, enterDomains)
 	}
 }
 

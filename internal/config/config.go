@@ -174,10 +174,6 @@ type Profile struct {
 	// Image customizes the toolbox image variant this profile's sandbox runs
 	// in; an empty spec keeps the stock image. See ImageSpec.
 	Image ImageSpec `yaml:"image,omitempty" json:"image,omitempty"`
-	// MCP names MCP servers (see registry/mcp.json) to wire into the agent: the
-	// server config is seeded into the agent's sandbox home and each server's
-	// domains are folded into the egress allowlist.
-	MCP []string `yaml:"mcp,omitempty" json:"mcp,omitempty"`
 	// Session selects how enter/exec use the container: "persistent" (the
 	// default) keeps one detached session container running across invocations,
 	// "ephemeral" starts a fresh one-shot container per command.

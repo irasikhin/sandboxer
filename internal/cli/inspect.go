@@ -190,23 +190,16 @@ func printSessionBlock(out io.Writer, t *target, rt config.Runtime) {
 
 // sessionHashOpts assembles the RunOpts SessionWantHash needs to recompute
 // the session's config hash — the same fields enter passes, minus the stdio.
-// The profile's MCP-server domains are folded into the allowlist exactly as
-// enter does before hashing (applyMCP), or an MCP-enabled profile would
-// permanently read as stale here. ok=false when the image or the MCP set
-// cannot be resolved, leaving freshness unjudged. The image resolve gets NO
-// engine on purpose: show is read-only, so a cold "latest" pin must never
-// launch a resolver container or stamp the pins cache from here — a warm
-// stamp still resolves, a cold one just skips the freshness verdict.
+// ok=false when the image cannot be resolved, leaving freshness unjudged. The
+// image resolve gets NO engine on purpose: show is read-only, so a cold
+// "latest" pin must never launch a resolver container or stamp the pins cache
+// from here — a warm stamp still resolves, a cold one just skips the
+// freshness verdict.
 func sessionHashOpts(t *target, rt config.Runtime, engine string) (backend.RunOpts, bool) {
 	image, spec, err := resolveImage(t.profile, "", io.Discard)
 	if err != nil {
 		return backend.RunOpts{}, false
 	}
-	domains, err := mcpAllowDomains(t.profile, rt.Domains)
-	if err != nil {
-		return backend.RunOpts{}, false
-	}
-	rt.Domains = domains
 	return backend.RunOpts{
 		Engine: engine, Image: image, Spec: spec,
 		Dest: t.base.SandboxDir(t.slug), Slug: t.slug, BaseDir: t.base.Dir,
