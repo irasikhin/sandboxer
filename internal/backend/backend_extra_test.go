@@ -319,3 +319,38 @@ func TestContainerRunEgressNoDomains(t *testing.T) {
 		t.Fatalf("egress on with no domains = (%d,%v), want (0, error)", code, err)
 	}
 }
+
+// TestContainerUser pins the --user behaviour: default = host uid:gid; the
+// SANDBOXER_CONTAINER_USER escape hatch (macOS) overrides it, and an explicit
+// empty value omits --user. The override must actually reach the argv.
+func TestContainerUser(t *testing.T) {
+	hostUser := strconv.Itoa(os.Getuid()) + ":" + strconv.Itoa(os.Getgid())
+
+	t.Run("default is host uid:gid", func(t *testing.T) {
+		t.Setenv("SANDBOXER_CONTAINER_USER", "") // ensure clean, then unset via Unsetenv
+		os.Unsetenv("SANDBOXER_CONTAINER_USER")
+		got := containerUserArgs()
+		if len(got) != 2 || got[0] != "--user" || got[1] != hostUser {
+			t.Errorf("default = %v, want [--user %s]", got, hostUser)
+		}
+	})
+	t.Run("override pins a value", func(t *testing.T) {
+		t.Setenv("SANDBOXER_CONTAINER_USER", "0:0")
+		got := containerUserArgs()
+		if len(got) != 2 || got[1] != "0:0" {
+			t.Errorf("override = %v, want [--user 0:0]", got)
+		}
+	})
+	t.Run("explicit empty omits --user", func(t *testing.T) {
+		t.Setenv("SANDBOXER_CONTAINER_USER", "")
+		if got := containerUserArgs(); got != nil {
+			t.Errorf("empty override = %v, want nil (no --user)", got)
+		}
+	})
+	// It flows through to the real argv.
+	t.Setenv("SANDBOXER_CONTAINER_USER", "1234:5678")
+	argv, _ := RunArgv(RunOpts{Engine: "docker", Image: "img:1", Dest: "/d", Slug: "s"})
+	if !strings.Contains(strings.Join(argv, " "), "--user 1234:5678") {
+		t.Errorf("override did not reach argv: %v", argv)
+	}
+}

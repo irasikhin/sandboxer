@@ -139,6 +139,7 @@ Scalars come from **flags** and `SANDBOXER_*` env vars:
 | disable egress | — | `SANDBOXER_NO_EGRESS=1` |
 | skip auto-scaffold | — | `SANDBOXER_NO_SCAFFOLD=1` (create/enter writes a default `.sandboxer/config.yaml` otherwise) |
 | container engine | — | `SANDBOXER_ENGINE` (default: auto-detect docker→podman) |
+| container user | — | `SANDBOXER_CONTAINER_USER` (default: host uid:gid; empty omits `--user` — macOS escape hatch, see [docs/macos.md](docs/macos.md)) |
 | image | — | `SANDBOXER_IMAGE` (default `sandboxer-toolbox:latest`) |
 | resource caps | — | `SANDBOXER_MEM` / `SANDBOXER_CPU` (or the profile's `limits:` — see below) |
 

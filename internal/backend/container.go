@@ -173,14 +173,13 @@ func runArgs(o RunOpts, egNet, egProxyURL string) ([]string, error) {
 // mounts/env. The flag order is part of the contract: ConfigHash fingerprints
 // this argv, so reordering a flag invalidates every existing session.
 func commonArgs(o RunOpts, egNet, egProxyURL string) []string {
-	userns := strconv.Itoa(os.Getuid()) + ":" + strconv.Itoa(os.Getgid())
-
-	args := []string{
-		"--user", userns, "--cap-drop=ALL", "--security-opt", "no-new-privileges",
-		"--workdir", o.Dest, "--volume", o.Dest + ":" + o.Dest + ":rw",
+	args := containerUserArgs()
+	args = append(args,
+		"--cap-drop=ALL", "--security-opt", "no-new-privileges",
+		"--workdir", o.Dest, "--volume", o.Dest+":"+o.Dest+":rw",
 		"--env", "SANDBOXER_IN_CONTAINER=1",
-		"--env", "SANDBOXER_SLUG=" + o.Slug, "--env", "SANDBOXER_SANDBOX_DIR=" + o.Dest,
-	}
+		"--env", "SANDBOXER_SLUG="+o.Slug, "--env", "SANDBOXER_SANDBOX_DIR="+o.Dest,
+	)
 	// $HOME is the sandbox-private agent home, bound at its own host path. It is
 	// isolated per sandbox (see sandbox.Base.HomeDir): the host's real home is
 	// never mounted, so no host config leaks in and the agent's atomic config
@@ -270,6 +269,28 @@ func commonArgs(o RunOpts, egNet, egProxyURL string) []string {
 	args = append(args, authEnvFlags(o.RT.AuthAgents)...)
 	args = append(args, extraMountsAndEnv(o.Profile)...)
 	return args
+}
+
+// containerUserArgs is the `--user` flag for the sandbox container. By default
+// it maps to the invoking host uid:gid so bind-mounted files (worktree, $HOME,
+// git objects) stay owned by the developer — the correct behaviour under rootless
+// podman / Linux docker.
+//
+// SANDBOXER_CONTAINER_USER overrides it: this is the escape hatch for macOS,
+// where the engine runs Linux containers inside a VM (Docker Desktop /
+// podman-machine) and the host uid (e.g. 501) may not map cleanly through the
+// VM's file-sharing layer. Set it to a "uid[:gid]" to pin a specific mapping, or
+// to the empty string to omit --user entirely (let the container run as the
+// engine's default). See docs/macos.md. The default is unchanged, so Linux argv
+// and every existing session's ConfigHash are untouched.
+func containerUserArgs() []string {
+	if v, ok := os.LookupEnv("SANDBOXER_CONTAINER_USER"); ok {
+		if v == "" {
+			return nil
+		}
+		return []string{"--user", v}
+	}
+	return []string{"--user", strconv.Itoa(os.Getuid()) + ":" + strconv.Itoa(os.Getgid())}
 }
 
 // roMount builds the `--volume` value that re-mounts sub (a child of the shared
