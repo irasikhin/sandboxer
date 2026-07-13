@@ -30,7 +30,7 @@ func writeDepFixture(t *testing.T) (root, originFile string) {
 
 func writeLifecycleProfile(t *testing.T, backend, root string) string {
 	t.Helper()
-	body := "name: feat\nbackend: " + backend + "\nagent: claude\negress: false\n" +
+	body := "name: feat\nbackend: " + backend + "\negress: false\n" +
 		"roots:\n  - " + root + "\ndeps:\n  - mylib\n"
 	p := filepath.Join(t.TempDir(), "sbx.yaml")
 	if err := os.WriteFile(p, []byte(body), 0o644); err != nil {

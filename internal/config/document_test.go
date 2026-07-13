@@ -17,7 +17,7 @@ func writeFile(t *testing.T, dir, name, body string) string {
 
 func TestLoadDocumentFlat(t *testing.T) {
 	dir := t.TempDir()
-	p := writeFile(t, dir, "feat.yaml", "backend: docker\nagent: claude\n")
+	p := writeFile(t, dir, "feat.yaml", "backend: docker\n")
 	d, err := LoadDocument(p)
 	if err != nil {
 		t.Fatal(err)
@@ -39,7 +39,6 @@ func TestLoadDocumentMulti(t *testing.T) {
 	dir := t.TempDir()
 	body := `
 defaults:
-  agent: claude
   network:
     allowedDomains: [api.anthropic.com]
   env:
@@ -72,7 +71,7 @@ default: web
 	if web.Name != "web" || web.Backend != "podman" {
 		t.Errorf("default select = %+v", web)
 	}
-	if web.Agent != "claude" || len(web.Network.AllowedDomains) != 1 {
+	if len(web.Network.AllowedDomains) != 1 {
 		t.Errorf("web did not inherit defaults: %+v", web)
 	}
 	if web.Env["LOG"] != "info" {
@@ -87,7 +86,7 @@ default: web
 	if api.Backend != "docker" || api.Session != "ephemeral" {
 		t.Errorf("api own fields wrong: %+v", api)
 	}
-	if api.Agent != "claude" || len(api.Network.AllowedDomains) != 1 {
+	if len(api.Network.AllowedDomains) != 1 {
 		t.Errorf("api did not inherit defaults: %+v", api)
 	}
 	if api.Env["LOG"] != "debug" {
@@ -150,7 +149,6 @@ func TestSelectYAMLAnchors(t *testing.T) {
 	dir := t.TempDir()
 	body := `
 defaults:
-  agent: claude
   network: { allowedDomains: [a.com] }
 profiles:
   api: &api
@@ -170,8 +168,8 @@ profiles:
 	if err != nil {
 		t.Fatal(err)
 	}
-	if prod.Agent != "claude" || len(prod.Network.AllowedDomains) != 1 {
-		t.Errorf("api-prod should inherit defaults agent/domains: %+v", prod)
+	if len(prod.Network.AllowedDomains) != 1 {
+		t.Errorf("api-prod should inherit defaults domains: %+v", prod)
 	}
 	if prod.Backend != "docker" || prod.Session != "ephemeral" {
 		t.Errorf("api-prod should inherit api's fields via the anchor: %+v", prod)
@@ -200,8 +198,8 @@ func TestExampleMultiProfileParses(t *testing.T) {
 			t.Errorf("select %s: %v", name, err)
 			continue
 		}
-		if p.Agent != "claude" {
-			t.Errorf("%s should inherit the shared agent, got %+v", name, p)
+		if len(p.Network.AllowedDomains) == 0 {
+			t.Errorf("%s should inherit the shared allowlist, got %+v", name, p)
 		}
 	}
 }
@@ -209,18 +207,18 @@ func TestExampleMultiProfileParses(t *testing.T) {
 func TestMergeProfile(t *testing.T) {
 	tru := true
 	base := Profile{
-		Agent:   "claude",
+		Backend: "docker",
 		Network: Network{AllowedDomains: []string{"a.com"}},
 		Env:     map[string]string{"X": "1", "Y": "2"},
 		Egress:  &tru,
 	}
 	over := Profile{
-		Backend: "podman",
-		Agent:   "opencode", // overrides base
+		Backend: "podman", // overrides base
+		Session: "ephemeral",
 		Env:     map[string]string{"Y": "9", "Z": "3"},
 	}
 	got := mergeProfile(base, over)
-	if got.Agent != "opencode" || got.Backend != "podman" {
+	if got.Backend != "podman" || got.Session != "ephemeral" {
 		t.Errorf("override fields wrong: %+v", got)
 	}
 	if len(got.Network.AllowedDomains) != 1 || got.Network.AllowedDomains[0] != "a.com" {

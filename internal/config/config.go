@@ -152,12 +152,14 @@ func (p *Profile) resolveImageNix(dir string) {
 // set) the sandbox falls back to the copy model: deps are searched by path
 // suffix under roots and copied in.
 type Profile struct {
-	Name    string   `yaml:"name,omitempty"        json:"name,omitempty"`
-	Backend string   `yaml:"backend,omitempty"     json:"backend,omitempty"`
-	Agent   string   `yaml:"agent,omitempty"       json:"agent,omitempty"`
-	Network Network  `yaml:"network,omitempty"     json:"network,omitempty"`
-	Agents  []string `yaml:"agents,omitempty"      json:"agents,omitempty"`
-	Egress  *bool    `yaml:"egress,omitempty"      json:"egress,omitempty"`
+	Name    string  `yaml:"name,omitempty"        json:"name,omitempty"`
+	Backend string  `yaml:"backend,omitempty"     json:"backend,omitempty"`
+	Network Network `yaml:"network,omitempty"     json:"network,omitempty"`
+	// Agents lists whose credentials to pass through to the sandbox (a sandbox is
+	// not bound to one agent — pick which agent to run per exec). Empty means every
+	// agent in the registry.
+	Agents []string `yaml:"agents,omitempty"      json:"agents,omitempty"`
+	Egress *bool    `yaml:"egress,omitempty"      json:"egress,omitempty"`
 	// Roots are the copy-mode search roots (ignored in git-worktree mode).
 	Roots []string `yaml:"roots,omitempty"       json:"roots,omitempty"`
 	// Deps, in git-worktree mode, are the repo-relative directories the worktree
@@ -232,9 +234,11 @@ func decodeProfile(data []byte) (*Profile, error) {
 // a typo does; annotateRemovedKeys turns that terse message into an actionable
 // hint. The table grows as knobs are retired.
 var removedKeys = map[string]string{
-	"model":   "removed — set the agent's own env var instead, e.g. env: { ANTHROPIC_MODEL: opus }",
-	"proxy":   "moved under network: — use network.proxy",
-	"noProxy": "moved under network: — use network.noProxy",
+	"model":      "removed — set the agent's own env var instead, e.g. env: { ANTHROPIC_MODEL: opus }",
+	"proxy":      "moved under network: — use network.proxy",
+	"noProxy":    "moved under network: — use network.noProxy",
+	"agent":      "removed — a sandbox is not bound to one agent (choose per exec); use agents: for credential passthrough and network.routes to route an API domain through a proxy",
+	"agentProxy": "removed — route by destination instead: network.routes",
 }
 
 // annotateRemovedKeys upgrades the strict YAML decoder's "field <key> not found"

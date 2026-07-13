@@ -89,9 +89,6 @@
         "backend": {
           "type": "string"
         },
-        "agent": {
-          "type": "string"
-        },
         "network": {
           "$ref": "#/$defs/Network"
         },
@@ -190,12 +187,6 @@
         },
         "default": {
           "type": "string"
-        },
-        "agentProxy": {
-          "additionalProperties": {
-            "type": "string"
-          },
-          "type": "object"
         }
       },
       "additionalProperties": false,

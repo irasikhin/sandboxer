@@ -67,39 +67,24 @@ func ResolveMCP(names []string) (map[string]MCPServer, []string, error) {
 	return servers, domains, nil
 }
 
-// SeedMCP writes the selected servers into the agent's sandbox-home config so
-// the agent picks them up. It reports whether the agent's config format is
-// supported (currently claude's ~/.claude.json); for an unsupported agent it is
-// a no-op returning false, so the caller can still fold the domains and note
-// that in-agent configuration is needed. homeDir must already exist.
-func SeedMCP(agent, homeDir string, servers map[string]MCPServer) (bool, error) {
-	if len(servers) == 0 {
-		return false, nil
-	}
-	switch agent {
-	case "claude":
-		return true, seedClaudeMCP(homeDir, servers)
-	default:
-		return false, nil
-	}
-}
-
-// ApplyMCP resolves a profile's MCP names, seeds the agent config, and returns
-// the domains to fold into the egress allowlist plus whether config was seeded.
-// An empty name list is a no-op.
-func ApplyMCP(names []string, agent, homeDir string) (domains []string, seeded bool, err error) {
+// ApplyMCP resolves a profile's MCP names, seeds the config into the sandbox
+// home, and returns the domains to fold into the egress allowlist. An empty name
+// list is a no-op. A sandbox is not bound to one agent, so the config is always
+// seeded in claude's ~/.claude.json format (what claude reads); it is inert for
+// other agents, whose MCP-server domains are still folded into the allowlist so
+// they can be configured in-agent. homeDir must already exist.
+func ApplyMCP(names []string, homeDir string) (domains []string, err error) {
 	if len(names) == 0 {
-		return nil, false, nil
+		return nil, nil
 	}
 	servers, domains, err := ResolveMCP(names)
 	if err != nil {
-		return nil, false, err
+		return nil, err
 	}
-	seeded, err = SeedMCP(agent, homeDir, servers)
-	if err != nil {
-		return nil, false, err
+	if err := seedClaudeMCP(homeDir, servers); err != nil {
+		return nil, err
 	}
-	return domains, seeded, nil
+	return domains, nil
 }
 
 // seedClaudeMCP merges the servers into ~/.claude.json's mcpServers, preserving

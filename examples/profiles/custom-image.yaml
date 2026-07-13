@@ -10,7 +10,6 @@
 # and image.nix's content), built on first use and shared by identical
 # profiles. The stock sandboxer-toolbox:latest is untouched.
 name: custom-image
-agent: claude
 network:
   allowedDomains: [api.anthropic.com, github.com]
 

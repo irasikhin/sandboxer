@@ -145,7 +145,6 @@ Scalars come from **flags** and `SANDBOXER_*` env vars:
 
 | Setting | Flag | Env |
 |---------|------|-----|
-| agent | `--agent` | `SANDBOXER_AGENT` (default `claude`) |
 | backend | `--backend` | `SANDBOXER_BACKEND` (default `docker`; `docker\|podman` pins that engine when installed, else falls back to whichever is) |
 | session mode | `--ephemeral` | `SANDBOXER_SESSION` (default `persistent`; the env wins over a profile's `session:`) |
 | egress domains | `--allow-domains a,b` | `SANDBOXER_DOMAINS` |
@@ -296,7 +295,6 @@ The flat one-profile form above still works. See `examples/multi-profile.yaml`.
 
 ```yaml
 defaults:
-  agent: claude
   network:
     allowedDomains: [api.anthropic.com, github.com]
 
@@ -366,7 +364,7 @@ store above.
 ```yaml
 # ~/.config/sandboxer/config.yaml
 defaults:
-  agent: claude                 # every project's default agent
+  backend: podman               # every project's default backend
   image:
     llmAgentsRev: <40-hex>      # pin the toolbox flake inputs org-wide
     nixpkgsRev:   <40-hex>
@@ -391,10 +389,10 @@ A single `network.proxy` URL routes outbound traffic; the egress toggle picks th
 mode. With egress **on** the allowlist stays enforced and the sidecar chains
 allowed traffic through the proxy (squid `cache_peer`, http:// only). With egress
 **off** the agent talks to the proxy directly (`HTTP(S)_PROXY`); `network.noProxy`
-is the direct-mode `NO_PROXY`. A per-agent default goes in
-`agentProxy: { claude: http://…, codex: http://… }` (handy in the global config);
-the env fallback is `SANDBOXER_PROXY`. A `localhost`/`127.0.0.1` proxy is rewritten
-to the host gateway, so a proxy on your host works with the obvious URL.
+is the direct-mode `NO_PROXY`. The global default goes in the global config's
+`defaults: { network: { proxy: … } }`; the env fallback is `SANDBOXER_PROXY`. A
+`localhost`/`127.0.0.1` proxy is rewritten to the host gateway, so a proxy on your
+host works with the obvious URL.
 
 **Per-domain routes.** `network.routes` sends specific destination domains
 through their own upstream proxy, overriding `network.proxy` for just those

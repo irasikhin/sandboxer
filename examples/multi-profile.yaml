@@ -17,7 +17,6 @@
 # (The original flat one-profile-per-file form still works — see config.yaml.)
 
 defaults:
-  agent: claude
   network:
     allowedDomains: [api.anthropic.com, github.com, registry.npmjs.org, repo.maven.apache.org, repo1.maven.org, central.sonatype.com]
   env:

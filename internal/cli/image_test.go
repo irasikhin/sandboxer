@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"io"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -86,8 +87,8 @@ func TestResolveImageLatest(t *testing.T) {
 	}
 }
 
-// TestApplyMCP checks domain folding (deduped), claude seeding, and the
-// unsupported-agent note.
+// TestApplyMCP checks domain folding (deduped) and that the claude-format config
+// is seeded into the sandbox home when mcp: is set (inert for other agents).
 func TestApplyMCP(t *testing.T) {
 	base, err := sandbox.ResolveBase(t.TempDir())
 	if err != nil {
@@ -99,7 +100,7 @@ func TestApplyMCP(t *testing.T) {
 	var buf bytes.Buffer
 
 	// nil profile → no change, no error.
-	rt := config.Runtime{Agent: "claude", Domains: []string{"a.com"}}
+	rt := config.Runtime{Domains: []string{"a.com"}}
 	if err := applyMCP(&target{base: base, slug: "s", profile: nil}, &rt, &buf); err != nil {
 		t.Fatal(err)
 	}
@@ -107,9 +108,9 @@ func TestApplyMCP(t *testing.T) {
 		t.Errorf("nil profile must not change domains: %v", rt.Domains)
 	}
 
-	// claude + mcp → domains folded (deduped), seeded, no note.
+	// mcp set → domains folded (deduped) and the claude config seeded.
 	tp := &target{base: base, slug: "s", profile: &config.Profile{MCP: []string{"fetch"}}}
-	rt = config.Runtime{Agent: "claude", Domains: []string{"registry.npmjs.org"}}
+	rt = config.Runtime{Domains: []string{"registry.npmjs.org"}}
 	if err := applyMCP(tp, &rt, &buf); err != nil {
 		t.Fatal(err)
 	}
@@ -117,21 +118,8 @@ func TestApplyMCP(t *testing.T) {
 	if got := countOccurrences(rt.Domains, "registry.npmjs.org"); got != 1 {
 		t.Errorf("domain duplicated: %v", rt.Domains)
 	}
-	if strings.Contains(buf.String(), "not yet supported") {
-		t.Error("claude is supported — should print no note")
-	}
-
-	// non-claude agent → note printed, domains still folded.
-	buf.Reset()
-	rt = config.Runtime{Agent: "aider", Domains: nil}
-	if err := applyMCP(tp, &rt, &buf); err != nil {
-		t.Fatal(err)
-	}
-	if len(rt.Domains) == 0 {
-		t.Error("domains must be folded even for an unsupported agent")
-	}
-	if !strings.Contains(buf.String(), "not yet supported") {
-		t.Errorf("expected an in-agent-setup note, got %q", buf.String())
+	if _, err := os.Stat(filepath.Join(base.HomeDir("s"), ".claude.json")); err != nil {
+		t.Errorf("applyMCP should seed ~/.claude.json: %v", err)
 	}
 }
 

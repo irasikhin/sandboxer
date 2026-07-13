@@ -70,7 +70,7 @@ func TestRunInit(t *testing.T) {
 		t.Fatalf("scaffold did not parse: %v", err)
 	}
 	p, err := doc.Select("")
-	if err != nil || p.Name != "demo" || p.Agent == "" || p.Backend == "" {
+	if err != nil || p.Name != "demo" || p.Backend == "" {
 		t.Errorf("scaffold profile wrong: %+v (err %v)", p, err)
 	}
 	// init also writes the image hook under .sandboxer/ and wires an active
@@ -183,9 +183,9 @@ func TestConfigLine(t *testing.T) {
 	t.Setenv("SANDBOXER_NO_EGRESS", "")
 
 	// Defaults, no profile: egress on with a domain count, profile=none.
-	rt := config.Runtime{Agent: "claude", Backend: "docker", Egress: true, Domains: []string{"a.com", "b.com"}}
+	rt := config.Runtime{Backend: "docker", Egress: true, Domains: []string{"a.com", "b.com"}}
 	line := configLine(rt, "feat", nil, "docker")
-	for _, want := range []string{"feat —", "agent=claude", "backend=docker", "egress=on (2 domains)", "profile=none", "deps=0"} {
+	for _, want := range []string{"feat —", "backend=docker", "egress=on (2 domains)", "profile=none", "deps=0"} {
 		if !strings.Contains(line, want) {
 			t.Errorf("configLine missing %q in %q", want, line)
 		}
@@ -193,7 +193,7 @@ func TestConfigLine(t *testing.T) {
 
 	// With a named profile and deps; egress off when not enabled.
 	prof := &config.Profile{Name: "web", Deps: []string{"x", "y"}}
-	line2 := configLine(config.Runtime{Agent: "opencode", Backend: "podman"}, "web", prof, "podman")
+	line2 := configLine(config.Runtime{Backend: "podman"}, "web", prof, "podman")
 	for _, want := range []string{"profile=web", "deps=2", "egress=off"} {
 		if !strings.Contains(line2, want) {
 			t.Errorf("configLine (profile) missing %q in %q", want, line2)
@@ -201,13 +201,13 @@ func TestConfigLine(t *testing.T) {
 	}
 
 	// Chained mode: allowlist stays on, traffic routed through the proxy.
-	up := config.Runtime{Agent: "claude", Backend: "docker", Egress: true, Proxy: "http://p:3128", Domains: []string{"a.com"}}
+	up := config.Runtime{Backend: "docker", Egress: true, Proxy: "http://p:3128", Domains: []string{"a.com"}}
 	if l := configLine(up, "feat", nil, "docker"); !strings.Contains(l, "egress=on→proxy (1 domains)") {
 		t.Errorf("configLine chained-proxy branch: %q", l)
 	}
 
 	// Direct mode: egress off, the agent talks to the proxy directly.
-	byp := config.Runtime{Agent: "claude", Backend: "docker", Proxy: "http://p:3128"}
+	byp := config.Runtime{Backend: "docker", Proxy: "http://p:3128"}
 	if l := configLine(byp, "feat", nil, "docker"); !strings.Contains(l, "egress=off → proxy (direct)") {
 		t.Errorf("configLine direct-proxy branch: %q", l)
 	}
@@ -366,7 +366,6 @@ func TestRunMultiProfileSelect(t *testing.T) {
 	project := t.TempDir()
 	t.Chdir(project)
 	body := `defaults:
-  agent: claude
   network:
     allowedDomains: [api.anthropic.com]
 profiles:
@@ -394,7 +393,7 @@ default: web
 	}
 	pj, _ := os.ReadFile(stateDir(project, "_meta", "api.profile.json"))
 	s := string(pj)
-	for _, want := range []string{`"backend": "docker"`, `"session": "ephemeral"`, `"agent": "claude"`, "api.anthropic.com"} {
+	for _, want := range []string{`"backend": "docker"`, `"session": "ephemeral"`, "api.anthropic.com"} {
 		if !strings.Contains(s, want) {
 			t.Errorf("api profile.json missing %q in:\n%s", want, s)
 		}
@@ -547,7 +546,7 @@ func TestRunAutoDiscoversProfile(t *testing.T) {
 	if err := os.MkdirAll(config.StateDirName, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(config.ConfigPath(), []byte("name: disco\nbackend: docker\nagent: claude\n"), 0o644); err != nil {
+	if err := os.WriteFile(config.ConfigPath(), []byte("name: disco\nbackend: docker\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	code, _, errs := run("create")

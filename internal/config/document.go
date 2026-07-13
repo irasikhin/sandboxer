@@ -25,12 +25,6 @@ type Document struct {
 	Defaults Profile            `yaml:"defaults,omitempty"`
 	Profiles map[string]Profile `yaml:"profiles,omitempty"`
 	Default  string             `yaml:"default,omitempty"`
-	// AgentProxy maps an agent name (claude, codex, …) to a proxy URL used when
-	// that agent runs and the selected profile sets no proxy of its own. It is a
-	// per-agent default that sits between the profile (which wins) and the
-	// defaults: proxy (which it overrides) — see SelectWithGlobal. Lives at the
-	// top level so it can be set once in the global config for every project.
-	AgentProxy map[string]string `yaml:"agentProxy,omitempty"`
 
 	multi bool // the file used the `profiles:` form
 }
@@ -144,20 +138,9 @@ func (d *Document) Select(name string) (*Profile, error) {
 // profile inherited). An empty name uses this document's default: (or its sole
 // profile), never the global's — the global layer is a base, not the thing
 // being selected.
-//
-// flagAgent and envAgent let the per-agent proxy (agentProxy:) resolve against
-// the agent that will actually run — flag override, else the profile's agent,
-// else the env default. The per-agent proxy slots BETWEEN the section (which
-// wins) and the defaults: proxy (which it overrides): it is applied only when
-// the selected section sets no proxy of its own.
-func (d *Document) SelectWithGlobal(name, flagAgent, envAgent string, global *Document) (*Profile, error) {
+func (d *Document) SelectWithGlobal(name string, global *Document) (*Profile, error) {
 	if global == nil {
-		eff, err := d.Select(name)
-		if err != nil {
-			return nil, err
-		}
-		applyAgentProxy(eff, d.AgentProxy, nil, sectionProxySet(d, eff.Name), flagAgent, envAgent)
-		return eff, nil
+		return d.Select(name)
 	}
 	base := mergeProfile(global.Defaults, d.Defaults)
 
@@ -186,36 +169,7 @@ func (d *Document) SelectWithGlobal(name, flagAgent, envAgent string, global *Do
 
 	eff := mergeProfile(base, sec)
 	eff.Name = name
-	applyAgentProxy(&eff, d.AgentProxy, global.AgentProxy, sec.Network.Proxy != "", flagAgent, envAgent)
 	return &eff, nil
-}
-
-// sectionProxySet reports whether the named section in d set a proxy of its own
-// (the no-global path, where Select has already merged defaults into eff).
-func sectionProxySet(d *Document, name string) bool {
-	sec, ok := d.Profiles[name]
-	return ok && sec.Network.Proxy != ""
-}
-
-// applyAgentProxy overrides eff.Proxy with the per-agent proxy when the selected
-// section set no proxy itself, honouring precedence section > agentProxy >
-// defaults. project entries win over global ones. The agent is the flag
-// override, else the resolved profile agent, else the env default.
-func applyAgentProxy(eff *Profile, projectAP, globalAP map[string]string, sectionHasProxy bool, flagAgent, envAgent string) {
-	if sectionHasProxy {
-		return // an explicit section proxy outranks the per-agent default
-	}
-	agent := firstNonEmpty(flagAgent, eff.Agent, envAgent)
-	if agent == "" {
-		return
-	}
-	if u, ok := projectAP[agent]; ok && u != "" {
-		eff.Network.Proxy = u
-		return
-	}
-	if u, ok := globalAP[agent]; ok && u != "" {
-		eff.Network.Proxy = u
-	}
 }
 
 // names renders the sorted profile names for an error message.
@@ -245,9 +199,6 @@ func mergeProfile(base, over Profile) Profile {
 	out := base
 	if over.Backend != "" {
 		out.Backend = over.Backend
-	}
-	if over.Agent != "" {
-		out.Agent = over.Agent
 	}
 	// Network merges per field: a profile can tighten the allowlist while keeping
 	// the defaults' proxy, or set a proxy without re-listing domains.

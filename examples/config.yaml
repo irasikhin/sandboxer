@@ -12,12 +12,10 @@ name: feature-x
 # (works with any agent). Leave empty to auto-detect (prefers podman).
 backend: podman
 
-# Coding agent from the registry (sandboxer agents):
-#   claude | codex | opencode | crush | aider | pi | gemini
-agent: claude
-
-# There is no model: knob — sandboxer never launches the agent, so pin the model
-# via the agent's own env var under env: below (e.g. ANTHROPIC_MODEL for claude).
+# A sandbox is not bound to one agent — run any of them with 'sandboxer exec
+# <slug> -- <agent>'. `agents:` (below) picks whose credentials to pass through.
+# There is no model: knob either — sandboxer never launches the agent, so pin the
+# model via the agent's own env var under env: below (e.g. ANTHROPIC_MODEL).
 
 # Egress allowlist — the ONLY domains the sandbox may reach (enforced by the
 # container's egress proxy); everything else is blocked.
@@ -97,14 +95,10 @@ network:
 # to the host gateway (host.docker.internal) automatically, so the obvious URL
 # just works on either engine (incl. Linux Docker). A real host/IP is left as-is.
 #
-# Per-agent proxy: set once (handy in the global ~/.config/sandboxer/config.yaml)
-# keyed by agent name; used when the selected profile sets no proxy of its own.
-# agentProxy:
-#   claude: http://localhost:9999
-#   codex:  http://localhost:8080
-#
-# Global default for every project: defaults.proxy in the global config, or the
-# SANDBOXER_PROXY env var (lowest precedence).
+# To route only certain domains through a different proxy (e.g. bypass a
+# geo-block for one API), use network.routes above instead. Global default for
+# every project: defaults.proxy in the global config, or the SANDBOXER_PROXY env
+# var (lowest precedence).
 
 # Container backends force the allowlist proxy by default (agent on an
 # --internal network, sole exit via the forward-proxy). Set to false to disable.

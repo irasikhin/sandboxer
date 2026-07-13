@@ -39,19 +39,17 @@ func TestMCPCatalogAndResolve(t *testing.T) {
 	}
 }
 
-// TestSeedMCP covers config seeding: claude's ~/.claude.json gains mcpServers
-// while preserving existing keys; an unsupported agent and an empty set are
-// no-ops.
-func TestSeedMCP(t *testing.T) {
+// TestSeedClaudeMCP covers config seeding: claude's ~/.claude.json gains
+// mcpServers while preserving existing keys.
+func TestSeedClaudeMCP(t *testing.T) {
 	home := t.TempDir()
 	if err := os.WriteFile(filepath.Join(home, ".claude.json"), []byte(`{"oauthAccount":"x"}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	servers, _, _ := ResolveMCP([]string{"context7"})
 
-	seeded, err := SeedMCP("claude", home, servers)
-	if err != nil || !seeded {
-		t.Fatalf("claude seed: seeded=%v err=%v", seeded, err)
+	if err := seedClaudeMCP(home, servers); err != nil {
+		t.Fatalf("claude seed: %v", err)
 	}
 	data, err := os.ReadFile(filepath.Join(home, ".claude.json"))
 	if err != nil {
@@ -68,32 +66,25 @@ func TestSeedMCP(t *testing.T) {
 	if !ok || ms["context7"] == nil {
 		t.Errorf("mcpServers not written: %v", root)
 	}
-
-	if seeded, err := SeedMCP("codex", home, servers); err != nil || seeded {
-		t.Errorf("unsupported agent must be a no-op: seeded=%v err=%v", seeded, err)
-	}
-	if seeded, _ := SeedMCP("claude", home, nil); seeded {
-		t.Error("empty server set must be a no-op")
-	}
 }
 
-// TestApplyMCP covers the resolve+seed convenience: empty is a no-op; a claude
-// profile folds domains and seeds; an unsupported agent folds domains but does
-// not seed.
+// TestApplyMCP covers the resolve+seed convenience: empty is a no-op; a profile
+// with servers folds their domains and seeds the claude config; an unknown
+// server name errors.
 func TestApplyMCP(t *testing.T) {
 	home := t.TempDir()
-	if d, s, err := ApplyMCP(nil, "claude", home); err != nil || d != nil || s {
-		t.Errorf("empty apply: d=%v s=%v err=%v", d, s, err)
+	if d, err := ApplyMCP(nil, home); err != nil || d != nil {
+		t.Errorf("empty apply: d=%v err=%v", d, err)
 	}
-	d, seeded, err := ApplyMCP([]string{"fetch"}, "claude", home)
-	if err != nil || !seeded || len(d) == 0 {
-		t.Errorf("claude apply: d=%v seeded=%v err=%v", d, seeded, err)
+	d, err := ApplyMCP([]string{"fetch"}, home)
+	if err != nil || len(d) == 0 {
+		t.Errorf("apply: d=%v err=%v", d, err)
 	}
-	d2, seeded2, err := ApplyMCP([]string{"fetch"}, "aider", home)
-	if err != nil || seeded2 || len(d2) == 0 {
-		t.Errorf("aider apply: d=%v seeded=%v err=%v", d2, seeded2, err)
+	// The config is always seeded in claude's format (inert for other agents).
+	if _, err := os.Stat(filepath.Join(home, ".claude.json")); err != nil {
+		t.Errorf("ApplyMCP should seed ~/.claude.json: %v", err)
 	}
-	if _, _, err := ApplyMCP([]string{"nope"}, "claude", home); err == nil {
+	if _, err := ApplyMCP([]string{"nope"}, home); err == nil {
 		t.Error("unknown MCP server must error")
 	}
 }

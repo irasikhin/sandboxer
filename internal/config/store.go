@@ -133,8 +133,8 @@ const (
 )
 
 // ProfileEntry is one profile discovered by ListAllProfiles: its name, the
-// source it lives in and the file backing it, the effective backend/agent it
-// would run with, whether it is the project config's default:, and whether a
+// source it lives in and the file backing it, the effective backend it would run
+// with, whether it is the project config's default:, and whether a
 // higher-precedence source already defines the same name (so this entry is
 // shadowed at resolution time).
 type ProfileEntry struct {
@@ -142,7 +142,6 @@ type ProfileEntry struct {
 	Source    ProfileSource
 	Path      string
 	Backend   string
-	Agent     string
 	IsDefault bool
 	Shadowed  bool
 }
@@ -161,7 +160,7 @@ func ListAllProfiles(projectConfig, globalConfig, storeDir string) []ProfileEntr
 	for _, r := range ListProfilesIn(storeDir) {
 		e := ProfileEntry{Name: r.Name, Source: SourceStore, Path: r.Path}
 		if p, err := Load(r.Path); err == nil {
-			e.Backend, e.Agent = p.Backend, p.Agent
+			e.Backend = p.Backend
 		}
 		out = append(out, e)
 	}
@@ -178,10 +177,10 @@ func ListAllProfiles(projectConfig, globalConfig, storeDir string) []ProfileEntr
 
 // documentProfiles enumerates the named profiles in a single config Document
 // (the project or global file), sorted by name. It returns nothing when path is
-// empty, missing, or unparseable. Backend/Agent are the effective values after
-// the document's defaults: merge under the section (via Select). IsDefault flags
-// the document's default:, but only for the project source — an empty profile
-// name resolves against the project's default:, never the global's.
+// empty, missing, or unparseable. Backend is the effective value after the
+// document's defaults: merge under the section (via Select). IsDefault flags the
+// document's default:, but only for the project source — an empty profile name
+// resolves against the project's default:, never the global's.
 func documentProfiles(path string, src ProfileSource) []ProfileEntry {
 	if path == "" {
 		return nil
@@ -199,10 +198,9 @@ func documentProfiles(path string, src ProfileSource) []ProfileEntry {
 			IsDefault: src == SourceProject && name == d.Default,
 		}
 		if p, err := d.Select(name); err == nil {
-			e.Backend, e.Agent = p.Backend, p.Agent
+			e.Backend = p.Backend
 		} else {
-			sec := d.Profiles[name]
-			e.Backend, e.Agent = sec.Backend, sec.Agent
+			e.Backend = d.Profiles[name].Backend
 		}
 		out = append(out, e)
 	}

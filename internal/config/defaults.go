@@ -56,7 +56,6 @@ const DefaultDomains = "api.anthropic.com,api.openai.com,api.deepseek.com," +
 // Defaults holds the env-derived defaults (SANDBOXER_*), the lowest-precedence
 // layer below profile values and command flags.
 type Defaults struct {
-	Agent   string
 	Backend string
 	Session string
 	Domains string
@@ -71,7 +70,6 @@ type Defaults struct {
 // LoadDefaults reads the SANDBOXER_* environment.
 func LoadDefaults() Defaults {
 	return Defaults{
-		Agent:   envOr("SANDBOXER_AGENT", "claude"),
 		Backend: envOr("SANDBOXER_BACKEND", "docker"),
 		Session: os.Getenv("SANDBOXER_SESSION"),
 		Domains: envOr("SANDBOXER_DOMAINS", DefaultDomains),

@@ -36,24 +36,21 @@ func TestSanitize(t *testing.T) {
 
 func TestResolveRuntimePrecedence(t *testing.T) {
 	p := &Profile{
-		Agent:   "opencode",
+		Backend: "podman",
 		Network: Network{AllowedDomains: []string{"x.com", "y.com"}, Proxy: "http://p"},
 	}
-	d := Defaults{Agent: "claude", Backend: "podman"}
+	d := Defaults{Backend: "docker"}
 
 	// Flag override beats profile; profile beats base/defaults.
-	rt, err := ResolveRuntime(p, d, "base.com", Overrides{Agent: "crush"})
+	rt, err := ResolveRuntime(p, d, "base.com", Overrides{Backend: "flag-engine"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if rt.Agent != "crush" {
-		t.Errorf("agent: flag should win, got %q", rt.Agent)
+	if rt.Backend != "flag-engine" {
+		t.Errorf("backend: flag should win over profile, got %q", rt.Backend)
 	}
 	if !slices.Equal(rt.Domains, []string{"x.com", "y.com"}) {
 		t.Errorf("domains: profile should win, got %v", rt.Domains)
-	}
-	if rt.Backend != "podman" {
-		t.Errorf("backend: default should apply, got %q", rt.Backend)
 	}
 	if rt.Proxy != "http://p" {
 		t.Errorf("proxy not carried: %q", rt.Proxy)
@@ -67,8 +64,8 @@ func TestResolveRuntimePrecedence(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if rt2.Agent != "claude" {
-		t.Errorf("agent default = %q", rt2.Agent)
+	if rt2.Backend != "docker" {
+		t.Errorf("backend default = %q", rt2.Backend)
 	}
 	if !slices.Equal(rt2.Domains, []string{"base.com", "two.com"}) {
 		t.Errorf("base domains = %v", rt2.Domains)
@@ -215,7 +212,7 @@ func TestValidateProxy(t *testing.T) {
 func TestResolveRuntimeProxy(t *testing.T) {
 	// A single proxy URL is carried into Runtime and keeps egress on (chained).
 	p := &Profile{Network: Network{Proxy: "http://host.docker.internal:3128"}}
-	rt, err := ResolveRuntime(p, Defaults{Agent: "claude"}, "base.com", Overrides{})
+	rt, err := ResolveRuntime(p, Defaults{}, "base.com", Overrides{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -227,7 +224,7 @@ func TestResolveRuntimeProxy(t *testing.T) {
 	}
 
 	// SANDBOXER_PROXY (Defaults.Proxy) is the lowest-precedence fallback.
-	rt2, err := ResolveRuntime(&Profile{}, Defaults{Agent: "claude", Proxy: "http://env:9999"}, "base.com", Overrides{})
+	rt2, err := ResolveRuntime(&Profile{}, Defaults{Proxy: "http://env:9999"}, "base.com", Overrides{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -266,7 +263,6 @@ func TestLoadAndJSONRoundTrip(t *testing.T) {
 	path := filepath.Join(dir, ConfigFileName)
 	yaml := `name: feature-x
 backend: podman
-agent: claude
 network:
   allowedDomains: [api.anthropic.com, registry.npmjs.org]
 roots: [/abs/monorepo, /abs/shared]
@@ -281,7 +277,7 @@ deps:
 	if err != nil {
 		t.Fatal(err)
 	}
-	if p.Name != "feature-x" || p.Backend != "podman" || p.Agent != "claude" {
+	if p.Name != "feature-x" || p.Backend != "podman" {
 		t.Errorf("scalars wrong: %+v", p)
 	}
 	if len(p.Network.AllowedDomains) != 2 {

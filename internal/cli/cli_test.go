@@ -208,7 +208,7 @@ func TestResolveProfileFile(t *testing.T) {
 
 	// A named profile from the global store, by positional and by -f NAME.
 	web := filepath.Join(store, "web.yaml")
-	if err := os.WriteFile(web, []byte("name: web\nbackend: docker\nagent: claude\n"), 0o644); err != nil {
+	if err := os.WriteFile(web, []byte("name: web\nbackend: docker\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	f, p, err = resolveProfileFile("", ".", "web")
@@ -228,7 +228,7 @@ func TestResolveProfileFile(t *testing.T) {
 	// -f DIR selects by name; an unknown name errors with the listing.
 	envs := t.TempDir()
 	api := filepath.Join(envs, "api.yaml")
-	if err := os.WriteFile(api, []byte("name: api\nbackend: podman\nagent: opencode\n"), 0o644); err != nil {
+	if err := os.WriteFile(api, []byte("name: api\nbackend: podman\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	f, p, err = resolveProfileFile(envs, ".", "api")

@@ -130,11 +130,13 @@ func orDash(s string) string {
 func newAgentsCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "agents",
-		Short: "List the coding agents you can put in a profile's agent: field",
+		Short: "List the coding agents baked into the toolbox image",
 		Long: `List the coding agents baked into the toolbox image — the valid values for a
-profile's agent: field (and the --agent flag). For each: its binary, whether it
-ships in the image, and the env vars it authenticates with (passed through to
-the sandbox when set on the host — or log in inside the sandbox).`,
+profile's agents: list (whose credentials to pass through to the sandbox). A
+sandbox is not bound to one agent: run any of them with 'sandboxer exec <slug> --
+<agent>'. For each: its binary, whether it ships in the image, and the env vars
+it authenticates with (passed through when set on the host — or log in inside the
+sandbox).`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			tw := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 2, ' ', 0)

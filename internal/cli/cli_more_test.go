@@ -115,7 +115,7 @@ func TestRunExecPushFailureExitsNonzero(t *testing.T) {
 		t.Fatal(err)
 	}
 	cfg := filepath.Join(t.TempDir(), "p.yaml")
-	yaml := "name: feat\nbackend: podman\nagent: claude\nroots: [" + depRoot + "]\ndeps:\n  - sub/lib\n"
+	yaml := "name: feat\nbackend: podman\nroots: [" + depRoot + "]\ndeps:\n  - sub/lib\n"
 	if err := os.WriteFile(cfg, []byte(yaml), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -180,10 +180,9 @@ func TestResolveTargetGlobalDefaults(t *testing.T) {
 	if err := os.WriteFile(config.ConfigPath(), []byte("profiles:\n  web:\n    session: ephemeral\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	// Global: defaults that the project inherits (agent) plus one the project
-	// overrides via its own defaults (backend).
+	// Global: defaults that the project inherits (backend).
 	globalCfg := filepath.Join(t.TempDir(), "global.yaml")
-	if err := os.WriteFile(globalCfg, []byte("defaults:\n  agent: codex\n  backend: podman\n"), 0o644); err != nil {
+	if err := os.WriteFile(globalCfg, []byte("defaults:\n  backend: podman\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("SANDBOXER_CONFIG", globalCfg)
@@ -194,9 +193,6 @@ func TestResolveTargetGlobalDefaults(t *testing.T) {
 	}
 	if tgt.profile == nil {
 		t.Fatal("resolveTarget returned a nil profile")
-	}
-	if tgt.profile.Agent != "codex" {
-		t.Errorf("Agent = %q, want codex (inherited from the global defaults)", tgt.profile.Agent)
 	}
 	if tgt.profile.Backend != "podman" {
 		t.Errorf("Backend = %q, want podman (from the global defaults)", tgt.profile.Backend)

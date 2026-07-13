@@ -10,7 +10,6 @@ name: integ
 # not just claude. (codex is Rust and is not baked into the image due to build
 # time; bring your own / BYO image for it.)
 backend: podman
-agent: opencode
 
 # Which agents to authorize in the container (bind their config dirs / env).
 # Defaults to every agent in the registry; narrow it to avoid mounting

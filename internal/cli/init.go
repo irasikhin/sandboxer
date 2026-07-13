@@ -66,7 +66,7 @@ section (delete that block for the stock toolbox image).`,
 				return err
 			}
 			out := cmd.OutOrStdout()
-			fmt.Fprintf(out, "wrote %s + %s (name=%s backend=%s agent=%s)\n", path, nixPath, name, d.Backend, d.Agent)
+			fmt.Fprintf(out, "wrote %s + %s (name=%s backend=%s)\n", path, nixPath, name, d.Backend)
 			fmt.Fprintln(out, "edit them, then: sandboxer create")
 			return nil
 		},
@@ -139,8 +139,11 @@ name: %s
 # Isolation backend: docker | podman.
 backend: %s
 
-# Coding agent — see: sandboxer agents.
-agent: %s
+# Which agents' credentials to pass through (see: sandboxer agents). A sandbox is
+# not bound to one agent — run any with 'sandboxer exec <slug> -- <agent>'.
+# Defaults to every agent in the registry; narrow it to avoid passing creds you
+# don't need. To pin a model, set the agent's env var under env: below.
+# agents: [claude, codex]
 
 # Session mode for enter/exec: persistent (default; one detached container
 # reused across invocations) | ephemeral (a fresh one-shot container each time).
@@ -218,8 +221,8 @@ network:
 #   egress off: the agent talks to the proxy DIRECTLY; the proxy polices egress.
 #               http:// or https://; network.noProxy applies.
 # A localhost/127.0.0.1 proxy means a proxy on your HOST (rewritten to the host
-# gateway automatically). Global default: agentProxy: / SANDBOXER_PROXY.
-`, name, d.Backend, d.Agent, domains)
+# gateway automatically). Global default: defaults.proxy / SANDBOXER_PROXY.
+`, name, d.Backend, domains)
 	profile += starterImageSection
 	return profile
 }

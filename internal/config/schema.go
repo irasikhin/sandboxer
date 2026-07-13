@@ -18,10 +18,9 @@ const SchemaURL = "https://raw.githubusercontent.com/irasikhin/sandboxer/main/sc
 // runtime), and the reflector reads json tags. TestSchemaDocumentParity pins
 // the mirror to Document field by field.
 type schemaDocument struct {
-	Defaults   Profile            `json:"defaults,omitempty"`
-	Profiles   map[string]Profile `json:"profiles,omitempty"`
-	Default    string             `json:"default,omitempty"`
-	AgentProxy map[string]string  `json:"agentProxy,omitempty"`
+	Defaults Profile            `json:"defaults,omitempty"`
+	Profiles map[string]Profile `json:"profiles,omitempty"`
+	Default  string             `json:"default,omitempty"`
 }
 
 // Schema renders the JSON Schema for the two file shapes the strict parser

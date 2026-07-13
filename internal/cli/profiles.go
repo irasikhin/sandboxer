@@ -59,13 +59,13 @@ func listDir(out io.Writer, dir string) error {
 		return nil
 	}
 	tw := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(tw, "NAME\tBACKEND\tAGENT\tFILE")
+	fmt.Fprintln(tw, "NAME\tBACKEND\tFILE")
 	for _, r := range refs {
-		backend, agent := "", ""
+		backend := ""
 		if p, err := config.Load(r.Path); err == nil {
-			backend, agent = p.Backend, p.Agent
+			backend = p.Backend
 		}
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", r.Name, orDash(backend), orDash(agent), r.Path)
+		fmt.Fprintf(tw, "%s\t%s\t%s\n", r.Name, orDash(backend), r.Path)
 	}
 	return tw.Flush()
 }
@@ -80,7 +80,7 @@ func listAllSources(out io.Writer) error {
 		return nil
 	}
 	tw := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(tw, "NAME\tSOURCE\tBACKEND\tAGENT\tFILE")
+	fmt.Fprintln(tw, "NAME\tSOURCE\tBACKEND\tFILE")
 	marked := false
 	for _, e := range entries {
 		name := e.Name
@@ -92,7 +92,7 @@ func listAllSources(out io.Writer) error {
 			name += " ~"
 			marked = true
 		}
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n", name, e.Source, orDash(e.Backend), orDash(e.Agent), e.Path)
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", name, e.Source, orDash(e.Backend), e.Path)
 	}
 	if err := tw.Flush(); err != nil {
 		return err

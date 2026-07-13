@@ -13,7 +13,6 @@ func TestMergeProfileOverrides(t *testing.T) {
 	// otherwise-untested override field.
 	base := Profile{
 		Backend: "podman",
-		Agent:   "claude",
 		Network: Network{AllowedDomains: []string{"base.example"}},
 	}
 	egress := true
@@ -63,8 +62,8 @@ func TestMergeProfileOverrides(t *testing.T) {
 		t.Errorf("MCP = %v, want [fetch]", got.MCP)
 	}
 	// and: fields left empty on over keep the base value
-	if got.Backend != "podman" || got.Agent != "claude" {
-		t.Errorf("base fields lost: backend=%q agent=%q", got.Backend, got.Agent)
+	if got.Backend != "podman" {
+		t.Errorf("base field lost: backend=%q", got.Backend)
 	}
 }
 

@@ -23,7 +23,6 @@ type commonFlags struct {
 	src       string
 	config    string
 	sandbox   string
-	agent     string
 	backend   string
 	domains   string
 	force     bool
@@ -37,7 +36,6 @@ func bindExisting(cmd *cobra.Command, f *commonFlags) {
 	fl.StringVar(&f.src, "src", "", "project root (default: cwd)")
 	fl.StringVarP(&f.config, "config", "f", "", "profile: a file, a directory of profiles, or a named profile (store: ~/.config/sandboxer/profiles)")
 	fl.StringVarP(&f.sandbox, "sandbox", "S", "", "sandbox slug")
-	fl.StringVar(&f.agent, "agent", "", "agent override")
 	fl.StringVar(&f.backend, "backend", "", "backend: docker | podman")
 	fl.StringVar(&f.domains, "allow-domains", "", "egress allowlist, csv (e.g. api.anthropic.com,github.com)")
 }
@@ -191,13 +189,10 @@ func resolveTarget(f commonFlags, pos string) (*target, error) {
 		if err != nil {
 			return nil, err
 		}
-		// The agent that will run drives the per-agent proxy (agentProxy:): the
-		// --agent flag override, else the profile's agent, else the env default.
-		envAgent := config.LoadDefaults().Agent
 		if doc.Multi() {
 			// Multi-profile file: the positional (or default:) names the section,
 			// and that section name is the slug.
-			p, err := doc.SelectWithGlobal(pos, f.agent, envAgent, global)
+			p, err := doc.SelectWithGlobal(pos, global)
 			if err != nil {
 				return nil, err
 			}
@@ -205,7 +200,7 @@ func resolveTarget(f commonFlags, pos string) (*target, error) {
 			slug = p.Name
 		} else {
 			// Flat file: exactly one profile; the slug is its (file-derived) name.
-			p, err := doc.SelectWithGlobal("", f.agent, envAgent, global)
+			p, err := doc.SelectWithGlobal("", global)
 			if err != nil {
 				return nil, err
 			}
@@ -257,7 +252,7 @@ func (t *target) runtime(f commonFlags) (config.Runtime, error) {
 		session = config.SessionEphemeral
 	}
 	return config.ResolveRuntime(t.profile, config.LoadDefaults(), t.base.Domains,
-		config.Overrides{Agent: f.agent, Backend: f.backend, Session: session, Domains: f.domains})
+		config.Overrides{Backend: f.backend, Session: session, Domains: f.domains})
 }
 
 // backendLabel reports the backend to show in the banner: for a container
@@ -295,8 +290,8 @@ func configLine(rt config.Runtime, slug string, prof *config.Profile, backendSho
 		}
 		deps = len(prof.Deps)
 	}
-	return fmt.Sprintf("sandboxer: %s — agent=%s backend=%s egress=%s profile=%s deps=%d",
-		slug, rt.Agent, backendShown, egress, profile, deps)
+	return fmt.Sprintf("sandboxer: %s — backend=%s egress=%s profile=%s deps=%d",
+		slug, backendShown, egress, profile, deps)
 }
 
 // syncSnapshot refreshes the sandbox's stored profile.json from the freshly

@@ -46,9 +46,9 @@ func TestListAndFindProfile(t *testing.T) {
 		}
 	}
 	// web.yaml has no name: → effective name is its stem "web".
-	write("web.yaml", "backend: docker\nagent: claude\n")
+	write("web.yaml", "backend: docker\n")
 	// prod.yaml sets name: api → effective name "api" (stem is overridden).
-	write("prod.yaml", "name: api\nbackend: podman\nagent: opencode\n")
+	write("prod.yaml", "name: api\nbackend: podman\n")
 	// a non-YAML file is ignored, a malformed profile is skipped, and a
 	// subdirectory is not descended into.
 	write("notes.txt", "ignore me\n")
@@ -94,17 +94,17 @@ func TestFindProfileAmbiguous(t *testing.T) {
 
 func TestListAllProfiles(t *testing.T) {
 	dir := t.TempDir()
-	// Project config: a multi-profile doc with a default, a shared agent in
-	// defaults: (so web inherits it), and a db section that overrides the agent.
+	// Project config: a multi-profile doc with a default, a shared backend in
+	// defaults: (so web inherits it), and a db section that overrides the backend.
 	projectCfg := writeFile(t, dir, "project.yaml",
-		"defaults:\n  agent: claude\ndefault: web\nprofiles:\n  web:\n    backend: docker\n  db:\n    backend: podman\n    agent: codex\n")
+		"defaults:\n  backend: docker\ndefault: web\nprofiles:\n  web:\n    session: persistent\n  db:\n    backend: podman\n")
 	// Global config: a shared profile plus a web that the project shadows.
 	globalCfg := writeFile(t, dir, "global.yaml",
-		"profiles:\n  shared:\n    backend: docker\n    agent: opencode\n  web:\n    backend: podman\n")
+		"profiles:\n  shared:\n    backend: docker\n  web:\n    backend: podman\n")
 	// Store: a db that the project shadows, and a unique api.
 	store := t.TempDir()
-	writeFile(t, store, "api.yaml", "name: api\nbackend: docker\nagent: claude\n")
-	writeFile(t, store, "db.yaml", "backend: podman\nagent: codex\n")
+	writeFile(t, store, "api.yaml", "name: api\nbackend: docker\n")
+	writeFile(t, store, "db.yaml", "backend: podman\n")
 
 	entries := ListAllProfiles(projectCfg, globalCfg, store)
 
@@ -117,18 +117,18 @@ func TestListAllProfiles(t *testing.T) {
 		return nil
 	}
 
-	// Project web: the default, agent inherited from defaults:, not shadowed.
+	// Project web: the default, backend inherited from defaults:, not shadowed.
 	if e := get("web", SourceProject); e == nil || !e.IsDefault || e.Shadowed ||
-		e.Backend != "docker" || e.Agent != "claude" || e.Path != projectCfg {
+		e.Backend != "docker" || e.Path != projectCfg {
 		t.Errorf("project web = %+v", e)
 	}
-	// Project db: overrides the agent, wins over the store's db.
+	// Project db: overrides the backend, wins over the store's db.
 	if e := get("db", SourceProject); e == nil || e.IsDefault || e.Shadowed ||
-		e.Backend != "podman" || e.Agent != "codex" {
+		e.Backend != "podman" {
 		t.Errorf("project db = %+v", e)
 	}
 	// Global shared: unique, never the default (default is project-only).
-	if e := get("shared", SourceGlobal); e == nil || e.IsDefault || e.Shadowed || e.Agent != "opencode" {
+	if e := get("shared", SourceGlobal); e == nil || e.IsDefault || e.Shadowed || e.Backend != "docker" {
 		t.Errorf("global shared = %+v", e)
 	}
 	// Global web: shadowed by the project's web.
@@ -156,7 +156,7 @@ func TestListAllProfilesAbsentSources(t *testing.T) {
 	// A flat single-profile project file yields exactly one entry, flagged as the
 	// default (it is the sole profile), with no global or store.
 	dir := t.TempDir()
-	flat := writeFile(t, dir, "feat.yaml", "backend: docker\nagent: claude\n")
+	flat := writeFile(t, dir, "feat.yaml", "backend: docker\n")
 	got := ListAllProfiles(flat, filepath.Join(dir, "missing.yaml"), filepath.Join(dir, "nostore"))
 	if len(got) != 1 || got[0].Name != "feat" || got[0].Source != SourceProject || !got[0].IsDefault {
 		t.Errorf("flat-only = %+v", got)

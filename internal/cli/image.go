@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"fmt"
 	"io"
 
 	"github.com/irasikhin/sandboxer/internal/config"
@@ -35,23 +34,18 @@ func resolveImage(prof *config.Profile, engine string, stderr io.Writer) (string
 	return spec.Tag(), spec, nil
 }
 
-// applyMCP wires a profile's `mcp:` servers into the run: it seeds the agent's
-// sandbox-home config and folds each server's domains into the egress allowlist
-// (rt is mutated in place). For an agent whose config format is not yet
-// supported it still allows the domains and notes that in-agent setup is needed.
-func applyMCP(t *target, rt *config.Runtime, errOut io.Writer) error {
+// applyMCP wires a profile's `mcp:` servers into the run: it seeds the
+// sandbox-home config (claude's ~/.claude.json format) and folds each server's
+// domains into the egress allowlist (rt is mutated in place).
+func applyMCP(t *target, rt *config.Runtime, _ io.Writer) error {
 	if t.profile == nil || len(t.profile.MCP) == 0 {
 		return nil
 	}
-	domains, seeded, err := registry.ApplyMCP(t.profile.MCP, rt.Agent, t.base.HomeDir(t.slug))
+	domains, err := registry.ApplyMCP(t.profile.MCP, t.base.HomeDir(t.slug))
 	if err != nil {
 		return err
 	}
 	rt.Domains = mergeDomains(rt.Domains, domains)
-	if !seeded {
-		fmt.Fprintf(errOut, "sandboxer: note: MCP config seeding not yet supported for agent %q; "+
-			"its domains are allowed — configure the server in-agent\n", rt.Agent)
-	}
 	return nil
 }
 

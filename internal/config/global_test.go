@@ -57,13 +57,13 @@ func TestLoadGlobalConfig(t *testing.T) {
 	}
 
 	// Present file: parsed as a Document.
-	path := writeFile(t, dir, "config.yaml", "defaults:\n  agent: codex\nprofiles:\n  shared:\n    backend: docker\n")
+	path := writeFile(t, dir, "config.yaml", "defaults:\n  backend: podman\nprofiles:\n  shared:\n    backend: docker\n")
 	t.Setenv("SANDBOXER_CONFIG", path)
 	d, err = LoadGlobalConfig()
 	if err != nil {
 		t.Fatalf("present global config errored: %v", err)
 	}
-	if d == nil || d.Defaults.Agent != "codex" || !d.Has("shared") {
+	if d == nil || d.Defaults.Backend != "podman" || !d.Has("shared") {
 		t.Fatalf("present global config not parsed: %+v", d)
 	}
 }
@@ -73,7 +73,7 @@ func TestLoadGlobalConfig(t *testing.T) {
 // config — instead of failing strict parse as a flat Profile.
 func TestLoadDocumentDefaultsOnly(t *testing.T) {
 	dir := t.TempDir()
-	p := writeFile(t, dir, "config.yaml", "defaults:\n  agent: codex\n  backend: podman\n")
+	p := writeFile(t, dir, "config.yaml", "defaults:\n  session: ephemeral\n  backend: podman\n")
 	d, err := LoadDocument(p)
 	if err != nil {
 		t.Fatalf("defaults-only document errored: %v", err)
@@ -81,7 +81,7 @@ func TestLoadDocumentDefaultsOnly(t *testing.T) {
 	if !d.Multi() {
 		t.Error("defaults-only document should be in the multi/document form")
 	}
-	if d.Defaults.Agent != "codex" || d.Defaults.Backend != "podman" {
+	if d.Defaults.Session != "ephemeral" || d.Defaults.Backend != "podman" {
 		t.Errorf("defaults not parsed: %+v", d.Defaults)
 	}
 	if len(d.Profiles) != 0 {
@@ -92,19 +92,16 @@ func TestLoadDocumentDefaultsOnly(t *testing.T) {
 // TestResolveWithGlobalDefaults shows a project profile inheriting a global
 // default for a field the project leaves unset.
 func TestResolveWithGlobalDefaults(t *testing.T) {
-	global := &Document{Defaults: Profile{Agent: "codex", Backend: "podman"}}
+	global := &Document{Defaults: Profile{Backend: "podman"}}
 	project := &Document{
-		Defaults: Profile{}, // project sets no agent/backend
+		Defaults: Profile{}, // project sets no backend
 		Profiles: map[string]Profile{"web": {Session: "ephemeral"}},
 		Default:  "web",
 	}
 
-	got, err := project.SelectWithGlobal("web", "", "", global)
+	got, err := project.SelectWithGlobal("web", global)
 	if err != nil {
 		t.Fatal(err)
-	}
-	if got.Agent != "codex" {
-		t.Errorf("Agent = %q, want codex (inherited from global defaults)", got.Agent)
 	}
 	if got.Backend != "podman" {
 		t.Errorf("Backend = %q, want podman (inherited from global defaults)", got.Backend)
@@ -118,19 +115,19 @@ func TestResolveWithGlobalDefaults(t *testing.T) {
 // the global defaults and the project (defaults or section) resolves to the
 // project value.
 func TestProjectOverridesGlobal(t *testing.T) {
-	global := &Document{Defaults: Profile{Agent: "codex", Session: "persistent"}}
+	global := &Document{Defaults: Profile{Backend: "podman", Session: "persistent"}}
 	project := &Document{
-		Defaults: Profile{Agent: "claude"}, // project default beats global default
+		Defaults: Profile{Backend: "docker"}, // project default beats global default
 		Profiles: map[string]Profile{"web": {Session: "ephemeral"}},
 		Default:  "web",
 	}
 
-	got, err := project.SelectWithGlobal("web", "", "", global)
+	got, err := project.SelectWithGlobal("web", global)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Agent != "claude" {
-		t.Errorf("Agent = %q, want claude (project defaults beat global defaults)", got.Agent)
+	if got.Backend != "docker" {
+		t.Errorf("Backend = %q, want docker (project defaults beat global defaults)", got.Backend)
 	}
 	if got.Session != "ephemeral" {
 		t.Errorf("Session = %q, want ephemeral (project section beats global defaults)", got.Session)
@@ -154,7 +151,7 @@ func TestImageGlobalAndProject(t *testing.T) {
 		Default: "web",
 	}
 
-	got, err := project.SelectWithGlobal("web", "", "", global)
+	got, err := project.SelectWithGlobal("web", global)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -171,7 +168,7 @@ func TestImageGlobalAndProject(t *testing.T) {
 	web.Env = map[string]string{"PROJECT_KEY": "p", "SHARED": "project"}
 	project.Profiles["web"] = web
 
-	got, err = project.SelectWithGlobal("web", "", "", global)
+	got, err = project.SelectWithGlobal("web", global)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -189,12 +186,12 @@ func TestImageGlobalAndProject(t *testing.T) {
 // the global section.
 func TestGlobalConfigNotRequired(t *testing.T) {
 	project := &Document{
-		Defaults: Profile{Agent: "claude"},
-		Profiles: map[string]Profile{"web": {Session: "ephemeral"}},
+		Defaults: Profile{Session: "persistent"},
+		Profiles: map[string]Profile{"web": {Backend: "podman"}},
 		Default:  "web",
 	}
 
-	withNil, err := project.SelectWithGlobal("web", "", "", nil)
+	withNil, err := project.SelectWithGlobal("web", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -210,90 +207,24 @@ func TestGlobalConfigNotRequired(t *testing.T) {
 	// section, still over the composed defaults (project default kept).
 	global := &Document{
 		Defaults: Profile{Backend: "podman"},
-		Profiles: map[string]Profile{"ops": {Session: "ephemeral"}},
+		Profiles: map[string]Profile{"ops": {Env: map[string]string{"MODE": "ops"}}},
 	}
-	got, err := project.SelectWithGlobal("ops", "", "", global)
+	got, err := project.SelectWithGlobal("ops", global)
 	if err != nil {
 		t.Fatalf("global-only profile should resolve: %v", err)
 	}
-	if got.Name != "ops" || got.Session != "ephemeral" {
-		t.Errorf("global-only profile = %+v, want name=ops session=ephemeral", got)
+	if got.Name != "ops" || got.Env["MODE"] != "ops" {
+		t.Errorf("global-only profile = %+v, want name=ops env MODE=ops", got)
 	}
-	if got.Agent != "claude" {
-		t.Errorf("Agent = %q, want claude (project default kept under a global profile)", got.Agent)
+	if got.Session != "persistent" {
+		t.Errorf("Session = %q, want persistent (project default kept under a global profile)", got.Session)
 	}
 	if got.Backend != "podman" {
 		t.Errorf("Backend = %q, want podman (from global defaults)", got.Backend)
 	}
 
 	// An unknown name (neither project nor global) still errors.
-	if _, err := project.SelectWithGlobal("nope", "", "", global); err == nil {
+	if _, err := project.SelectWithGlobal("nope", global); err == nil {
 		t.Error("unknown profile name should error")
-	}
-}
-
-// TestAgentProxyResolution pins the per-agent proxy precedence:
-// section.proxy > agentProxy[agent] > defaults.proxy, project agentProxy over
-// global, keyed by the agent that will run (flag > profile > env default).
-func TestAgentProxyResolution(t *testing.T) {
-	// section proxy wins over a per-agent entry for the same agent.
-	d := &Document{
-		Profiles:   map[string]Profile{"web": {Agent: "claude", Network: Network{Proxy: "http://section:1"}}},
-		Default:    "web",
-		AgentProxy: map[string]string{"claude": "http://agent:2"},
-	}
-	got, err := d.SelectWithGlobal("web", "", "claude", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got.Network.Proxy != "http://section:1" {
-		t.Errorf("section proxy must win: %q", got.Network.Proxy)
-	}
-
-	// no section proxy: agentProxy[agent] beats the defaults proxy.
-	d2 := &Document{
-		Defaults:   Profile{Network: Network{Proxy: "http://default:3"}},
-		Profiles:   map[string]Profile{"web": {Agent: "codex"}},
-		Default:    "web",
-		AgentProxy: map[string]string{"codex": "http://agent:4"},
-	}
-	got2, err := d2.SelectWithGlobal("web", "", "claude", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got2.Network.Proxy != "http://agent:4" {
-		t.Errorf("agentProxy must beat defaults proxy: %q", got2.Network.Proxy)
-	}
-
-	// the --agent flag drives which agentProxy entry is picked.
-	got3, err := d2.SelectWithGlobal("web", "claude", "", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got3.Network.Proxy != "http://default:3" {
-		t.Errorf("flag agent=claude has no agentProxy entry, so defaults apply: %q", got3.Network.Proxy)
-	}
-
-	// project agentProxy overrides a global one for the same agent; a global-only
-	// agent entry still applies.
-	global := &Document{AgentProxy: map[string]string{"claude": "http://gclaude", "codex": "http://gcodex"}}
-	project := &Document{
-		Profiles:   map[string]Profile{"web": {Agent: "claude"}},
-		Default:    "web",
-		AgentProxy: map[string]string{"claude": "http://pclaude"},
-	}
-	got4, err := project.SelectWithGlobal("web", "", "claude", global)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got4.Network.Proxy != "http://pclaude" {
-		t.Errorf("project agentProxy must beat global: %q", got4.Network.Proxy)
-	}
-	got5, err := project.SelectWithGlobal("web", "codex", "", global)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got5.Network.Proxy != "http://gcodex" {
-		t.Errorf("global-only agentProxy entry should apply: %q", got5.Network.Proxy)
 	}
 }

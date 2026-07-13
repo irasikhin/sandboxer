@@ -18,7 +18,6 @@ type Runtime struct {
 	Proxy      string
 	NoProxy    string   // NO_PROXY, applied only in direct mode (Egress off)
 	Domains    []string // resolved egress allowlist
-	Agent      string
 	Backend    string
 	Session    string   // SessionPersistent or SessionEphemeral (resolved; never empty)
 	AuthAgents []string // whose creds to bind in the container
@@ -43,7 +42,6 @@ const (
 
 // Overrides are command-line flag values; empty means "not set".
 type Overrides struct {
-	Agent   string
 	Backend string
 	Session string // SessionEphemeral when --ephemeral is given
 	Domains string // csv
@@ -90,7 +88,6 @@ func ResolveRuntime(p *Profile, d Defaults, baseDomains string, f Overrides) (Ru
 		}
 	}
 
-	rt.Agent = firstNonEmpty(f.Agent, p.Agent, d.Agent)
 	rt.Backend = firstNonEmpty(f.Backend, p.Backend, d.Backend)
 	// Session deviates from the others: the env (d.Session) sits ABOVE the
 	// profile, because SANDBOXER_SESSION=ephemeral is an operator kill-switch

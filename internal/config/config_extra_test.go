@@ -8,7 +8,6 @@ import (
 )
 
 func TestLoadDefaultsFromEnv(t *testing.T) {
-	t.Setenv("SANDBOXER_AGENT", "crush")
 	t.Setenv("SANDBOXER_BACKEND", "docker")
 	t.Setenv("SANDBOXER_DOMAINS", "a.com")
 	t.Setenv("SANDBOXER_IMAGE", "img:1")
@@ -17,7 +16,7 @@ func TestLoadDefaultsFromEnv(t *testing.T) {
 	t.Setenv("SANDBOXER_CPU", "50%")
 
 	d := LoadDefaults()
-	if d.Agent != "crush" || d.Backend != "docker" || d.Domains != "a.com" ||
+	if d.Backend != "docker" || d.Domains != "a.com" ||
 		d.Image != "img:1" || d.Engine != "docker" ||
 		d.Mem != "2G" || d.CPU != "50%" {
 		t.Errorf("LoadDefaults from env = %+v", d)
@@ -26,14 +25,14 @@ func TestLoadDefaultsFromEnv(t *testing.T) {
 
 func TestLoadDefaultsBare(t *testing.T) {
 	for _, k := range []string{
-		"SANDBOXER_AGENT", "SANDBOXER_BACKEND", "SANDBOXER_DOMAINS",
+		"SANDBOXER_BACKEND", "SANDBOXER_DOMAINS",
 		"SANDBOXER_IMAGE", "SANDBOXER_ENGINE", "SANDBOXER_MEM", "SANDBOXER_CPU",
 	} {
 		t.Setenv(k, "")
 	}
 
 	d := LoadDefaults()
-	if d.Agent != "claude" || d.Backend != "docker" || d.Domains != DefaultDomains || d.Image != DefaultImage {
+	if d.Backend != "docker" || d.Domains != DefaultDomains || d.Image != DefaultImage {
 		t.Errorf("bare defaults = %+v", d)
 	}
 }

@@ -5,7 +5,6 @@
 # `sandboxer profiles -f ./examples/profiles` lists both web and api.
 name: api
 backend: podman
-agent: opencode
 network:
   allowedDomains: [api.openai.com, registry.npmjs.org, pypi.org]
 roots:
