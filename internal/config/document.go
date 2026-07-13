@@ -260,6 +260,9 @@ func mergeProfile(base, over Profile) Profile {
 	if over.Network.NoProxy != "" {
 		out.Network.NoProxy = over.Network.NoProxy
 	}
+	if len(over.Network.Routes) > 0 {
+		out.Network.Routes = over.Network.Routes
+	}
 	if len(over.Agents) > 0 {
 		out.Agents = over.Agents
 	}

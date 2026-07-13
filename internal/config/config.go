@@ -38,6 +38,20 @@ type Network struct {
 	// NoProxy is the NO_PROXY list applied only in direct mode (egress off); it
 	// is ignored when traffic is chained through the allowlist sidecar.
 	NoProxy string `yaml:"noProxy,omitempty" json:"noProxy,omitempty"`
+	// Routes send specific destination domains through a dedicated upstream proxy
+	// (a squid cache_peer), overriding Proxy for just those domains — e.g. bypass
+	// a geo-block for one API while everything else stays direct or on the default
+	// proxy. Routes only apply with the egress allowlist on; they are ignored in
+	// direct mode (egress off), where the agent talks to Proxy directly.
+	Routes []Route `yaml:"routes,omitempty" json:"routes,omitempty"`
+}
+
+// Route pins a set of destination domains to a dedicated upstream proxy. Every
+// routed domain must also be in Network.AllowedDomains (squid denies it before
+// the peer otherwise), and a domain may appear in at most one route.
+type Route struct {
+	Domains []string `yaml:"domains,omitempty" json:"domains,omitempty"`
+	Proxy   string   `yaml:"proxy,omitempty"   json:"proxy,omitempty"`
 }
 
 // Limits caps a sandbox container's resources. Every field is optional; an empty

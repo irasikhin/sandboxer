@@ -80,6 +80,7 @@ func newCreateCmd() *cobra.Command {
 				return err
 			}
 			fmt.Fprintln(cmd.ErrOrStderr(), configLine(rtCreate, t.slug, t.profile, backendLabel(rtCreate)))
+			warnIgnoredRoutes(cmd.ErrOrStderr(), rtCreate)
 			out := cmd.OutOrStdout()
 			fmt.Fprintf(out, "sandbox %q created: %s\n", t.slug, t.base.SandboxDir(t.slug))
 			fmt.Fprintf(out, "enter:  sandboxer enter %s\n", t.slug)
@@ -156,6 +157,7 @@ func newEnterCmd() *cobra.Command {
 			}
 			errOut := cmd.ErrOrStderr()
 			fmt.Fprintln(errOut, configLine(rt, t.slug, t.profile, backendLabel(rt)))
+			warnIgnoredRoutes(errOut, rt)
 			engine, err := backend.ResolveEngine(rt.Backend, config.LoadDefaults())
 			if err != nil {
 				return err
@@ -282,6 +284,7 @@ func newExecCmd() *cobra.Command {
 				return err
 			}
 			fmt.Fprintln(cmd.ErrOrStderr(), configLine(rt, t.slug, t.profile, backendLabel(rt)))
+			warnIgnoredRoutes(cmd.ErrOrStderr(), rt)
 			engine, err := backend.ResolveEngine(rt.Backend, config.LoadDefaults())
 			if err != nil {
 				return err
@@ -386,6 +389,17 @@ func pushDeps(t *target, cmd *cobra.Command) error {
 // noEgress reports whether the egress allowlist is disabled via the environment
 // (parity with the batch runner, which honours the same switch).
 func noEgress() bool { return os.Getenv("SANDBOXER_NO_EGRESS") == "1" }
+
+// warnIgnoredRoutes notes that network.routes take no effect in direct mode
+// (egress off, or SANDBOXER_NO_EGRESS): routes are a property of the allowlist
+// squid sidecar, which is not in the path when the agent talks to network.proxy
+// directly. Best-effort advisory on the configLine path.
+func warnIgnoredRoutes(w io.Writer, rt config.Runtime) {
+	if len(rt.Routes) > 0 && (!rt.Egress || noEgress()) {
+		fmt.Fprintln(w, "sandboxer: network.routes ignored — egress is off (routes need the allowlist sidecar; "+
+			"in direct mode the agent talks to network.proxy directly)")
+	}
+}
 
 // interactiveShellArgs is the in-container command for `enter`: launch bash with
 // the baked rc (sandbox-aware prompt, aliases, EDITOR/PAGER) when it is present,

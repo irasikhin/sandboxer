@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/irasikhin/sandboxer/internal/config"
 )
 
 // fakeEngine writes an executable shell stub that appends each invocation's
@@ -39,10 +41,10 @@ func readLog(t *testing.T, path string) string {
 }
 
 func TestUpNoDomains(t *testing.T) {
-	if _, err := Up("podman", "slug", nil, "", "", io.Discard); err == nil {
+	if _, err := Up("podman", "slug", nil, "", nil, "", io.Discard); err == nil {
 		t.Error("Up with no domains should error")
 	}
-	if _, err := Up("podman", "slug", []string{}, "", "", io.Discard); err == nil {
+	if _, err := Up("podman", "slug", []string{}, "", nil, "", io.Discard); err == nil {
 		t.Error("Up with empty domains should error")
 	}
 }
@@ -52,7 +54,7 @@ func TestUpNoDomains(t *testing.T) {
 // domains are permitted, everything else denied; a non-empty upstream chains via
 // cache_peer.
 func TestSquidConf(t *testing.T) {
-	c := squidConf([]string{"a.com", ".b.com"}, "")
+	c := squidConf([]string{"a.com", ".b.com"}, "", nil)
 	for _, want := range []string{
 		"http_port 8888",
 		"acl allowed dstdomain .a.com .b.com",
@@ -67,9 +69,62 @@ func TestSquidConf(t *testing.T) {
 	if strings.Contains(c, "cache_peer") {
 		t.Errorf("no upstream should mean no cache_peer:\n%s", c)
 	}
-	withUp := squidConf([]string{"a.com"}, "http://proxy.host:3128")
+	withUp := squidConf([]string{"a.com"}, "http://proxy.host:3128", nil)
 	if !strings.Contains(withUp, "cache_peer proxy.host parent 3128") || !strings.Contains(withUp, "never_direct allow all") {
 		t.Errorf("upstream should produce a cache_peer line:\n%s", withUp)
+	}
+}
+
+// TestSquidConfRoutes pins the per-domain routing config: a routed domain gets
+// its own acl + named cache_peer, is forced through it (never_direct), and is
+// excluded from the default peer; a default upstream still serves everything
+// else.
+func TestSquidConfRoutes(t *testing.T) {
+	routes := []config.Route{{Domains: []string{"api.geo.com"}, Proxy: "http://bypass:8080"}}
+	c := squidConf([]string{"a.com", "api.geo.com"}, "http://corp:3128", routes)
+	for _, want := range []string{
+		"acl sbxroute0 dstdomain .api.geo.com",
+		"cache_peer bypass parent 8080 0 no-query name=sbxpeer0",
+		"cache_peer_access sbxpeer0 allow sbxroute0",
+		"cache_peer_access sbxpeer0 deny all",
+		"never_direct allow sbxroute0",
+		"cache_peer corp parent 3128 0 no-query default name=sbxdefault",
+		"cache_peer_access sbxdefault deny sbxroute0",
+		"cache_peer_access sbxdefault allow all",
+	} {
+		if !strings.Contains(c, want) {
+			t.Errorf("routed squidConf missing %q in:\n%s", want, c)
+		}
+	}
+
+	// Routes with no default upstream: the routed peer is present but unrouted
+	// traffic is left to go direct (no default peer, no blanket never_direct).
+	d := squidConf([]string{"a.com", "api.geo.com"}, "", routes)
+	if !strings.Contains(d, "cache_peer bypass parent 8080 0 no-query name=sbxpeer0") {
+		t.Errorf("route peer missing without a default upstream:\n%s", d)
+	}
+	if strings.Contains(d, "never_direct allow all") || strings.Contains(d, "default name=sbxdefault") {
+		t.Errorf("no default upstream should mean no default peer / blanket never_direct:\n%s", d)
+	}
+}
+
+// TestConfFingerprint: the fingerprint tracks the squid.conf content — equal for
+// equal inputs, different when the routes (or domains/upstream) change.
+func TestConfFingerprint(t *testing.T) {
+	domains := []string{"a.com", "api.geo.com"}
+	routes := []config.Route{{Domains: []string{"api.geo.com"}, Proxy: "http://bypass:8080"}}
+	base := ConfFingerprint(domains, "", nil)
+	if base != ConfFingerprint(domains, "", nil) {
+		t.Error("ConfFingerprint must be stable for equal inputs")
+	}
+	if base == ConfFingerprint(domains, "", routes) {
+		t.Error("adding a route must change the fingerprint")
+	}
+	if base == ConfFingerprint(domains, "http://corp:3128", nil) {
+		t.Error("adding an upstream must change the fingerprint")
+	}
+	if len(base) != 64 {
+		t.Errorf("fingerprint = %q, want 64 hex chars", base)
 	}
 }
 
@@ -108,7 +163,7 @@ func TestUpDownSuccess(t *testing.T) {
 	t.Setenv("SBX_FAIL_ON", "")
 
 	confDir := t.TempDir()
-	e, err := Up(engine, "my/slug", []string{"a.com", "b.com"}, "", confDir, io.Discard)
+	e, err := Up(engine, "my/slug", []string{"a.com", "b.com"}, "", nil, confDir, io.Discard)
 	if err != nil {
 		t.Fatalf("Up: %v", err)
 	}
@@ -160,7 +215,7 @@ func TestUpWithUpstream(t *testing.T) {
 	engine, _ := fakeEngine(t)
 	t.Setenv("SBX_FAIL_ON", "")
 
-	e, err := Up(engine, "slug", []string{"a.com"}, "http://host.docker.internal:3128", t.TempDir(), io.Discard)
+	e, err := Up(engine, "slug", []string{"a.com"}, "http://host.docker.internal:3128", nil, t.TempDir(), io.Discard)
 	if err != nil {
 		t.Fatalf("Up: %v", err)
 	}
@@ -178,7 +233,7 @@ func TestUpProxyFailureTearsDown(t *testing.T) {
 	// Networks succeed; the proxy `run` fails, forcing Up to tear down.
 	t.Setenv("SBX_FAIL_ON", "run")
 
-	e, err := Up(engine, "slug", []string{"a.com"}, "", t.TempDir(), io.Discard)
+	e, err := Up(engine, "slug", []string{"a.com"}, "", nil, t.TempDir(), io.Discard)
 	if err == nil {
 		t.Fatal("Up should fail when the proxy sidecar cannot start")
 	}
@@ -195,7 +250,7 @@ func TestUpNetworkFailure(t *testing.T) {
 	engine, _ := fakeEngine(t)
 	t.Setenv("SBX_FAIL_ON", "network") // first `network create` fails
 
-	e, err := Up(engine, "slug", []string{"a.com"}, "", t.TempDir(), io.Discard)
+	e, err := Up(engine, "slug", []string{"a.com"}, "", nil, t.TempDir(), io.Discard)
 	if err == nil || e != nil {
 		t.Errorf("Up should fail and return nil when network creation fails (err=%v e=%v)", err, e)
 	}
@@ -205,7 +260,7 @@ func TestUpNamedStableNamesAndPreClean(t *testing.T) {
 	engine, logPath := fakeEngine(t)
 	t.Setenv("SBX_FAIL_ON", "")
 
-	e, err := UpNamed(engine, "sbx-mysess", []string{"a.com"}, "", t.TempDir(), io.Discard)
+	e, err := UpNamed(engine, "sbx-mysess", []string{"a.com"}, "", nil, t.TempDir(), io.Discard)
 	if err != nil {
 		t.Fatalf("UpNamed: %v", err)
 	}
@@ -249,7 +304,7 @@ func TestUpNamedNoDomains(t *testing.T) {
 	engine, logPath := fakeEngine(t)
 	t.Setenv("SBX_FAIL_ON", "")
 
-	if _, err := UpNamed(engine, "sbx-x", nil, "", "", io.Discard); err == nil {
+	if _, err := UpNamed(engine, "sbx-x", nil, "", nil, "", io.Discard); err == nil {
 		t.Error("UpNamed with no domains should error")
 	}
 	// Validation precedes the pre-clean: nothing was removed or created.

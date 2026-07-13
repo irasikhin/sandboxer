@@ -396,6 +396,27 @@ is the direct-mode `NO_PROXY`. A per-agent default goes in
 the env fallback is `SANDBOXER_PROXY`. A `localhost`/`127.0.0.1` proxy is rewritten
 to the host gateway, so a proxy on your host works with the obvious URL.
 
+**Per-domain routes.** `network.routes` sends specific destination domains
+through their own upstream proxy, overriding `network.proxy` for just those
+domains — e.g. reach a geo-blocked API through a bypass proxy while everything
+else stays direct (or on the default proxy):
+
+```yaml
+network:
+  allowedDomains: [api.anthropic.com, registry.npmjs.org, github.com]
+  proxy: http://corp:3128            # optional default parent for everything else
+  routes:
+    - domains: [api.anthropic.com]   # this one API bypasses the geo-block
+      proxy: http://bypass-ru:8080
+```
+
+Each routed domain must also be in `allowedDomains` (squid denies it before the
+route peer otherwise), a domain may route to only one proxy, and a routed peer
+being down **fails closed** (503, never a leak). Routes need the allowlist on and
+are ignored in direct mode (`egress: false`). Editing routes/proxy/domains now
+recreates a running session automatically — the sidecar config is part of the
+session's freshness.
+
 ## direnv
 
 `sandboxer hook direnv` surfaces the **active** sandbox (the one set by

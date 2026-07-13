@@ -157,6 +157,19 @@ func TestConfigHash(t *testing.T) {
 			t.Errorf("%s did not change the hash: %q", tc.desc, g)
 		}
 	}
+
+	// With egress active (egNet set) the squid.conf fingerprint is folded in, so
+	// changing the routes flips the hash even though the create argv is identical.
+	withRoute := base
+	withRoute.RT.Routes = []config.Route{{Domains: []string{"a.com"}, Proxy: "http://bypass:8080"}}
+	if ConfigHash(base, "net", "http://p") == ConfigHash(withRoute, "net", "http://p") {
+		t.Error("with egress active, changing routes must change the hash (squid.conf fingerprint)")
+	}
+	// The fingerprint is egress-only: with egNet="" (compose) the routes make no
+	// difference — that path stays deliberately fingerprint-free.
+	if ConfigHash(base, "", "") != ConfigHash(withRoute, "", "") {
+		t.Error("with no egress network the routes must not affect the hash")
+	}
 }
 
 // --- lifecycle ---------------------------------------------------------------

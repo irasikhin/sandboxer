@@ -130,6 +130,64 @@ func TestAnnotateRemovedKeys(t *testing.T) {
 	}
 }
 
+// TestValidateRoutes pins the per-domain route validation: a route needs a
+// domain and a proxy, every routed domain must be covered by the allowlist
+// (leading-dot suffix matching), an https parent is rejected under egress, and a
+// domain may route to only one proxy.
+func TestValidateRoutes(t *testing.T) {
+	allowed := []string{"api.anthropic.com", "github.com"}
+	cases := []struct {
+		name   string
+		routes []Route
+		egress bool
+		ok     bool
+	}{
+		{"nil is fine", nil, true, true},
+		{"valid covered route", []Route{{Domains: []string{"api.anthropic.com"}, Proxy: "http://bypass:8080"}}, true, true},
+		{"subdomain covered by allowlist entry", []Route{{Domains: []string{"api.anthropic.com"}, Proxy: "http://p:1"}}, true, true},
+		{"no domains", []Route{{Proxy: "http://p:1"}}, true, false},
+		{"no proxy", []Route{{Domains: []string{"github.com"}}}, true, false},
+		{"uncovered domain", []Route{{Domains: []string{"evil.com"}, Proxy: "http://p:1"}}, true, false},
+		{"https parent under egress rejected", []Route{{Domains: []string{"github.com"}, Proxy: "https://p:1"}}, true, false},
+		{"https parent ok with egress off", []Route{{Domains: []string{"github.com"}, Proxy: "https://p:1"}}, false, true},
+		{"domain in two routes", []Route{
+			{Domains: []string{"github.com"}, Proxy: "http://p:1"},
+			{Domains: []string{"github.com"}, Proxy: "http://q:2"},
+		}, true, false},
+	}
+	for _, c := range cases {
+		err := ValidateRoutes(allowed, c.routes, c.egress)
+		if (err == nil) != c.ok {
+			t.Errorf("%s: ValidateRoutes err=%v, want ok=%v", c.name, err, c.ok)
+		}
+	}
+
+	// domainCovered mirrors squid's leading-dot suffix match.
+	if !domainCovered("api.anthropic.com", []string{"anthropic.com"}) {
+		t.Error("an allowlist entry should cover its subdomains")
+	}
+	if domainCovered("notanthropic.com", []string{"anthropic.com"}) {
+		t.Error("a non-suffix domain must not be covered")
+	}
+}
+
+// TestResolveRuntimeRoutes: routes are validated (and rejected) only with egress
+// on; with egress off they are carried but not validated (ignored at run time).
+func TestResolveRuntimeRoutes(t *testing.T) {
+	bad := &Profile{Network: Network{
+		AllowedDomains: []string{"github.com"},
+		Routes:         []Route{{Domains: []string{"evil.com"}, Proxy: "http://p:1"}},
+	}}
+	if _, err := ResolveRuntime(bad, Defaults{}, "", Overrides{}); err == nil {
+		t.Error("a route domain outside the allowlist must fail under egress on")
+	}
+	off := false
+	bad.Egress = &off
+	if _, err := ResolveRuntime(bad, Defaults{}, "", Overrides{}); err != nil {
+		t.Errorf("routes must not be validated with egress off: %v", err)
+	}
+}
+
 func TestValidateProxy(t *testing.T) {
 	cases := []struct {
 		name   string

@@ -104,12 +104,22 @@ func execArgv(o RunOpts, name string, cmdArgs []string) []string {
 // the image, mounts, env, proxies or resource limits does. The result is
 // stored in the LabelHash label and compared on re-enter to decide whether the
 // running session still matches the desired configuration.
+//
+// When egress is active (egNet != "") the generated squid.conf's fingerprint is
+// folded in too, so editing the domains, the proxy or the routes reconfigures
+// the session (recreate) instead of silently taking effect only after a manual
+// recreate. compose passes egNet="" and stays fingerprint-free (already
+// documented stale — the dynamic egress flags are shown as a note, not run).
 func ConfigHash(o RunOpts, egNet, egProxyURL string) string {
 	core := []string{"run", "-d", "--init"}
 	core = append(core, commonArgs(o, egNet, egProxyURL)...)
 	core = append(core, o.Image, "sleep", "infinity")
 	// NUL-joined so adjacent argv elements can never collide by concatenation.
-	sum := sha256.Sum256([]byte(strings.Join(core, "\x00")))
+	joined := strings.Join(core, "\x00")
+	if egNet != "" {
+		joined += "\x00" + egress.ConfFingerprint(o.RT.Domains, ContainerProxyURL(o.RT.Proxy), containerRoutes(o.RT.Routes))
+	}
+	sum := sha256.Sum256([]byte(joined))
 	return hex.EncodeToString(sum[:])
 }
 
@@ -387,7 +397,7 @@ func createSession(o RunOpts, name, hash string) (string, error) {
 		if err := ensureProxyImage(o); err != nil {
 			return "", err
 		}
-		e, err := egress.UpNamed(o.Engine, name, o.RT.Domains, ContainerProxyURL(o.RT.Proxy), o.BaseDir, o.Stderr)
+		e, err := egress.UpNamed(o.Engine, name, o.RT.Domains, ContainerProxyURL(o.RT.Proxy), containerRoutes(o.RT.Routes), o.BaseDir, o.Stderr)
 		if err != nil {
 			return "", fmt.Errorf("egress allowlist proxy failed to start: %w — "+
 				"refusing to run on an open network (disable with egress: false or SANDBOXER_NO_EGRESS=1)", err)

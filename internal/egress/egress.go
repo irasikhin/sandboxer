@@ -7,6 +7,8 @@
 package egress
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -48,11 +50,12 @@ func (e *Egress) Active() bool { return e != nil && e.active }
 // same sandbox apart). When upstream is non-empty the sidecar chains allowed
 // traffic through that parent proxy (the allowlist is still enforced). confDir
 // is where the generated squid.conf is written (the session's state dir for a
-// persistent session; "" falls back to a temp dir). On any failure it tears
+// persistent session; "" falls back to a temp dir). routes send specific
+// domains through their own upstream (see squidConf). On any failure it tears
 // down whatever it created and returns an error.
-func Up(engine, slug string, domains []string, upstream, confDir string, w io.Writer) (*Egress, error) {
+func Up(engine, slug string, domains []string, upstream string, routes []config.Route, confDir string, w io.Writer) (*Egress, error) {
 	id := fmt.Sprintf("sbx-%s-%d", config.Sanitize(slug), os.Getpid())
-	return upWithID(engine, id, domains, upstream, confDir, w)
+	return upWithID(engine, id, domains, upstream, routes, confDir, w)
 }
 
 // UpNamed is Up with caller-chosen stable resource names (<id>-int, <id>-ext,
@@ -60,12 +63,12 @@ func Up(engine, slug string, domains []string, upstream, confDir string, w io.Wr
 // a later CLI invocation. It is only called when (re)creating the session
 // container, so any same-named resources are leftovers from a previous life —
 // they are removed first (Down semantics) so the creates cannot collide.
-func UpNamed(engine, id string, domains []string, upstream, confDir string, w io.Writer) (*Egress, error) {
+func UpNamed(engine, id string, domains []string, upstream string, routes []config.Route, confDir string, w io.Writer) (*Egress, error) {
 	if len(domains) == 0 {
 		return nil, errNoDomains
 	}
 	Lookup(engine, id).Down()
-	return upWithID(engine, id, domains, upstream, confDir, w)
+	return upWithID(engine, id, domains, upstream, routes, confDir, w)
 }
 
 // Lookup constructs a handle onto the resources UpNamed(id) names — the proxy
@@ -86,7 +89,7 @@ func Lookup(engine, id string) *Egress {
 // writes a generated squid.conf (the domain allowlist) and bind-mounts it into
 // the squid sidecar. The writer is part of the seam for progress output but
 // currently unused.
-func upWithID(engine, id string, domains []string, upstream, confDir string, _ io.Writer) (*Egress, error) {
+func upWithID(engine, id string, domains []string, upstream string, routes []config.Route, confDir string, _ io.Writer) (*Egress, error) {
 	if len(domains) == 0 {
 		return nil, errNoDomains
 	}
@@ -98,7 +101,7 @@ func upWithID(engine, id string, domains []string, upstream, confDir string, _ i
 	if err := os.MkdirAll(confDir, 0o755); err != nil {
 		return nil, fmt.Errorf("egress: %w", err)
 	}
-	if err := os.WriteFile(e.conf, []byte(squidConf(domains, upstream)), 0o644); err != nil {
+	if err := os.WriteFile(e.conf, []byte(squidConf(domains, upstream, routes)), 0o644); err != nil {
 		return nil, fmt.Errorf("egress: write squid.conf: %w", err)
 	}
 	steps := [][]string{
@@ -147,25 +150,29 @@ func upWithID(engine, id string, domains []string, upstream, confDir string, _ i
 // only the listed domains (and their subdomains) are reachable over HTTP and
 // HTTPS (CONNECT to 443); everything else is denied. It keeps no on-disk cache
 // and logs to std streams so squid runs as an unprivileged, capability-dropped
-// sidecar with no writable image dirs. A non-empty upstream chains allowed
-// traffic through that parent proxy.
-func squidConf(domains []string, upstream string) string {
+// sidecar with no writable image dirs.
+//
+// Upstream chaining, in precedence order:
+//   - each route's domains go through that route's own parent (cache_peer
+//     sbxpeerN) and never direct — a routed peer being down fails closed (503),
+//     never leaks;
+//   - a non-empty default upstream chains everything else through that parent
+//     (denied for every routed acl so routed domains keep their own peer);
+//   - with routes but no default upstream, unrouted allowed traffic goes DIRECT.
+//
+// Route order is deterministic (as listed) so the config — and its fingerprint —
+// is stable.
+func squidConf(domains []string, upstream string, routes []config.Route) string {
 	var b strings.Builder
 	b.WriteString("http_port 8888\n")
 	b.WriteString("acl allowed dstdomain")
-	for _, d := range domains {
-		d = strings.TrimSpace(d)
-		if d == "" {
-			continue
-		}
-		// A leading dot matches the domain itself AND its subdomains.
-		if !strings.HasPrefix(d, ".") {
-			d = "." + d
-		}
-		b.WriteString(" ")
-		b.WriteString(d)
-	}
+	writeDomains(&b, domains)
 	b.WriteString("\n")
+	for i, r := range routes {
+		fmt.Fprintf(&b, "acl sbxroute%d dstdomain", i)
+		writeDomains(&b, r.Domains)
+		b.WriteString("\n")
+	}
 	b.WriteString("acl SSL_ports port 443\n")
 	b.WriteString("acl CONNECT method CONNECT\n")
 	b.WriteString("http_access deny CONNECT !SSL_ports\n")
@@ -177,11 +184,59 @@ func squidConf(domains []string, upstream string) string {
 	b.WriteString("pid_filename none\n")
 	b.WriteString("coredump_dir /tmp\n")
 	b.WriteString("logfile_rotate 0\n")
+	// Route peers: each routed domain set gets its own parent and never goes
+	// direct (fail-closed if that parent is down).
+	for i, r := range routes {
+		host, port, ok := parseUpstream(r.Proxy)
+		if !ok {
+			continue
+		}
+		fmt.Fprintf(&b, "cache_peer %s parent %s 0 no-query name=sbxpeer%d\n", host, port, i)
+		fmt.Fprintf(&b, "cache_peer_access sbxpeer%d allow sbxroute%d\n", i, i)
+		fmt.Fprintf(&b, "cache_peer_access sbxpeer%d deny all\n", i)
+		fmt.Fprintf(&b, "never_direct allow sbxroute%d\n", i)
+	}
 	if host, port, ok := parseUpstream(upstream); ok {
-		fmt.Fprintf(&b, "cache_peer %s parent %s 0 no-query default\n", host, port)
-		b.WriteString("never_direct allow all\n")
+		if len(routes) == 0 {
+			// Unchanged legacy output: one default peer, all traffic chained.
+			fmt.Fprintf(&b, "cache_peer %s parent %s 0 no-query default\n", host, port)
+			b.WriteString("never_direct allow all\n")
+		} else {
+			// The default peer serves everything the routes don't claim.
+			fmt.Fprintf(&b, "cache_peer %s parent %s 0 no-query default name=sbxdefault\n", host, port)
+			for i := range routes {
+				fmt.Fprintf(&b, "cache_peer_access sbxdefault deny sbxroute%d\n", i)
+			}
+			b.WriteString("cache_peer_access sbxdefault allow all\n")
+			b.WriteString("never_direct allow all\n")
+		}
 	}
 	return b.String()
+}
+
+// writeDomains appends each non-empty domain to b as a space-prefixed
+// leading-dot dstdomain token (a leading dot matches the domain AND subdomains).
+func writeDomains(b *strings.Builder, domains []string) {
+	for _, d := range domains {
+		d = strings.TrimSpace(d)
+		if d == "" {
+			continue
+		}
+		if !strings.HasPrefix(d, ".") {
+			d = "." + d
+		}
+		b.WriteString(" ")
+		b.WriteString(d)
+	}
+}
+
+// ConfFingerprint is the sha256 of the squid.conf Up would generate for the
+// given allowlist, default upstream and routes. Folding it into a session's
+// ConfigHash makes editing the domains/proxy/routes reconfigure the session
+// (recreate) instead of silently taking effect only after a manual recreate.
+func ConfFingerprint(domains []string, upstream string, routes []config.Route) string {
+	sum := sha256.Sum256([]byte(squidConf(domains, upstream, routes)))
+	return hex.EncodeToString(sum[:])
 }
 
 // parseUpstream splits an upstream proxy URL (http://host:port) into host and

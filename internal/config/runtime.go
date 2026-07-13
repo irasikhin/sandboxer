@@ -23,6 +23,9 @@ type Runtime struct {
 	Session    string   // SessionPersistent or SessionEphemeral (resolved; never empty)
 	AuthAgents []string // whose creds to bind in the container
 	Egress     bool
+	// Routes send specific domains through a dedicated upstream proxy (see
+	// Network.Routes). Applied only with Egress on; ignored in direct mode.
+	Routes []Route
 	// Resource caps threaded into the container run (--memory/--cpus/--pids-limit).
 	// Mem/CPU resolve profile-over-env (limits: over SANDBOXER_MEM/SANDBOXER_CPU);
 	// Pids has no env default. Empty/zero means uncapped.
@@ -76,6 +79,15 @@ func ResolveRuntime(p *Profile, d Defaults, baseDomains string, f Overrides) (Ru
 	rt.Domains = splitCSV(domains)
 	if err := ValidateDomains(rt.Domains); err != nil {
 		return Runtime{}, err
+	}
+
+	// Routes only take effect with the allowlist on; validate them there (they
+	// are otherwise ignored in direct mode, with a CLI warning).
+	rt.Routes = p.Network.Routes
+	if rt.Egress {
+		if err := ValidateRoutes(rt.Domains, rt.Routes, rt.Egress); err != nil {
+			return Runtime{}, err
+		}
 	}
 
 	rt.Agent = firstNonEmpty(f.Agent, p.Agent, d.Agent)
@@ -182,6 +194,59 @@ func ValidateProxy(proxyURL string, egress bool) error {
 	default:
 		return fmt.Errorf("invalid proxy %q — expected an http://host:port URL", proxyURL)
 	}
+}
+
+// ValidateRoutes checks the per-domain proxy routes against the allowlist. Each
+// route needs at least one domain and a proxy that passes ValidateProxy (an
+// https parent is rejected under egress, like the default proxy). Every routed
+// domain must be covered by the allowlist — squid denies a domain before it ever
+// reaches the route's cache_peer otherwise, so an uncovered domain is dead config
+// — and a domain may route to only one proxy. Empty routes is valid (nil error).
+func ValidateRoutes(allowed []string, routes []Route, egress bool) error {
+	claimed := map[string]int{} // routed domain -> route index (catch a domain in two routes)
+	for i, r := range routes {
+		if len(r.Domains) == 0 {
+			return fmt.Errorf("network.routes[%d]: a route needs at least one domain", i)
+		}
+		if r.Proxy == "" {
+			return fmt.Errorf("network.routes[%d]: a route needs a proxy", i)
+		}
+		if err := ValidateProxy(r.Proxy, egress); err != nil {
+			return fmt.Errorf("network.routes[%d]: %w", i, err)
+		}
+		for _, d := range r.Domains {
+			d = strings.TrimSpace(d)
+			if d == "" {
+				return fmt.Errorf("network.routes[%d]: empty domain", i)
+			}
+			if prev, ok := claimed[d]; ok {
+				return fmt.Errorf("network.routes: domain %q is in routes %d and %d — a domain can route to only one proxy", d, prev, i)
+			}
+			claimed[d] = i
+			if !domainCovered(d, allowed) {
+				return fmt.Errorf("network.routes[%d]: domain %q is not covered by network.allowedDomains — "+
+					"squid denies it before the route proxy; add it to allowedDomains", i, d)
+			}
+		}
+	}
+	return nil
+}
+
+// domainCovered reports whether domain d is permitted by the allowlist under the
+// same leading-dot suffix matching squid uses (an entry a matches a and any x.a),
+// mirroring squidConf's dstdomain semantics.
+func domainCovered(d string, allowed []string) bool {
+	d = strings.TrimPrefix(strings.TrimSpace(d), ".")
+	for _, a := range allowed {
+		a = strings.TrimPrefix(strings.TrimSpace(a), ".")
+		if a == "" {
+			continue
+		}
+		if d == a || strings.HasSuffix(d, "."+a) {
+			return true
+		}
+	}
+	return false
 }
 
 func splitCSV(s string) []string {

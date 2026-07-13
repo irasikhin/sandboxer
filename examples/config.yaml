@@ -32,6 +32,13 @@ network:
   allowedDomains: [api.anthropic.com, registry.npmjs.org, github.com, repo.maven.apache.org, repo1.maven.org, central.sonatype.com]
   # proxy: http://localhost:9999        # ONE proxy URL — see the proxy note below
   # noProxy: localhost,127.0.0.1,.corp  # NO_PROXY, direct mode only (egress off)
+  # Per-domain routes: send specific domains through their own upstream proxy
+  # (e.g. bypass a geo-block for one API). Each routed domain must also be in
+  # allowedDomains above; a domain may route to only one proxy; a routed peer
+  # being down fails closed (503). Routes need egress on (ignored in direct mode).
+  # routes:
+  #   - domains: [api.anthropic.com]
+  #     proxy: http://bypass-ru:8080
 
 # Sandbox content: deps are searched by path suffix under roots, copied into
 # the sandbox's workspace/ and (rw) pushed back with `sandboxer push`. Nothing

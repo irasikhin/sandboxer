@@ -51,6 +51,21 @@ func ContainerProxyURL(raw string) string {
 	}
 }
 
+// containerRoutes adapts a profile's proxy routes for use from inside the
+// container: each route's proxy gets the same localhost→host-gateway rewrite as
+// the default proxy (ContainerProxyURL), so a route pointing at a proxy on the
+// host resolves from the egress sidecar. nil in, nil out.
+func containerRoutes(routes []config.Route) []config.Route {
+	if len(routes) == 0 {
+		return nil
+	}
+	out := make([]config.Route, len(routes))
+	for i, r := range routes {
+		out[i] = config.Route{Domains: r.Domains, Proxy: ContainerProxyURL(r.Proxy)}
+	}
+	return out
+}
+
 // RunOpts configures a single container invocation.
 type RunOpts struct {
 	Engine          string
@@ -102,7 +117,7 @@ func Run(o RunOpts) (int, error) {
 		if err := ensureProxyImage(o); err != nil {
 			return 0, err
 		}
-		e, err := egress.Up(o.Engine, o.Slug, o.RT.Domains, ContainerProxyURL(o.RT.Proxy), o.BaseDir, o.Stderr)
+		e, err := egress.Up(o.Engine, o.Slug, o.RT.Domains, ContainerProxyURL(o.RT.Proxy), containerRoutes(o.RT.Routes), o.BaseDir, o.Stderr)
 		if err != nil {
 			return 0, fmt.Errorf("egress allowlist proxy failed to start: %w — "+
 				"refusing to run on an open network (disable with egress: false or SANDBOXER_NO_EGRESS=1)", err)

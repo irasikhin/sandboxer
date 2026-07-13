@@ -70,6 +70,12 @@
         },
         "noProxy": {
           "type": "string"
+        },
+        "routes": {
+          "items": {
+            "$ref": "#/$defs/Route"
+          },
+          "type": "array"
         }
       },
       "additionalProperties": false,
@@ -151,6 +157,21 @@
         },
         "limits": {
           "$ref": "#/$defs/Limits"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "Route": {
+      "properties": {
+        "domains": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "proxy": {
+          "type": "string"
         }
       },
       "additionalProperties": false,

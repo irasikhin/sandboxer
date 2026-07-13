@@ -156,6 +156,12 @@ network:
   allowedDomains: [%s]
   # proxy: http://localhost:9999        # ONE proxy URL — see the proxy note below
   # noProxy: localhost,127.0.0.1,.corp  # direct mode only (egress off)
+  # Per-domain routes: send specific domains through their own upstream proxy
+  # (e.g. bypass a geo-block). Each routed domain must also be in allowedDomains;
+  # routes need egress on (ignored in direct mode).
+  # routes:
+  #   - domains: [api.anthropic.com]
+  #     proxy: http://bypass-ru:8080
 
 # Sandbox content. Nothing is copied unless listed here: each dep is located by
 # path suffix under roots — this directory is always searched as an implicit
