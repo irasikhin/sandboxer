@@ -6,6 +6,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.29.0] — 2026-07-13
+
+### Refactored
+
+- remove mcp: — the worktree redesign made it redundant (02d0cce)
+
+### Docs
+
+- drop stale copy-mode references left after the git-only migration (29a3a82)
+
+### Tests
+
+- drop obsolete copy-mode lifecycle integration tests (09cb6ab)
+
+
 ## [0.28.0] — 2026-07-13
 
 ### Added
@@ -223,3 +238,4 @@ isolated, containerized dev sandbox, on a local Linux machine:
 [0.26.3]: https://github.com/irasikhin/sandboxer/compare/v0.26.2...v0.26.3
 [0.27.0]: https://github.com/irasikhin/sandboxer/compare/v0.26.3...v0.27.0
 [0.28.0]: https://github.com/irasikhin/sandboxer/compare/v0.27.0...v0.28.0
+[0.29.0]: https://github.com/irasikhin/sandboxer/compare/v0.28.0...v0.29.0
