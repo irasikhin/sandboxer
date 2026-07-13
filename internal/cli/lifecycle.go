@@ -182,6 +182,8 @@ func newEnterCmd() *cobra.Command {
 			o := backend.RunOpts{
 				Engine: engine, Image: image, Spec: spec, Dest: dest, Slug: t.slug,
 				GitCommonDir: t.base.GitDir,
+				GitUserName:  t.base.GitUserName,
+				GitUserEmail: t.base.GitUserEmail,
 				HomeDir:      t.base.HomeDir(t.slug),
 				RT:           rt, Profile: t.profile,
 				ProfileJSONPath: t.base.ProfileJSONPath(t.slug), ManifestPath: t.base.ManifestPath(t.slug),
@@ -299,6 +301,8 @@ func newExecCmd() *cobra.Command {
 			o := backend.RunOpts{
 				Engine: engine, Image: image, Spec: spec, Dest: dest, Slug: t.slug,
 				GitCommonDir: t.base.GitDir,
+				GitUserName:  t.base.GitUserName,
+				GitUserEmail: t.base.GitUserEmail,
 				HomeDir:      t.base.HomeDir(t.slug),
 				RT:           rt, Profile: t.profile,
 				ProfileJSONPath: t.base.ProfileJSONPath(t.slug), ManifestPath: t.base.ManifestPath(t.slug),
@@ -488,6 +492,8 @@ func runSetup(t *target, rt config.Runtime, engine string, noSetup bool, errOut 
 		Engine: engine, Image: image, Spec: spec,
 		Dest: t.base.SandboxDir(t.slug), Slug: t.slug,
 		GitCommonDir:    t.base.GitDir,
+		GitUserName:     t.base.GitUserName,
+		GitUserEmail:    t.base.GitUserEmail,
 		HomeDir:         t.base.HomeDir(t.slug),
 		RT:              rt,
 		Profile:         t.profile,

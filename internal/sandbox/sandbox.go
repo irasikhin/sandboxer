@@ -39,9 +39,14 @@ type Base struct {
 	RepoRoot string
 	// GitDir is the shared (common) git directory, bind-mounted into the
 	// container so git resolves the worktree's gitdir pointer and object store.
-	GitDir  string
-	Domains string
-	Model   string
+	GitDir string
+	// GitUserName/GitUserEmail are the host's effective git identity, injected
+	// into the container so the agent can commit without writing to the repo
+	// config (which the container mounts read-only). Empty when git has none.
+	GitUserName  string
+	GitUserEmail string
+	Domains      string
+	Model        string
 }
 
 // detectRepo populates RepoRoot/GitDir when Src is inside a git repository with
@@ -53,6 +58,7 @@ func (b *Base) detectRepo() {
 	}
 	if top, common, ok := worktree.Detect(b.Src); ok {
 		b.RepoRoot, b.GitDir = top, common
+		b.GitUserName, b.GitUserEmail = worktree.Identity(top)
 	}
 }
 

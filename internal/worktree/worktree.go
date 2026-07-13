@@ -55,6 +55,21 @@ func Detect(dir string) (toplevel, commonDir string, ok bool) {
 	return strings.TrimSpace(lines[0]), strings.TrimSpace(lines[1]), true
 }
 
+// Identity returns the git author identity effective in the repo at dir
+// (repo-local config wins over the user's global, exactly as a host commit
+// would resolve it). Either value is "" when git has none configured; the caller
+// injects what it finds so the agent commits as the developer without writing to
+// the sandbox's read-only repo config. Best-effort: a git error yields "", "".
+func Identity(dir string) (name, email string) {
+	if out, err := run(dir, "config", "--get", "user.name"); err == nil {
+		name = strings.TrimSpace(out)
+	}
+	if out, err := run(dir, "config", "--get", "user.email"); err == nil {
+		email = strings.TrimSpace(out)
+	}
+	return name, email
+}
+
 // Ensure makes dest a git worktree of the repo at repoToplevel, checked out on
 // branch — created off HEAD when new, reused when it already exists (so a
 // recreate keeps the agent's prior commits). When includes is empty the whole

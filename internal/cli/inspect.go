@@ -281,6 +281,8 @@ func sessionHashOpts(t *target, rt config.Runtime, engine string) (backend.RunOp
 		Engine: engine, Image: image, Spec: spec,
 		Dest: t.base.SandboxDir(t.slug), Slug: t.slug, BaseDir: t.base.Dir,
 		GitCommonDir: t.base.GitDir,
+		GitUserName:  t.base.GitUserName,
+		GitUserEmail: t.base.GitUserEmail,
 		HomeDir:      t.base.HomeDir(t.slug),
 		RT:           rt, Profile: t.profile,
 		ProfileJSONPath: t.base.ProfileJSONPath(t.slug), ManifestPath: t.base.ManifestPath(t.slug),

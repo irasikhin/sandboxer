@@ -51,6 +51,21 @@ func git(t *testing.T, dir string, args ...string) string {
 	return out
 }
 
+func TestIdentity(t *testing.T) {
+	repo := gitRepo(t) // gitRepo sets user.name=t, user.email=t@example.com
+
+	name, email := Identity(repo)
+	if name != "t" || email != "t@example.com" {
+		t.Errorf("Identity = %q/%q, want t/t@example.com", name, email)
+	}
+
+	// repo-local overrides win (as a host commit would resolve).
+	git(t, repo, "config", "user.email", "local@x")
+	if _, email := Identity(repo); email != "local@x" {
+		t.Errorf("Identity email = %q, want local@x (local should win)", email)
+	}
+}
+
 func TestDetect(t *testing.T) {
 	repo := gitRepo(t)
 

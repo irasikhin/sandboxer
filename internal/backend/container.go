@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -56,7 +57,9 @@ type RunOpts struct {
 	Image           string
 	Spec            toolbox.Spec // image variant customization; drives the auto-build of a missing variant
 	Dest            string       // sandbox working tree (git worktree or copy dir), mounted and used as workdir
-	GitCommonDir    string       // shared git dir bind-mounted (rw) so git works in-container; "" in copy mode
+	GitCommonDir    string       // shared git dir bind-mounted so git works in-container; "" in copy mode
+	GitUserName     string       // host-resolved git identity, injected so the agent can commit
+	GitUserEmail    string       // without writing to (now read-only) repo config
 	Slug            string
 	BaseDir         string // host .sandboxer dir; names/labels the persistent session (zero value fine for one-shot runs)
 	HomeDir         string // sandbox-private agent home, mounted as $HOME (isolated per sandbox)
@@ -180,16 +183,34 @@ func commonArgs(o RunOpts, egNet, egProxyURL string) []string {
 	}
 	// In git-worktree mode the shared (common) git dir is bind-mounted at its own
 	// host path so the worktree's gitdir pointer and object store resolve inside
-	// the container — the agent gets a real git (branch, commit, diff). The repo
-	// is owned by the host uid while the container runs as a mapped user, so
-	// safe.directory=* is injected (via GIT_CONFIG_*) to disable git's
-	// dubious-ownership guard. "" in copy mode leaves the argv (and ConfigHash)
-	// untouched.
+	// the container — the agent gets a real git (branch, commit, diff). The mount
+	// is writable (git must update objects/refs/logs/worktrees to commit), but the
+	// two paths git executes as commands on the HOST — `config` (core.hooksPath,
+	// core.fsmonitor, filter.*.clean/smudge, core.pager, gpg.program, …) and
+	// `hooks/` — are re-mounted read-only, so a compromised agent cannot plant
+	// host code that runs on the developer's next git command. safe.directory=*
+	// clears git's dubious-ownership guard (the repo is host-owned, the container
+	// is a mapped user); hooks are additionally disabled in-container as
+	// defense-in-depth; and the host's git identity is injected so the agent can
+	// commit without writing to the now-read-only config. See SECURITY.md.
+	// "" in copy mode leaves the argv (and ConfigHash) untouched.
 	if o.GitCommonDir != "" {
-		args = append(args, "--volume", o.GitCommonDir+":"+o.GitCommonDir+":rw",
-			"--env", "GIT_CONFIG_COUNT=1",
-			"--env", "GIT_CONFIG_KEY_0=safe.directory",
-			"--env", "GIT_CONFIG_VALUE_0=*")
+		cd := o.GitCommonDir
+		args = append(args, "--volume", cd+":"+cd+":rw",
+			"--volume", roMount(cd, "config"),
+			"--volume", roMount(cd, "hooks"))
+		gc := []string{
+			"safe.directory", "*",
+			"core.hooksPath", "/dev/null",
+			"core.fsmonitor", "false",
+		}
+		if o.GitUserName != "" {
+			gc = append(gc, "user.name", o.GitUserName)
+		}
+		if o.GitUserEmail != "" {
+			gc = append(gc, "user.email", o.GitUserEmail)
+		}
+		args = append(args, gitConfigEnv(gc)...)
 	}
 	if o.Engine == "podman" {
 		args = append(args, "--userns=keep-id")
@@ -241,6 +262,31 @@ func commonArgs(o RunOpts, egNet, egProxyURL string) []string {
 	args = append(args, originMounts(o.ManifestPath)...)
 	args = append(args, extraMountsAndEnv(o.Profile)...)
 	return args
+}
+
+// roMount builds the `--volume` value that re-mounts sub (a child of the shared
+// git dir dir) read-only on top of the writable git-dir mount, so the agent
+// cannot write it. sub always exists in a git dir (config, hooks/), so the
+// engine binds the real path rather than auto-creating a root-owned placeholder.
+func roMount(dir, sub string) string {
+	p := filepath.Join(dir, sub)
+	return p + ":" + p + ":ro"
+}
+
+// gitConfigEnv renders key/value pairs as the GIT_CONFIG_COUNT / GIT_CONFIG_KEY_i
+// / GIT_CONFIG_VALUE_i --env flags git reads as ephemeral config (highest
+// precedence below `git -c`), so values are injected without touching any config
+// file. pairs must have even length (k0, v0, k1, v1, …).
+func gitConfigEnv(pairs []string) []string {
+	n := len(pairs) / 2
+	out := []string{"--env", "GIT_CONFIG_COUNT=" + strconv.Itoa(n)}
+	for i := 0; i < n; i++ {
+		idx := strconv.Itoa(i)
+		out = append(out,
+			"--env", "GIT_CONFIG_KEY_"+idx+"="+pairs[2*i],
+			"--env", "GIT_CONFIG_VALUE_"+idx+"="+pairs[2*i+1])
+	}
+	return out
 }
 
 // Test seams: overridable so ensureImage can be unit-tested without a real
