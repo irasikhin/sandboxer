@@ -14,34 +14,28 @@ func TestLoadDefaultsFromEnv(t *testing.T) {
 	t.Setenv("SANDBOXER_DOMAINS", "a.com")
 	t.Setenv("SANDBOXER_IMAGE", "img:1")
 	t.Setenv("SANDBOXER_ENGINE", "docker")
-	t.Setenv("SANDBOXER_MAX_PARALLEL", "9")
 	t.Setenv("SANDBOXER_MEM", "2G")
 	t.Setenv("SANDBOXER_CPU", "50%")
-	t.Setenv("SANDBOXER_WALL", "60")
 
 	d := LoadDefaults()
 	if d.Model != "m" || d.Agent != "crush" || d.Backend != "docker" || d.Domains != "a.com" ||
-		d.Image != "img:1" || d.Engine != "docker" || d.MaxParallel != 9 ||
-		d.Mem != "2G" || d.CPU != "50%" || d.Wall != "60" {
+		d.Image != "img:1" || d.Engine != "docker" ||
+		d.Mem != "2G" || d.CPU != "50%" {
 		t.Errorf("LoadDefaults from env = %+v", d)
 	}
 }
 
-func TestLoadDefaultsBareAndBadInt(t *testing.T) {
+func TestLoadDefaultsBare(t *testing.T) {
 	for _, k := range []string{
 		"SANDBOXER_MODEL", "SANDBOXER_AGENT", "SANDBOXER_BACKEND", "SANDBOXER_DOMAINS",
-		"SANDBOXER_IMAGE", "SANDBOXER_ENGINE", "SANDBOXER_MEM", "SANDBOXER_CPU", "SANDBOXER_WALL",
+		"SANDBOXER_IMAGE", "SANDBOXER_ENGINE", "SANDBOXER_MEM", "SANDBOXER_CPU",
 	} {
 		t.Setenv(k, "")
 	}
-	t.Setenv("SANDBOXER_MAX_PARALLEL", "not-an-int") // falls back to default
 
 	d := LoadDefaults()
 	if d.Agent != "claude" || d.Backend != "docker" || d.Domains != DefaultDomains || d.Image != DefaultImage {
 		t.Errorf("bare defaults = %+v", d)
-	}
-	if d.MaxParallel != 4 {
-		t.Errorf("MaxParallel=%d, want 4", d.MaxParallel)
 	}
 }
 

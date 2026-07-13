@@ -71,7 +71,6 @@ type RunOpts struct {
 	NoEgress        bool   // SANDBOXER_NO_EGRESS
 	Mem             string // memory cap → --memory (e.g. 2G); empty = unlimited
 	CPU             string // CPU cap → --cpus (accepts a float or systemd "100%")
-	Wall            string // wall-clock timeout in seconds; empty = none
 	Args            []string
 	Stdin           io.Reader
 	Stdout          io.Writer
@@ -147,11 +146,6 @@ func runArgs(o RunOpts, egNet, egProxyURL string) ([]string, error) {
 	}
 	args = append(args, commonArgs(o, egNet, egProxyURL)...)
 	args = append(args, o.Image)
-	// Wall-clock timeout: wrap the in-container command with `timeout` (coreutils,
-	// present in the toolbox image).
-	if o.Wall != "" {
-		args = append(args, "timeout", "--signal=TERM", o.Wall)
-	}
 	args = append(args, o.Args...)
 	return args, nil
 }

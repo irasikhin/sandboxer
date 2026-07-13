@@ -65,10 +65,8 @@ func shortHash(s string) string {
 // (commonArgs), but started with `run -d --init`, named and labeled for later
 // discovery, and kept alive by `sleep infinity` instead of the agent command.
 // Differences from runArgs are all deliberate: no --rm (the session outlives
-// any single command and is removed explicitly), no -i/-t (nothing attaches at
-// create time — exec does), and no `timeout` wrapper: a persistent session has
-// no wall clock — it idles between exec'd commands, so o.Wall bounds nothing
-// meaningful here and is ignored. Mem/CPU limits still apply via commonArgs.
+// any single command and is removed explicitly) and no -i/-t (nothing attaches
+// at create time — exec does). Mem/CPU limits still apply via commonArgs.
 func createArgv(o RunOpts, egNet, egProxyURL, name, hash string) []string {
 	args := []string{
 		"run", "-d", "--init", "--name", name,

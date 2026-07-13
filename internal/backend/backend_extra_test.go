@@ -100,7 +100,7 @@ func TestContainerProxyURL(t *testing.T) {
 }
 
 // TestRunArgv exercises the pure run-argv builder across the resource-limit,
-// proxy, egress-env and wall-timeout branches without a real engine.
+// proxy and egress-env branches without a real engine.
 func TestRunArgv(t *testing.T) {
 	argv, err := RunArgv(RunOpts{
 		Engine: "podman", Image: "img:1", Dest: "/d", Slug: "s", HomeDir: "/d/.home",
@@ -108,7 +108,7 @@ func TestRunArgv(t *testing.T) {
 			Proxy: "http://p", NoProxy: "x",
 			Domains: []string{"a.com"}, Egress: false, // egress off → direct proxy env
 		},
-		Mem: "2G", CPU: "150%", Wall: "60", Interactive: true,
+		Mem: "2G", CPU: "150%", Interactive: true,
 		Args: []string{"bash", "-l"},
 	})
 	if err != nil {
@@ -122,7 +122,7 @@ func TestRunArgv(t *testing.T) {
 		"HTTP_PROXY=http://p", "NO_PROXY=x", "SANDBOXER_ALLOW_DOMAINS=a.com",
 		// The isolated agent home is bound and used as $HOME.
 		"HOME=/d/.home", "/d/.home:/d/.home:rw",
-		"img:1", "timeout --signal=TERM 60", "bash -l",
+		"img:1", "bash -l",
 	} {
 		if !strings.Contains(s, w) {
 			t.Errorf("RunArgv missing %q in:\n%s", w, s)
@@ -131,13 +131,13 @@ func TestRunArgv(t *testing.T) {
 }
 
 // TestRunArgvExact pins the run argv byte-for-byte: the prefix / commonArgs /
-// image / timeout split must never reorder or alter a flag (compose parses
-// this argv, and sessions fingerprint the shared block).
+// image split must never reorder or alter a flag (compose parses this argv, and
+// sessions fingerprint the shared block).
 func TestRunArgvExact(t *testing.T) {
 	argv, err := RunArgv(RunOpts{
 		Engine: "docker", Image: "img:1", Dest: "/d", Slug: "s", HomeDir: "/h",
 		RT:  config.Runtime{Proxy: "http://p", NoProxy: "x", Domains: []string{"a.com"}},
-		Mem: "1G", CPU: "2", Wall: "30", Interactive: true,
+		Mem: "1G", CPU: "2", Interactive: true,
 		Args:  []string{"echo", "hi"},
 		Stdin: strings.NewReader(""), Stdout: &bytes.Buffer{},
 	})
@@ -159,7 +159,7 @@ func TestRunArgvExact(t *testing.T) {
 		"--env", "HTTPS_PROXY=http://p", "--env", "https_proxy=http://p",
 		"--env", "NO_PROXY=x", "--env", "no_proxy=x",
 		"--env", "SANDBOXER_ALLOW_DOMAINS=a.com",
-		"img:1", "timeout", "--signal=TERM", "30",
+		"img:1",
 		"echo", "hi",
 	}
 	if !slices.Equal(argv, want) {

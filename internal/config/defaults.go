@@ -3,7 +3,6 @@ package config
 import (
 	"os"
 	"path/filepath"
-	"strconv"
 )
 
 // StateDirName is the per-project state directory holding sandbox copies and
@@ -57,52 +56,39 @@ const DefaultDomains = "api.anthropic.com,api.openai.com,api.deepseek.com," +
 // Defaults holds the env-derived defaults (SANDBOXER_*), the lowest-precedence
 // layer below profile values and command flags.
 type Defaults struct {
-	Model       string
-	Agent       string
-	Backend     string
-	Session     string
-	Domains     string
-	Image       string
-	Engine      string
-	Proxy       string // SANDBOXER_PROXY — global proxy URL, lowest precedence
-	NoProxy     string // SANDBOXER_NO_PROXY — NO_PROXY for direct mode
-	MaxParallel int
-	Mem         string
-	CPU         string
-	Wall        string
+	Model   string
+	Agent   string
+	Backend string
+	Session string
+	Domains string
+	Image   string
+	Engine  string
+	Proxy   string // SANDBOXER_PROXY — global proxy URL, lowest precedence
+	NoProxy string // SANDBOXER_NO_PROXY — NO_PROXY for direct mode
+	Mem     string
+	CPU     string
 }
 
 // LoadDefaults reads the SANDBOXER_* environment.
 func LoadDefaults() Defaults {
 	return Defaults{
-		Model:       os.Getenv("SANDBOXER_MODEL"),
-		Agent:       envOr("SANDBOXER_AGENT", "claude"),
-		Backend:     envOr("SANDBOXER_BACKEND", "docker"),
-		Session:     os.Getenv("SANDBOXER_SESSION"),
-		Domains:     envOr("SANDBOXER_DOMAINS", DefaultDomains),
-		Image:       envOr("SANDBOXER_IMAGE", DefaultImage),
-		Engine:      os.Getenv("SANDBOXER_ENGINE"),
-		Proxy:       os.Getenv("SANDBOXER_PROXY"),
-		NoProxy:     os.Getenv("SANDBOXER_NO_PROXY"),
-		MaxParallel: envInt("SANDBOXER_MAX_PARALLEL", 4),
-		Mem:         os.Getenv("SANDBOXER_MEM"),
-		CPU:         os.Getenv("SANDBOXER_CPU"),
-		Wall:        os.Getenv("SANDBOXER_WALL"),
+		Model:   os.Getenv("SANDBOXER_MODEL"),
+		Agent:   envOr("SANDBOXER_AGENT", "claude"),
+		Backend: envOr("SANDBOXER_BACKEND", "docker"),
+		Session: os.Getenv("SANDBOXER_SESSION"),
+		Domains: envOr("SANDBOXER_DOMAINS", DefaultDomains),
+		Image:   envOr("SANDBOXER_IMAGE", DefaultImage),
+		Engine:  os.Getenv("SANDBOXER_ENGINE"),
+		Proxy:   os.Getenv("SANDBOXER_PROXY"),
+		NoProxy: os.Getenv("SANDBOXER_NO_PROXY"),
+		Mem:     os.Getenv("SANDBOXER_MEM"),
+		CPU:     os.Getenv("SANDBOXER_CPU"),
 	}
 }
 
 func envOr(key, def string) string {
 	if v := os.Getenv(key); v != "" {
 		return v
-	}
-	return def
-}
-
-func envInt(key string, def int) int {
-	if v := os.Getenv(key); v != "" {
-		if n, err := strconv.Atoi(v); err == nil {
-			return n
-		}
 	}
 	return def
 }

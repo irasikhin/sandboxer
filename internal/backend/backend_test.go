@@ -326,7 +326,7 @@ func TestContainerRunLimits(t *testing.T) {
 	code, err := Run(RunOpts{
 		Engine: engine, Image: "img", Dest: t.TempDir(), Slug: "s",
 		RT: config.Runtime{}, NoEgress: true,
-		Mem: "2G", CPU: "100%", Wall: "30",
+		Mem: "2G", CPU: "100%",
 		Args:  []string{"bash", "-lc", "true"},
 		Stdin: strings.NewReader(""), Stdout: &bytes.Buffer{}, Stderr: &bytes.Buffer{},
 	})
@@ -334,7 +334,7 @@ func TestContainerRunLimits(t *testing.T) {
 		t.Fatalf("Run = (%d,%v)", code, err)
 	}
 	s, _ := os.ReadFile(logPath)
-	for _, want := range []string{"--memory 2G", "--cpus 1", "timeout --signal=TERM 30"} {
+	for _, want := range []string{"--memory 2G", "--cpus 1"} {
 		if !strings.Contains(string(s), want) {
 			t.Errorf("limit flag %q missing from engine argv:\n%s", want, s)
 		}

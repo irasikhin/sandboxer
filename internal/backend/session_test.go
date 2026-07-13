@@ -47,11 +47,11 @@ func TestSessionName(t *testing.T) {
 
 // TestCreateArgv pins the exact create argv: detached + named + labeled, the
 // shared commonArgs block, then the image and the keep-alive command — and
-// deliberately NO --rm, no -i/-t, no timeout wrapper and no o.Args.
+// deliberately NO --rm, no -i/-t and no o.Args.
 func TestCreateArgv(t *testing.T) {
 	o := RunOpts{
 		Engine: "podman", Image: "img:1", Dest: "/d", Slug: "s", BaseDir: "/b",
-		HomeDir: "/d/.home", Mem: "2G", CPU: "150%", Wall: "60", Interactive: true,
+		HomeDir: "/d/.home", Mem: "2G", CPU: "150%", Interactive: true,
 		Args:  []string{"bash", "-l"},
 		Stdin: strings.NewReader(""), Stdout: &bytes.Buffer{},
 	}
@@ -115,14 +115,13 @@ func TestConfigHash(t *testing.T) {
 		}
 	}
 
-	// Name/labels are excluded: BaseDir feeds only the name + labels, and Wall
-	// is deliberately ignored — neither may flip the hash.
+	// Name/labels are excluded: BaseDir feeds only the name + labels, so it may
+	// not flip the hash.
 	same := []struct {
 		desc string
 		o    RunOpts
 	}{
 		{"different BaseDir", func() RunOpts { o := base; o.BaseDir = "/elsewhere"; return o }()},
-		{"wall timeout set", func() RunOpts { o := base; o.Wall = "60"; return o }()},
 	}
 	for _, tc := range same {
 		if g := ConfigHash(tc.o, "", ""); g != h {
