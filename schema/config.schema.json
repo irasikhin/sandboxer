@@ -101,19 +101,7 @@
         "egress": {
           "type": "boolean"
         },
-        "roots": {
-          "items": {
-            "type": "string"
-          },
-          "type": "array"
-        },
         "deps": {
-          "items": {
-            "type": "string"
-          },
-          "type": "array"
-        },
-        "context": {
           "items": {
             "type": "string"
           },

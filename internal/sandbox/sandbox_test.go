@@ -125,7 +125,6 @@ func TestPathHelpers(t *testing.T) {
 	cases := []struct{ got, suffix string }{
 		{b.SandboxDir("s"), filepath.Join(pid, "s")},
 		{b.ProfileJSONPath("s"), filepath.Join("_meta", "s.profile.json")},
-		{b.ManifestPath("s"), filepath.Join("_meta", "s.manifest.json")},
 		{b.MetaFilePath("s"), filepath.Join("_meta", "s.meta")},
 		{b.LogPath("s", "json"), filepath.Join("_logs", "s.json")},
 		{b.AgentsListPath(), filepath.Join("_meta", "agents.list")},
@@ -227,7 +226,6 @@ func TestRemove(t *testing.T) {
 		t.Fatal(err)
 	}
 	writeFile(t, b.MetaFilePath("s"), "exit=0\n")
-	writeFile(t, b.ManifestPath("s"), "[]")
 	writeFile(t, b.LogPath("s", "json"), "{}")
 	if err := b.AppendAgent("s"); err != nil {
 		t.Fatal(err)
@@ -238,7 +236,7 @@ func TestRemove(t *testing.T) {
 	if err := b.Remove("s"); err != nil {
 		t.Fatalf("Remove: %v", err)
 	}
-	for _, p := range []string{b.SandboxDir("s"), b.MetaFilePath("s"), b.ManifestPath("s"), b.LogPath("s", "json")} {
+	for _, p := range []string{b.SandboxDir("s"), b.MetaFilePath("s"), b.LogPath("s", "json")} {
 		if _, err := os.Stat(p); !os.IsNotExist(err) {
 			t.Errorf("path still present after Remove: %s", p)
 		}
@@ -302,56 +300,22 @@ func TestParseEnvFile(t *testing.T) {
 	}
 }
 
-// TestPullDepsCorruptProfile: a stored profile.json that won't parse surfaces as
-// a wrapped pull error (rather than a silent no-op), so a refresh-and-pull fails
-// loudly.
-func TestPullDepsCorruptProfile(t *testing.T) {
-	b, err := ResolveBase(t.TempDir())
+// TestMakeSandboxRejectsNonGit: sandboxer is git-only — MakeSandbox on a project
+// that is not a git repo (RepoRoot=="") errors with the init guidance rather than
+// falling back to a copy-mode workspace.
+func TestMakeSandboxRejectsNonGit(t *testing.T) {
+	b, err := ResolveBase(t.TempDir()) // a bare temp dir is not a git repo
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := b.WriteProfileJSON("feat", []byte("not json")); err != nil {
-		t.Fatal(err)
+	if b.RepoRoot != "" {
+		t.Skip("temp dir unexpectedly inside a git repo")
 	}
-	if err := b.PullDeps("feat", io.Discard); err == nil {
-		t.Error("PullDeps with a corrupt profile should error")
+	err = b.MakeSandbox("feat", io.Discard)
+	if err == nil || !strings.Contains(err.Error(), "git repo") {
+		t.Errorf("MakeSandbox on a non-git project = %v, want a git-repo error", err)
 	}
-}
-
-// TestMakeSandboxEmpty: with no profile, nothing is copied — just the sandbox
-// dir with an empty workspace/ and the registration.
-func TestMakeSandboxEmpty(t *testing.T) {
-	b, err := ResolveBase(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := b.MakeSandbox("feat", io.Discard); err != nil {
-		t.Fatalf("MakeSandbox: %v", err)
-	}
-	dest := b.SandboxDir("feat")
-	if fi, err := os.Stat(dest); err != nil || !fi.IsDir() {
-		t.Errorf("sandbox dir not created: %v", err)
-	}
-	if fi, err := os.Stat(filepath.Join(dest, "workspace")); err != nil || !fi.IsDir() {
-		t.Errorf("workspace dir not created: %v", err)
-	}
-	entries, _ := os.ReadDir(dest)
-	if len(entries) != 1 { // only workspace/
-		t.Errorf("sandbox should hold only workspace/ without srcs, has %d entries", len(entries))
-	}
-	if ws, _ := os.ReadDir(filepath.Join(dest, "workspace")); len(ws) != 0 {
-		t.Errorf("workspace should be empty without srcs, has %d entries", len(ws))
-	}
-	if _, err := os.Stat(b.ManifestPath("feat")); !os.IsNotExist(err) {
-		t.Error("no manifest should be written when there is no profile")
-	}
-	found := false
-	for _, a := range b.Agents() {
-		if a == "feat" {
-			found = true
-		}
-	}
-	if !found {
-		t.Errorf("sandbox not registered: %v", b.Agents())
+	if _, err := os.Stat(b.SandboxDir("feat")); !os.IsNotExist(err) {
+		t.Error("no sandbox dir should be created for a rejected non-git project")
 	}
 }

@@ -20,11 +20,10 @@ func TestInteractiveShellArgs(t *testing.T) {
 	}
 }
 
-// TestEnterBanner checks the orientation notice carries the slug, engine, dir
-// and the non-obvious exit-pushes-deps semantics.
+// TestEnterBanner checks the orientation notice carries the slug, engine and dir.
 func TestEnterBanner(t *testing.T) {
 	b := enterBanner("feat", "podman", "/p/.sandboxer/feat")
-	for _, want := range []string{`"feat"`, "podman", "/p/.sandboxer/feat", "pushes rw deps back"} {
+	for _, want := range []string{`"feat"`, "podman", "/p/.sandboxer/feat"} {
 		if !strings.Contains(b, want) {
 			t.Errorf("banner missing %q:\n%s", want, b)
 		}
@@ -37,7 +36,7 @@ func TestPersistentEnterBanner(t *testing.T) {
 	b := persistentEnterBanner("feat", "podman", "/p/.sandboxer/feat", "sandboxer-feat-cafe0123")
 	for _, want := range []string{
 		"sandboxer-feat-cafe0123", `"feat"`, "podman", "/p/.sandboxer/feat",
-		"Ctrl-q", "session keeps running", "sandboxer enter feat", "pushes rw deps back",
+		"Ctrl-q", "session keeps running", "sandboxer enter feat",
 	} {
 		if !strings.Contains(b, want) {
 			t.Errorf("banner missing %q:\n%s", want, b)

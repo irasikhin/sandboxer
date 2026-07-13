@@ -339,28 +339,17 @@ func TestExecUnknownSessionMode(t *testing.T) {
 }
 
 // TestExecSessionErrorPropagates: an ExecSession failure surfaces (exit 1 with
-// the engine error printed), and the rw deps push still runs on the way out.
+// the engine error printed) and does NOT fall back to a one-shot run.
 func TestExecSessionErrorPropagates(t *testing.T) {
 	project := sessionProject(t)
 	c := stubSessionSeams(t, backend.SessionInfo{Exists: true, Running: true, Hash: "h"}, "h")
 	backendExecSession = func(o backend.RunOpts, name string, cmdArgs []string) (int, error) {
 		return 0, errors.New("engine exploded")
 	}
-	// An (empty) manifest makes the post-run push observable on stderr.
-	mf := stateDir(project, "_meta", "feat.manifest.json")
-	if err := os.MkdirAll(filepath.Dir(mf), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(mf, []byte("[]"), 0o644); err != nil {
-		t.Fatal(err)
-	}
 
 	code, _, errs := run("exec", "feat", "--src", project, "--", "true")
 	if code != 1 || !strings.Contains(errs, "engine exploded") {
 		t.Errorf("failing session exec = (%d, %q), want exit 1 with the engine error", code, errs)
-	}
-	if !strings.Contains(errs, "push: 0 rw entries restored") {
-		t.Errorf("deps push must still run after a failed exec:\n%s", errs)
 	}
 	if len(c.run) != 0 {
 		t.Error("a failing session exec must not fall back to a one-shot run")

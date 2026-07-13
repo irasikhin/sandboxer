@@ -85,6 +85,7 @@ func TestHookDirenvEscapesSpecialPaths(t *testing.T) {
 	if err := os.MkdirAll(project, 0o755); err != nil {
 		t.Fatal(err)
 	}
+	gitInitProject(t, project)
 	if code, _, errs := run("create", "feat", "--src", project); code != 0 {
 		t.Fatalf("create: code=%d err=%q", code, errs)
 	}

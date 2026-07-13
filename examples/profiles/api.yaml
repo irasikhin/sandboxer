@@ -1,13 +1,12 @@
-# A second named profile, for a container backend with vendored deps.
+# A second named profile, for a container backend narrowed to part of the repo.
 #
 #   sandboxer create api -f ./examples/profiles
 #
-# `sandboxer profiles -f ./examples/profiles` lists both web and api.
+# `sandboxer profile list -f ./examples/profiles` lists both web and api.
 name: api
 backend: podman
 network:
   allowedDomains: [api.openai.com, registry.npmjs.org, pypi.org]
-roots:
-  - /home/me/work/app
+# deps narrows the worktree to these repo-relative dirs (cone sparse-checkout).
 deps:
-  - shared-lib
+  - shared/lib

@@ -81,7 +81,6 @@ type RunOpts struct {
 	RT              config.Runtime
 	Profile         *config.Profile
 	ProfileJSONPath string // mounted ro at /run/sandboxer/profile.json if present
-	ManifestPath    string // mounted rw at /run/sandboxer/manifest.json if present
 	Interactive     bool
 	NoEgress        bool   // SANDBOXER_NO_EGRESS
 	Mem             string // memory cap → --memory (e.g. 2G); empty = unlimited
@@ -265,14 +264,10 @@ func commonArgs(o RunOpts, egNet, egProxyURL string) []string {
 	if o.ProfileJSONPath != "" && pathExists(o.ProfileJSONPath) {
 		args = append(args, "--volume", o.ProfileJSONPath+":/run/sandboxer/profile.json:ro")
 	}
-	if o.ManifestPath != "" && pathExists(o.ManifestPath) {
-		args = append(args, "--volume", o.ManifestPath+":/run/sandboxer/manifest.json:rw")
-	}
 	if csv := o.RT.DomainsCSV(); csv != "" {
 		args = append(args, "--env", "SANDBOXER_ALLOW_DOMAINS="+csv)
 	}
 	args = append(args, authEnvFlags(o.RT.AuthAgents)...)
-	args = append(args, originMounts(o.ManifestPath)...)
 	args = append(args, extraMountsAndEnv(o.Profile)...)
 	return args
 }

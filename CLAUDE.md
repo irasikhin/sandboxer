@@ -32,7 +32,7 @@ was extracted from:
   the root is assembled from `commandFactories` in `internal/cli/cli.go` (no central command list). The
   `Run(args, stdin, stdout, stderr) int` stdio seam is exactly as `arch-go-cli` describes.
 - **Config = `gopkg.in/yaml.v3`** (kpass uses TOML). Scalars resolve flag → `SANDBOXER_*` env → default;
-  structured fields (roots/deps/extraMounts/env) come from an optional `.sandboxer/config.yaml` profile —
+  structured fields (deps/extraMounts/env) come from an optional `.sandboxer/config.yaml` profile —
   centralized as `config.ConfigPath()` (= `StateDirName`/`ConfigFileName`), one profile or several under a
   `profiles:` map. The image hook sits beside it at `.sandboxer/image.nix`; both are committed via the
   allowlisting `.sandboxer/.gitignore`. See `internal/config`.
@@ -58,14 +58,14 @@ was extracted from:
   `_meta`/`_logs`/`_home/<slug>`/`<slug>` dirs, so credentials/scratch can never be committed. `sandboxer clean`
   wipes that state (config stays).
 - **Sandbox backing = git worktree** (`internal/worktree`, `internal/sandbox`): a sandbox `<stateDir>/<slug>/` is
-  normally a **git worktree** of the project repo on branch `sandbox/<slug>` (off HEAD) — the agent gets a real
-  git and its work returns as an ordinary branch (no copy, no push-back). Zero-config: empty profile → whole-repo
+  a **git worktree** of the project repo on branch `sandbox/<slug>` (off HEAD) — the agent gets a real git and
+  its work returns as an ordinary branch (no copy, no push-back). Zero-config: empty profile → whole-repo
   worktree. `deps` narrows it to repo-relative dirs via cone `sparse-checkout` (empty = whole repo). The shared
   repo git dir (`git rev-parse --git-common-dir`) is bind-mounted at its host path so git resolves in-container;
   `safe.directory=*` is injected via `GIT_CONFIG_*`. Teardown routes through `git worktree remove`/`prune` and
-  KEEPS the branch (delete only via `recreate --full`). **Fallback** to the legacy copy model (`internal/srcs`:
-  deps by path-suffix under `roots`, copied into `<slug>/workspace/`, pushed back via manifest) when the project
-  is not a git repo, has no commit, or `SANDBOXER_NO_WORKTREE=1`.
+  KEEPS the branch (delete only via `recreate --full`). **git-only:** a non-git project (or one with no commit)
+  is rejected by `MakeSandbox` with an init hint — there is no copy-mode fallback (removed with `internal/srcs`);
+  other trees come in via `extraMounts`.
 - **Egress** (`internal/egress`): outbound traffic is restricted to an allowlist
   (`network.allowedDomains` / `--allow-domains`) through a **squid** sidecar (the `sandboxer-proxy` image, built
   beside the toolbox image; `config.ProxyImage()`) running a generated `squid.conf` — the binary is never in the

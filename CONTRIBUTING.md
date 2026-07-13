@@ -225,6 +225,6 @@ The composition lives in **`Document.SelectWithGlobal`** (`internal/config/docum
 `ProfilesDir()` store; a `defaults:`-only file (the common global shape) is parsed as a Document, not a flat
 profile.
 
-`roots:`/`deps:` are **project-specific** (deps are located by path suffix under the project's roots), so they
-are discouraged at global scope — a global `defaults.roots`/`defaults.deps` would copy the wrong tree into every
-sandbox. Keep them in the project config.
+`deps:` is **project-specific** (the repo-relative dirs to sparse-checkout), so it is discouraged at global
+scope — a global `defaults.deps` would narrow every project's worktree to paths that may not exist. Keep it in
+the project config.

@@ -7,8 +7,8 @@ import (
 )
 
 // TestRemoveStateKeepsHome: RemoveState(keepHome=true) wipes the working state
-// (sandbox dir, manifest, logs) but preserves the private agent home AND the
-// registration (agents.list, active marker) — those belong to Remove.
+// (sandbox dir, logs) but preserves the private agent home AND the registration
+// (agents.list, active marker) — those belong to Remove.
 func TestRemoveStateKeepsHome(t *testing.T) {
 	b, err := ResolveBase(t.TempDir())
 	if err != nil {
@@ -16,7 +16,6 @@ func TestRemoveStateKeepsHome(t *testing.T) {
 	}
 	writeFile(t, filepath.Join(b.SandboxDir("s"), "f.txt"), "x")
 	writeFile(t, filepath.Join(b.HomeDir("s"), "cred.json"), "tok")
-	writeFile(t, b.ManifestPath("s"), "[]")
 	writeFile(t, b.LogPath("s", "json"), "{}")
 	if err := b.AppendAgent("s"); err != nil {
 		t.Fatal(err)
@@ -27,7 +26,7 @@ func TestRemoveStateKeepsHome(t *testing.T) {
 
 	b.RemoveState("s", true)
 
-	for _, p := range []string{b.SandboxDir("s"), b.ManifestPath("s"), b.LogPath("s", "json")} {
+	for _, p := range []string{b.SandboxDir("s"), b.LogPath("s", "json")} {
 		if _, err := os.Stat(p); !os.IsNotExist(err) {
 			t.Errorf("path still present after RemoveState: %s", p)
 		}

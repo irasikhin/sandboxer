@@ -37,9 +37,9 @@ never touched, and nothing is copied.
 - **review** — the work is on `sandbox/<slug>` in your repo: `git log
   sandbox/<slug>`, `git diff …sandbox/<slug>`, then merge or cherry-pick.
 
-Not a git repo (or `SANDBOXER_NO_WORKTREE=1`)? sandboxer falls back to the
-**copy model**: each `dep` is located by path suffix under `roots` and copied
-into `<sandbox>/workspace/<dep>`, then pushed back to its origin (`pull`/`push`).
+sandboxer is **git-only**: the project must be a git repo with at least one
+commit (`git init && git add -A && git commit -m init`). Other trees a sandbox
+needs come in via `extraMounts`.
 
 Isolation backend — a **docker / podman** container built from a toolbox image
 with the agents baked in (claude, opencode, crush, aider, pi, gemini). Any of
@@ -68,27 +68,27 @@ Or grab a [pre-built binary](https://github.com/irasikhin/sandboxer/releases)
 ## Quick start
 
 ```bash
-sandboxer profile init                            # scaffold a commented .sandboxer/config.yaml + image.nix to edit (optional)
-sandboxer create feat                     # create a sandbox named "feat" (deps come from a profile)
+sandboxer profile init                    # scaffold a commented .sandboxer/config.yaml + image.nix to edit (optional)
+sandboxer create feat                     # create a sandbox named "feat" (a worktree on branch sandbox/feat)
 sandboxer enter  feat                     # attach a shell (persistent session; Ctrl-q detaches)
 sandboxer exec   feat -- claude           # run an agent/command inside it
-sandboxer diff   feat                     # show what changed vs the deps' origins
-sandboxer push   feat                     # copy the deps back to their origins
+git log sandbox/feat                      # the agent's work is an ordinary branch
 sandboxer stop   feat                     # park the session container (enter resumes it)
 sandboxer list                            # status of all sandboxes (incl. session state)
-sandboxer rm     feat                     # delete the sandbox and its session
+sandboxer rm     feat                     # delete the sandbox and its session (keeps the branch)
 ```
 
-To pull deps in, a profile must list them: drop a `.sandboxer/config.yaml` in the cwd
-(auto-discovered), pass one with `-f` (a file, a directory of profiles, or a
+A profile is optional (empty = the whole repo). To narrow the worktree or add
+setup/tools/env, drop a `.sandboxer/config.yaml` in the cwd (auto-discovered),
+pass one with `-f` (a file, a directory of profiles, or a
 [named profile](#named-profiles) from `~/.config/sandboxer/profiles/`), or refer
 to a stored profile by name; the sandbox slug then comes from the profile's
 `name:`.
 
 Commands group into three activities (also shown that way in `--help`): forming
 the **image** (`sandboxer image build|edit|rm`) and **config**
-(`sandboxer profile init|edit|validate|list|use`), forming the **data**
-(`pull` / `push` / `clean` / `diff`), and **entering/working** in the sandbox
+(`sandboxer profile init|edit|validate|list|use`), managing **state**
+(`clean`), and **entering/working** in the sandbox
 (`create` / `enter` / `exec` / `stop` / `rm` / `list` / `use`).
 
 ## Config vs data
@@ -103,23 +103,11 @@ state for the project; the config stays.
 
 ## How changes flow
 
-In the default **git-worktree** mode, changes flow through git: the agent commits
-on `sandbox/<slug>` in your repo's shared object store, so its work is a branch
-you review and merge (`git log`/`git diff`/`git merge sandbox/<slug>`). Teardown
-(`rm`, `recreate`) keeps the branch; `recreate --full` deletes it for a fresh
-start. There is no `pull`/`push`.
-
-In the **copy-mode fallback** (non-git project, or `SANDBOXER_NO_WORKTREE=1`),
-dependency sync is plain host-side file-copy:
-
-- **`pull`** locates each listed dep by path suffix under your roots and copies it
-  into the sandbox's `workspace/`, recording a content signature per dep.
-- **`diff`** runs `diff -ruN` between each dep's origin and the sandbox copy.
-- **`push`** copies modified deps back to their origins, but **skips** any origin
-  that changed on the host since the pull (signature mismatch) unless `--force`,
-  so host edits are never silently overwritten.
-- Agent **context** files (`CLAUDE.md`, `.claude`, …) are copied read-only and
-  never pushed back (in git mode they are already in the worktree).
+Changes flow through git: the sandbox is a **git worktree** on branch
+`sandbox/<slug>`, and the agent commits into your repo's shared object store, so
+its work is a branch you review and merge (`git log`/`git diff`/`git merge
+sandbox/<slug>`). There is no copy-in and no push-back. Teardown (`rm`,
+`recreate`) keeps the branch; `recreate --full` deletes it for a fresh start.
 
 ## Persistent sessions
 
@@ -159,7 +147,7 @@ The sandbox container's resource caps come from the profile's `limits:` block
 defaults; `pids` (a `--pids-limit`, bounding fork-bomb blast radius) is
 profile-only. Empty means uncapped.
 
-Structured fields (`roots`/`deps`, `context`, `extraMounts`, `env`, `setup`, `tools`, `mcp`, `image`, `limits`) live in an **optional**
+Structured fields (`deps`, `extraMounts`, `env`, `setup`, `tools`, `mcp`, `image`, `limits`) live in an **optional**
 `.sandboxer/config.yaml`. Point at it with `-f`/`--config`, which accepts a **file**, a
 **directory** of profiles, or the **name** of a profile in the store (see
 [Named profiles](#named-profiles)); with nothing given, a `.sandboxer/config.yaml` in
@@ -176,38 +164,22 @@ the cwd is auto-discovered. See `examples/config.yaml`,
 ```yaml
 name: feature-x
 backend: docker
-agent: claude
 network:
   allowedDomains: [api.anthropic.com, registry.npmjs.org, github.com]
-roots: [/abs/monorepo, /abs/shared]   # where to search
-deps:
-  - some_module          # any dir/file named some_module
-  - src/lib/util.go      # any path ending with src/lib/util.go
+deps:                    # narrow the worktree to these repo-relative dirs
+  - src/lib
+  - shared/proto
 setup: |                 # one-time prep, run once inside the sandbox
   npm ci
 tools: [node, go]        # runtime tool packs baked into a per-profile image
 mcp: [context7]          # MCP servers wired into the agent
 ```
 
-`deps` are located by **path suffix** under `roots` — explicit roots first,
-then the current directory as an implicit last root — and pulled into the
-sandbox (`sandboxer pull`), copied flat to `<sandbox>/workspace/<dep>`. An
-already-present target is kept unless `--force`. They are copied back to their origins (`sandboxer
-push`). The copy preserves symlinks and file modes and replaces the destination
-wholesale (depsync semantics).
-
-> ⚠️ `push` (and the automatic copy-back after `enter`/`exec`) **overwrites each
-> origin wholesale** — there is no merge. The pull records a signature of each
-> origin, and a push skips any origin **edited on the host since that pull**
-> (with a warning); `push --force` overwrites those too. Run `sandboxer diff`
-> first to see what will change. A `dep` that resolves to multiple paths uses
-> the first match (the others are listed); absolute or `../` deps are refused.
-
-`context` files are copied from the project root to the **sandbox root**
-(beside `workspace/`), so agents see your instructions: by default `CLAUDE.md`,
-`AGENTS.md` and `.claude` — those that exist. They refresh on `pull` (kept
-unless `--force`) and are **never pushed back**. A non-empty `context:` list
-replaces the default set (re-list what you keep).
+`deps` narrows the worktree to the listed **repo-relative directories** via cone
+`git sparse-checkout` (omit it to check out the whole repo) — useful in a large
+monorepo to give the agent just the tree it needs. Editing `deps` takes effect
+on `sandboxer recreate`. To bring in trees **outside** the repo, use
+`extraMounts` (a sandbox is only its own repo's worktree).
 
 `setup` is a one-time shell script (`bash -lc`) run inside the sandbox before
 you take over — e.g. `npm ci`, a build, a DB seed. It runs on the first
@@ -370,10 +342,10 @@ defaults:
     nixpkgsRev:   <40-hex>
 ```
 
-> **Keep `roots:`/`deps:` out of the global config.** They are project-specific
-> (deps are located by path suffix under your roots, per project), so a global
-> `defaults.roots`/`defaults.deps` is a foot-gun — it would copy the wrong tree
-> into every sandbox. Put roots/deps in the project `.sandboxer/config.yaml`.
+> **Keep `deps:` out of the global config.** It is project-specific (the
+> repo-relative dirs to sparse-checkout), so a global `defaults.deps` is a
+> foot-gun — it would narrow every project's worktree to paths that may not
+> exist. Put `deps` in the project `.sandboxer/config.yaml`.
 
 ## Egress allowlist (container backend)
 
@@ -537,12 +509,11 @@ Current coverage: **91.4%** total. Per package:
 | `internal/registry` | 93.7%    |
 | `internal/egress`   | 92.0%    |
 | `internal/toolbox`  | 91.1%    |
-| `internal/sandbox`  | 89.9%    |
-| `internal/cli`      | 89.7%    |
-| `internal/srcs`     | 88.8%    |
+| `internal/sandbox`  | 88.4%    |
+| `internal/cli`      | 90.1%    |
 
 Backend tests use fake engine/agent stubs on `PATH`, so they run without
-containers or touching real credentials; the few tests that shell out (`diff`,
+containers or touching real credentials; the few tests that shell out (`git`,
 real-engine integration) skip gracefully when the tool/engine is absent.
 
 ## License

@@ -19,6 +19,7 @@ func TestRunAutoScaffold(t *testing.T) {
 	t.Setenv("SANDBOXER_PROFILES", t.TempDir())
 
 	project := t.TempDir()
+	gitInitProject(t, project)
 	code, _, errs := run("create", "feat", "--src", project)
 	if code != 0 {
 		t.Fatalf("create = %d (%q)", code, errs)
@@ -165,6 +166,7 @@ func TestAutoScaffoldHintsLegacy(t *testing.T) {
 	t.Setenv("SANDBOXER_IN_CONTAINER", "")
 	t.Setenv("SANDBOXER_PROFILES", t.TempDir())
 	project := t.TempDir()
+	gitInitProject(t, project)
 	if err := os.WriteFile(filepath.Join(project, config.LegacyConfigFileName), []byte("name: old\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -264,61 +266,6 @@ func TestExecErrorPaths(t *testing.T) {
 	}
 }
 
-func TestRunPullPushNoProfile(t *testing.T) {
-	project := newProject(t)
-	// Auto-scaffold fires and creates a profile; create succeeds.
-	if code, _, _ := run("create", "feat", "--src", project); code != 0 {
-		t.Fatal("create failed")
-	}
-	// Pull works because a profile exists (auto-scaffolded with no deps).
-	if code, out, _ := run("pull", "feat", "--src", project); code != 0 {
-		t.Errorf("pull after auto-scaffold = (%d, %q)", code, out)
-	}
-	// Push succeeds with 0 rw entries (an empty manifest was created).
-	if code, out, _ := run("push", "feat", "--src", project); code != 0 || !strings.Contains(out, "0 rw entries") {
-		t.Errorf("push (empty profile) = (%d, %q)", code, out)
-	}
-}
-
-func TestRunProfileFlow(t *testing.T) {
-	t.Setenv("SANDBOXER_IN_CONTAINER", "")
-
-	project := t.TempDir() // where .sandboxer lives
-	depRoot := t.TempDir()
-	if err := os.WriteFile(filepath.Join(mkdirAll(t, filepath.Join(depRoot, "lib")), "dep.txt"), []byte("d\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	cfg := filepath.Join(t.TempDir(), "p.yaml")
-	yaml := "name: feat2\nroots: [" + depRoot + "]\ndeps:\n  - lib\n"
-	if err := os.WriteFile(cfg, []byte(yaml), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	if code, out, errs := run("create", "--src", project, "--config", cfg); code != 0 || !strings.Contains(out, "created") {
-		t.Fatalf("create with profile = (%d, %q, %q)", code, out, errs)
-	}
-	if _, err := os.Stat(stateDir(project, "feat2", "workspace", "lib", "dep.txt")); err != nil {
-		t.Errorf("dependency not pulled: %v", err)
-	}
-	if code, _, errs := run("pull", "--src", project, "--config", cfg); code != 0 {
-		t.Errorf("pull = %d, %s", code, errs)
-	}
-	if code, _, errs := run("push", "--src", project, "--config", cfg); code != 0 {
-		t.Errorf("push = %d, %s", code, errs)
-	}
-	if code, out, _ := run("show", "--src", project, "--config", cfg); code != 0 || !strings.Contains(out, "lib") {
-		t.Errorf("show with profile = (%d, %q)", code, out)
-	}
-}
-
-func mkdirAll(t *testing.T, dir string) string {
-	t.Helper()
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	return dir
-}
-
 func TestRunUseClear(t *testing.T) {
 	project := newProject(t)
 	if code, _, _ := run("create", "feat", "--src", project); code != 0 {
@@ -336,12 +283,12 @@ func TestRunUseClear(t *testing.T) {
 }
 
 // TestRunInContainerDenyAll: sandboxer is a host tool — inside the sandbox
-// EVERY command refuses (deny-all), including the read-only ones that used to be
-// allowed. The agent works on the vendored copies; data ops run on the host.
+// EVERY command refuses (deny-all), including the read-only ones. The agent
+// works in the git worktree; sandboxer's own commands run on the host.
 func TestRunInContainerDenyAll(t *testing.T) {
 	t.Setenv("SANDBOXER_IN_CONTAINER", "1")
 	t.Setenv("SANDBOXER_SANDBOX_DIR", t.TempDir())
-	for _, cmd := range []string{"show", "pull", "push", "list", "diff"} {
+	for _, cmd := range []string{"show", "list", "create", "enter", "exec"} {
 		code, _, errs := run(cmd)
 		if code != 1 || !strings.Contains(errs, "not available inside the sandbox") {
 			t.Errorf("%s in-container = (%d, %q), want exit 1 deny-all", cmd, code, errs)
@@ -364,6 +311,7 @@ func TestRunMultiProfileSelect(t *testing.T) {
 	t.Setenv("SANDBOXER_IN_CONTAINER", "")
 	t.Setenv("SANDBOXER_PROFILES", t.TempDir()) // isolate the global store
 	project := t.TempDir()
+	gitInitProject(t, project)
 	t.Chdir(project)
 	body := `defaults:
   network:
@@ -539,6 +487,7 @@ func TestDoctorNoEngine(t *testing.T) {
 func TestRunAutoDiscoversProfile(t *testing.T) {
 	t.Setenv("SANDBOXER_IN_CONTAINER", "")
 	project := t.TempDir()
+	gitInitProject(t, project)
 	t.Chdir(project)
 	// A docker profile under .sandboxer/ must be picked up without --config;
 	// otherwise the default (podman) backend would be used and the banner would

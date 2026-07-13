@@ -93,37 +93,6 @@ func TestExtraMountsAndEnv(t *testing.T) {
 	}
 }
 
-func TestOriginMounts(t *testing.T) {
-	d1, d2 := t.TempDir(), t.TempDir()
-	manifest := filepath.Join(t.TempDir(), "manifest.json")
-	body := `[{"origin":"` + d1 + `","mode":"rw"},` +
-		`{"origin":"` + d2 + `","mode":"ro"},` +
-		`{"origin":"","mode":"rw"},` +
-		`{"origin":"/no/such/path","mode":"rw"}]`
-	if err := os.WriteFile(manifest, []byte(body), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	got := originMounts(manifest)
-	joined := strings.Join(got, " ")
-	if !strings.Contains(joined, d1+":"+d1+":rw") {
-		t.Errorf("missing rw mount for %s: %q", d1, joined)
-	}
-	if !strings.Contains(joined, d2+":"+d2+":ro") {
-		t.Errorf("missing ro mount for %s: %q", d2, joined)
-	}
-	if len(got) != 4 { // two --volume/value pairs, empty + missing skipped
-		t.Errorf("originMounts produced %d args, want 4: %v", len(got), got)
-	}
-	if originMounts(filepath.Join(t.TempDir(), "missing")) != nil {
-		t.Error("missing manifest should yield nil")
-	}
-	bad := filepath.Join(t.TempDir(), "bad.json")
-	_ = os.WriteFile(bad, []byte("not json"), 0o644)
-	if originMounts(bad) != nil {
-		t.Error("malformed manifest should yield nil")
-	}
-}
-
 func TestAuthEnvFlags(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)

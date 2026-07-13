@@ -12,7 +12,6 @@ import (
 	"github.com/irasikhin/sandboxer/internal/backend"
 	"github.com/irasikhin/sandboxer/internal/config"
 	"github.com/irasikhin/sandboxer/internal/sandbox"
-	"github.com/irasikhin/sandboxer/internal/srcs"
 	"github.com/irasikhin/sandboxer/internal/worktree"
 )
 
@@ -35,8 +34,8 @@ func newCreateCmd() *cobra.Command {
 	var f commonFlags
 	cmd := &cobra.Command{
 		Use:   "create [slug|profile|file.yaml]",
-		Short: "Create a sandbox and pull its deps (nothing else is copied)",
-		Example: `  # named sandbox (empty unless a profile lists deps)
+		Short: "Create a sandbox (a git worktree on branch sandbox/<slug>)",
+		Example: `  # named sandbox (the whole repo unless a profile narrows it with deps)
   sandboxer create feat
 
   # from a profile file — slug comes from the profile's name:
@@ -85,11 +84,7 @@ func newCreateCmd() *cobra.Command {
 			fmt.Fprintf(out, "sandbox %q created: %s\n", t.slug, t.base.SandboxDir(t.slug))
 			fmt.Fprintf(out, "enter:  sandboxer enter %s\n", t.slug)
 			fmt.Fprintf(out, "run:    sandboxer exec %s -- claude\n", t.slug)
-			if t.base.RepoRoot != "" {
-				fmt.Fprintf(out, "review: git -C %s log %s\n", t.base.RepoRoot, worktree.Branch(t.slug))
-			} else {
-				fmt.Fprintf(out, "return: sandboxer push %s\n", t.slug)
-			}
+			fmt.Fprintf(out, "review: git -C %s log %s\n", t.base.RepoRoot, worktree.Branch(t.slug))
 			return nil
 		},
 	}
@@ -128,14 +123,8 @@ func newEnterCmd() *cobra.Command {
 				if err := t.base.MakeSandbox(t.slug, cmd.ErrOrStderr()); err != nil {
 					return err
 				}
-			} else if changed, err := t.syncSnapshot(); err != nil {
+			} else if err := t.syncSnapshot(); err != nil {
 				return err
-			} else if changed {
-				// The profile changed since this sandbox was created — vendor any
-				// newly listed deps in before opening the shell.
-				if err := t.base.PullDeps(t.slug, cmd.ErrOrStderr()); err != nil {
-					return err
-				}
 			}
 			rt, rtErr := t.runtime(f)
 			if rtErr != nil {
@@ -188,8 +177,8 @@ func newEnterCmd() *cobra.Command {
 				GitUserEmail: t.base.GitUserEmail,
 				HomeDir:      t.base.HomeDir(t.slug),
 				RT:           rt, Profile: t.profile,
-				ProfileJSONPath: t.base.ProfileJSONPath(t.slug), ManifestPath: t.base.ManifestPath(t.slug),
-				Mem: rt.Mem, CPU: rt.CPU, Pids: rt.Pids,
+				ProfileJSONPath: t.base.ProfileJSONPath(t.slug),
+				Mem:             rt.Mem, CPU: rt.CPU, Pids: rt.Pids,
 				Interactive: true, Args: interactiveShellArgs(),
 				NoEgress: noEgress(),
 				Stdin:    cmd.InOrStdin(), Stdout: cmd.OutOrStdout(), Stderr: errOut,
@@ -209,23 +198,15 @@ func newEnterCmd() *cobra.Command {
 			} else {
 				code, runErr = backendRun(o)
 			}
-			// Always return rw deps, even when the shell/run failed. pushDeps (via
-			// srcs.CopyOut) prints what it actually returned, so we just note we're done.
-			pushErr := pushDeps(t, cmd)
-			if t.base.RepoRoot != "" {
-				br := worktree.Branch(t.slug)
-				fmt.Fprintf(errOut, "sandboxer: work is on branch %s — review with: git -C %s log %s\n",
-					br, t.base.RepoRoot, br)
-			}
+			br := worktree.Branch(t.slug)
+			fmt.Fprintf(errOut, "sandboxer: work is on branch %s — review with: git -C %s log %s\n",
+				br, t.base.RepoRoot, br)
 			fmt.Fprintf(errOut, "sandboxer: done in %s\n", dest)
 			if runErr != nil {
 				return silentErr{runErr}
 			}
 			if code != 0 {
 				return silentErr{fmt.Errorf("shell exited %d", code)}
-			}
-			if pushErr != nil {
-				return silentErr{pushErr}
 			}
 			return nil
 		},
@@ -265,13 +246,8 @@ func newExecCmd() *cobra.Command {
 			if !fileExists(dest) {
 				return fmt.Errorf("no sandbox %q (create it: sandboxer create)", t.slug)
 			}
-			if changed, err := t.syncSnapshot(); err != nil {
+			if err := t.syncSnapshot(); err != nil {
 				return err
-			} else if changed {
-				// Pick up deps added to the profile since creation before running.
-				if err := t.base.PullDeps(t.slug, cmd.ErrOrStderr()); err != nil {
-					return err
-				}
 			}
 			rt, rtErr := t.runtime(f)
 			if rtErr != nil {
@@ -309,8 +285,8 @@ func newExecCmd() *cobra.Command {
 				GitUserEmail: t.base.GitUserEmail,
 				HomeDir:      t.base.HomeDir(t.slug),
 				RT:           rt, Profile: t.profile,
-				ProfileJSONPath: t.base.ProfileJSONPath(t.slug), ManifestPath: t.base.ManifestPath(t.slug),
-				Mem: rt.Mem, CPU: rt.CPU, Pids: rt.Pids,
+				ProfileJSONPath: t.base.ProfileJSONPath(t.slug),
+				Mem:             rt.Mem, CPU: rt.CPU, Pids: rt.Pids,
 				Interactive: true, Args: rest,
 				NoEgress: noEgress(),
 				Stdin:    cmd.InOrStdin(), Stdout: cmd.OutOrStdout(), Stderr: cmd.ErrOrStderr(),
@@ -344,15 +320,11 @@ func newExecCmd() *cobra.Command {
 			} else {
 				code, runErr = backendRun(o)
 			}
-			pushErr := pushDeps(t, cmd)
 			if runErr != nil {
 				return runErr
 			}
 			if code != 0 {
 				return silentErr{fmt.Errorf("command exited %d", code)}
-			}
-			if pushErr != nil {
-				return silentErr{pushErr}
 			}
 			return nil
 		},
@@ -363,31 +335,7 @@ func newExecCmd() *cobra.Command {
 	return cmd
 }
 
-// pushDeps pushes rw dependencies back to their origins (if a manifest exists),
-// the same copy-back that `sandboxer push` performs — safe-by-default too: an
-// origin edited on the host while the sandbox ran is skipped with a warning
-// (recover it with an explicit `sandboxer push --force`). The error is returned
-// (not just printed) so the caller can exit non-zero — otherwise the user could
-// believe work was returned when the copy-back actually failed.
-func pushDeps(t *target, cmd *cobra.Command) error {
-	if t.base.RepoRoot != "" {
-		// git mode: the agent's work is committed on its branch in the shared
-		// repo — there is nothing to copy back.
-		return nil
-	}
-	mf := t.base.ManifestPath(t.slug)
-	if !fileExists(mf) {
-		return nil
-	}
-	if err := srcs.CopyOut(cmd.ErrOrStderr(), mf, srcs.PushOpts{}); err != nil {
-		fmt.Fprintf(cmd.ErrOrStderr(), "sandboxer: push failed: %v\n", err)
-		return err
-	}
-	return nil
-}
-
-// noEgress reports whether the egress allowlist is disabled via the environment
-// (parity with the batch runner, which honours the same switch).
+// noEgress reports whether the egress allowlist is disabled via the environment.
 func noEgress() bool { return os.Getenv("SANDBOXER_NO_EGRESS") == "1" }
 
 // warnIgnoredRoutes notes that network.routes take no effect in direct mode
@@ -444,26 +392,23 @@ func validateSessionName(name string) error {
 }
 
 // enterBanner is the orientation notice printed to stderr when an interactive
-// shell opens: which sandbox, the engine, the working directory, and the
-// non-obvious exit semantics (leaving the shell pushes rw deps back to their
-// origins). The agent/backend/model/egress facts are already on the configLine
-// printed just above, so this only adds what that line does not.
+// shell opens: which sandbox, the engine and the working directory. The
+// agent's work stays on its sandbox branch — there is no copy-back. The
+// backend/egress facts are already on the configLine printed just above, so
+// this only adds what that line does not.
 func enterBanner(slug, engine, dir string) string {
 	return fmt.Sprintf(
-		"sandboxer: interactive shell in %q (%s) — %s\n"+
-			"sandboxer: exit ends the shell and pushes rw deps back to their origins",
+		"sandboxer: interactive shell in %q (%s) — %s",
 		slug, engine, dir)
 }
 
 // persistentEnterBanner is enterBanner's persistent-session variant: it also
 // names the session container and spells out the detach semantics — detaching
-// keeps the session (and anything it runs) alive, while the deps push still
-// happens on the way out, same as an ephemeral exit.
+// keeps the session (and anything it runs) alive.
 func persistentEnterBanner(slug, engine, dir, container string) string {
 	return fmt.Sprintf(
 		"sandboxer: persistent session %s in %q (%s) — %s\n"+
-			"sandboxer: Ctrl-q (or tmux detach) detaches — session keeps running; reattach: sandboxer enter %s\n"+
-			"sandboxer: detaching pushes rw deps back to their origins",
+			"sandboxer: Ctrl-q (or tmux detach) detaches — session keeps running; reattach: sandboxer enter %s",
 		container, slug, engine, dir, slug)
 }
 
@@ -514,7 +459,6 @@ func runSetup(t *target, rt config.Runtime, engine string, noSetup bool, errOut 
 		RT:              rt,
 		Profile:         t.profile,
 		ProfileJSONPath: t.base.ProfileJSONPath(t.slug),
-		ManifestPath:    t.base.ManifestPath(t.slug),
 		Mem:             rt.Mem,
 		CPU:             rt.CPU,
 		Pids:            rt.Pids,

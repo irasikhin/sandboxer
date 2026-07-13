@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -21,7 +20,6 @@ var sessionStates = backend.SessionStates
 
 func init() {
 	register(newListCmd)
-	register(newDiffCmd)
 	register(newShowCmd)
 }
 
@@ -120,81 +118,17 @@ func sessionState(states map[string]string, slug string) string {
 	}
 }
 
-// sandboxDiff shows what changed in a sandbox's pulled deps versus their
-// origins (one `diff -ruN` per manifest entry). Empty when there is no manifest.
-func sandboxDiff(base *sandbox.Base, slug string) string {
-	data, err := os.ReadFile(base.ManifestPath(slug))
-	if err != nil {
-		return ""
-	}
-	var entries []struct {
-		Origin      string `json:"origin"`
-		SandboxPath string `json:"sandboxPath"`
-	}
-	if json.Unmarshal(data, &entries) != nil {
-		return ""
-	}
-	var b strings.Builder
-	for _, e := range entries {
-		if e.Origin == "" || e.SandboxPath == "" {
-			continue
-		}
-		// diff exits 1 when files differ; the diff text is still on stdout.
-		o, _ := exec.Command("diff", "-ruN", e.Origin, e.SandboxPath).Output()
-		b.Write(o)
-	}
-	return b.String()
-}
-
-func newDiffCmd() *cobra.Command {
-	var src string
-	cmd := &cobra.Command{
-		Use:   "diff [slug]",
-		Short: "Show what changed in a sandbox's deps versus their origins",
-		Args:  cobra.MaximumNArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			base, err := baseOnly(src)
-			if err != nil {
-				return err
-			}
-			if _, err := exec.LookPath("diff"); err != nil {
-				fmt.Fprintln(cmd.ErrOrStderr(), "sandboxer: diff(1) not found on PATH — cannot show changes")
-			}
-			out := cmd.OutOrStdout()
-			only := ""
-			if p := posArg(args); p != "" {
-				only = config.Sanitize(p)
-			}
-			for _, slug := range base.Agents() {
-				if only != "" && slug != only {
-					continue
-				}
-				// Only print a section when there is an actual change.
-				if d := sandboxDiff(base, slug); d != "" {
-					fmt.Fprintf(out, "===== %s =====\n", slug)
-					fmt.Fprint(out, d)
-				}
-			}
-			return nil
-		},
-	}
-	cmd.Flags().StringVar(&src, "src", "", "project root")
-	return cmd
-}
-
 func newShowCmd() *cobra.Command {
 	var f commonFlags
 	cmd := &cobra.Command{
 		Use:   "show [slug]",
-		Short: "Show the profile and dependency manifest for a sandbox",
+		Short: "Show the resolved profile and session state for a sandbox",
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			out := cmd.OutOrStdout()
 			if inContainer() {
 				fmt.Fprintln(out, "== profile ==")
 				dumpFile(out, "/run/sandboxer/profile.json")
-				fmt.Fprintln(out, "== manifest ==")
-				dumpFile(out, "/run/sandboxer/manifest.json")
 				return nil
 			}
 			t, err := resolveTarget(f, posArg(args))
@@ -209,10 +143,6 @@ func newShowCmd() *cobra.Command {
 			fmt.Fprintf(out, "== profile (%s) ==\n", t.slug)
 			if !dumpFile(out, t.base.ProfileJSONPath(t.slug)) {
 				fmt.Fprintln(out, "(no profile)")
-			}
-			fmt.Fprintln(out, "== manifest ==")
-			if !dumpFile(out, t.base.ManifestPath(t.slug)) {
-				fmt.Fprintln(out, "(no manifest)")
 			}
 			printSessionBlock(out, t, rtShow)
 			return nil
@@ -285,8 +215,8 @@ func sessionHashOpts(t *target, rt config.Runtime, engine string) (backend.RunOp
 		GitUserEmail: t.base.GitUserEmail,
 		HomeDir:      t.base.HomeDir(t.slug),
 		RT:           rt, Profile: t.profile,
-		ProfileJSONPath: t.base.ProfileJSONPath(t.slug), ManifestPath: t.base.ManifestPath(t.slug),
-		Mem: rt.Mem, CPU: rt.CPU, Pids: rt.Pids,
+		ProfileJSONPath: t.base.ProfileJSONPath(t.slug),
+		Mem:             rt.Mem, CPU: rt.CPU, Pids: rt.Pids,
 		NoEgress: noEgress(),
 	}, true
 }

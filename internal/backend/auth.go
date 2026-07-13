@@ -1,7 +1,6 @@
 package backend
 
 import (
-	"encoding/json"
 	"fmt"
 	"os"
 	"sort"
@@ -33,35 +32,6 @@ func authEnvFlags(authAgents []string) []string {
 				out = append(out, "--env", e+"="+v)
 			}
 		}
-	}
-	return out
-}
-
-// originMounts binds the origins of vendored dependencies back into the
-// container (rw → writable for in-container push, ro → read-only), read from
-// the sandbox manifest.
-func originMounts(manifestPath string) []string {
-	data, err := os.ReadFile(manifestPath)
-	if err != nil {
-		return nil
-	}
-	var entries []struct {
-		Origin string `json:"origin"`
-		Mode   string `json:"mode"`
-	}
-	if json.Unmarshal(data, &entries) != nil {
-		return nil
-	}
-	var out []string
-	for _, e := range entries {
-		if e.Origin == "" || !pathExists(e.Origin) {
-			continue
-		}
-		mode := "ro"
-		if e.Mode == "rw" {
-			mode = "rw"
-		}
-		out = append(out, "--volume", fmt.Sprintf("%s:%s:%s", e.Origin, e.Origin, mode))
 	}
 	return out
 }

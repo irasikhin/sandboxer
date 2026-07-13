@@ -303,7 +303,33 @@ func newProject(t *testing.T) string {
 	if err := os.WriteFile(filepath.Join(dir, "f.txt"), []byte("v1\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	// sandboxer is git-only: a sandbox is a worktree of the project repo, so the
+	// project must be a git repo with at least one commit.
+	gitInitProject(t, dir)
 	return dir
+}
+
+// gitInitProject makes dir a git repo with a single commit so ResolveBase detects
+// it and MakeSandbox can branch a worktree off HEAD. It skips the test (not
+// fatal) when git is unavailable — sandboxer needs git, but the unit tests that
+// don't touch a sandbox shouldn't hard-fail on a git-less host.
+func gitInitProject(t *testing.T, dir string) {
+	t.Helper()
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available")
+	}
+	for _, args := range [][]string{
+		{"init", "-q"},
+		{"config", "user.email", "t@example.com"},
+		{"config", "user.name", "t"},
+		{"config", "commit.gpgsign", "false"},
+		{"add", "-A"},
+		{"commit", "--allow-empty", "-qm", "init"},
+	} {
+		if out, err := exec.Command("git", append([]string{"-C", dir}, args...)...).CombinedOutput(); err != nil {
+			t.Skipf("git %v unusable: %v (%s)", args, err, out)
+		}
+	}
 }
 
 func TestRunAgentsVersionHelp(t *testing.T) {

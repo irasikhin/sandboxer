@@ -1,8 +1,11 @@
-# Profile with dependencies, a container backend, and a proxy.
+# Profile that narrows the worktree to a subset of the repo, with a container
+# backend and a custom agent set.
 #
-# The sandbox content is driven by roots+deps: each dep is located by path
-# suffix under the roots, copied INTO the sandbox, and (rw) pushed back to its
-# origin with `sandboxer push`. Handy for monorepo vendoring or shared libs.
+# A sandbox is a git worktree of the project repo. `deps` narrows that worktree
+# to the listed repo-relative directories via cone sparse-checkout (empty = the
+# whole repo) — useful in a large monorepo to give the agent just the tree it
+# needs. The agent's work returns as an ordinary branch (sandbox/<name>); there
+# is no copy-in and no push-back.
 
 name: integ
 
@@ -11,9 +14,9 @@ name: integ
 # time; bring your own / BYO image for it.)
 backend: podman
 
-# Which agents to authorize in the container (bind their config dirs / env).
-# Defaults to every agent in the registry; narrow it to avoid mounting
-# credentials you don't need.
+# Which agents' credentials to pass through to the container. Defaults to every
+# agent in the registry; narrow it to avoid passing creds you don't need. Run
+# any of them with 'sandboxer exec integ -- <agent>'.
 agents: [opencode, claude]
 
 network:
@@ -23,26 +26,20 @@ network:
 # --internal network, sole exit via the forward-proxy). Disable with:
 # egress: false        # or set env SANDBOXER_NO_EGRESS=1
 
-# Proxy — ONE URL; the egress toggle (above) decides the mode (see
-# examples/config.yaml for detail). egress on → allowlist stays on, traffic
+# Proxy — ONE URL under network:; the egress toggle (above) decides the mode
+# (see examples/config.yaml for detail). egress on → allowlist stays on, traffic
 # CHAINED through the proxy (http:// only). egress off → agent uses the proxy
 # DIRECTLY (http:// or https://). A localhost proxy means one on your HOST and is
-# rewritten to the host gateway automatically.
-# proxy: http://localhost:9999
-# noProxy: localhost,127.0.0.1,.corp   # NO_PROXY, direct mode only
+# rewritten to the host gateway automatically. Put it under network.proxy above.
 
-# Search roots and the deps to find under them (matched by path suffix, copied
-# flat to <sandbox>/workspace/<dep>; rw entries are pushed back on `sandboxer push`).
-# The current directory is always searched as an implicit last root; explicit
-# roots win when a dep matches under both.
-roots:
-  - /home/me/work/app
-  - /home/me/work
+# Deps: repo-relative directories the worktree is narrowed to (cone
+# sparse-checkout). Omit to check out the whole repo.
 deps:
-  - shared-lib          # any dir/file named shared-lib
-  - src/proto           # any path ending with src/proto
+  - src/proto
+  - shared/lib
 
-# Extra bind mounts and env for the container (optional).
+# Extra bind mounts and env for the container (optional). extraMounts is the way
+# to bring in OTHER trees (a sandbox is only its own repo's worktree):
 # extraMounts:
 #   - { source: /data/cache, target: /data/cache, mode: rw }
 # env:

@@ -133,16 +133,16 @@ func TestMergeProfileExhaustive(t *testing.T) {
 	}
 }
 
-// TestMergeProfileContext: context follows the standard list-override rule —
-// a non-empty over replaces, an empty over keeps the base.
-func TestMergeProfileContext(t *testing.T) {
-	base := Profile{Context: []string{"CLAUDE.md"}}
-	got := mergeProfile(base, Profile{Context: []string{"NOTES.md"}})
-	if !reflect.DeepEqual(got.Context, []string{"NOTES.md"}) {
-		t.Errorf("over.Context must win: %v", got.Context)
+// TestMergeProfileDeps: deps follows the standard list-override rule — a
+// non-empty over replaces, an empty over keeps the base.
+func TestMergeProfileDeps(t *testing.T) {
+	base := Profile{Deps: []string{"src/lib"}}
+	got := mergeProfile(base, Profile{Deps: []string{"src/other"}})
+	if !reflect.DeepEqual(got.Deps, []string{"src/other"}) {
+		t.Errorf("over.Deps must win: %v", got.Deps)
 	}
 	got = mergeProfile(base, Profile{})
-	if !reflect.DeepEqual(got.Context, []string{"CLAUDE.md"}) {
-		t.Errorf("empty over must keep base.Context: %v", got.Context)
+	if !reflect.DeepEqual(got.Deps, []string{"src/lib"}) {
+		t.Errorf("empty over must keep base.Deps: %v", got.Deps)
 	}
 }

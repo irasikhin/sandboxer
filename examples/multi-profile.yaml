@@ -23,17 +23,15 @@ defaults:
     NODE_ENV: development
 
 profiles:
-  # Frontend: container backend, pulls the shared UI lib.
+  # Frontend: container backend, worktree narrowed to the shared UI lib.
   web:
     backend: podman
-    roots: [.]
     deps:
       - shared/ui
 
-  # Backend API base: docker engine, its own dep.
+  # Backend API base: docker engine, narrowed to its own dir.
   api: &api
     backend: docker
-    roots: [.]
     deps:
       - shared/proto
 

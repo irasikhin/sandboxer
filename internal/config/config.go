@@ -1,10 +1,10 @@
 // Package config models the sandboxer profile and resolves runtime settings.
 //
 // A profile is optional: scalar settings come from flags and SANDBOXER_* env
-// vars, and only structured fields (roots/deps vendoring, extraMounts, env)
-// require a .sandboxer/config.yaml file. The resolved profile is serialized to JSON
+// vars, and only structured fields (deps, extraMounts, env) require a
+// .sandboxer/config.yaml file. The resolved profile is serialized to JSON
 // (camelCase keys) and stored under .sandboxer/_meta/<slug>.profile.json; that
-// JSON is the single artifact the container backend and the srcs package read.
+// JSON is the single artifact the container backend and the sandbox package read.
 package config
 
 import (
@@ -144,13 +144,10 @@ func (p *Profile) resolveImageNix(dir string) {
 }
 
 // Profile is a sandbox configuration. All fields are optional; an empty profile
-// is valid (everything then comes from flags/env/defaults) — in a git repo that
-// yields a full-repo worktree with zero config. A sandbox is normally a git
-// worktree of the project on branch sandbox/<slug>; deps then narrow it to a
-// subset of repo-relative directories via sparse-checkout (empty = the whole
-// repo). When the project is not a git repository (or SANDBOXER_NO_WORKTREE is
-// set) the sandbox falls back to the copy model: deps are searched by path
-// suffix under roots and copied in.
+// is valid (everything then comes from flags/env/defaults) — that yields a
+// full-repo worktree with zero config. A sandbox is always a git worktree of the
+// project on branch sandbox/<slug>; deps then narrow it to a subset of
+// repo-relative directories via sparse-checkout (empty = the whole repo).
 type Profile struct {
 	Name    string  `yaml:"name,omitempty"        json:"name,omitempty"`
 	Backend string  `yaml:"backend,omitempty"     json:"backend,omitempty"`
@@ -160,20 +157,9 @@ type Profile struct {
 	// agent in the registry.
 	Agents []string `yaml:"agents,omitempty"      json:"agents,omitempty"`
 	Egress *bool    `yaml:"egress,omitempty"      json:"egress,omitempty"`
-	// Roots are the copy-mode search roots (ignored in git-worktree mode).
-	Roots []string `yaml:"roots,omitempty"       json:"roots,omitempty"`
-	// Deps, in git-worktree mode, are the repo-relative directories the worktree
-	// is narrowed to via sparse-checkout (empty = the whole repo). In copy mode
-	// they are the dependencies located by path suffix under Roots and copied in.
-	Deps []string `yaml:"deps,omitempty"        json:"deps,omitempty"`
-	// Context (copy mode only — a git-worktree sandbox already contains these
-	// files) lists project files copied to the sandbox ROOT (beside workspace/)
-	// so agents see the project's instructions — paths relative to the project
-	// root, refreshed on pull, never pushed back (read-only). Unset means the
-	// default set (CLAUDE.md, AGENTS.md, .claude), existing entries only; a
-	// non-empty list REPLACES that set (re-list what you keep) and warns about
-	// missing entries.
-	Context     []string          `yaml:"context,omitempty"     json:"context,omitempty"`
+	// Deps are the repo-relative directories the worktree is narrowed to via cone
+	// sparse-checkout (empty = the whole repo).
+	Deps        []string          `yaml:"deps,omitempty"        json:"deps,omitempty"`
 	ExtraMounts []Mount           `yaml:"extraMounts,omitempty" json:"extraMounts,omitempty"`
 	Env         map[string]string `yaml:"env,omitempty"         json:"env,omitempty"`
 	// Setup is a one-time shell script run inside the sandbox (bash -lc) before
@@ -239,6 +225,8 @@ var removedKeys = map[string]string{
 	"noProxy":    "moved under network: — use network.noProxy",
 	"agent":      "removed — a sandbox is not bound to one agent (choose per exec); use agents: for credential passthrough and network.routes to route an API domain through a proxy",
 	"agentProxy": "removed — route by destination instead: network.routes",
+	"roots":      "removed — sandboxes are git worktrees now (no copy mode); mount other trees with extraMounts",
+	"context":    "removed — a git-worktree sandbox already contains the repo's files (nothing is copied in)",
 }
 
 // annotateRemovedKeys upgrades the strict YAML decoder's "field <key> not found"

@@ -213,12 +213,13 @@ func TestComposePrintRunHashSelfConsistent(t *testing.T) {
 		t.Fatalf("compose --print-run = %d %s", code, errs)
 	}
 	createLine := strings.Split(strings.TrimSpace(out), "\n")[0]
-	// No printed token needs shell quoting in this fixture, so Fields is an
-	// exact inverse of shellLine.
-	if strings.Contains(createLine, "'") {
-		t.Fatalf("fixture grew a quoted token, the reconstruction below is invalid:\n%s", createLine)
-	}
+	// The git-worktree mount injects GIT_CONFIG_VALUE_0=* which shellLine
+	// single-quotes; no printed token contains an internal space, so Fields still
+	// splits cleanly and each token just needs unquoting to recover the raw argv.
 	tokens := strings.Fields(createLine)[1:] // drop the engine
+	for i := range tokens {
+		tokens[i] = shellUnquoteToken(tokens[i])
+	}
 	var core []string
 	label := ""
 	for i := 0; i < len(tokens); i++ {
@@ -238,6 +239,16 @@ func TestComposePrintRunHashSelfConsistent(t *testing.T) {
 	if want := hex.EncodeToString(sum[:]); label != want {
 		t.Errorf("printed hash label %q is not the hash of the printed argv %q", label, want)
 	}
+}
+
+// shellUnquoteToken reverses shellQuoteArg for a single whitespace-free token: a
+// single-quote-wrapped token has its wrapper stripped and any '\” escape turned
+// back into a literal quote.
+func shellUnquoteToken(s string) string {
+	if len(s) >= 2 && s[0] == '\'' && s[len(s)-1] == '\'' {
+		return strings.ReplaceAll(s[1:len(s)-1], `'\''`, "'")
+	}
+	return s
 }
 
 // TestComposePrintRunMCPDomains: compose folds the profile's MCP-server
