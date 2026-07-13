@@ -133,23 +133,20 @@ func newAgentsCmd() *cobra.Command {
 		Short: "List the coding agents you can put in a profile's agent: field",
 		Long: `List the coding agents baked into the toolbox image — the valid values for a
 profile's agent: field (and the --agent flag). For each: its binary, whether it
-ships in the image, its credential dirs and the env vars it authenticates with.`,
+ships in the image, and the env vars it authenticates with (passed through to
+the sandbox when set on the host — or log in inside the sandbox).`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			tw := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 2, ' ', 0)
-			fmt.Fprintln(tw, "AGENT\tBIN\tIMAGE\tAUTH DIRS\tENV")
+			fmt.Fprintln(tw, "AGENT\tBIN\tIMAGE\tENV")
 			for _, name := range registry.Names() {
 				a, _ := registry.Get(name)
-				var dirs []string
-				for _, d := range a.AuthConfigDirs {
-					dirs = append(dirs, d.Path)
-				}
 				image := "yes"
 				if a.Image != nil && !*a.Image {
 					image = "no"
 				}
-				fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n",
-					name, a.Bin, image, orDash(strings.Join(dirs, " ")), orDash(strings.Join(a.AuthEnv, ",")))
+				fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n",
+					name, a.Bin, image, orDash(strings.Join(a.AuthEnv, ",")))
 			}
 			return tw.Flush()
 		},

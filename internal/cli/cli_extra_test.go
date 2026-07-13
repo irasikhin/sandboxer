@@ -537,21 +537,6 @@ func TestDoctorNoEngine(t *testing.T) {
 	}
 }
 
-func TestExpandHome(t *testing.T) {
-	const home = "/home/u"
-	cases := []struct{ in, want string }{
-		{"~", home},
-		{"~/.claude", home + "/.claude"},
-		{"/etc/abs", "/etc/abs"},
-		{"relative/path", "relative/path"},
-	}
-	for _, c := range cases {
-		if got := expandHome(c.in, home); got != c.want {
-			t.Errorf("expandHome(%q, %q) = %q, want %q", c.in, home, got, c.want)
-		}
-	}
-}
-
 func TestRunAutoDiscoversProfile(t *testing.T) {
 	t.Setenv("SANDBOXER_IN_CONTAINER", "")
 	project := t.TempDir()

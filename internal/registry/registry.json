@@ -1,72 +1,37 @@
 {
   "claude": {
     "bin": "claude",
-    "interactive": "claude {modelFlag}",
-    "headless": "claude -p {task} --permission-mode bypassPermissions {modelFlag} --output-format json",
-    "authConfigDirs": [
-      { "path": "~/.claude", "mode": "rw" },
-      { "path": "~/.claude.json", "mode": "rw" },
-      { "path": "~/.config/anthropic", "mode": "rw", "optional": true }
-    ],
     "authEnv": ["ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_BASE_URL"],
     "nixPackage": "claude-code"
   },
   "codex": {
     "bin": "codex",
-    "interactive": "codex {modelFlag}",
-    "headless": "codex exec {task}",
-    "authConfigDirs": [{ "path": "~/.codex", "mode": "rw" }],
     "authEnv": ["OPENAI_API_KEY", "CODEX_API_KEY"],
     "nixPackage": "codex",
-    "image": false,
-    "imageNote": "Rust build (-j1) dominates image build time; BYO image only, not baked into the toolbox image."
+    "image": false
   },
   "opencode": {
     "bin": "opencode",
-    "interactive": "opencode {modelFlag}",
-    "headless": "opencode run {task}",
-    "authConfigDirs": [
-      { "path": "~/.local/share/opencode", "mode": "rw" },
-      { "path": "~/.config/opencode", "mode": "ro", "optional": true }
-    ],
     "authEnv": ["OPENAI_API_KEY", "ANTHROPIC_API_KEY", "OPENROUTER_API_KEY", "DEEPSEEK_API_KEY"],
     "nixPackage": "opencode"
   },
   "crush": {
     "bin": "crush",
-    "interactive": "crush {modelFlag}",
-    "headless": "crush run {task}",
-    "authConfigDirs": [
-      { "path": "~/.config/crush", "mode": "rw", "optional": true },
-      { "path": "~/.local/share/crush", "mode": "rw", "optional": true }
-    ],
     "authEnv": ["ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GROQ_API_KEY", "OPENROUTER_API_KEY"],
     "nixPackage": "crush"
   },
   "aider": {
     "bin": "aider",
-    "interactive": "aider {modelFlag}",
-    "headless": "aider --message {task} --yes-always {modelFlag}",
-    "authConfigDirs": [
-      { "path": "~/.aider.conf.yml", "mode": "ro", "optional": true },
-      { "path": "~/.aider.model.settings.yml", "mode": "ro", "optional": true }
-    ],
     "authEnv": ["OPENAI_API_KEY", "ANTHROPIC_API_KEY", "DEEPSEEK_API_KEY", "OPENROUTER_API_KEY"],
     "nixPackage": "aider"
   },
   "pi": {
     "bin": "pi",
-    "interactive": "pi {modelFlag}",
-    "headless": "pi {task}",
-    "authConfigDirs": [{ "path": "~/.pi", "mode": "rw" }],
     "authEnv": ["ANTHROPIC_API_KEY", "OPENAI_API_KEY", "DEEPSEEK_API_KEY"],
     "nixPackage": "pi"
   },
   "gemini": {
     "bin": "gemini",
-    "interactive": "gemini {modelFlag}",
-    "headless": "gemini -p {task}",
-    "authConfigDirs": [{ "path": "~/.gemini", "mode": "rw" }],
     "authEnv": ["GEMINI_API_KEY", "GOOGLE_API_KEY"],
     "nixPackage": "gemini-cli"
   }

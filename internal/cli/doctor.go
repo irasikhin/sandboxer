@@ -57,7 +57,6 @@ Run this after a fresh install or when something isn't working.`,
 			ok, warn := 0, 0
 
 			d := config.LoadDefaults()
-			home, _ := os.UserHomeDir()
 
 			// Container engine.
 			engine, engineErr := backend.DetectEngine(d)
@@ -86,28 +85,23 @@ Run this after a fresh install or when something isn't working.`,
 				reportSessions(tw, e, &ok, &warn)
 			}
 
-			// Agent credentials — check config dirs and env vars for each agent.
+			// Agent credentials — check ONLY the auth env vars each agent reads.
+			// Host credential DIRECTORIES are deliberately never mounted (every
+			// sandbox has an isolated $HOME), so an absent env var is not a
+			// problem: the recommended path is to log in INSIDE the sandbox. We
+			// report presence, never a scary "no creds" for that normal flow.
 			for _, name := range registry.Names() {
 				a, _ := registry.Get(name)
 				found := false
-				for _, dir := range a.AuthConfigDirs {
-					p := expandHome(dir.Path, home)
-					if fileExists(p) {
+				for _, e := range a.AuthEnv {
+					if os.Getenv(e) != "" {
 						found = true
 						break
 					}
 				}
+				status := "✓ auth env set"
 				if !found {
-					for _, e := range a.AuthEnv {
-						if os.Getenv(e) != "" {
-							found = true
-							break
-						}
-					}
-				}
-				status := "✓"
-				if !found {
-					status = "⚠ (no creds found)"
+					status = "- no auth env (or log in inside the sandbox)"
 				}
 				fmt.Fprintf(tw, "agent %s\t%s\tbin=%s image=%v\n",
 					name, status, a.Bin, a.Image == nil || *a.Image)
@@ -205,14 +199,4 @@ func reportSessions(tw io.Writer, engine string, ok, warn *int) {
 // config.StateDir, so its lingering presence is worth a one-line cleanup hint.
 func legacyStateLeftover(root string) bool {
 	return fileExists(filepath.Join(root, config.StateDirName, "_meta"))
-}
-
-func expandHome(p, home string) string {
-	if p == "~" {
-		return home
-	}
-	if len(p) > 1 && p[0] == '~' && p[1] == '/' {
-		return filepath.Join(home, p[2:])
-	}
-	return p
 }
