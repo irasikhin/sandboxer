@@ -186,7 +186,7 @@ func (d *Document) SelectWithGlobal(name, flagAgent, envAgent string, global *Do
 
 	eff := mergeProfile(base, sec)
 	eff.Name = name
-	applyAgentProxy(&eff, d.AgentProxy, global.AgentProxy, sec.Proxy != "", flagAgent, envAgent)
+	applyAgentProxy(&eff, d.AgentProxy, global.AgentProxy, sec.Network.Proxy != "", flagAgent, envAgent)
 	return &eff, nil
 }
 
@@ -194,7 +194,7 @@ func (d *Document) SelectWithGlobal(name, flagAgent, envAgent string, global *Do
 // (the no-global path, where Select has already merged defaults into eff).
 func sectionProxySet(d *Document, name string) bool {
 	sec, ok := d.Profiles[name]
-	return ok && sec.Proxy != ""
+	return ok && sec.Network.Proxy != ""
 }
 
 // applyAgentProxy overrides eff.Proxy with the per-agent proxy when the selected
@@ -210,11 +210,11 @@ func applyAgentProxy(eff *Profile, projectAP, globalAP map[string]string, sectio
 		return
 	}
 	if u, ok := projectAP[agent]; ok && u != "" {
-		eff.Proxy = u
+		eff.Network.Proxy = u
 		return
 	}
 	if u, ok := globalAP[agent]; ok && u != "" {
-		eff.Proxy = u
+		eff.Network.Proxy = u
 	}
 }
 
@@ -249,14 +249,16 @@ func mergeProfile(base, over Profile) Profile {
 	if over.Agent != "" {
 		out.Agent = over.Agent
 	}
+	// Network merges per field: a profile can tighten the allowlist while keeping
+	// the defaults' proxy, or set a proxy without re-listing domains.
 	if len(over.Network.AllowedDomains) > 0 {
 		out.Network.AllowedDomains = over.Network.AllowedDomains
 	}
-	if over.Proxy != "" {
-		out.Proxy = over.Proxy
+	if over.Network.Proxy != "" {
+		out.Network.Proxy = over.Network.Proxy
 	}
-	if over.NoProxy != "" {
-		out.NoProxy = over.NoProxy
+	if over.Network.NoProxy != "" {
+		out.Network.NoProxy = over.Network.NoProxy
 	}
 	if len(over.Agents) > 0 {
 		out.Agents = over.Agents

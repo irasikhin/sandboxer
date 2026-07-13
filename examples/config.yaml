@@ -30,6 +30,8 @@ agent: claude
 # Omit this block entirely to keep the full defaults.
 network:
   allowedDomains: [api.anthropic.com, registry.npmjs.org, github.com, repo.maven.apache.org, repo1.maven.org, central.sonatype.com]
+  # proxy: http://localhost:9999        # ONE proxy URL — see the proxy note below
+  # noProxy: localhost,127.0.0.1,.corp  # NO_PROXY, direct mode only (egress off)
 
 # Sandbox content: deps are searched by path suffix under roots, copied into
 # the sandbox's workspace/ and (rw) pushed back with `sandboxer push`. Nothing
@@ -77,13 +79,12 @@ network:
 # credentials you don't need.
 # agents: [opencode, claude]
 
-# Proxy — ONE URL, the egress toggle (below) decides the trust model:
+# Proxy — ONE URL under network: (network.proxy above); the egress toggle
+# (below) decides the trust model:
 #   - egress on (the default): the allowlist stays ON and traffic is CHAINED
 #     through the proxy — sandboxer still enforces allowedDomains. http:// only.
 #   - egress off: the agent talks to the proxy DIRECTLY (HTTP(S)_PROXY); the proxy
 #     is trusted to police egress. http:// or https://.
-# proxy: http://localhost:9999
-# noProxy: localhost,127.0.0.1,.corp   # NO_PROXY, direct mode only (egress off)
 #
 # A proxy on localhost/127.0.0.1 means a proxy on your HOST: sandboxer rewrites it
 # to the host gateway (host.docker.internal) automatically, so the obvious URL

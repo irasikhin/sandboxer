@@ -238,7 +238,7 @@ func TestGlobalConfigNotRequired(t *testing.T) {
 func TestAgentProxyResolution(t *testing.T) {
 	// section proxy wins over a per-agent entry for the same agent.
 	d := &Document{
-		Profiles:   map[string]Profile{"web": {Agent: "claude", Proxy: "http://section:1"}},
+		Profiles:   map[string]Profile{"web": {Agent: "claude", Network: Network{Proxy: "http://section:1"}}},
 		Default:    "web",
 		AgentProxy: map[string]string{"claude": "http://agent:2"},
 	}
@@ -246,13 +246,13 @@ func TestAgentProxyResolution(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Proxy != "http://section:1" {
-		t.Errorf("section proxy must win: %q", got.Proxy)
+	if got.Network.Proxy != "http://section:1" {
+		t.Errorf("section proxy must win: %q", got.Network.Proxy)
 	}
 
 	// no section proxy: agentProxy[agent] beats the defaults proxy.
 	d2 := &Document{
-		Defaults:   Profile{Proxy: "http://default:3"},
+		Defaults:   Profile{Network: Network{Proxy: "http://default:3"}},
 		Profiles:   map[string]Profile{"web": {Agent: "codex"}},
 		Default:    "web",
 		AgentProxy: map[string]string{"codex": "http://agent:4"},
@@ -261,8 +261,8 @@ func TestAgentProxyResolution(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got2.Proxy != "http://agent:4" {
-		t.Errorf("agentProxy must beat defaults proxy: %q", got2.Proxy)
+	if got2.Network.Proxy != "http://agent:4" {
+		t.Errorf("agentProxy must beat defaults proxy: %q", got2.Network.Proxy)
 	}
 
 	// the --agent flag drives which agentProxy entry is picked.
@@ -270,8 +270,8 @@ func TestAgentProxyResolution(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got3.Proxy != "http://default:3" {
-		t.Errorf("flag agent=claude has no agentProxy entry, so defaults apply: %q", got3.Proxy)
+	if got3.Network.Proxy != "http://default:3" {
+		t.Errorf("flag agent=claude has no agentProxy entry, so defaults apply: %q", got3.Network.Proxy)
 	}
 
 	// project agentProxy overrides a global one for the same agent; a global-only
@@ -286,14 +286,14 @@ func TestAgentProxyResolution(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got4.Proxy != "http://pclaude" {
-		t.Errorf("project agentProxy must beat global: %q", got4.Proxy)
+	if got4.Network.Proxy != "http://pclaude" {
+		t.Errorf("project agentProxy must beat global: %q", got4.Network.Proxy)
 	}
 	got5, err := project.SelectWithGlobal("web", "codex", "", global)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got5.Proxy != "http://gcodex" {
-		t.Errorf("global-only agentProxy entry should apply: %q", got5.Proxy)
+	if got5.Network.Proxy != "http://gcodex" {
+		t.Errorf("global-only agentProxy entry should apply: %q", got5.Network.Proxy)
 	}
 }

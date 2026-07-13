@@ -154,6 +154,8 @@ agent: %s
 # block to keep the full defaults. Trim to what your task needs.
 network:
   allowedDomains: [%s]
+  # proxy: http://localhost:9999        # ONE proxy URL — see the proxy note below
+  # noProxy: localhost,127.0.0.1,.corp  # direct mode only (egress off)
 
 # Sandbox content. Nothing is copied unless listed here: each dep is located by
 # path suffix under roots — this directory is always searched as an implicit
@@ -203,15 +205,14 @@ network:
 # Turn the egress allowlist off entirely for this profile (default: on):
 # egress: false
 
-# Proxy — ONE URL; the egress toggle (above) decides the mode:
+# Proxy — ONE URL under network: (network.proxy); the egress toggle (above)
+# decides the mode:
 #   egress on  (default): allowlist stays on, traffic is CHAINED through the
 #               proxy (allowedDomains still enforced). http:// only.
 #   egress off: the agent talks to the proxy DIRECTLY; the proxy polices egress.
-#               http:// or https://; noProxy applies.
+#               http:// or https://; network.noProxy applies.
 # A localhost/127.0.0.1 proxy means a proxy on your HOST (rewritten to the host
 # gateway automatically). Global default: agentProxy: / SANDBOXER_PROXY.
-# proxy: http://localhost:9999
-# noProxy: localhost,127.0.0.1,.corp   # direct mode only (egress off)
 `, name, d.Backend, d.Agent, domains)
 	profile += starterImageSection
 	return profile

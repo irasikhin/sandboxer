@@ -55,8 +55,8 @@ func ResolveRuntime(p *Profile, d Defaults, baseDomains string, f Overrides) (Ru
 		p = &Profile{}
 	}
 	rt := Runtime{
-		Proxy:   firstNonEmpty(p.Proxy, d.Proxy),
-		NoProxy: firstNonEmpty(p.NoProxy, d.NoProxy),
+		Proxy:   firstNonEmpty(p.Network.Proxy, d.Proxy),
+		NoProxy: firstNonEmpty(p.Network.NoProxy, d.NoProxy),
 		Egress:  p.EgressEnabled(),
 	}
 	if err := ValidateProxy(rt.Proxy, rt.Egress); err != nil {

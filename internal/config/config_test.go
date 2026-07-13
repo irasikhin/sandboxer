@@ -37,8 +37,7 @@ func TestSanitize(t *testing.T) {
 func TestResolveRuntimePrecedence(t *testing.T) {
 	p := &Profile{
 		Agent:   "opencode",
-		Network: Network{AllowedDomains: []string{"x.com", "y.com"}},
-		Proxy:   "http://p",
+		Network: Network{AllowedDomains: []string{"x.com", "y.com"}, Proxy: "http://p"},
 	}
 	d := Defaults{Agent: "claude", Backend: "podman"}
 
@@ -157,7 +156,7 @@ func TestValidateProxy(t *testing.T) {
 
 func TestResolveRuntimeProxy(t *testing.T) {
 	// A single proxy URL is carried into Runtime and keeps egress on (chained).
-	p := &Profile{Proxy: "http://host.docker.internal:3128"}
+	p := &Profile{Network: Network{Proxy: "http://host.docker.internal:3128"}}
 	rt, err := ResolveRuntime(p, Defaults{Agent: "claude"}, "base.com", Overrides{})
 	if err != nil {
 		t.Fatal(err)
@@ -178,7 +177,7 @@ func TestResolveRuntimeProxy(t *testing.T) {
 		t.Errorf("env proxy default not applied: %q", rt2.Proxy)
 	}
 	// A profile proxy beats the env default.
-	rt3, err := ResolveRuntime(&Profile{Proxy: "http://prof:1"}, Defaults{Proxy: "http://env:9999"}, "base.com", Overrides{})
+	rt3, err := ResolveRuntime(&Profile{Network: Network{Proxy: "http://prof:1"}}, Defaults{Proxy: "http://env:9999"}, "base.com", Overrides{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -187,7 +186,7 @@ func TestResolveRuntimeProxy(t *testing.T) {
 	}
 
 	// https + egress on is rejected at resolve time.
-	bad := &Profile{Proxy: "https://p:3128"}
+	bad := &Profile{Network: Network{Proxy: "https://p:3128"}}
 	if _, err := ResolveRuntime(bad, Defaults{}, "base.com", Overrides{}); err == nil {
 		t.Error("ResolveRuntime should reject an https proxy with egress on")
 	}

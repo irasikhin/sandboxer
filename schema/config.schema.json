@@ -64,6 +64,12 @@
             "type": "string"
           },
           "type": "array"
+        },
+        "proxy": {
+          "type": "string"
+        },
+        "noProxy": {
+          "type": "string"
         }
       },
       "additionalProperties": false,
@@ -82,12 +88,6 @@
         },
         "network": {
           "$ref": "#/$defs/Network"
-        },
-        "proxy": {
-          "type": "string"
-        },
-        "noProxy": {
-          "type": "string"
         },
         "agents": {
           "items": {

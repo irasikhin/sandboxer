@@ -26,9 +26,18 @@ type Mount struct {
 	Mode   string `yaml:"mode,omitempty" json:"mode,omitempty"`
 }
 
-// Network holds the egress allowlist.
+// Network holds the egress allowlist and the sandbox's proxy settings.
 type Network struct {
 	AllowedDomains []string `yaml:"allowedDomains,omitempty" json:"allowedDomains,omitempty"`
+	// Proxy is the single proxy URL the sandbox routes through (http://host:port,
+	// or https:// only with egress off). Empty means no proxy. The egress toggle
+	// decides whether it CHAINS through the allowlist sidecar (egress on) or the
+	// agent talks to it DIRECTLY (egress off). A localhost/127.0.0.1 host is
+	// rewritten to the host gateway at launch (see backend.ContainerProxyURL).
+	Proxy string `yaml:"proxy,omitempty" json:"proxy,omitempty"`
+	// NoProxy is the NO_PROXY list applied only in direct mode (egress off); it
+	// is ignored when traffic is chained through the allowlist sidecar.
+	NoProxy string `yaml:"noProxy,omitempty" json:"noProxy,omitempty"`
 }
 
 // Limits caps a sandbox container's resources. Every field is optional; an empty
@@ -43,7 +52,7 @@ type Limits struct {
 }
 
 // Proxy handling: a sandbox reaches the outside world through ONE proxy URL
-// (Profile.Proxy, an `http://host:port` or `https://host:port`). There is no
+// (Network.Proxy, an `http://host:port` or `https://host:port`). There is no
 // separate "upstream" vs "corporate" mode — the egress allowlist toggle decides
 // the trust model:
 //
@@ -129,19 +138,10 @@ func (p *Profile) resolveImageNix(dir string) {
 // set) the sandbox falls back to the copy model: deps are searched by path
 // suffix under roots and copied in.
 type Profile struct {
-	Name    string  `yaml:"name,omitempty"        json:"name,omitempty"`
-	Backend string  `yaml:"backend,omitempty"     json:"backend,omitempty"`
-	Agent   string  `yaml:"agent,omitempty"       json:"agent,omitempty"`
-	Network Network `yaml:"network,omitempty"     json:"network,omitempty"`
-	// Proxy is the single proxy URL the sandbox routes through (http://host:port,
-	// or https:// only with egress off). Empty means no proxy. The egress toggle
-	// decides whether it CHAINS through the allowlist sidecar (egress on) or the
-	// agent talks to it DIRECTLY (egress off). A localhost/127.0.0.1 host is
-	// rewritten to the host gateway at launch (see backend.ContainerProxyURL).
-	Proxy string `yaml:"proxy,omitempty" json:"proxy,omitempty"`
-	// NoProxy is the NO_PROXY list applied only in direct mode (egress off); it
-	// is ignored when traffic is chained through the allowlist sidecar.
-	NoProxy string   `yaml:"noProxy,omitempty" json:"noProxy,omitempty"`
+	Name    string   `yaml:"name,omitempty"        json:"name,omitempty"`
+	Backend string   `yaml:"backend,omitempty"     json:"backend,omitempty"`
+	Agent   string   `yaml:"agent,omitempty"       json:"agent,omitempty"`
+	Network Network  `yaml:"network,omitempty"     json:"network,omitempty"`
 	Agents  []string `yaml:"agents,omitempty"      json:"agents,omitempty"`
 	Egress  *bool    `yaml:"egress,omitempty"      json:"egress,omitempty"`
 	// Roots are the copy-mode search roots (ignored in git-worktree mode).
@@ -218,7 +218,9 @@ func decodeProfile(data []byte) (*Profile, error) {
 // a typo does; annotateRemovedKeys turns that terse message into an actionable
 // hint. The table grows as knobs are retired.
 var removedKeys = map[string]string{
-	"model": "removed — set the agent's own env var instead, e.g. env: { ANTHROPIC_MODEL: opus }",
+	"model":   "removed — set the agent's own env var instead, e.g. env: { ANTHROPIC_MODEL: opus }",
+	"proxy":   "moved under network: — use network.proxy",
+	"noProxy": "moved under network: — use network.noProxy",
 }
 
 // annotateRemovedKeys upgrades the strict YAML decoder's "field <key> not found"

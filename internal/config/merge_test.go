@@ -18,9 +18,7 @@ func TestMergeProfileOverrides(t *testing.T) {
 	}
 	egress := true
 	over := Profile{
-		Network:     Network{AllowedDomains: []string{"over.example"}},
-		Proxy:       "http://p:1",
-		NoProxy:     "localhost",
+		Network:     Network{AllowedDomains: []string{"over.example"}, Proxy: "http://p:1", NoProxy: "localhost"},
 		Agents:      []string{"codex"},
 		Egress:      &egress,
 		ExtraMounts: []Mount{{}},
@@ -36,11 +34,11 @@ func TestMergeProfileOverrides(t *testing.T) {
 	if len(got.Network.AllowedDomains) != 1 || got.Network.AllowedDomains[0] != "over.example" {
 		t.Errorf("AllowedDomains = %v, want [over.example]", got.Network.AllowedDomains)
 	}
-	if got.Proxy != over.Proxy {
-		t.Errorf("Proxy = %q, want %q", got.Proxy, over.Proxy)
+	if got.Network.Proxy != over.Network.Proxy {
+		t.Errorf("Network.Proxy = %q, want %q", got.Network.Proxy, over.Network.Proxy)
 	}
-	if got.NoProxy != over.NoProxy {
-		t.Errorf("NoProxy = %q, want %q", got.NoProxy, over.NoProxy)
+	if got.Network.NoProxy != over.Network.NoProxy {
+		t.Errorf("Network.NoProxy = %q, want %q", got.Network.NoProxy, over.Network.NoProxy)
 	}
 	if len(got.Agents) != 1 || got.Agents[0] != "codex" {
 		t.Errorf("Agents = %v, want [codex]", got.Agents)
