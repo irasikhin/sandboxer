@@ -207,7 +207,7 @@ replaces the default set (re-list what you keep).
 
 `setup` is a one-time shell script (`bash -lc`) run inside the sandbox before
 you take over — e.g. `npm ci`, a build, a DB seed. It runs on the first
-`enter`/`exec`/`run` and again only when the script changes (a per-sandbox
+`enter`/`exec` and again only when the script changes (a per-sandbox
 stamp tracks it), under the **same egress allowlist** as the sandbox (so a
 network install needs its domains allowed). A failed setup is fatal by default;
 skip it with `--no-setup`. The baked shell can also be extended without
@@ -329,8 +329,8 @@ The global store is **`~/.config/sandboxer/profiles/`** (override with
 `$SANDBOXER_PROFILES`, or it follows `$XDG_CONFIG_HOME`). A bare positional that
 matches a stored profile is used as that profile (its `name:` becomes the slug);
 otherwise it stays a plain sandbox slug, so existing `create feat` usage is
-unchanged. `-f`/`--config` works the same on `create`, `enter`, `exec`, `show`
-and `run`.
+unchanged. `-f`/`--config` works the same on `create`, `enter`, `exec` and
+`show`.
 
 ### Global config
 

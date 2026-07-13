@@ -178,8 +178,8 @@ shared deps; rough cost **+60–120 MB**.
 ### git pager config
 
 Bake a minimal `/etc/gitconfig` (another `writeTextDir`) rather than setting
-`GIT_PAGER` only in `rc.sh`, so it also applies to the **non-interactive `exec`/
-`run`** paths and to agent `git`:
+`GIT_PAGER` only in `rc.sh`, so it also applies to the **non-interactive `exec`**
+path and to agent `git`:
 
 ```ini
 [core]        pager = delta
@@ -223,7 +223,7 @@ setup: |
 `MakeSandbox` (deps copied in) and **before** handing control to the user/agent.
 Reuse the full `backend.Run` wiring (same mounts, same egress allowlist), with
 `Interactive=false`, output streamed to stderr and logged to
-`_logs/<slug>.setup`. A new `RunSetup` seam keeps `enter`/`exec`/`run` thin.
+`_logs/<slug>.setup`. A new `RunSetup` seam keeps `enter`/`exec` thin.
 
 **Run-once** — sentinel in the per-sandbox meta (`<slug>.setup-done`) storing a
 **hash of the setup script**; re-run when the hash changes (edited setup) or the
@@ -236,7 +236,7 @@ sandbox is recreated.
   than silently succeeding on an open network. Correct, but a documentation
   must.
 - *Failure policy* — open question. Recommend **fail-by-default** for
-  `create`/`run` (batch correctness) and a `--no-setup` escape hatch; for
+  `create` (correctness) and a `--no-setup` escape hatch; for
   interactive `enter`, either fail or warn-and-drop-into-shell so a human can fix
   it (recommend fail + `--no-setup`).
 - *In-container guard* — `PersistentPreRunE` blocks `create`/`enter`/`exec` when

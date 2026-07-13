@@ -116,7 +116,7 @@ tagged `sandboxer-toolbox:var-<12-hex>`, hashed over the effective input pins,
 the package set (`tools` packs + `extraPkgs`) and the nix file's content
 (`internal/toolbox/spec.go`). Any change — a package, the hook's bytes, a pin —
 is a new tag; identical profiles share one variant; the stock `:latest` is
-untouched. `create`/`enter`/`exec`/`run` auto-build a missing image (stock or
+untouched. `create`/`enter`/`exec` auto-build a missing image (stock or
 variant) on first use.
 
 The flake's `llm-agents`/`nixpkgs` inputs are **pinned**: a full 40-hex commit

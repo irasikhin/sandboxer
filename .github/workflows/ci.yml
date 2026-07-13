@@ -22,9 +22,9 @@ jobs:
       # Cross-build the other release target so arch-specific breakage is
       # caught here, not only at release time.
       - run: GOOS=linux GOARCH=arm64 go build ./...
-      # -race guards the parallel batch runner (the worker pool + failure
-      # aggregation). NOTE: no `-tags integration` — the 90% gate is calibrated
-      # engine-free and the integration tests are //go:build integration.
+      # -race guards the concurrent session lifecycle (first-enter create races,
+      # egress adoption). NOTE: no `-tags integration` — the 90% gate is
+      # calibrated engine-free and the integration tests are //go:build integration.
       - run: go test ./... -race -coverprofile=coverage.out
       - run: go tool cover -func=coverage.out | tail -1
       # Coverage gate: fail the build under 90% total coverage.

@@ -48,8 +48,7 @@ Rejected alternatives:
 (flag), `session: ephemeral` (profile), or `SANDBOXER_SESSION=ephemeral`
 (env). The env deliberately sits **above** the profile in the resolution chain
 (unlike every other scalar) because it is an operator kill-switch: it must win
-over a repo's committed `session:` choice. `run` (the batch runner) stays
-one-shot — parallel batch tasks have nothing to come back to.
+over a repo's committed `session:` choice.
 
 ### D2 — the engine's container store is the only session state
 

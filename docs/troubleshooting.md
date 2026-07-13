@@ -58,7 +58,7 @@ package install almost always means the host isn't allowed.
 ## Setup hook failed
 
 `setup:` is a one-time `bash -lc` script run inside the sandbox before you take
-over. A failed setup is **fatal by default**, so the `enter`/`exec`/`run` aborts.
+over. A failed setup is **fatal by default**, so the `enter`/`exec` aborts.
 
 - Read the captured output under `.sandboxer/_logs/` (`<slug>.*`).
 - Skip it for one run with `--no-setup` to get a shell and debug interactively.
