@@ -147,7 +147,6 @@ Scalars come from **flags** and `SANDBOXER_*` env vars:
 |---------|------|-----|
 | agent | `--agent` | `SANDBOXER_AGENT` (default `claude`) |
 | backend | `--backend` | `SANDBOXER_BACKEND` (default `docker`; `docker\|podman` pins that engine when installed, else falls back to whichever is) |
-| model | `--model` | `SANDBOXER_MODEL` |
 | session mode | `--ephemeral` | `SANDBOXER_SESSION` (default `persistent`; the env wins over a profile's `session:`) |
 | egress domains | `--allow-domains a,b` | `SANDBOXER_DOMAINS` |
 | disable egress | — | `SANDBOXER_NO_EGRESS=1` |
@@ -304,7 +303,6 @@ defaults:
 profiles:
   api: &api                # sandboxer create api
     backend: docker
-    model: opus
     deps: [shared/proto]
   api-prod:                # sandboxer create api-prod
     <<: *api               # inherit api (anchor) + defaults, then override
@@ -427,7 +425,6 @@ What gets exported (only when a sandbox is active):
 | --- | --- |
 | `SANDBOXER_SLUG` | the active sandbox slug |
 | `SANDBOXER_SRC` | the project root (absolute) |
-| `SANDBOXER_MODEL` | the recorded model, if any |
 | `SANDBOXER_BACKEND` | the recorded backend, if any |
 | `SANDBOXER_ALLOW_DOMAINS` | the egress allowlist (csv), if any |
 

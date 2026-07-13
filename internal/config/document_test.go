@@ -50,7 +50,7 @@ profiles:
     deps: [shared/ui]
   api:
     backend: docker
-    model: opus
+    session: ephemeral
     env:
       LOG: debug
 default: web
@@ -84,7 +84,7 @@ default: web
 	if err != nil {
 		t.Fatal(err)
 	}
-	if api.Backend != "docker" || api.Model != "opus" {
+	if api.Backend != "docker" || api.Session != "ephemeral" {
 		t.Errorf("api own fields wrong: %+v", api)
 	}
 	if api.Agent != "claude" || len(api.Network.AllowedDomains) != 1 {
@@ -155,7 +155,7 @@ defaults:
 profiles:
   api: &api
     backend: docker
-    model: opus
+    session: ephemeral
     env: { TIER: base }
   api-prod:
     <<: *api
@@ -173,7 +173,7 @@ profiles:
 	if prod.Agent != "claude" || len(prod.Network.AllowedDomains) != 1 {
 		t.Errorf("api-prod should inherit defaults agent/domains: %+v", prod)
 	}
-	if prod.Backend != "docker" || prod.Model != "opus" {
+	if prod.Backend != "docker" || prod.Session != "ephemeral" {
 		t.Errorf("api-prod should inherit api's fields via the anchor: %+v", prod)
 	}
 	// The anchor merge is lower priority than the node's own keys.

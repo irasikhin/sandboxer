@@ -6,7 +6,6 @@
 name: api
 backend: podman
 agent: opencode
-model: gpt-5
 network:
   allowedDomains: [api.openai.com, registry.npmjs.org, pypi.org]
 roots:

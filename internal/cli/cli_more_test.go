@@ -176,8 +176,8 @@ func TestResolveTargetGlobalDefaults(t *testing.T) {
 	if err := os.MkdirAll(config.StateDirName, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	// Project: a multi-profile doc whose "web" section sets only the model.
-	if err := os.WriteFile(config.ConfigPath(), []byte("profiles:\n  web:\n    model: sonnet\n"), 0o644); err != nil {
+	// Project: a multi-profile doc whose "web" section sets only the session mode.
+	if err := os.WriteFile(config.ConfigPath(), []byte("profiles:\n  web:\n    session: ephemeral\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	// Global: defaults that the project inherits (agent) plus one the project
@@ -201,8 +201,8 @@ func TestResolveTargetGlobalDefaults(t *testing.T) {
 	if tgt.profile.Backend != "podman" {
 		t.Errorf("Backend = %q, want podman (from the global defaults)", tgt.profile.Backend)
 	}
-	if tgt.profile.Model != "sonnet" {
-		t.Errorf("Model = %q, want sonnet (from the project profile)", tgt.profile.Model)
+	if tgt.profile.Session != "ephemeral" {
+		t.Errorf("Session = %q, want ephemeral (from the project profile)", tgt.profile.Session)
 	}
 	if tgt.slug != "web" {
 		t.Errorf("slug = %q, want web", tgt.slug)

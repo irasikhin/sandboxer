@@ -37,22 +37,18 @@ func TestSanitize(t *testing.T) {
 func TestResolveRuntimePrecedence(t *testing.T) {
 	p := &Profile{
 		Agent:   "opencode",
-		Model:   "m1",
 		Network: Network{AllowedDomains: []string{"x.com", "y.com"}},
 		Proxy:   "http://p",
 	}
 	d := Defaults{Agent: "claude", Backend: "podman"}
 
 	// Flag override beats profile; profile beats base/defaults.
-	rt, err := ResolveRuntime(p, d, "base.com", "bm", Overrides{Agent: "crush"})
+	rt, err := ResolveRuntime(p, d, "base.com", Overrides{Agent: "crush"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if rt.Agent != "crush" {
 		t.Errorf("agent: flag should win, got %q", rt.Agent)
-	}
-	if rt.Model != "m1" {
-		t.Errorf("model: profile should win, got %q", rt.Model)
 	}
 	if !slices.Equal(rt.Domains, []string{"x.com", "y.com"}) {
 		t.Errorf("domains: profile should win, got %v", rt.Domains)
@@ -68,7 +64,7 @@ func TestResolveRuntimePrecedence(t *testing.T) {
 	}
 
 	// Nil profile, no overrides → defaults + base domains.
-	rt2, err := ResolveRuntime(nil, d, "base.com,two.com", "bm", Overrides{})
+	rt2, err := ResolveRuntime(nil, d, "base.com,two.com", Overrides{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -77,9 +73,6 @@ func TestResolveRuntimePrecedence(t *testing.T) {
 	}
 	if !slices.Equal(rt2.Domains, []string{"base.com", "two.com"}) {
 		t.Errorf("base domains = %v", rt2.Domains)
-	}
-	if rt2.Model != "bm" {
-		t.Errorf("base model = %q", rt2.Model)
 	}
 }
 
@@ -90,7 +83,7 @@ func TestResolveRuntimePrecedence(t *testing.T) {
 func TestResolveRuntimeLimits(t *testing.T) {
 	// Profile limits win over the env defaults; pids is profile-only.
 	p := &Profile{Limits: Limits{Memory: "4G", CPUs: "2", Pids: 512}}
-	rt, err := ResolveRuntime(p, Defaults{Mem: "1G", CPU: "1"}, "base.com", "bm", Overrides{})
+	rt, err := ResolveRuntime(p, Defaults{Mem: "1G", CPU: "1"}, "base.com", Overrides{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -99,12 +92,42 @@ func TestResolveRuntimeLimits(t *testing.T) {
 	}
 
 	// No profile limits → the env defaults apply, pids stays uncapped.
-	rt2, err := ResolveRuntime(&Profile{}, Defaults{Mem: "1G", CPU: "1"}, "base.com", "bm", Overrides{})
+	rt2, err := ResolveRuntime(&Profile{}, Defaults{Mem: "1G", CPU: "1"}, "base.com", Overrides{})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if rt2.Mem != "1G" || rt2.CPU != "1" || rt2.Pids != 0 {
 		t.Errorf("env limits should apply: mem=%q cpu=%q pids=%d", rt2.Mem, rt2.CPU, rt2.Pids)
+	}
+}
+
+// TestAnnotateRemovedKeys: a config that still uses a retired key trips the
+// strict decoder, and annotateRemovedKeys upgrades the terse "field X not found"
+// into a migration hint carrying the key and its guidance — on both the flat
+// (Load) and document (LoadDocument) decode paths. Table-driven over the whole
+// removedKeys table so a newly-retired key is covered automatically.
+func TestAnnotateRemovedKeys(t *testing.T) {
+	if len(removedKeys) == 0 {
+		t.Skip("no removed keys yet")
+	}
+	for key, hint := range removedKeys {
+		t.Run(key, func(t *testing.T) {
+			dir := t.TempDir()
+			flat := writeFile(t, dir, "flat.yaml", key+": whatever\n")
+			_, err := Load(flat)
+			if err == nil {
+				t.Fatalf("a removed key %q must still be rejected", key)
+			}
+			for _, want := range []string{key, hint} {
+				if !strings.Contains(err.Error(), want) {
+					t.Errorf("Load error %q missing %q", err, want)
+				}
+			}
+			doc := writeFile(t, dir, "doc.yaml", "profiles:\n  web:\n    "+key+": whatever\n")
+			if _, err := LoadDocument(doc); err == nil || !strings.Contains(err.Error(), hint) {
+				t.Errorf("LoadDocument for removed key %q = %v, want the migration hint", key, err)
+			}
+		})
 	}
 }
 
@@ -135,7 +158,7 @@ func TestValidateProxy(t *testing.T) {
 func TestResolveRuntimeProxy(t *testing.T) {
 	// A single proxy URL is carried into Runtime and keeps egress on (chained).
 	p := &Profile{Proxy: "http://host.docker.internal:3128"}
-	rt, err := ResolveRuntime(p, Defaults{Agent: "claude"}, "base.com", "bm", Overrides{})
+	rt, err := ResolveRuntime(p, Defaults{Agent: "claude"}, "base.com", Overrides{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -147,7 +170,7 @@ func TestResolveRuntimeProxy(t *testing.T) {
 	}
 
 	// SANDBOXER_PROXY (Defaults.Proxy) is the lowest-precedence fallback.
-	rt2, err := ResolveRuntime(&Profile{}, Defaults{Agent: "claude", Proxy: "http://env:9999"}, "base.com", "bm", Overrides{})
+	rt2, err := ResolveRuntime(&Profile{}, Defaults{Agent: "claude", Proxy: "http://env:9999"}, "base.com", Overrides{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -155,7 +178,7 @@ func TestResolveRuntimeProxy(t *testing.T) {
 		t.Errorf("env proxy default not applied: %q", rt2.Proxy)
 	}
 	// A profile proxy beats the env default.
-	rt3, err := ResolveRuntime(&Profile{Proxy: "http://prof:1"}, Defaults{Proxy: "http://env:9999"}, "base.com", "bm", Overrides{})
+	rt3, err := ResolveRuntime(&Profile{Proxy: "http://prof:1"}, Defaults{Proxy: "http://env:9999"}, "base.com", Overrides{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -165,7 +188,7 @@ func TestResolveRuntimeProxy(t *testing.T) {
 
 	// https + egress on is rejected at resolve time.
 	bad := &Profile{Proxy: "https://p:3128"}
-	if _, err := ResolveRuntime(bad, Defaults{}, "base.com", "bm", Overrides{}); err == nil {
+	if _, err := ResolveRuntime(bad, Defaults{}, "base.com", Overrides{}); err == nil {
 		t.Error("ResolveRuntime should reject an https proxy with egress on")
 	}
 }

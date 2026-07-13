@@ -47,7 +47,6 @@ Exported (only when an active sandbox exists):
 
   SANDBOXER_SLUG           the active sandbox slug
   SANDBOXER_SRC            the project root (absolute)
-  SANDBOXER_MODEL          the resolved model        (if recorded)
   SANDBOXER_BACKEND        the configured backend     (if recorded)
   SANDBOXER_ALLOW_DOMAINS  the egress allowlist (csv) (if recorded)
 
@@ -86,20 +85,11 @@ func emitDirenv(w io.Writer, root string) error {
 		"SANDBOXER_SRC":  base.Src,
 	}
 	// The persisted, already-resolved values — no Runtime is re-resolved (that
-	// would be heavy work and, worse, could touch the engine). Backend/model
-	// come from the sandbox's stored profile snapshot; the egress allowlist is
-	// the base's resolved run.env value.
-	if prof := loadStoredProfile(base, slug); prof != nil {
-		if prof.Model != "" {
-			vars["SANDBOXER_MODEL"] = prof.Model
-		} else if base.Model != "" {
-			vars["SANDBOXER_MODEL"] = base.Model
-		}
-		if prof.Backend != "" {
-			vars["SANDBOXER_BACKEND"] = prof.Backend
-		}
-	} else if base.Model != "" {
-		vars["SANDBOXER_MODEL"] = base.Model
+	// would be heavy work and, worse, could touch the engine). Backend comes from
+	// the sandbox's stored profile snapshot; the egress allowlist is the base's
+	// resolved run.env value.
+	if prof := loadStoredProfile(base, slug); prof != nil && prof.Backend != "" {
+		vars["SANDBOXER_BACKEND"] = prof.Backend
 	}
 	if base.Domains != "" {
 		vars["SANDBOXER_ALLOW_DOMAINS"] = base.Domains

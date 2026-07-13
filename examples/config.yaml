@@ -16,8 +16,8 @@ backend: podman
 #   claude | codex | opencode | crush | aider | pi | gemini
 agent: claude
 
-# Agent model (optional). For claude: haiku | sonnet | opus | full id.
-# model: sonnet
+# There is no model: knob — sandboxer never launches the agent, so pin the model
+# via the agent's own env var under env: below (e.g. ANTHROPIC_MODEL for claude).
 
 # Egress allowlist — the ONLY domains the sandbox may reach (enforced by the
 # container's egress proxy); everything else is blocked.

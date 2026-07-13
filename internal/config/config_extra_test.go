@@ -8,7 +8,6 @@ import (
 )
 
 func TestLoadDefaultsFromEnv(t *testing.T) {
-	t.Setenv("SANDBOXER_MODEL", "m")
 	t.Setenv("SANDBOXER_AGENT", "crush")
 	t.Setenv("SANDBOXER_BACKEND", "docker")
 	t.Setenv("SANDBOXER_DOMAINS", "a.com")
@@ -18,7 +17,7 @@ func TestLoadDefaultsFromEnv(t *testing.T) {
 	t.Setenv("SANDBOXER_CPU", "50%")
 
 	d := LoadDefaults()
-	if d.Model != "m" || d.Agent != "crush" || d.Backend != "docker" || d.Domains != "a.com" ||
+	if d.Agent != "crush" || d.Backend != "docker" || d.Domains != "a.com" ||
 		d.Image != "img:1" || d.Engine != "docker" ||
 		d.Mem != "2G" || d.CPU != "50%" {
 		t.Errorf("LoadDefaults from env = %+v", d)
@@ -27,7 +26,7 @@ func TestLoadDefaultsFromEnv(t *testing.T) {
 
 func TestLoadDefaultsBare(t *testing.T) {
 	for _, k := range []string{
-		"SANDBOXER_MODEL", "SANDBOXER_AGENT", "SANDBOXER_BACKEND", "SANDBOXER_DOMAINS",
+		"SANDBOXER_AGENT", "SANDBOXER_BACKEND", "SANDBOXER_DOMAINS",
 		"SANDBOXER_IMAGE", "SANDBOXER_ENGINE", "SANDBOXER_MEM", "SANDBOXER_CPU",
 	} {
 		t.Setenv(k, "")
@@ -51,7 +50,7 @@ func TestDomainsCSV(t *testing.T) {
 func TestResolveRuntimeAuthAgents(t *testing.T) {
 	// Explicit agents list is carried verbatim.
 	p := &Profile{Agents: []string{"claude", "codex"}}
-	rt, err := ResolveRuntime(p, Defaults{}, "", "", Overrides{})
+	rt, err := ResolveRuntime(p, Defaults{}, "", Overrides{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -59,7 +58,7 @@ func TestResolveRuntimeAuthAgents(t *testing.T) {
 		t.Errorf("AuthAgents = %v", rt.AuthAgents)
 	}
 	// No agents list → the full registry.
-	rt2, err := ResolveRuntime(&Profile{}, Defaults{}, "", "", Overrides{})
+	rt2, err := ResolveRuntime(&Profile{}, Defaults{}, "", Overrides{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -71,7 +70,7 @@ func TestResolveRuntimeAuthAgents(t *testing.T) {
 func TestResolveRuntimeDomainsPrecedence(t *testing.T) {
 	// Flag CSV wins and is trimmed/split.
 	rt, err := ResolveRuntime(&Profile{Network: Network{AllowedDomains: []string{"p.com"}}},
-		Defaults{}, "base.com", "", Overrides{Domains: "a.com, , b.com"})
+		Defaults{}, "base.com", Overrides{Domains: "a.com, , b.com"})
 	if err != nil {
 		t.Fatal(err)
 	}

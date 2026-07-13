@@ -136,7 +136,7 @@ the existing `configLine` prints). Built from the already-resolved `rt`:
 
 ```
 sandbox feat  ·  .sandboxer/feat
-egress ON · 3 domains   agents: claude codex   model: default
+egress ON · 3 domains   agents: claude codex
 exit → pushes rw deps back to their origins
 ```
 

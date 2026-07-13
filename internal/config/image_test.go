@@ -59,7 +59,7 @@ func TestResolveRuntimeRejectsBadImageRev(t *testing.T) {
 	// Every entry point goes through ResolveRuntime, so a rev typo must fail
 	// early there, not deep inside a build.
 	bad := &Profile{Image: ImageSpec{NixpkgsRev: "not-a-rev"}}
-	if _, err := ResolveRuntime(bad, Defaults{}, "base.com", "bm", Overrides{}); err == nil {
+	if _, err := ResolveRuntime(bad, Defaults{}, "base.com", Overrides{}); err == nil {
 		t.Error("ResolveRuntime should reject an invalid image rev")
 	}
 }

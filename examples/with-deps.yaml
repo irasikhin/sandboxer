@@ -11,7 +11,6 @@ name: integ
 # time; bring your own / BYO image for it.)
 backend: podman
 agent: opencode
-model: gpt-5
 
 # Which agents to authorize in the container (bind their config dirs / env).
 # Defaults to every agent in the registry; narrow it to avoid mounting

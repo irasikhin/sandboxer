@@ -77,7 +77,7 @@ func LoadDocument(file string) (*Document, error) {
 	dec := yaml.NewDecoder(bytes.NewReader(data))
 	dec.KnownFields(true)
 	if err := dec.Decode(&d); err != nil {
-		return nil, err
+		return nil, annotateRemovedKeys(err)
 	}
 	// Resolve relative image.nix paths against the file's directory in every
 	// section — defaults: included — so the snapshot written to _meta is
@@ -248,9 +248,6 @@ func mergeProfile(base, over Profile) Profile {
 	}
 	if over.Agent != "" {
 		out.Agent = over.Agent
-	}
-	if over.Model != "" {
-		out.Model = over.Model
 	}
 	if len(over.Network.AllowedDomains) > 0 {
 		out.Network.AllowedDomains = over.Network.AllowedDomains

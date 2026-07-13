@@ -18,7 +18,6 @@ type Runtime struct {
 	Proxy      string
 	NoProxy    string   // NO_PROXY, applied only in direct mode (Egress off)
 	Domains    []string // resolved egress allowlist
-	Model      string
 	Agent      string
 	Backend    string
 	Session    string   // SessionPersistent or SessionEphemeral (resolved; never empty)
@@ -41,7 +40,6 @@ const (
 
 // Overrides are command-line flag values; empty means "not set".
 type Overrides struct {
-	Model   string
 	Agent   string
 	Backend string
 	Session string // SessionEphemeral when --ephemeral is given
@@ -49,10 +47,10 @@ type Overrides struct {
 }
 
 // ResolveRuntime applies the precedence flags > profile > base(run.env)/defaults.
-// baseDomains and baseModel come from run.env (themselves seeded from defaults).
-// Returns an error when a configured domain fails validation (e.g. a typo that
-// would silently deny the agent's traffic).
-func ResolveRuntime(p *Profile, d Defaults, baseDomains, baseModel string, f Overrides) (Runtime, error) {
+// baseDomains comes from run.env (itself seeded from defaults). Returns an error
+// when a configured domain fails validation (e.g. a typo that would silently
+// deny the agent's traffic).
+func ResolveRuntime(p *Profile, d Defaults, baseDomains string, f Overrides) (Runtime, error) {
 	if p == nil {
 		p = &Profile{}
 	}
@@ -80,7 +78,6 @@ func ResolveRuntime(p *Profile, d Defaults, baseDomains, baseModel string, f Ove
 		return Runtime{}, err
 	}
 
-	rt.Model = firstNonEmpty(f.Model, p.Model, baseModel)
 	rt.Agent = firstNonEmpty(f.Agent, p.Agent, d.Agent)
 	rt.Backend = firstNonEmpty(f.Backend, p.Backend, d.Backend)
 	// Session deviates from the others: the env (d.Session) sits ABOVE the

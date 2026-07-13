@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -131,7 +132,6 @@ type Profile struct {
 	Name    string  `yaml:"name,omitempty"        json:"name,omitempty"`
 	Backend string  `yaml:"backend,omitempty"     json:"backend,omitempty"`
 	Agent   string  `yaml:"agent,omitempty"       json:"agent,omitempty"`
-	Model   string  `yaml:"model,omitempty"       json:"model,omitempty"`
 	Network Network `yaml:"network,omitempty"     json:"network,omitempty"`
 	// Proxy is the single proxy URL the sandbox routes through (http://host:port,
 	// or https:// only with egress off). Empty means no proxy. The egress toggle
@@ -208,9 +208,40 @@ func decodeProfile(data []byte) (*Profile, error) {
 	dec := yaml.NewDecoder(strings.NewReader(string(data)))
 	dec.KnownFields(true)
 	if err := dec.Decode(&p); err != nil {
-		return nil, err
+		return nil, annotateRemovedKeys(err)
 	}
 	return &p, nil
+}
+
+// removedKeys maps a profile key that used to be valid to migration guidance.
+// A removed key trips the strict decoder's "field <key> not found" the same way
+// a typo does; annotateRemovedKeys turns that terse message into an actionable
+// hint. The table grows as knobs are retired.
+var removedKeys = map[string]string{
+	"model": "removed — set the agent's own env var instead, e.g. env: { ANTHROPIC_MODEL: opus }",
+}
+
+// annotateRemovedKeys upgrades the strict YAML decoder's "field <key> not found"
+// error into a migration hint when <key> is a knob that was intentionally
+// removed, so an upgrading user is told what to do instead of thinking they
+// typo'd. Any other decode error passes through unchanged. Modeled on the
+// advisory legacyConfigHint: it only reshapes the message, never behavior.
+func annotateRemovedKeys(err error) error {
+	if err == nil {
+		return nil
+	}
+	msg := err.Error()
+	var hints []string
+	for key, hint := range removedKeys {
+		if strings.Contains(msg, "field "+key+" not found") {
+			hints = append(hints, fmt.Sprintf("  `%s:` %s", key, hint))
+		}
+	}
+	if len(hints) == 0 {
+		return err
+	}
+	sort.Strings(hints)
+	return fmt.Errorf("%w\n%s", err, strings.Join(hints, "\n"))
 }
 
 // JSON serializes the profile to the camelCase JSON stored under _meta and

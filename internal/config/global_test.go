@@ -95,7 +95,7 @@ func TestResolveWithGlobalDefaults(t *testing.T) {
 	global := &Document{Defaults: Profile{Agent: "codex", Backend: "podman"}}
 	project := &Document{
 		Defaults: Profile{}, // project sets no agent/backend
-		Profiles: map[string]Profile{"web": {Model: "sonnet"}},
+		Profiles: map[string]Profile{"web": {Session: "ephemeral"}},
 		Default:  "web",
 	}
 
@@ -109,8 +109,8 @@ func TestResolveWithGlobalDefaults(t *testing.T) {
 	if got.Backend != "podman" {
 		t.Errorf("Backend = %q, want podman (inherited from global defaults)", got.Backend)
 	}
-	if got.Model != "sonnet" {
-		t.Errorf("Model = %q, want sonnet (from the project profile)", got.Model)
+	if got.Session != "ephemeral" {
+		t.Errorf("Session = %q, want ephemeral (from the project profile)", got.Session)
 	}
 }
 
@@ -118,10 +118,10 @@ func TestResolveWithGlobalDefaults(t *testing.T) {
 // the global defaults and the project (defaults or section) resolves to the
 // project value.
 func TestProjectOverridesGlobal(t *testing.T) {
-	global := &Document{Defaults: Profile{Agent: "codex", Model: "global-model"}}
+	global := &Document{Defaults: Profile{Agent: "codex", Session: "persistent"}}
 	project := &Document{
 		Defaults: Profile{Agent: "claude"}, // project default beats global default
-		Profiles: map[string]Profile{"web": {Model: "project-model"}},
+		Profiles: map[string]Profile{"web": {Session: "ephemeral"}},
 		Default:  "web",
 	}
 
@@ -132,8 +132,8 @@ func TestProjectOverridesGlobal(t *testing.T) {
 	if got.Agent != "claude" {
 		t.Errorf("Agent = %q, want claude (project defaults beat global defaults)", got.Agent)
 	}
-	if got.Model != "project-model" {
-		t.Errorf("Model = %q, want project-model (project section beats global defaults)", got.Model)
+	if got.Session != "ephemeral" {
+		t.Errorf("Session = %q, want ephemeral (project section beats global defaults)", got.Session)
 	}
 }
 
@@ -190,7 +190,7 @@ func TestImageGlobalAndProject(t *testing.T) {
 func TestGlobalConfigNotRequired(t *testing.T) {
 	project := &Document{
 		Defaults: Profile{Agent: "claude"},
-		Profiles: map[string]Profile{"web": {Model: "sonnet"}},
+		Profiles: map[string]Profile{"web": {Session: "ephemeral"}},
 		Default:  "web",
 	}
 
@@ -210,14 +210,14 @@ func TestGlobalConfigNotRequired(t *testing.T) {
 	// section, still over the composed defaults (project default kept).
 	global := &Document{
 		Defaults: Profile{Backend: "podman"},
-		Profiles: map[string]Profile{"ops": {Model: "opus"}},
+		Profiles: map[string]Profile{"ops": {Session: "ephemeral"}},
 	}
 	got, err := project.SelectWithGlobal("ops", "", "", global)
 	if err != nil {
 		t.Fatalf("global-only profile should resolve: %v", err)
 	}
-	if got.Name != "ops" || got.Model != "opus" {
-		t.Errorf("global-only profile = %+v, want name=ops model=opus", got)
+	if got.Name != "ops" || got.Session != "ephemeral" {
+		t.Errorf("global-only profile = %+v, want name=ops session=ephemeral", got)
 	}
 	if got.Agent != "claude" {
 		t.Errorf("Agent = %q, want claude (project default kept under a global profile)", got.Agent)

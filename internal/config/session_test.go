@@ -23,7 +23,7 @@ func TestResolveRuntimeSessionPrecedence(t *testing.T) {
 		{"flag wins over all", SessionEphemeral, SessionPersistent, SessionPersistent, SessionEphemeral},
 	}
 	for _, c := range cases {
-		rt, err := ResolveRuntime(&Profile{Session: c.profile}, Defaults{Session: c.env}, "", "",
+		rt, err := ResolveRuntime(&Profile{Session: c.profile}, Defaults{Session: c.env}, "",
 			Overrides{Session: c.flag})
 		if err != nil {
 			t.Fatalf("%s: %v", c.name, err)

@@ -185,7 +185,7 @@ func TestConfigLine(t *testing.T) {
 	// Defaults, no profile: egress on with a domain count, profile=none.
 	rt := config.Runtime{Agent: "claude", Backend: "docker", Egress: true, Domains: []string{"a.com", "b.com"}}
 	line := configLine(rt, "feat", nil, "docker")
-	for _, want := range []string{"feat —", "agent=claude", "backend=docker", "model=default", "egress=on (2 domains)", "profile=none", "deps=0"} {
+	for _, want := range []string{"feat —", "agent=claude", "backend=docker", "egress=on (2 domains)", "profile=none", "deps=0"} {
 		if !strings.Contains(line, want) {
 			t.Errorf("configLine missing %q in %q", want, line)
 		}
@@ -193,8 +193,8 @@ func TestConfigLine(t *testing.T) {
 
 	// With a named profile and deps; egress off when not enabled.
 	prof := &config.Profile{Name: "web", Deps: []string{"x", "y"}}
-	line2 := configLine(config.Runtime{Agent: "opencode", Backend: "podman", Model: "gpt-5"}, "web", prof, "podman")
-	for _, want := range []string{"profile=web", "deps=2", "egress=off", "model=gpt-5"} {
+	line2 := configLine(config.Runtime{Agent: "opencode", Backend: "podman"}, "web", prof, "podman")
+	for _, want := range []string{"profile=web", "deps=2", "egress=off"} {
 		if !strings.Contains(line2, want) {
 			t.Errorf("configLine (profile) missing %q in %q", want, line2)
 		}
@@ -233,11 +233,11 @@ func TestLoadStoredProfile(t *testing.T) {
 	if loadStoredProfile(base, "x") != nil {
 		t.Error("no profile.json → nil")
 	}
-	if err := base.WriteProfileJSON("x", []byte(`{"name":"x","model":"m"}`)); err != nil {
+	if err := base.WriteProfileJSON("x", []byte(`{"name":"x","backend":"podman"}`)); err != nil {
 		t.Fatal(err)
 	}
-	if p := loadStoredProfile(base, "x"); p == nil || p.Model != "m" {
-		t.Errorf("stored profile = %+v, want model m", p)
+	if p := loadStoredProfile(base, "x"); p == nil || p.Backend != "podman" {
+		t.Errorf("stored profile = %+v, want backend podman", p)
 	}
 	if err := base.WriteProfileJSON("y", []byte("garbage")); err != nil {
 		t.Fatal(err)
@@ -374,7 +374,7 @@ profiles:
     backend: podman
   api:
     backend: docker
-    model: opus
+    session: ephemeral
 default: web
 `
 	if err := os.MkdirAll(config.StateDirName, 0o755); err != nil {
@@ -394,7 +394,7 @@ default: web
 	}
 	pj, _ := os.ReadFile(stateDir(project, "_meta", "api.profile.json"))
 	s := string(pj)
-	for _, want := range []string{`"backend": "docker"`, `"model": "opus"`, `"agent": "claude"`, "api.anthropic.com"} {
+	for _, want := range []string{`"backend": "docker"`, `"session": "ephemeral"`, `"agent": "claude"`, "api.anthropic.com"} {
 		if !strings.Contains(s, want) {
 			t.Errorf("api profile.json missing %q in:\n%s", want, s)
 		}

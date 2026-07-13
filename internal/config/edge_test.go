@@ -35,14 +35,14 @@ func TestLoadDocumentErrors(t *testing.T) {
 
 func TestResolveRuntimeValidation(t *testing.T) {
 	// a domain with whitespace is rejected (call site + ValidateDomains)
-	if _, err := ResolveRuntime(&Profile{}, Defaults{}, "", "", Overrides{Domains: "bad domain"}); err == nil {
+	if _, err := ResolveRuntime(&Profile{}, Defaults{}, "", Overrides{Domains: "bad domain"}); err == nil {
 		t.Error("ResolveRuntime(invalid domain) = nil error, want error")
 	}
 
 	// an https proxy is rejected while the egress allowlist is on (chained mode
 	// cannot speak TLS to a parent)
 	p := &Profile{Proxy: "https://corp:8080"}
-	if _, err := ResolveRuntime(p, Defaults{}, "", "", Overrides{}); err == nil {
+	if _, err := ResolveRuntime(p, Defaults{}, "", Overrides{}); err == nil {
 		t.Error("ResolveRuntime(https proxy + egress on) = nil error, want error")
 	}
 }

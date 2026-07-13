@@ -142,9 +142,6 @@ backend: %s
 # Coding agent — see: sandboxer agents.
 agent: %s
 
-# Model override passed to the agent (optional; agent's default when unset).
-# model: opus
-
 # Session mode for enter/exec: persistent (default; one detached container
 # reused across invocations) | ephemeral (a fresh one-shot container each time).
 # session: persistent
@@ -174,11 +171,14 @@ network:
 # Listing context: REPLACES that set, so re-list what you keep:
 # context: [CLAUDE.md, AGENTS.md, .claude, docs/agent-notes.md]
 
-# Extra bind mounts / env for the container backend (optional):
+# Extra bind mounts / env for the container backend (optional). To pin the
+# agent's model, set the agent's own env var here (e.g. ANTHROPIC_MODEL for
+# claude) — sandboxer has no model: knob, it never launches the agent itself.
 # extraMounts:
 #   - { source: /data/cache, target: /data/cache, mode: rw }
 # env:
 #   NODE_ENV: development
+#   ANTHROPIC_MODEL: opus
 
 # One-time setup script (bash -lc) run inside the sandbox before the agent takes
 # over — re-run only when the script changes:

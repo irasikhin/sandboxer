@@ -62,7 +62,7 @@ func TestOpenBaseReadOnly(t *testing.T) {
 		t.Error("OpenBase must not create the .sandboxer dir")
 	}
 
-	// After ResolveBase seeds state, OpenBase loads it (Src + Domains/Model).
+	// After ResolveBase seeds state, OpenBase loads it (Src + Domains).
 	seeded, err := ResolveBase(src)
 	if err != nil {
 		t.Fatal(err)
