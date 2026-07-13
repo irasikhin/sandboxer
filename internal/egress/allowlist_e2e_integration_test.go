@@ -61,7 +61,7 @@ func TestEgressAllowlist_AllowVsBlock_RealSidecar(t *testing.T) {
 	smoke := itest.SmokeImage(t, engine)
 	slug := itest.Slug("allow")
 
-	e, err := Up(engine, slug, []string{allowDomain}, "", "", io.Discard)
+	e, err := Up(engine, slug, []string{allowDomain}, "", nil, "", io.Discard)
 	if err != nil {
 		t.Fatalf("Up: %v", err)
 	}

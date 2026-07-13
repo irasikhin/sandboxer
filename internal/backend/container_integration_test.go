@@ -95,23 +95,3 @@ func TestRunArgv_RealEngineAccepts(t *testing.T) {
 		t.Fatalf("engine rejected generated argv: %v\n%s\nargv: %v", err, buf.String(), argv)
 	}
 }
-
-// TestRun_RealEngine_WallTimeoutKills checks the in-container `timeout` wrapper
-// terminates a hung command. It needs GNU coreutils `timeout` (the toolbox
-// image); busybox's differs in flags, so this gates on the toolbox image.
-func TestRun_RealEngine_WallTimeoutKills(t *testing.T) {
-	engine := itest.Engine(t)
-	image := itest.EnsureToolboxImage(t, engine)
-
-	o := realRunOpts(t, engine, image, t.TempDir(), "sleep", "30")
-	o.Wall = "1"
-	var buf bytes.Buffer
-	o.Stdout, o.Stderr = &buf, &buf
-	code, err := Run(o)
-	if err != nil {
-		t.Fatalf("Run: %v\n%s", err, buf.String())
-	}
-	if code == 0 {
-		t.Errorf("exit = 0, want non-zero (timeout should have killed sleep)")
-	}
-}

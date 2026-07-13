@@ -52,7 +52,7 @@ func assertReachBlock(t *testing.T, engine, image, clientNet, proxyURL, reachURL
 // upExampleAllow brings up the allowlist for example.com and registers teardown.
 func upExampleAllow(t *testing.T, engine string) *Egress {
 	t.Helper()
-	e, err := Up(engine, itest.Slug("proxy"), []string{allowDomain}, "", "", io.Discard)
+	e, err := Up(engine, itest.Slug("proxy"), []string{allowDomain}, "", nil, "", io.Discard)
 	if err != nil {
 		t.Fatalf("Up: %v", err)
 	}

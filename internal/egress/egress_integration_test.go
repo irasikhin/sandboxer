@@ -20,7 +20,7 @@ func TestUpDown_RealNetworks(t *testing.T) {
 	itest.EnsureProxyImage(t, engine)
 	slug := itest.Slug("updown")
 
-	e, err := Up(engine, slug, []string{"example.com"}, "", "", io.Discard)
+	e, err := Up(engine, slug, []string{"example.com"}, "", nil, "", io.Discard)
 	if err != nil {
 		t.Fatalf("Up: %v", err)
 	}
@@ -55,7 +55,7 @@ func TestUp_RealEngine_TearsDownOnSidecarFailure(t *testing.T) {
 	slug := itest.Slug("sidecarfail")
 	t.Setenv("SANDBOXER_PROXY_IMAGE", "sandboxer-bogus-image:does-not-exist")
 
-	e, err := Up(engine, slug, []string{"example.com"}, "", "", io.Discard)
+	e, err := Up(engine, slug, []string{"example.com"}, "", nil, "", io.Discard)
 	if err == nil {
 		t.Fatal("Up should fail when the sidecar image is missing")
 	}
