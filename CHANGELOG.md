@@ -6,6 +6,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.28.0] — 2026-07-13
+
+### Added
+
+- wire resource limits (memory/cpus/pids) (ccd9555)
+- domain-routed upstream proxies + fold sidecar config into session freshness (df1319d)
+- experimental macOS support — SANDBOXER_CONTAINER_USER escape hatch + setup docs (db2c33d)
+
+### Fixed
+
+- build the itest smoke image via nix, not `docker pull` from Docker Hub (69ea3f5)
+- mount repo config/hooks read-only to close git-dir RCE (3a13c4a)
+- update integration tests for removed Wall + new egress.Up signature (1e03950)
+
+### Refactored
+
+- remove the model: knob (8b05617)
+- move proxy/noProxy under network: (0b521f7)
+- remove agent: and agentProxy: (0d84165)
+- git-only sandboxes — drop the copy-mode fallback (4e9d536)
+
+### Docs
+
+- drop references to the removed run command (14eaeaa)
+- rewrite SECURITY.md + docs/architecture.md to match reality (3e85ebd)
+
+### Chores
+
+- prune dead resource/parallelism knobs (a7d19dd)
+- drop dead launch-command + credential-dir surface (7264db3)
+
+
 ## [0.27.0] — 2026-07-09
 
 ### Added
@@ -190,3 +222,4 @@ isolated, containerized dev sandbox, on a local Linux machine:
 [0.26.2]: https://github.com/irasikhin/sandboxer/compare/v0.26.1...v0.26.2
 [0.26.3]: https://github.com/irasikhin/sandboxer/compare/v0.26.2...v0.26.3
 [0.27.0]: https://github.com/irasikhin/sandboxer/compare/v0.26.3...v0.27.0
+[0.28.0]: https://github.com/irasikhin/sandboxer/compare/v0.27.0...v0.28.0
