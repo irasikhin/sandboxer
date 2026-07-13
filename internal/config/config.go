@@ -30,6 +30,17 @@ type Network struct {
 	AllowedDomains []string `yaml:"allowedDomains,omitempty" json:"allowedDomains,omitempty"`
 }
 
+// Limits caps a sandbox container's resources. Every field is optional; an empty
+// field means "no cap". Memory is an engine memory string (e.g. 2G, 512m), CPUs
+// a core count or systemd-style quota (1.5 or 150%), and Pids the PID-count cap
+// (--pids-limit) that bounds fork-bomb blast radius. Memory/CPUs override the
+// SANDBOXER_MEM / SANDBOXER_CPU env defaults; Pids has no env default.
+type Limits struct {
+	Memory string `yaml:"memory,omitempty" json:"memory,omitempty"`
+	CPUs   string `yaml:"cpus,omitempty"   json:"cpus,omitempty"`
+	Pids   int    `yaml:"pids,omitempty"   json:"pids,omitempty"`
+}
+
 // Proxy handling: a sandbox reaches the outside world through ONE proxy URL
 // (Profile.Proxy, an `http://host:port` or `https://host:port`). There is no
 // separate "upstream" vs "corporate" mode — the egress allowlist toggle decides
@@ -169,6 +180,9 @@ type Profile struct {
 	// default) keeps one detached session container running across invocations,
 	// "ephemeral" starts a fresh one-shot container per command.
 	Session string `yaml:"session,omitempty" json:"session,omitempty"`
+	// Limits caps the sandbox container's memory/cpus/pids; empty fields inherit
+	// the SANDBOXER_MEM/SANDBOXER_CPU env defaults (memory/cpus) or stay uncapped.
+	Limits Limits `yaml:"limits,omitempty" json:"limits,omitempty"`
 }
 
 // Load reads and parses a single flat YAML profile from disk. Multi-profile

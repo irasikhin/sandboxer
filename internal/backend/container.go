@@ -71,6 +71,7 @@ type RunOpts struct {
 	NoEgress        bool   // SANDBOXER_NO_EGRESS
 	Mem             string // memory cap → --memory (e.g. 2G); empty = unlimited
 	CPU             string // CPU cap → --cpus (accepts a float or systemd "100%")
+	Pids            int    // PID-count cap → --pids-limit; 0 = unlimited
 	Args            []string
 	Stdin           io.Reader
 	Stdout          io.Writer
@@ -224,6 +225,9 @@ func commonArgs(o RunOpts, egNet, egProxyURL string) []string {
 	}
 	if cpus := cpusFromQuota(o.CPU); cpus != "" {
 		args = append(args, "--cpus", cpus)
+	}
+	if o.Pids > 0 {
+		args = append(args, "--pids-limit", strconv.Itoa(o.Pids))
 	}
 	// Proxy wiring. Two modes, decided by whether the egress sidecar is active:
 	//   - egNet != "": allowlist on. The agent's sole exit is the squid sidecar,

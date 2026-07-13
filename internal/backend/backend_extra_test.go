@@ -108,7 +108,7 @@ func TestRunArgv(t *testing.T) {
 			Proxy: "http://p", NoProxy: "x",
 			Domains: []string{"a.com"}, Egress: false, // egress off → direct proxy env
 		},
-		Mem: "2G", CPU: "150%", Interactive: true,
+		Mem: "2G", CPU: "150%", Pids: 512, Interactive: true,
 		Args: []string{"bash", "-l"},
 	})
 	if err != nil {
@@ -116,7 +116,7 @@ func TestRunArgv(t *testing.T) {
 	}
 	s := strings.Join(argv, " ")
 	for _, w := range []string{
-		"run --rm", "--user", "--memory 2G", "--cpus 1.5", "--userns=keep-id",
+		"run --rm", "--user", "--memory 2G", "--cpus 1.5", "--pids-limit 512", "--userns=keep-id",
 		"--add-host=host.docker.internal:host-gateway",
 		"--add-host=host.containers.internal:host-gateway",
 		"HTTP_PROXY=http://p", "NO_PROXY=x", "SANDBOXER_ALLOW_DOMAINS=a.com",

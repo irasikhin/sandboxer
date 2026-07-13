@@ -59,6 +59,14 @@ network:
 # for the available packs.
 # tools: [node, go]
 
+# Resource caps for the sandbox container (empty = uncapped). memory/cpus
+# override the SANDBOXER_MEM/SANDBOXER_CPU env defaults; pids is a --pids-limit
+# that bounds fork-bomb blast radius.
+# limits:
+#   memory: 4G
+#   cpus: 2
+#   pids: 512
+
 # MCP servers wired into the agent: the server config is seeded into the agent's
 # sandbox home (claude today) and each server's domains are folded into the
 # egress allowlist above. See registry/mcp.json for the catalog.

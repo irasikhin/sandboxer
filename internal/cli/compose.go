@@ -85,6 +85,9 @@ equivalent — its purpose is "run it with your own tooling".`,
 				Profile:         t.profile,
 				ProfileJSONPath: t.base.ProfileJSONPath(t.slug),
 				ManifestPath:    t.base.ManifestPath(t.slug),
+				Mem:             rt.Mem,
+				CPU:             rt.CPU,
+				Pids:            rt.Pids,
 				Interactive:     true,
 				Args:            []string{"bash", "-l"},
 				NoEgress:        noEgress(),
@@ -144,6 +147,7 @@ type composeService struct {
 	SecurityOpt []string          `yaml:"security_opt,omitempty"`
 	MemLimit    string            `yaml:"mem_limit,omitempty"`
 	CPUs        string            `yaml:"cpus,omitempty"`
+	PidsLimit   string            `yaml:"pids_limit,omitempty"`
 	StdinOpen   bool              `yaml:"stdin_open,omitempty"`
 	Tty         bool              `yaml:"tty,omitempty"`
 	Environment map[string]string `yaml:"environment,omitempty"`
@@ -202,7 +206,7 @@ func parseRunArgv(argv []string) composeService {
 		case "--userns=keep-id":
 			i++ // podman host-id mapping; no portable compose equivalent
 		case "--user", "--workdir", "--security-opt",
-			"--memory", "--cpus", "--network", "--volume", "--env":
+			"--memory", "--cpus", "--pids-limit", "--network", "--volume", "--env":
 			if i+1 >= len(argv) {
 				i++
 				continue
@@ -219,6 +223,8 @@ func parseRunArgv(argv []string) composeService {
 				svc.MemLimit = val
 			case "--cpus":
 				svc.CPUs = val
+			case "--pids-limit":
+				svc.PidsLimit = val
 			case "--volume":
 				svc.Volumes = append(svc.Volumes, val)
 			case "--env":

@@ -83,6 +83,31 @@ func TestResolveRuntimePrecedence(t *testing.T) {
 	}
 }
 
+// TestResolveRuntimeLimits pins the resource-cap resolution: a profile's
+// limits: overrides the SANDBOXER_MEM/SANDBOXER_CPU env defaults, memory/cpus
+// fall back to those defaults when the profile is silent, and pids comes
+// straight from the profile (no env default).
+func TestResolveRuntimeLimits(t *testing.T) {
+	// Profile limits win over the env defaults; pids is profile-only.
+	p := &Profile{Limits: Limits{Memory: "4G", CPUs: "2", Pids: 512}}
+	rt, err := ResolveRuntime(p, Defaults{Mem: "1G", CPU: "1"}, "base.com", "bm", Overrides{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rt.Mem != "4G" || rt.CPU != "2" || rt.Pids != 512 {
+		t.Errorf("profile limits should win: mem=%q cpu=%q pids=%d", rt.Mem, rt.CPU, rt.Pids)
+	}
+
+	// No profile limits → the env defaults apply, pids stays uncapped.
+	rt2, err := ResolveRuntime(&Profile{}, Defaults{Mem: "1G", CPU: "1"}, "base.com", "bm", Overrides{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rt2.Mem != "1G" || rt2.CPU != "1" || rt2.Pids != 0 {
+		t.Errorf("env limits should apply: mem=%q cpu=%q pids=%d", rt2.Mem, rt2.CPU, rt2.Pids)
+	}
+}
+
 func TestValidateProxy(t *testing.T) {
 	cases := []struct {
 		name   string

@@ -286,6 +286,7 @@ func sessionHashOpts(t *target, rt config.Runtime, engine string) (backend.RunOp
 		HomeDir:      t.base.HomeDir(t.slug),
 		RT:           rt, Profile: t.profile,
 		ProfileJSONPath: t.base.ProfileJSONPath(t.slug), ManifestPath: t.base.ManifestPath(t.slug),
+		Mem: rt.Mem, CPU: rt.CPU, Pids: rt.Pids,
 		NoEgress: noEgress(),
 	}, true
 }

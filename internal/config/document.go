@@ -315,6 +315,17 @@ func mergeProfile(base, over Profile) Profile {
 	if over.Session != "" {
 		out.Session = over.Session
 	}
+	// Limits merge per field, so defaults: can cap memory while a profile tightens
+	// cpus or pids on top.
+	if over.Limits.Memory != "" {
+		out.Limits.Memory = over.Limits.Memory
+	}
+	if over.Limits.CPUs != "" {
+		out.Limits.CPUs = over.Limits.CPUs
+	}
+	if over.Limits.Pids != 0 {
+		out.Limits.Pids = over.Limits.Pids
+	}
 	out.Name = over.Name
 	return out
 }

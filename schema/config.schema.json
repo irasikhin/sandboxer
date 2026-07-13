@@ -23,6 +23,21 @@
       "additionalProperties": false,
       "type": "object"
     },
+    "Limits": {
+      "properties": {
+        "memory": {
+          "type": "string"
+        },
+        "cpus": {
+          "type": "string"
+        },
+        "pids": {
+          "type": "integer"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
     "Mount": {
       "properties": {
         "source": {
@@ -136,6 +151,9 @@
         },
         "session": {
           "type": "string"
+        },
+        "limits": {
+          "$ref": "#/$defs/Limits"
         }
       },
       "additionalProperties": false,

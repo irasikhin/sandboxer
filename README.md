@@ -154,8 +154,14 @@ Scalars come from **flags** and `SANDBOXER_*` env vars:
 | skip auto-scaffold | — | `SANDBOXER_NO_SCAFFOLD=1` (create/enter writes a default `.sandboxer/config.yaml` otherwise) |
 | container engine | — | `SANDBOXER_ENGINE` (default: auto-detect docker→podman) |
 | image | — | `SANDBOXER_IMAGE` (default `sandboxer-toolbox:latest`) |
+| resource caps | — | `SANDBOXER_MEM` / `SANDBOXER_CPU` (or the profile's `limits:` — see below) |
 
-Structured fields (`roots`/`deps`, `context`, `extraMounts`, `env`, `setup`, `tools`, `mcp`, `image`) live in an **optional**
+The sandbox container's resource caps come from the profile's `limits:` block
+(`memory`, `cpus`, `pids`), overriding the `SANDBOXER_MEM`/`SANDBOXER_CPU` env
+defaults; `pids` (a `--pids-limit`, bounding fork-bomb blast radius) is
+profile-only. Empty means uncapped.
+
+Structured fields (`roots`/`deps`, `context`, `extraMounts`, `env`, `setup`, `tools`, `mcp`, `image`, `limits`) live in an **optional**
 `.sandboxer/config.yaml`. Point at it with `-f`/`--config`, which accepts a **file**, a
 **directory** of profiles, or the **name** of a profile in the store (see
 [Named profiles](#named-profiles)); with nothing given, a `.sandboxer/config.yaml` in

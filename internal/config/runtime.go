@@ -24,6 +24,12 @@ type Runtime struct {
 	Session    string   // SessionPersistent or SessionEphemeral (resolved; never empty)
 	AuthAgents []string // whose creds to bind in the container
 	Egress     bool
+	// Resource caps threaded into the container run (--memory/--cpus/--pids-limit).
+	// Mem/CPU resolve profile-over-env (limits: over SANDBOXER_MEM/SANDBOXER_CPU);
+	// Pids has no env default. Empty/zero means uncapped.
+	Mem  string
+	CPU  string
+	Pids int
 }
 
 // Session modes for Runtime.Session: a persistent detached container reused
@@ -87,6 +93,11 @@ func ResolveRuntime(p *Profile, d Defaults, baseDomains, baseModel string, f Ove
 	} else {
 		rt.AuthAgents = registry.Names()
 	}
+	// Resource caps: a profile's limits: overrides the SANDBOXER_MEM/SANDBOXER_CPU
+	// env defaults; pids has no env default and comes straight from the profile.
+	rt.Mem = firstNonEmpty(p.Limits.Memory, d.Mem)
+	rt.CPU = firstNonEmpty(p.Limits.CPUs, d.CPU)
+	rt.Pids = p.Limits.Pids
 	return rt, nil
 }
 

@@ -189,6 +189,13 @@ network:
 # (see registry/tools.json: node, python, go, rust, …):
 # tools: [node, python]
 
+# Resource caps for the sandbox container (empty = uncapped). memory/cpus
+# override SANDBOXER_MEM/SANDBOXER_CPU; pids is a --pids-limit (fork-bomb guard).
+# limits:
+#   memory: 4G
+#   cpus: 2
+#   pids: 512
+
 # MCP servers wired into the agent (see registry/mcp.json); their domains are
 # folded into the egress allowlist automatically:
 # mcp: [context7]
