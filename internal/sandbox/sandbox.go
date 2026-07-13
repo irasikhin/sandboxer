@@ -142,7 +142,7 @@ func (b *Base) EnsureHome(slug string) error {
 	return os.MkdirAll(b.HomeDir(slug), 0o700)
 }
 
-// ProfileJSONPath, ManifestPath, MetaFilePath locate per-sandbox metadata files.
+// ProfileJSONPath, MetaFilePath locate per-sandbox metadata files.
 func (b *Base) ProfileJSONPath(slug string) string {
 	return filepath.Join(b.metaDir(), slug+".profile.json")
 }

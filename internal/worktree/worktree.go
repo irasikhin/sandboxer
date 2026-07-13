@@ -7,7 +7,7 @@
 // worktree shares the project's object store, so an agent gets a real git
 // (branch, commit, diff) and its work comes back as an ordinary branch — no
 // byte copy, no manifest push-back. A project that is not a git repository (or
-// has no commit yet) falls back to the copy path in internal/srcs.
+// has no commit yet) is rejected — there is no copy-mode fallback.
 //
 // Everything here is thin orchestration over the git CLI; git is expected on
 // PATH (Detect reports the repo as absent when it is not, so the caller falls

@@ -72,7 +72,7 @@ type RunOpts struct {
 	Image           string
 	Spec            toolbox.Spec // image variant customization; drives the auto-build of a missing variant
 	Dest            string       // sandbox working tree (git worktree or copy dir), mounted and used as workdir
-	GitCommonDir    string       // shared git dir bind-mounted so git works in-container; "" in copy mode
+	GitCommonDir    string       // shared git dir bind-mounted so git works in-container; "" when unset
 	GitUserName     string       // host-resolved git identity, injected so the agent can commit
 	GitUserEmail    string       // without writing to (now read-only) repo config
 	Slug            string
@@ -201,7 +201,7 @@ func commonArgs(o RunOpts, egNet, egProxyURL string) []string {
 	// is a mapped user); hooks are additionally disabled in-container as
 	// defense-in-depth; and the host's git identity is injected so the agent can
 	// commit without writing to the now-read-only config. See SECURITY.md.
-	// "" in copy mode leaves the argv (and ConfigHash) untouched.
+	// An empty GitCommonDir leaves the argv (and ConfigHash) untouched.
 	if o.GitCommonDir != "" {
 		cd := o.GitCommonDir
 		args = append(args, "--volume", cd+":"+cd+":rw",
