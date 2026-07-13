@@ -5,72 +5,67 @@ lifecycle of a sandbox, how the toolbox container image is built, how outbound
 network is fenced, and how the agent catalog stays single-source. For usage see
 the [README](../README.md); for the trust model see [SECURITY.md](../SECURITY.md).
 
-## On-disk layout (`.sandboxer/`)
+## On-disk layout
 
-Everything sandboxer creates for a project lives under a single `.sandboxer/`
-directory at the project root — including the committed project profile
-(`config.yaml`) and image hook (`image.nix`). A generated `.sandboxer/.gitignore`
-is an **allowlist** (`*` + `!.gitignore` + `!config.yaml` + `!image.nix`): it
-commits only those three sandboxer-owned files while the leading `*` keeps the
-generated state — working copies and login tokens alike — out of the user's repo.
+The **committed** config lives at the project root under `.sandboxer/`; all
+**runtime state** lives OUTSIDE the repo under an XDG state dir
+(`$XDG_STATE_HOME/sandboxer/<project-id>`), so working copies and login tokens
+can never be committed. `.sandboxer/` therefore holds only two sandboxer-owned
+files, and a generated `.gitignore` allowlists exactly them.
 
 ```
-<project-root>/
-└── .sandboxer/
-    ├── .gitignore            # allowlist: "*" + !.gitignore !config.yaml !image.nix
-    ├── config.yaml           # the profile (optional; auto-discovered; committed)
-    ├── image.nix             # the image hook the profile's image: points at (committed)
-    ├── <slug>/                # one per sandbox: the agent's working dir,
-    │                          #   holding only the pulled `deps` (flat copies)
-    ├── _meta/                 # per-base + per-sandbox metadata
-    │   ├── run.env            # SRC / MODEL / DOMAINS for this base
-    │   ├── current            # the active sandbox slug (sandboxer use)
-    │   ├── agents.list        # registered sandbox slugs, one per line
-    │   ├── <slug>.profile.json   # resolved profile snapshot
-    │   ├── <slug>.manifest.json  # what was pulled (for push/diff)
-    │   ├── <slug>.meta           # per-sandbox run metadata
-    │   └── <slug>.setup          # setup-script hash stamp (re-run gate)
-    ├── _logs/                 # rotating per-sandbox logs (<slug>.json, .err, …)
-    └── _home/
-        └── <slug>/            # private $HOME mounted into the container,
-                               #   0700 — holds in-sandbox login tokens
+<project-root>/.sandboxer/
+├── .gitignore            # allowlist: "*" + !.gitignore !config.yaml !image.nix
+├── config.yaml           # the profile (optional; auto-discovered; committed)
+└── image.nix             # the image hook the profile's image: points at (committed)
+
+$XDG_STATE_HOME/sandboxer/<project-id>/     # runtime state, outside the repo
+├── <slug>/               # one per sandbox: a git worktree on branch sandbox/<slug>
+├── _meta/
+│   ├── run.env           # SRC / DOMAINS for this base
+│   ├── current           # the active sandbox slug (sandboxer use)
+│   ├── agents.list       # registered sandbox slugs, one per line
+│   ├── <slug>.profile.json  # resolved profile snapshot
+│   ├── <slug>.meta          # per-sandbox run metadata
+│   └── <slug>.setup         # setup-script hash stamp (re-run gate)
+├── _logs/                # rotating per-sandbox logs (<slug>.json, .err, …)
+└── _home/
+    └── <slug>/           # private $HOME mounted into the container,
+                          #   0700 — holds in-sandbox login tokens
 ```
 
-Key invariants (`internal/sandbox`):
+Key invariants (`internal/sandbox`, `internal/worktree`):
 
-- The **`<slug>/` working dir holds only the listed `deps`** — nothing is copied
-  by default, and no git is involved. Each `dep` is located by path-suffix under
-  the profile's `roots` and copied flat to `<slug>/workspace/<dep>`.
+- **`<slug>/` is a git worktree** of the project repo on branch `sandbox/<slug>`
+  (off HEAD), optionally narrowed by the profile's `deps` to a subset of
+  repo-relative directories via cone `git sparse-checkout` (empty = the whole
+  repo). The agent's work returns as an ordinary branch — no copy-in, no
+  push-back. sandboxer is **git-only**: a non-git project (or one with no commit)
+  is rejected with an init hint.
 - **`_home/<slug>` lives outside `<slug>/`** deliberately, so the agent's `$HOME`
-  is never swept up by `push` and copied back over a `dep` origin. It is `0700`
-  because an in-sandbox `claude login` stores credentials there.
-- The host's real `~/.claude` / tokens are **never** mounted in; each sandbox
-  authenticates into its own `_home/<slug>`, so parallel sandboxes never share or
-  race on one config.
+  is never part of the worktree. It is `0700` because an in-sandbox `claude login`
+  stores credentials there; the host's real `~/.claude`/tokens are never mounted.
 
 ## Sandbox lifecycle
 
 ```
   init ──────────►  scaffold .sandboxer/config.yaml (+ .sandboxer/image.nix)   [optional]
                     │
-  create <slug> ──► mkdir .sandboxer/<slug>, _home/<slug>;
-                    │   snapshot profile.json; PULL deps; register slug
+  create <slug> ──► add a git worktree on branch sandbox/<slug> (sparse to deps);
+                    │   mkdir _home/<slug>; snapshot profile.json; register slug
                     ▼
-  pull ───────────► copy deps in (suffix-match under roots; kept unless --force)
-                    │
-  enter / exec ───► run agent inside the container:
-                    │   • bring up egress allowlist (unless disabled)
-                    │   • run one-time `setup:` if its hash changed
+  enter / exec ───► run the agent inside the container:
+                    │   • bring up the egress allowlist sidecar (unless disabled)
+                    │   • run the one-time `setup:` if its hash changed
                     │   • attach (persistent tmux session) or one-shot
-                    │   • on exit: auto copy-back (push) the deps
                     ▼
-  diff ───────────► show sandbox vs. each dep origin (no writes)
-                    │
-  push ───────────► copy deps back over their origins (wholesale overwrite)
-                    │
+  review ─────────► the work is a branch: git -C <repo> log sandbox/<slug>,
+                    │   git diff / merge / cherry-pick
   stop ───────────► park the persistent session container (enter resumes it)
                     │
-  rm ─────────────► delete <slug>/, _home/<slug>, meta, logs, session container
+  rm ─────────────► git worktree remove + prune, delete _home/<slug>, meta, logs,
+                    │   session container — KEEPS the sandbox branch
+  recreate --full ► also delete the branch, for a clean slate
 ```
 
 Notes:
@@ -79,10 +74,10 @@ Notes:
   detaches and the session — and any agent in it — keeps running; a later `enter`
   reattaches. `exec` reuses a running session; `stop` parks it; `rm` removes it.
   A session survives client disconnects but **not** a host/engine restart.
-- `push` (and the automatic copy-back after `enter`/`exec`) **overwrites each
-  origin wholesale** — there is no merge. Run `diff` first.
-- The whole flow refuses to run the mutating commands while executing **inside**
-  the container — only `pull`/`push`/`show`/`list`/`diff` are allowed there.
+- The agent's work is a git branch in your repo's shared object store; you review
+  and merge it with plain git. There is no `pull`/`push`/`diff`.
+- The whole flow refuses to run **inside** the container — every command is
+  deny-all there (sandboxer is a host tool, not baked into the image).
 
 ## Toolbox image (built with nix, no host nix)
 
@@ -91,14 +86,14 @@ image, with the coding agents (claude, opencode, crush, aider, …) baked in. Th
 image is built **without nix on the host** (`internal/toolbox`):
 
 ```
-  sandboxer build-image
+  sandboxer image build
         │
         ▼
   host docker/podman ── runs ──► ephemeral nixos/nix:<pinned> container
         │                               │
         │   inject sandboxer binary     │ realizes the embedded flake
         │   into the build context      │ (assets/flake.nix):
-        │                               │   • llm-agents.nix  → the agents
+        │                               │   • agents.nix     → the agents
         │                               │   • dockerTools.buildLayeredImage
         │                               ▼
         │                         image tarball
@@ -122,40 +117,40 @@ variant) on first use.
 The flake's `llm-agents`/`nixpkgs` inputs are **pinned**: a full 40-hex commit
 pins exactly; `latest` is resolved to the remote head once, inside the builder,
 and stamped into `~/.cache/sandboxer/image-pins.json` so later runs reuse it and
-never silently drift. Only `build-image --refresh` moves a `latest` pin.
+never silently drift. Only `image build --refresh` moves a `latest` pin.
 
-## Egress allowlist (forward-proxy sidecar)
+## Egress allowlist (squid sidecar)
 
-Outbound network is fenced by an allowlist forward-proxy
-(`internal/egress` + `internal/proxy`):
+Outbound network is fenced by an allowlist forward-proxy — a stock **squid**
+sidecar (the `sandboxer-proxy` image, built beside the toolbox image), NOT the
+sandboxer binary (nothing of sandboxer's is ever in the network path):
 
 ```
-   ┌───────────────────────── internal network (no outbound) ──────────────┐
+   ┌───────────────────── internal network (no outbound) ──────────────────┐
    │                                                                        │
-   │   agent container ──HTTP(S)_PROXY──►  allowlist proxy sidecar ──► host/internet
-   │   (deps + $HOME)                       (sandboxer _proxy mode)         │
-   │                                          • host on allowlist  → dial   │
-   │                                          • otherwise          → 403    │
+   │   agent container ──HTTP(S)_PROXY──►  squid allowlist sidecar ──► internet
+   │   (git worktree + $HOME)               • host on allowlist  → dial     │
+   │                                        • otherwise          → 403/deny │
    └────────────────────────────────────────────────────────────────────────┘
 ```
 
 - The agent sits on an `--internal` network with **no direct route out**; its
-  only exit is the proxy. The proxy is the **same sandboxer binary** in a hidden
-  `_proxy` mode (no external dependency), permitting only the hosts in
-  `network.allowedDomains` / `--allow-domains` and returning **403** for anything
-  else.
-- It is **fail-closed**: if the allowlist is required but the proxy can't start
-  (or no domains are allowed), the run is **refused** rather than falling back to
-  an open network. Disable deliberately with `egress: false` /
-  `SANDBOXER_NO_EGRESS=1`.
-- A configured `proxy:` URL routes outbound traffic; the egress toggle decides
-  the trust model. With egress **on** (the default) the allowlist stays enforced
-  and the sidecar **chains** allowed traffic through the proxy (squid
-  `cache_peer`, http:// only). With egress **off** the proxy **replaces** the
-  allowlist — the agent talks to it directly via `HTTP(S)_PROXY` and that proxy
-  is trusted to police egress (http:// or https://). A `localhost` proxy is
-  rewritten to the host gateway so a proxy on the host is reachable from the
-  sidecar (which is mapped to `host.docker.internal` for exactly this).
+  only exit is the squid sidecar, which permits only the hosts in
+  `network.allowedDomains` / `--allow-domains` (and their subdomains) and denies
+  everything else. It is **fail-closed**: if the allowlist is required but the
+  proxy can't start (or no domains are allowed) the run is **refused**, never
+  opened. Disable deliberately with `egress: false` / `SANDBOXER_NO_EGRESS=1`.
+- **`network.proxy`** — a single upstream the sidecar chains all allowed traffic
+  through (squid `cache_peer`, http:// only). A `localhost` proxy is rewritten to
+  the host gateway so a proxy on the host is reachable from the sidecar.
+- **`network.routes`** — per-domain overrides: each route sends its domains
+  through a dedicated upstream (a named `cache_peer`), never direct, so a routed
+  peer being down fails closed. Every routed domain must also be in
+  `allowedDomains`. Deterministic squid config; its fingerprint is folded into the
+  session's freshness hash, so editing domains/proxy/routes recreates the session.
+- With egress **off** the proxy **replaces** the allowlist — the agent talks to
+  `network.proxy` directly via `HTTP(S)_PROXY` (routes are ignored) and that proxy
+  is trusted to police egress (http:// or https://).
 
 ## Agent registry (single source)
 
@@ -167,11 +162,11 @@ both **embedded in the binary** (via `go:embed`) and **read by the nix flake**
         internal/registry/registry.json
         ┌──────────────┴───────────────┐
    go:embed                       builtins.fromJSON
-   (the CLI: how to launch,            (the flake: which llm-agents
-    creds/env, image inclusion)         packages to bake into the image)
+   (the CLI: bin, auth-env,           (the flake: which llm-agents
+    image inclusion)                   packages to bake into the image)
 ```
 
-Each entry declares how to launch the agent (interactive/headless command
-templates), which host config dirs/env carry its credentials, and the
-`nixPackage` used to bake it in. **Adding an agent is one JSON entry** — never
-duplicate the catalog. `sandboxer agents` prints it.
+Each entry declares only the agent's binary name (`bin`), the env vars that carry
+its credentials (`authEnv`, passed through when set on the host), whether it ships
+in the image (`image`), and the `nixPackage` used to bake it in. **Adding an agent
+is one JSON entry** — never duplicate the catalog. `sandboxer agents` prints it.

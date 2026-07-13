@@ -2,9 +2,9 @@
 
 ## Supported Versions
 
-sandboxer is pre-1.0; the CLI flags and on-disk layout may still change between
-minor versions (the `.sandboxer/config.yaml` schema has settled on `roots`+`deps` and is
-treated as stable through 0.x).
+sandboxer is pre-1.0; the CLI flags and on-disk layout still change between minor
+versions (the `.sandboxer/config.yaml` schema is evolving — this line of releases
+removed several knobs; a config using a retired key fails with a migration hint).
 
 While pre-1.0, **only the latest `0.x` release** receives security fixes — there
 are no maintained back-ports to earlier `0.y` lines. A fix ships as the next
@@ -31,63 +31,92 @@ This is a single-maintainer open-source project, so reports are handled on a
 **best-effort** basis. Expect an initial acknowledgement within a few days
 (typically under a week); a fix then ships in the next release once confirmed.
 
-## Security model notes
+## Threat model
 
-sandboxer is a workflow tool for running coding agents in isolation, not a
-hardened security boundary. Understand the model before trusting it:
+sandboxer is a workflow tool for a **single developer on their own machine**:
+each developer runs coding agents locally, with their own key or subscription.
+The adversary it defends against is **the agent on the owner's laptop** — not one
+developer's agent against another's. So the goal is to keep a misbehaving or
+prompt-injected agent from reaching the developer's host, credentials and other
+projects. It is **not** a hardened multi-tenant isolation layer; do not run an
+agent you actively distrust and assume it is contained.
 
-- **Separate working copy.** sandboxer isolates a coding agent in a *separate
-  directory* containing only the `deps` you list, so the agent's changes never
-  touch their origins until you review (`sandboxer diff`) and copy them back
-  (`sandboxer push`). No git is involved.
+The rest of this section is what the isolation actually gives you, and — just as
+important — where it stops.
 
-- **Push overwrites the origin.** `sandboxer push` (and the automatic copy-back
-  after `enter`/`exec`) replaces each origin *wholesale* with the sandbox copy,
-  with no merge and no signature check — an out-of-band edit to the origin is
-  lost. Run `sandboxer diff` before pushing to see what will change.
+### What the isolation gives you
 
-- **Container backend.** The `podman`/`docker` backend runs the agent
-  unprivileged: `--user` (non-root), `--cap-drop=ALL`, and
-  `--security-opt no-new-privileges`. This reduces, but does not eliminate,
-  the blast radius of a misbehaving agent.
+- **Git-worktree working copy.** A sandbox is a `git worktree` of your repo on
+  branch `sandbox/<slug>`. The agent commits there; its work returns as an
+  ordinary branch you review (`git log`/`git diff`/`git merge sandbox/<slug>`)
+  before it touches your main line. There is no copy-back over host files.
 
-- **Egress allowlist.** The agent runs on an `--internal` network whose sole
-  exit is an allowlist forward-proxy, restricting outbound network traffic to
-  the configured domains. The container backend **fails closed**: if the
-  allowlist is required but the proxy cannot start (or no domains are allowed),
-  the run is refused rather than silently falling back to an open network.
-  Disable it deliberately with `egress: false` or `SANDBOXER_NO_EGRESS=1`. Even
-  when active it is a **best-effort guardrail, not a guarantee** against a
-  determined adversary — DNS tricks, abuse of an allowed domain, and similar
-  techniques can defeat it.
+- **Isolated `$HOME` — no host credentials.** Each sandbox has its own private
+  home (`_home/<slug>` under the XDG state dir, `0700`), mounted as `$HOME`. The
+  host's real agent config — `~/.claude`, `~/.claude.json`, tokens, project
+  history, MCP servers — and your `~/.ssh`, `~/.aws`, etc. are **never** mounted
+  in. The **recommended, safe auth path is to log in inside the sandbox** (e.g.
+  `claude login`): the token lands in that sandbox's home and never reaches the
+  host. API-key env vars (e.g. `ANTHROPIC_API_KEY`) are passed through only when
+  you have set them on the host — an explicit opt-in. Wire in only the agents and
+  keys the task needs.
 
-  > **With `egress: false`, a configured proxy replaces the allowlist.** A
-  > `proxy:` URL combined with `egress: false` makes sandboxer treat that proxy as
-  > the egress boundary: it does **not** start the allowlist sidecar, so outbound
-  > traffic is governed by your proxy's policy, not by `network.allowedDomains`.
-  > With egress **on** (the default) the proxy is instead chained *through* the
-  > allowlist, which keeps applying — so don't run `egress: false` + proxy
-  > expecting the domain allowlist to also apply.
+- **Clean container environment.** The agent runs in a podman/docker container
+  from a clean, explicit environment: it does **not** inherit your host shell, so
+  an `AWS_*` / `GITHUB_*` / `*_TOKEN` left in your environment is invisible to it
+  unless you wire it in.
 
-- **Credentials (container backend).** Each sandbox has its own private agent
-  home (`.sandboxer/_home/<slug>`), mounted as `$HOME`. The host's real agent
-  config — `~/.claude`, `~/.claude.json`, tokens, project history, MCP servers —
-  is **never** mounted in, so nothing from the host leaks into the sandbox and
-  parallel sandboxes never share or race on one config. Authenticate *inside*
-  the sandbox (e.g. `claude login`); the credentials persist in that sandbox's
-  home and are isolated from every other sandbox and from the host. API-key
-  environment variables (e.g. `ANTHROPIC_API_KEY`) are passed through only when
-  you have set them on the host — an explicit opt-in. Treat the sandbox as
-  having full access to whatever credentials you give it; only wire in the
-  agents (and keys) you actually need for the task.
+- **Unprivileged container + resource caps.** The backend runs the agent
+  `--user` (non-root), `--cap-drop=ALL`, `--security-opt no-new-privileges`, and
+  applies the profile's `limits:` (`--memory` / `--cpus` / `--pids-limit`) when
+  set. This reduces, but does not eliminate, the blast radius.
 
-- **Container environment.** The agent runs in a podman/docker container that
-  starts from a clean, explicit environment: it does **not** inherit your host
-  shell, so an `AWS_*` / `GITHUB_*` / `*_TOKEN` left in your environment is not
-  visible to the agent unless you wire it in (an agent's API-key env vars are
-  passed through only when you have set them — see Credentials above).
+- **Egress allowlist.** The agent runs on an `--internal` network whose sole exit
+  is a **squid** forward-proxy sidecar that permits only `network.allowedDomains`
+  (everything else → 403). It **fails closed**: if the allowlist is required but
+  the proxy cannot start (or no domains are allowed) the run is refused, never
+  silently opened. Disable deliberately with `egress: false` /
+  `SANDBOXER_NO_EGRESS=1`.
 
-- **Not a multi-tenant boundary.** sandboxer is **not** a hardened
-  multi-tenant isolation layer. Do not run untrusted or malicious agents and
-  assume they are contained — assume an adversarial agent can reach anything
-  the sandbox can reach.
+### Where it stops (know these before you trust it)
+
+- **The shared git object store is writable.** For git to work in-container the
+  repo's common git dir is bind-mounted. PR-hardening masks it read-only and
+  restores rw only to `objects/`, `refs/`, `logs/`, `worktrees/`, and neutralizes
+  `core.hooksPath` / `core.fsmonitor` via `GIT_CONFIG_*` — so an agent can **no
+  longer** get host code execution by writing `.git/hooks/*` or `.git/config`.
+  Residual risk remains: the agent can still **rewrite refs** (e.g. move
+  `refs/heads/main`) in the shared object store, so do not blindly trust your
+  repo's branches after a sandbox run — review the sandbox branch and be wary of
+  unexpected movement elsewhere. And **submodule git dirs under `.git/modules/`
+  are not masked**, so a repo with submodules still has a hooks/config surface
+  there. Prefer not to run untrusted agents against a submodule-heavy repo.
+
+- **`setup:` and `image.nix` run arbitrary code.** A profile's `setup:` is a
+  shell script run in the sandbox, and `image.nix` executes nix code at
+  image-build time. A committed `.sandboxer/config.yaml` therefore carries
+  **executable content** — treat it as code. Do not `create`/`enter` an untrusted
+  repo's sandbox without reading its `.sandboxer/` first; `image.nix` runs on the
+  host's build engine.
+
+- **`extraMounts` are read-write by default.** An `extraMounts` entry grants the
+  agent access to that host path — **rw unless you set `mode: ro`**. Scope them
+  narrowly; a broad rw mount hands the agent a hole straight to the host FS.
+
+- **The allowlist is domain-level, not a guarantee.** Even when active it is a
+  best-effort guardrail: domain-fronting, abuse of an already-allowed domain
+  (e.g. exfiltration through a permitted API or git host), and DNS tricks can
+  defeat it. `network.routes` and `network.proxy` change *where* allowed traffic
+  goes, not *what* is allowed.
+
+  > **`egress: false` replaces the allowlist.** A `network.proxy` URL with
+  > `egress: false` makes sandboxer treat that proxy as the boundary: it does
+  > **not** start the allowlist sidecar, so egress is governed by your proxy's
+  > policy, not by `network.allowedDomains`. With egress **on** (the default) the
+  > proxy is chained *through* the allowlist, which keeps applying — don't run
+  > `egress: false` + proxy expecting the domain allowlist to also apply.
+
+- **Not a multi-tenant boundary.** Assume an adversarial agent can reach anything
+  the sandbox can reach (the allowed domains, the mounted paths, the shared git
+  object store). sandboxer raises the cost of a bad agent on your own machine; it
+  is not a container-escape-proof jail.
