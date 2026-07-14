@@ -38,7 +38,15 @@ func LoadDocument(file string) (*Document, error) {
 	if err != nil {
 		return nil, err
 	}
+	return LoadDocumentBytes(data, file)
+}
 
+// LoadDocumentBytes parses profile config bytes exactly as LoadDocument does,
+// without touching the filesystem. file is the nominal path the bytes belong
+// to: its directory anchors relative image.nix resolution and its base name is
+// the flat-form name fallback. It exists so an in-memory edit (config set) can
+// be strictly validated before anything lands on disk.
+func LoadDocumentBytes(data []byte, file string) (*Document, error) {
 	// Probe (non-strict) for the document markers. Either a `profiles:` map or a
 	// `defaults:` block puts the file in the multi/document form — the latter so a
 	// defaults-only file (the common shape of the global config, which contributes
