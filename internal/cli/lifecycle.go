@@ -102,9 +102,21 @@ func newEnterCmd() *cobra.Command {
 	var f commonFlags
 	var sessionName string
 	cmd := &cobra.Command{
-		Use:   "enter [slug|profile.yaml]",
+		Use:   "enter [slug|profile|file.yaml]",
 		Short: "Open an interactive shell inside the sandbox",
-		Args:  cobra.MaximumNArgs(1),
+		Long: `Open an interactive shell inside the sandbox's container. By default it
+attaches to the persistent session (tmux — Ctrl-q detaches; the session and
+anything running in it keep going); --ephemeral runs a one-shot container
+instead. A sandbox that doesn't exist yet is created first.`,
+		Example: `  # enter the active sandbox (see: sandboxer use)
+  sandboxer enter
+
+  # enter (or create) the sandbox "feat"
+  sandboxer enter feat
+
+  # a second terminal into the same container
+  sandboxer enter feat --session side`,
+		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if err := maybeAutoScaffold(cmd, &f, posArg(args)); err != nil {
 				return err

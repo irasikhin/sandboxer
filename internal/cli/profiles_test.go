@@ -106,6 +106,17 @@ func TestProfilesCommand(t *testing.T) {
 		t.Errorf("profile list (project) = (%d, %q)", code, out)
 	}
 
+	// The default: profile is marked with the word "(default)" — not the `*`
+	// glyph, which `list` already uses for the active sandbox — and the shadow
+	// legend only prints when something is actually shadowed.
+	if err := os.WriteFile(config.ConfigPath(),
+		[]byte("profiles:\n  feat:\n    backend: docker\n  api:\n    backend: docker\ndefault: feat\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if code, out, _ := run("profile", "list"); code != 0 || !strings.Contains(out, "feat (default)") || strings.Contains(out, "shadowed") {
+		t.Errorf("profile list default marker = (%d, %q)", code, out)
+	}
+
 	// A -f directory overrides the sources and lists just that dir (no project).
 	if code, out, _ := run("profile", "list", "-f", store); code != 0 || !strings.Contains(out, "web") || strings.Contains(out, "feat") {
 		t.Errorf("profile list -f dir = (%d, %q)", code, out)

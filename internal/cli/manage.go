@@ -35,7 +35,15 @@ func newRmCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "rm [slug]",
 		Short: "Remove a sandbox and its state",
-		Args:  cobra.MaximumNArgs(1),
+		Long: `Remove a sandbox: its worktree, private agent home, logs, metadata and the
+persistent session container. The sandbox branch (sandbox/<slug>) is KEPT — the
+work stays reviewable in your repo; delete it with plain git when done.`,
+		Example: `  # remove the sandbox "feat" (branch sandbox/feat survives)
+  sandboxer rm feat
+
+  # remove the active sandbox
+  sandboxer rm`,
+		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			t, err := resolveTarget(f, posArg(args))
 			if err != nil {

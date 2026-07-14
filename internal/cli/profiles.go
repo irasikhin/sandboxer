@@ -81,24 +81,25 @@ func listAllSources(out io.Writer) error {
 	}
 	tw := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
 	fmt.Fprintln(tw, "NAME\tSOURCE\tBACKEND\tFILE")
-	marked := false
+	shadowed := false
 	for _, e := range entries {
 		name := e.Name
+		// `(default)` is spelled out (not `*`) so the glyph can't be confused
+		// with `list`'s active-sandbox marker.
 		switch {
 		case e.IsDefault:
-			name += " *"
-			marked = true
+			name += " (default)"
 		case e.Shadowed:
 			name += " ~"
-			marked = true
+			shadowed = true
 		}
 		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", name, e.Source, orDash(e.Backend), e.Path)
 	}
 	if err := tw.Flush(); err != nil {
 		return err
 	}
-	if marked {
-		fmt.Fprintln(out, "\n* default   ~ shadowed by a higher-precedence source")
+	if shadowed {
+		fmt.Fprintln(out, "\n~ = shadowed by a higher-precedence source")
 	}
 	return nil
 }
