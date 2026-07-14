@@ -56,7 +56,7 @@ type target struct {
 //	-f/--config NAME   → a named profile from the global store
 //	positional NAME    → a named profile: project config → store
 //	positional *.yaml  → that file
-//	.sandboxer/config.yaml → auto-discovered under the project root (--src or cwd)
+//	sandboxer.yaml     → auto-discovered under the project root (--src or cwd)
 //
 // Anything else leaves the positional as a bare slug ("", pos). root is the
 // project root the project config is discovered under (--src, else cwd).
@@ -79,7 +79,7 @@ func resolveProfileFile(configPath, root, pos string) (string, string, error) {
 		return configPath, pos, nil
 	}
 	// A bare positional first tries to name a profile in the project's
-	// .sandboxer/config.yaml — a multi-profile section or a flat file whose single
+	// sandboxer.yaml — a multi-profile section or a flat file whose single
 	// profile is named pos (project-local wins over the global store). This is
 	// what lets a re-`enter <slug>` re-read an edited project file instead of the
 	// frozen snapshot.
@@ -104,20 +104,29 @@ func resolveProfileFile(configPath, root, pos string) (string, string, error) {
 	return "", pos, nil
 }
 
-// legacyConfigHint reports a one-line migration notice when the pre-consolidation
-// root-level .sandboxer.yaml is present under root but the new
-// .sandboxer/config.yaml is not — so an upgrading user isn't silently met with
-// the no-profile defaults. It is purely advisory (the old path is no longer read)
-// and a no-op inside the container.
+// legacyConfigHint reports a one-line migration notice when a config exists at
+// a retired location under root but the current sandboxer.yaml does not — so
+// an upgrading user isn't silently met with the no-profile defaults. Two
+// retired generations are recognized: .sandboxer/config.yaml (pre-relocation)
+// and the ancient root-level .sandboxer.yaml. Purely advisory (the old paths
+// are no longer read) and a no-op inside the container.
 func legacyConfigHint(w io.Writer, root string) {
 	if inContainer() {
 		return
 	}
-	legacy := filepath.Join(root, config.LegacyConfigFileName)
-	current := filepath.Join(root, config.StateDirName, config.ConfigFileName)
-	if fileExists(legacy) && !fileExists(current) {
+	if fileExists(config.ConfigPathIn(root)) {
+		return
+	}
+	if prev := filepath.Join(root, config.LegacyConfigDirPath()); fileExists(prev) {
+		fmt.Fprintf(w, "sandboxer: found legacy %s — the config moved to the project root: "+
+			"git mv %s %s (and %s to %s if present; it is no longer read here)\n",
+			prev, config.LegacyConfigDirPath(), config.ConfigFileName,
+			filepath.Join(config.LegacyStateDirName, "image.nix"), config.ImageNixFileName)
+		return
+	}
+	if legacy := filepath.Join(root, config.LegacyConfigFileName); fileExists(legacy) {
 		fmt.Fprintf(w, "sandboxer: found legacy %s — move it to %s (it is no longer read here)\n",
-			legacy, current)
+			legacy, config.ConfigPathIn(root))
 	}
 }
 
@@ -280,7 +289,7 @@ func configLine(rt config.Runtime, slug string, prof *config.Profile, backendSho
 }
 
 // syncSnapshot refreshes the sandbox's stored profile.json from the freshly
-// resolved profile, so editing .sandboxer/config.yaml propagates to an existing
+// resolved profile, so editing sandboxer.yaml propagates to an existing
 // sandbox (its resolved settings) instead of being frozen at create time.
 //
 // It is a no-op inside the container (the snapshot is a read-only mount and

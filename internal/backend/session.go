@@ -21,7 +21,7 @@ const (
 	LabelManaged = "sandboxer.managed"
 	// LabelSlug records the sandbox slug the session belongs to.
 	LabelSlug = "sandboxer.slug"
-	// LabelBase records the host .sandboxer base dir the session was created from.
+	// LabelBase records the host state dir the session was created from.
 	LabelBase = "sandboxer.base"
 	// LabelHash records the ConfigHash the session was created with; a mismatch
 	// against the freshly computed hash means the desired configuration changed

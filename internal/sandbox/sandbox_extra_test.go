@@ -21,8 +21,8 @@ func TestOpenBaseReadOnly(t *testing.T) {
 	if b != nil {
 		t.Error("OpenBase should return nil for a non-sandboxer project")
 	}
-	if _, err := os.Stat(filepath.Join(src, config.StateDirName)); !os.IsNotExist(err) {
-		t.Error("OpenBase must not create the .sandboxer dir")
+	if _, err := os.Stat(filepath.Join(src, config.LegacyStateDirName)); !os.IsNotExist(err) {
+		t.Error("OpenBase must not create state dirs in the project")
 	}
 
 	// After ResolveBase seeds state, OpenBase loads it (Src + Domains).

@@ -9,7 +9,7 @@ import (
 
 // StateDir is the per-project RUNTIME state directory: sandbox working copies,
 // per-sandbox agent homes, metadata and logs. Unlike the committed config
-// (.sandboxer/config.yaml + image.nix, which lives beside the source and is
+// (sandboxer.yaml + sandboxer-image.nix, which lives beside the source and is
 // meant for git), state lives OUTSIDE the repository so runtime data — and
 // especially the agent homes that may hold login tokens — can never be
 // committed by accident. Resolution order:

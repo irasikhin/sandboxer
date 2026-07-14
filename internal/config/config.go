@@ -2,9 +2,9 @@
 //
 // A profile is optional: scalar settings come from flags and SANDBOXER_* env
 // vars, and only structured fields (deps, extraMounts, env) require a
-// .sandboxer/config.yaml file. The resolved profile is serialized to JSON
-// (camelCase keys) and stored under .sandboxer/_meta/<slug>.profile.json; that
-// JSON is the single artifact the container backend and the sandbox package read.
+// sandboxer.yaml file. The resolved profile is serialized to JSON (camelCase
+// keys) and stored under the state dir's _meta/<slug>.profile.json; that JSON
+// is the single artifact the container backend and the sandbox package read.
 package config
 
 import (

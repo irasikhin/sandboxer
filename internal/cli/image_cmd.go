@@ -26,7 +26,7 @@ func newImageCmd() *cobra.Command {
 		Long: `Manage the toolbox image the sandbox runs in.
 
   sandboxer image build   build it (docker/podman, no host nix needed)
-  sandboxer image edit    edit the .sandboxer/image.nix customization hook
+  sandboxer image edit    edit the ` + config.ImageNixFileName + ` customization hook
   sandboxer image rm      remove a built image`,
 	}
 	cmd.AddCommand(newImageBuildCmd(), newImageEditCmd(), newImageRmCmd())
@@ -37,7 +37,7 @@ func newImageCmd() *cobra.Command {
 // `image rm` can be exercised without a real engine.
 var backendRemoveImage = backend.RemoveImage
 
-// newImageEditCmd opens .sandboxer/image.nix in $EDITOR, scaffolding the
+// newImageEditCmd opens sandboxer-image.nix in $EDITOR, scaffolding the
 // annotated starter hook first when the file does not exist yet — so a user can
 // go straight from "I want a custom image" to editing without hunting for the
 // template.
@@ -49,9 +49,6 @@ func newImageEditCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			path := imageNixPath()
 			if !fileExists(path) {
-				if err := os.MkdirAll(config.StateDirName, 0o755); err != nil {
-					return err
-				}
 				if err := os.WriteFile(path, []byte(starterImageNix), 0o644); err != nil {
 					return err
 				}

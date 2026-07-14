@@ -76,7 +76,7 @@ type RunOpts struct {
 	GitUserName     string       // host-resolved git identity, injected so the agent can commit
 	GitUserEmail    string       // without writing to (now read-only) repo config
 	Slug            string
-	BaseDir         string // host .sandboxer dir; names/labels the persistent session (zero value fine for one-shot runs)
+	BaseDir         string // host state dir (config.StateDir); names/labels the persistent session (zero value fine for one-shot runs)
 	HomeDir         string // sandbox-private agent home, mounted as $HOME (isolated per sandbox)
 	RT              config.Runtime
 	Profile         *config.Profile

@@ -23,7 +23,7 @@ func newProfileListCmd() *cobra.Command {
 		Long: `List the profiles available to create/enter/exec, across the two sources
 they are resolved from, in precedence order:
 
-  project  .sandboxer/config.yaml          (committed, per-project)
+  project  sandboxer.yaml          (committed, per-project)
   store    ~/.config/sandboxer/profiles/   (one *.yaml per named profile)
 
 A profile's name is its file's base name unless it sets an explicit name:. When

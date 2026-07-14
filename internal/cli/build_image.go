@@ -139,7 +139,7 @@ var toolboxBuild = toolbox.BuildImage
 // a profile file/directory (-f), or a section of a multi-profile file —
 // through the same chain enter/exec use. No argument and no -f mean no
 // profile: the stock default image is built, deliberately NOT auto-discovering
-// .sandboxer/config.yaml so a bare `sandboxer image build` keeps today's behavior.
+// sandboxer.yaml so a bare `sandboxer image build` keeps today's behavior.
 func buildImageProfile(configPath, pos string) (*config.Profile, error) {
 	if configPath == "" && pos == "" {
 		return nil, nil

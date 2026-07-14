@@ -53,7 +53,7 @@ over a repo's committed `session:` choice.
 ### D2 — the engine's container store is the only session state
 
 No metadata file. The session container carries a deterministic name
-(`sandboxer-<slug>-<8-hex sha256 of the .sandboxer base dir>` — same-named
+(`sandboxer-<slug>-<8-hex sha256 of the state base dir>` — same-named
 sandboxes in different projects never collide) and discovery labels
 (`sandboxer.managed/slug/base/hash`). Everything — list's STATE column,
 doctor's orphan report, `rm-all`'s sweep — is an engine query. A state file

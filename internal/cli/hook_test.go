@@ -65,7 +65,7 @@ func TestHookDirenvNoActiveSandbox(t *testing.T) {
 }
 
 func TestHookDirenvOutsideProject(t *testing.T) {
-	// A bare directory with no .sandboxer state is not a sandboxer project.
+	// A bare directory with no sandboxer state is not a sandboxer project.
 	dir := t.TempDir()
 	code, out := emitHook(dir)
 	if code != 0 {

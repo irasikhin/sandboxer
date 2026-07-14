@@ -7,17 +7,15 @@ the [README](../README.md); for the trust model see [SECURITY.md](../SECURITY.md
 
 ## On-disk layout
 
-The **committed** config lives at the project root under `.sandboxer/`; all
-**runtime state** lives OUTSIDE the repo under an XDG state dir
+The **committed** config lives at the project root; all **runtime state**
+lives OUTSIDE the repo under an XDG state dir
 (`$XDG_STATE_HOME/sandboxer/<project-id>`), so working copies and login tokens
-can never be committed. `.sandboxer/` therefore holds only two sandboxer-owned
-files, and a generated `.gitignore` allowlists exactly them.
+can never be committed. The repo carries only two sandboxer-owned files:
 
 ```
-<project-root>/.sandboxer/
-├── .gitignore            # allowlist: "*" + !.gitignore !config.yaml !image.nix
-├── config.yaml           # the profile (optional; auto-discovered; committed)
-└── image.nix             # the image hook the profile's image: points at (committed)
+<project-root>/
+├── sandboxer.yaml        # the profile (optional; auto-discovered; committed)
+└── sandboxer-image.nix   # the image hook the profile's image: points at (committed)
 
 $XDG_STATE_HOME/sandboxer/<project-id>/     # runtime state, outside the repo
 ├── <slug>/               # one per sandbox: a git worktree on branch feat/<slug>-sb
@@ -49,7 +47,7 @@ Key invariants (`internal/sandbox`, `internal/worktree`):
 ## Sandbox lifecycle
 
 ```
-  init ──────────►  scaffold .sandboxer/config.yaml (+ .sandboxer/image.nix)   [optional]
+  init ──────────►  scaffold sandboxer.yaml (+ sandboxer-image.nix)   [optional]
                     │
   create <slug> ──► add a git worktree on branch feat/<slug>-sb (sparse to deps);
                     │   mkdir _home/<slug>; snapshot profile.json; register slug

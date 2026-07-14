@@ -132,7 +132,7 @@ The agent runs inside a podman/docker container built from the toolbox image
 (the agents baked in — see 'sandboxer agents'); each sandbox has its own
 isolated home, and network, proxy and credentials are wired per-config.
 
-Config: flags + SANDBOXER_* env, with an optional .sandboxer/config.yaml for
+Config: flags + SANDBOXER_* env, with an optional sandboxer.yaml for
 structured fields (deps, extraMounts, env, setup, tools, image). A profile file
 can hold one profile or several under a profiles: map (pick a section with
 'create <name>').

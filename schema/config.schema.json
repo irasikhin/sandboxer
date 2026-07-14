@@ -181,5 +181,5 @@
     }
   ],
   "title": "sandboxer profile",
-  "description": "A sandboxer .sandboxer/config.yaml: either a single flat profile or a document with a profiles: map of self-contained profiles."
+  "description": "A sandboxer config (sandboxer.yaml): either a single flat profile or a document with a profiles: map of self-contained profiles."
 }

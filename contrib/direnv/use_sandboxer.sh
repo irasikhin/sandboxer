@@ -16,9 +16,9 @@
 # active sandbox — nothing is built or started on `cd`. It is a no-op outside a
 # sandboxer project or when no sandbox is active, so the .envrc never errors.
 use_sandboxer() {
-	# Reload when the active sandbox changes (sandboxer use <slug>), or when it
-	# is set/cleared. watch_file tolerates a missing path.
-	watch_file .sandboxer/_meta/current
 	# eval the host-shell exports the hook prints (SANDBOXER_SLUG/SRC/…).
+	# NOTE: the active-sandbox pointer lives in the XDG state dir OUTSIDE the
+	# repo, so direnv cannot watch it — run `direnv reload` after
+	# `sandboxer use <slug>` to refresh the exports.
 	eval "$(sandboxer hook direnv)"
 }

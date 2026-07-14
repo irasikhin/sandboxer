@@ -3,7 +3,7 @@
 ## Supported Versions
 
 sandboxer is pre-1.0; the CLI flags and on-disk layout still change between minor
-versions (the `.sandboxer/config.yaml` schema is evolving — this line of releases
+versions (the `sandboxer.yaml` schema is evolving — this line of releases
 removed several knobs; a config using a retired key fails with a migration hint).
 
 While pre-1.0, **only the latest `0.x` release** receives security fixes — there
@@ -92,12 +92,12 @@ important — where it stops.
   are not masked**, so a repo with submodules still has a hooks/config surface
   there. Prefer not to run untrusted agents against a submodule-heavy repo.
 
-- **`setup:` and `image.nix` run arbitrary code.** A profile's `setup:` is a
-  shell script run in the sandbox, and `image.nix` executes nix code at
-  image-build time. A committed `.sandboxer/config.yaml` therefore carries
+- **`setup:` and the image hook run arbitrary code.** A profile's `setup:` is a
+  shell script run in the sandbox, and `sandboxer-image.nix` executes nix code
+  at image-build time. A committed `sandboxer.yaml` therefore carries
   **executable content** — treat it as code. Do not `create`/`enter` an untrusted
-  repo's sandbox without reading its `.sandboxer/` first; `image.nix` runs on the
-  host's build engine.
+  repo's sandbox without reading its `sandboxer.yaml`/`sandboxer-image.nix`
+  first; the image hook runs on the host's build engine.
 
 - **`extraMounts` are read-write by default.** An `extraMounts` entry grants the
   agent access to that host path — **rw unless you set `mode: ro`**. Scope them

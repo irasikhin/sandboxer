@@ -11,19 +11,15 @@ import (
 	"github.com/irasikhin/sandboxer/internal/config"
 )
 
-// imageNixFileName is the starter image hook `sandboxer config init` writes
-// beside the profile under .sandboxer/; the scaffolded image.nix points at it
-// by its bare relative name (see starterImageSection), resolved against
-// .sandboxer/.
-const imageNixFileName = "image.nix"
-
 // imageNixPath is the cwd-relative location of the scaffolded image hook —
-// .sandboxer/image.nix — beside .sandboxer/config.yaml.
-func imageNixPath() string { return filepath.Join(config.StateDirName, imageNixFileName) }
+// sandboxer-image.nix, beside sandboxer.yaml at the project root. The
+// scaffolded config points at it by its bare relative name (see
+// starterImageSection), resolved against the config's directory.
+func imageNixPath() string { return config.ImageNixFileName }
 
 // newConfigInitCmd is the `init` verb of the `config` group (see
-// config_cmd.go): it scaffolds a commented .sandboxer/config.yaml (and the
-// image.nix hook).
+// config_cmd.go): it scaffolds a commented sandboxer.yaml (and the
+// sandboxer-image.nix hook).
 func newConfigInitCmd() *cobra.Command {
 	var force bool
 	cmd := &cobra.Command{
@@ -31,8 +27,8 @@ func newConfigInitCmd() *cobra.Command {
 		Short: "Write a starter " + config.ConfigPath() + " (and " + imageNixPath() + ")",
 		Long: `Scaffold a commented ` + config.ConfigPath() + ` so you have a concrete config
 to edit instead of relying on the silent defaults. It is auto-discovered by
-create/enter/exec here (no -f needed). A starter ` + imageNixFileName + ` image hook is
-written alongside it under ` + config.StateDirName + `/, wired in via the profile's image:
+create/enter/exec here (no -f needed). A starter ` + config.ImageNixFileName + ` image hook
+is written alongside it at the project root, wired in via the profile's image:
 section (delete that block for the stock toolbox image).`,
 		Example: `  sandboxer config init             # name defaults to the directory
   sandboxer config init web         # set the profile name
@@ -56,9 +52,6 @@ section (delete that block for the stock toolbox image).`,
 			if name == "" {
 				name = "feat"
 			}
-			if err := os.MkdirAll(config.StateDirName, 0o755); err != nil {
-				return err
-			}
 			d := config.LoadDefaults()
 			if err := os.WriteFile(path, []byte(starterProfile(name, d)), 0o644); err != nil {
 				return err
@@ -76,27 +69,27 @@ section (delete that block for the stock toolbox image).`,
 	return cmd
 }
 
-// maybeAutoScaffold writes a default .sandboxer/config.yaml into the project's
-// state dir and points this run at it when the user has no config at all — so
-// create/enter in a fresh project land on a concrete, announced profile instead
-// of silent defaults. It is a no-op (current behaviour) when an explicit -f is
-// given, a project config already exists, we're inside the container, or the
-// user opts out with SANDBOXER_NO_SCAFFOLD=1.
+// maybeAutoScaffold writes a default sandboxer.yaml at the project root and
+// points this run at it when the user has no config at all — so create/enter
+// in a fresh project land on a concrete, announced profile instead of silent
+// defaults. It is a no-op (current behaviour) when an explicit -f is given, a
+// project config already exists, we're inside the container, or the user opts
+// out with SANDBOXER_NO_SCAFFOLD=1.
 //
-// Like the explicit `init`, it scaffolds the active image: section and an
-// image.nix hook beside the config under .sandboxer/, so the custom image works
-// on the auto-scaffold path too (enter/exec/run build the variant on first use,
-// with a one-time notice). An existing image.nix is left untouched.
+// Like the explicit `init`, it scaffolds the active image: section and a
+// sandboxer-image.nix hook beside the config, so the custom image works on the
+// auto-scaffold path too (enter/exec/run build the variant on first use, with
+// a one-time notice). An existing hook file is left untouched.
 func maybeAutoScaffold(cmd *cobra.Command, f *commonFlags, pos string) error {
 	if f.config != "" || inContainer() || os.Getenv("SANDBOXER_NO_SCAFFOLD") == "1" {
 		return nil
 	}
 	root := firstNonEmpty(f.src, getwd())
-	path := filepath.Join(root, config.StateDirName, config.ConfigFileName)
+	path := config.ConfigPathIn(root)
 	if fileExists(path) {
 		return nil // a project config already exists; leave resolution as-is
 	}
-	// An upgrading user with a stale root-level .sandboxer.yaml gets a clear
+	// An upgrading user with a config at a retired location gets a clear
 	// migration hint rather than a silently-scaffolded-over default.
 	legacyConfigHint(cmd.ErrOrStderr(), root)
 	name := config.Sanitize(pos)
@@ -106,13 +99,10 @@ func maybeAutoScaffold(cmd *cobra.Command, f *commonFlags, pos string) error {
 	if name == "" {
 		name = "feat"
 	}
-	if err := os.MkdirAll(filepath.Join(root, config.StateDirName), 0o755); err != nil {
-		return err
-	}
 	if err := os.WriteFile(path, []byte(starterProfile(name, config.LoadDefaults())), 0o644); err != nil {
 		return err
 	}
-	nixPath := filepath.Join(root, config.StateDirName, imageNixFileName)
+	nixPath := filepath.Join(root, config.ImageNixFileName)
 	if !fileExists(nixPath) {
 		if err := os.WriteFile(nixPath, []byte(starterImageNix), 0o644); err != nil {
 			return err
@@ -124,10 +114,10 @@ func maybeAutoScaffold(cmd *cobra.Command, f *commonFlags, pos string) error {
 	return nil
 }
 
-// starterProfile renders a commented .sandboxer/config.yaml seeded with the
-// effective defaults (so it reflects the user's environment) and the common
-// knobs left as hints to fill in, plus an active image: section wired to the
-// image.nix hook both init and auto-scaffold write alongside under .sandboxer/.
+// starterProfile renders a commented sandboxer.yaml seeded with the effective
+// defaults (so it reflects the user's environment) and the common knobs left
+// as hints to fill in, plus an active image: section wired to the
+// sandboxer-image.nix hook both init and auto-scaffold write alongside.
 func starterProfile(name string, d config.Defaults) string {
 	domains := strings.ReplaceAll(d.Domains, ",", ", ")
 	profile := fmt.Sprintf(`# yaml-language-server: $schema=`+config.SchemaURL+`
@@ -217,17 +207,18 @@ network:
 }
 
 // starterImageSection is the active image: block appended by `sandboxer config init`.
-// It points at the image.nix hook written alongside under .sandboxer/ by its
-// bare relative name (resolved against the profile's directory); the spec is
-// non-empty (a nix hook is set), so the first create builds a content-addressed
-// toolbox variant, cached thereafter — the stock image is untouched.
+// It points at the sandboxer-image.nix hook written alongside at the project
+// root by its bare relative name (resolved against the profile's directory);
+// the spec is non-empty (a nix hook is set), so the first create builds a
+// content-addressed toolbox variant, cached thereafter — the stock image is
+// untouched.
 const starterImageSection = `
 # Custom toolbox image (optional). Sandboxes in this profile run a
 # content-addressed variant built on first 'create' (cached after; the stock
 # sandboxer-toolbox:latest is untouched). Delete this block for the stock image.
 image:
   extraPkgs: []            # extra nixpkgs attrs baked in (dotted paths allowed)
-  nix: ` + imageNixFileName + `   # { packages, files, env, overlay } hook — see that file
+  nix: ` + config.ImageNixFileName + `   # { packages, files, env, overlay } hook — see that file
   # llmAgentsRev: latest   # flake-input pin overrides; empty keeps embedded pins
   # nixpkgsRev: <full 40-char hex commit>
 `
@@ -235,7 +226,7 @@ image:
 // starterImageNix is the annotated, inert image hook `sandboxer config init` writes.
 // Every example is commented, so it evaluates to { } (the variant is content-
 // equivalent to the stock image) until the user uncomments something.
-const starterImageNix = `# image.nix — the image hook this profile's image: section points at,
+const starterImageNix = `# sandboxer-image.nix — the image hook this profile's image: section points at,
 # imported by the embedded toolbox flake during 'sandboxer image build' (or the
 # auto-build on first enter). A function over { pkgs } returning any of FOUR
 # keys: packages, files, env, overlay. The contract is fail-closed — an unknown

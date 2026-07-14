@@ -290,7 +290,7 @@ explicitly via `network.allowedDomains`.
 A **sandboxer plugin** = a named bundle providing any of: (1) nix packages →
 tool pack, (2) an `rc.d` fragment → 3b, (3) a `setup` snippet → 3a, (4) an MCP
 registration → 3d, (5) extra allowed domains. Start **in-repo and
-profile-driven** — everything expressible in `.sandboxer/config.yaml` plus the curated
+profile-driven** — everything expressible in the project config plus the curated
 registries. Defer an external third-party plugin loader (a plugin dir + manifest
 format) until the primitives exist: don't design a loader before the things it
 loads.

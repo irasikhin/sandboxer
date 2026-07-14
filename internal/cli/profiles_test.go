@@ -92,11 +92,8 @@ func TestProfilesCommand(t *testing.T) {
 		t.Errorf("profile list (store) = (%d, %q)", code, out)
 	}
 
-	// A project .sandboxer/config.yaml is listed too, tagged project — the gap
+	// A project sandboxer.yaml is listed too, tagged project — the gap
 	// this command had before (it only ever read the store).
-	if err := os.MkdirAll(config.StateDirName, 0o755); err != nil {
-		t.Fatal(err)
-	}
 	if err := os.WriteFile(config.ConfigPath(),
 		[]byte("name: feat\nbackend: docker\n"), 0o644); err != nil {
 		t.Fatal(err)

@@ -80,9 +80,6 @@ func TestConfigValidate(t *testing.T) {
 		t.Errorf("validate missing = (%d, %q), want a no-config error", code, errs)
 	}
 
-	if err := os.MkdirAll(config.StateDirName, 0o755); err != nil {
-		t.Fatal(err)
-	}
 	// Valid config.
 	if err := os.WriteFile(config.ConfigPath(), []byte("name: ok\nbackend: docker\n"), 0o644); err != nil {
 		t.Fatal(err)

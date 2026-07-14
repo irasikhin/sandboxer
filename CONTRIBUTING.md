@@ -212,7 +212,7 @@ profile is exactly what its file/section says (reuse inside one file is plain YA
 resolved by the decoder). The user-facing precedence chain (`flags > profile > SANDBOXER_* env > built-in`)
 is documented in the README ([Named profiles](README.md#named-profiles)). How it maps to code:
 
-- The **project config** is `.sandboxer/config.yaml` (`config.ConfigPath()`), discovered in the cwd.
+- The **project config** is `sandboxer.yaml` (`config.ConfigPath()`), discovered in the cwd.
 - **`Document.Select`** (`internal/config/document.go`) picks a self-contained `profiles:` section (or the
   flat file's single profile). A profile **name** resolves project → `ProfilesDir()` store.
 - Scalar precedence lives in `config.ResolveRuntime` (`internal/config/runtime.go`).

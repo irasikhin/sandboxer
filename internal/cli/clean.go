@@ -16,7 +16,7 @@ func init() { register(newCleanCmd) }
 // newCleanCmd removes ALL runtime data for a project (replacing the old
 // rm-all): the entire state directory — sandboxes, agent homes, logs, metadata
 // — which now lives under config.StateDir, outside the repo. The committed
-// config (.sandboxer/config.yaml + image.nix) is deliberately left untouched,
+// config (sandboxer.yaml + sandboxer-image.nix) is deliberately left untouched,
 // which is the whole point of the config/data split.
 func newCleanCmd() *cobra.Command {
 	var force bool
@@ -25,7 +25,7 @@ func newCleanCmd() *cobra.Command {
 		Short: "Remove all runtime data for the project (keeps the committed config)",
 		Long: `Remove the project's entire runtime state — every sandbox, agent home, log and
 metadata file under the state directory (outside the repo). The committed config
-(.sandboxer/config.yaml + image.nix) is left untouched.
+(sandboxer.yaml + sandboxer-image.nix) is left untouched.
 
 Requires --force to protect against accidental deletion; use 'sandboxer rm <slug>'
 to remove a single sandbox instead.`,

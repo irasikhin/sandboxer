@@ -66,7 +66,7 @@ func TestResolveBaseSeedsState(t *testing.T) {
 
 // TestResolveBaseStateOutsideProject pins the config/data split: runtime state
 // lives under config.StateDir (outside the project root), NOT under the project's
-// .sandboxer/, so it can never be committed by accident. No .gitignore is written
+// the repo, so it can never be committed by accident. No .gitignore is written
 // into the project anymore.
 func TestResolveBaseStateOutsideProject(t *testing.T) {
 	src := t.TempDir()
@@ -80,9 +80,9 @@ func TestResolveBaseStateOutsideProject(t *testing.T) {
 	if strings.HasPrefix(b.Dir, src) {
 		t.Errorf("state dir %q must live OUTSIDE the project root %q", b.Dir, src)
 	}
-	// Nothing is written into the project's .sandboxer/ — no gitignore guard.
-	if _, err := os.Stat(filepath.Join(src, config.StateDirName)); !os.IsNotExist(err) {
-		t.Errorf("ResolveBase must not create %s/ in the project (err=%v)", config.StateDirName, err)
+	// Nothing is written into the project — no gitignore guard.
+	if _, err := os.Stat(filepath.Join(src, config.LegacyStateDirName)); !os.IsNotExist(err) {
+		t.Errorf("ResolveBase must not create %s/ in the project (err=%v)", config.LegacyStateDirName, err)
 	}
 }
 

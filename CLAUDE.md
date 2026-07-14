@@ -32,10 +32,10 @@ was extracted from:
   the root is assembled from `commandFactories` in `internal/cli/cli.go` (no central command list). The
   `Run(args, stdin, stdout, stderr) int` stdio seam is exactly as `arch-go-cli` describes.
 - **Config = `gopkg.in/yaml.v3`** (kpass uses TOML). Scalars resolve flag → `SANDBOXER_*` env → default;
-  structured fields (deps/extraMounts/env) come from an optional `.sandboxer/config.yaml` profile —
-  centralized as `config.ConfigPath()` (= `StateDirName`/`ConfigFileName`), one profile or several under a
-  `profiles:` map. The image hook sits beside it at `.sandboxer/image.nix`; both are committed via the
-  allowlisting `.sandboxer/.gitignore`. See `internal/config`.
+  structured fields (deps/extraMounts/env) come from an optional `sandboxer.yaml` profile at the project
+  root — centralized as `config.ConfigPath()` (= `ConfigFileName`), one profile or several under a
+  `profiles:` map. The image hook sits beside it at `sandboxer-image.nix` (`config.ImageNixFileName`);
+  both are committed. See `internal/config`.
 - **User-facing error = `silentErr{err}`** in `internal/cli/cli.go` (kpass uses `UserError{Msg}`): it marks
   "the command already printed its own diagnostic", so `Run` returns exit 1 without re-printing. Same contract
   as `lang-go-error-handling`, different shape — there is no colored top-level reprint and no `130`/Canceled
@@ -52,7 +52,7 @@ was extracted from:
   `PersistentPreRunE` in `cli.go` is a belt-and-suspenders **deny-all** (every command refuses when
   `SANDBOXER_IN_CONTAINER` is set, injected per-run by `commonArgs`).
 - **Config vs data split** (`internal/config`, `internal/sandbox`): the committed config lives at
-  `.sandboxer/config.yaml` + `.sandboxer/image.nix` (commit the whole `.sandboxer/` dir; no gitignore trick).
+  `sandboxer.yaml` + `sandboxer-image.nix`, two plain files at the repo root.
   ALL runtime state lives OUTSIDE the repo under `config.StateDir(project)` =
   `$XDG_STATE_HOME/sandboxer/<project-id>` (`<project-id>` = basename + short hash of the abs path) — the
   `_meta`/`_logs`/`_home/<slug>`/`<slug>` dirs, so credentials/scratch can never be committed. `sandboxer clean`

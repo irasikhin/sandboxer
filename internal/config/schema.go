@@ -34,7 +34,7 @@ func Schema() ([]byte, error) {
 		Version:     jsonschema.Version,
 		ID:          jsonschema.ID(SchemaURL),
 		Title:       "sandboxer profile",
-		Description: "A sandboxer .sandboxer/config.yaml: either a single flat profile or a document with a profiles: map of self-contained profiles.",
+		Description: "A sandboxer config (sandboxer.yaml): either a single flat profile or a document with a profiles: map of self-contained profiles.",
 		AnyOf: []*jsonschema.Schema{
 			{Ref: "#/$defs/Profile"},
 			{Ref: "#/$defs/schemaDocument"},

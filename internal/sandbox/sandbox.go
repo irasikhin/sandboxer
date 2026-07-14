@@ -1,7 +1,7 @@
 // Package sandbox owns the on-disk runtime state for a project: the base
 // metadata (run.env), per-sandbox directories and logs. This state lives under
 // config.StateDir (an XDG state dir outside the repo), kept separate from the
-// committed config (.sandboxer/config.yaml + image.nix) so runtime data —
+// committed config (sandboxer.yaml + sandboxer-image.nix) so runtime data —
 // including agent homes that may hold login tokens — never lands in git.
 //
 // A sandbox is a git worktree of the project repo on branch feat/<slug>-sb (see
@@ -56,8 +56,8 @@ func (b *Base) detectRepo() {
 
 // ResolveBase resolves src to an absolute path, ensures the state dirs exist,
 // seeds run.env on first use, and loads it. The runtime state lives under
-// config.StateDir (outside the repo); the committed config stays under
-// <Src>/.sandboxer and is handled separately by the config package.
+// config.StateDir (outside the repo); the committed config stays at
+// <Src>/sandboxer.yaml and is handled separately by the config package.
 func ResolveBase(src string) (*Base, error) {
 	abs, err := filepath.Abs(src)
 	if err != nil {
@@ -100,7 +100,7 @@ func ResolveBase(src string) (*Base, error) {
 // OpenBase locates an existing project base read-only: it neither creates the
 // state dirs nor seeds run.env, so it is safe to call on a `cd` (e.g. the direnv
 // hook) without any side effects. It returns (nil, nil) when src has no
-// initialized .sandboxer state — the caller treats that as "not a sandboxer
+// initialized sandboxer state — the caller treats that as "not a sandboxer
 // project". Any run.env that is present is loaded for Domains.
 func OpenBase(src string) (*Base, error) {
 	abs, err := filepath.Abs(src)

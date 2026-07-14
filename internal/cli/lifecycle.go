@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 	"regexp"
 
 	"github.com/spf13/cobra"
@@ -16,11 +15,12 @@ import (
 )
 
 // announceFreshState prints a one-time notice when this command initialised the
-// .sandboxer state tree, so the auto-created directory is never a surprise.
+// project's runtime state tree, so the auto-created directory is never a
+// surprise. The state lives outside the repo (config.StateDir).
 func announceFreshState(cmd *cobra.Command, fresh bool, root string) {
 	if fresh {
 		fmt.Fprintf(cmd.ErrOrStderr(), "sandboxer: initialized state in %s\n",
-			filepath.Join(root, config.StateDirName))
+			config.StateDir(root))
 	}
 }
 
@@ -39,7 +39,7 @@ func newCreateCmd() *cobra.Command {
   sandboxer create feat
 
   # from a profile file — slug comes from the profile's name:
-  sandboxer create ./.sandboxer/config.yaml
+  sandboxer create ./sandboxer.yaml
 
   # from a named profile in the store (~/.config/sandboxer/profiles)
   sandboxer create web

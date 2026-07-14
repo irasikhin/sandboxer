@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/irasikhin/sandboxer/internal/config"
 )
 
 // stubSessionOrphans replaces doctor's orphan-enumeration seam.
@@ -133,15 +135,12 @@ func stubGitCheckIgnore(t *testing.T, ignored bool) {
 }
 
 // TestDoctorWarnsIgnoredConfig: when the repo's gitignore hides
-// .sandboxer/config.yaml, doctor adds a warning row; when it doesn't, no row.
+// sandboxer.yaml, doctor adds a warning row; when it doesn't, no row.
 func TestDoctorWarnsIgnoredConfig(t *testing.T) {
 	project := newProject(t)
 	t.Chdir(project)
 	stubInstalledEngines(t, nil)
-	if err := os.MkdirAll(".sandboxer", 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(".sandboxer/config.yaml", []byte("name: feat\n"), 0o644); err != nil {
+	if err := os.WriteFile(config.ConfigPath(), []byte("name: feat\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -171,7 +170,7 @@ func TestCreateWarnsIgnoredConfig(t *testing.T) {
 }
 
 // TestGitCheckIgnoreReal exercises the real `git check-ignore` mapping: a
-// repo whose root gitignore has ".sandboxer/" ignores the config; a plain
+// repo whose root gitignore lists sandboxer.yaml ignores the config; a plain
 // directory (no repo) reads as not-ignored.
 func TestGitCheckIgnoreReal(t *testing.T) {
 	requireExec(t, "git")
@@ -182,16 +181,13 @@ func TestGitCheckIgnoreReal(t *testing.T) {
 			t.Skipf("git unusable here: %v (%s)", err, out)
 		}
 	}
-	if err := os.WriteFile(filepath.Join(dir, ".gitignore"), []byte(".sandboxer/\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, ".gitignore"), []byte(config.ConfigFileName+"\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.MkdirAll(filepath.Join(dir, ".sandboxer"), 0o755); err != nil {
-		t.Fatal(err)
+	if !gitCheckIgnore(dir, config.ConfigPath()) {
+		t.Error("an ignore rule for the config must read as ignored")
 	}
-	if !gitCheckIgnore(dir, ".sandboxer/config.yaml") {
-		t.Error("a .sandboxer/ rule must read as ignored")
-	}
-	if gitCheckIgnore(t.TempDir(), ".sandboxer/config.yaml") {
+	if gitCheckIgnore(t.TempDir(), config.ConfigPath()) {
 		t.Error("a non-repo dir must read as not-ignored")
 	}
 }

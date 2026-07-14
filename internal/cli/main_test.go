@@ -10,7 +10,7 @@ import (
 
 // stateDir returns the runtime-state directory for a project root, as tests
 // expect it after the config/data split (state lives under config.StateDir, not
-// under the project's .sandboxer/, which now holds only the committed config).
+// at the project root, where the committed config lives).
 func stateDir(project string, parts ...string) string {
 	return filepath.Join(append([]string{config.StateDir(project)}, parts...)...)
 }

@@ -86,7 +86,7 @@ func ListProfilesIn(dir string) []ProfileRef {
 type ProfileSource string
 
 const (
-	SourceProject ProfileSource = "project" // .sandboxer/config.yaml
+	SourceProject ProfileSource = "project" // sandboxer.yaml
 	SourceStore   ProfileSource = "store"   // ~/.config/sandboxer/profiles/*.yaml
 )
 

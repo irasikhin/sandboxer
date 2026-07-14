@@ -19,7 +19,7 @@ import (
 func init() { register(newConfigCmd) }
 
 // newConfigCmd groups the config-file verbs under `sandboxer config`: reading
-// and editing .sandboxer/config.yaml in place, plus the scaffold/edit/validate
+// and editing sandboxer.yaml in place, plus the scaffold/edit/validate
 // verbs that used to live under `profile`. The split: profile = the selection
 // entity (use, list), config = the file.
 func newConfigCmd() *cobra.Command {
@@ -379,7 +379,7 @@ func fileModeOf(path string) fs.FileMode {
 	return 0o644
 }
 
-// newConfigEditCmd opens .sandboxer/config.yaml in $EDITOR, scaffolding the
+// newConfigEditCmd opens sandboxer.yaml in $EDITOR, scaffolding the
 // fully-annotated starter config first when the file does not exist — so a
 // user always edits a concrete, documented file rather than a blank one.
 func newConfigEditCmd() *cobra.Command {
@@ -390,9 +390,6 @@ func newConfigEditCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			path := config.ConfigPath()
 			if !fileExists(path) {
-				if err := os.MkdirAll(config.StateDirName, 0o755); err != nil {
-					return err
-				}
 				name := config.Sanitize(filepath.Base(getwd()))
 				if name == "" {
 					name = "feat"

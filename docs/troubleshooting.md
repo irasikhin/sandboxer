@@ -23,8 +23,8 @@ the first `create`/`enter`.
 ## Permission denied on the state dir
 
 All runtime state lives under `$XDG_STATE_HOME/sandboxer/<project>` (default
-`~/.local/state/sandboxer/...`); `.sandboxer/` in the repo holds only the
-committed config. The state tree is created by the CLI as your user;
+`~/.local/state/sandboxer/...`); the repo holds only the committed
+`sandboxer.yaml` (+ `sandboxer-image.nix`). The state tree is created by the CLI as your user;
 `_home/<slug>` is `0700` (it holds login tokens). A `permission denied` here
 usually means the tree was created under a different user — commonly a rootful
 container that wrote back as root.

@@ -4,7 +4,7 @@
 # A sandbox is a git worktree of the project repo. `deps` narrows that worktree
 # to the listed repo-relative directories via cone sparse-checkout (empty = the
 # whole repo) — useful in a large monorepo to give the agent just the tree it
-# needs. The agent's work returns as an ordinary branch (sandbox/<name>); there
+# needs. The agent's work returns as an ordinary branch (feat/<name>-sb); there
 # is no copy-in and no push-back.
 
 name: integ

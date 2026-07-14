@@ -15,7 +15,7 @@ drives.
 > personal tool for running AI coding agents locally, shipped with no stability
 > or support guarantees. Use at your own risk.
 
-> ⚠️ **Pre-1.0.** CLI flags and the on-disk `.sandboxer/` layout may change
+> ⚠️ **Pre-1.0.** CLI flags, the `sandboxer.yaml` schema and the on-disk layout may change
 > between minor versions until 1.0. Sandboxes are **git worktrees** by default;
 > `deps` narrows which directories are checked out (see below). Any future change
 > will be called out in the changelog.
@@ -68,7 +68,7 @@ Or grab a [pre-built binary](https://github.com/irasikhin/sandboxer/releases)
 ## Quick start
 
 ```bash
-sandboxer config init                     # scaffold a commented .sandboxer/config.yaml + image.nix to edit (optional)
+sandboxer config init                     # scaffold a commented sandboxer.yaml + sandboxer-image.nix to edit (optional)
 sandboxer create feat                     # create a sandbox named "feat" (a worktree on branch feat/feat-sb)
 sandboxer enter  feat                     # attach a shell (persistent session; Ctrl-q detaches)
 sandboxer exec   feat -- claude           # run an agent/command inside it
@@ -79,7 +79,7 @@ sandboxer rm     feat                     # delete the sandbox and its session (
 ```
 
 A profile is optional (empty = the whole repo). To narrow the worktree or add
-setup/tools/env, drop a `.sandboxer/config.yaml` in the cwd (auto-discovered),
+setup/tools/env, drop a `sandboxer.yaml` in the cwd (auto-discovered),
 pass one with `-f` (a file, a directory of profiles, or a
 [named profile](#named-profiles) from `~/.config/sandboxer/profiles/`), or refer
 to a stored profile by name; the sandbox slug then comes from the profile's
@@ -94,8 +94,8 @@ and **entering/working** in the sandbox
 
 ## Config vs data
 
-`.sandboxer/` in your repo holds **only** the committed config — `config.yaml` and
-`image.nix` — so you can check it in as-is (no gitignore tricks). All runtime
+The committed config is just two files at your repo root — `sandboxer.yaml` and
+the optional `sandboxer-image.nix` — checked in as-is. All runtime
 state (per-sandbox working copies, the private agent homes, logs and metadata)
 lives **outside** the repo under the XDG state dir
 (`$XDG_STATE_HOME/sandboxer/<project>`, default `~/.local/state/...`), so secrets
@@ -138,7 +138,7 @@ Scalars come from **flags** and `SANDBOXER_*` env vars:
 | session mode | `--ephemeral` | `SANDBOXER_SESSION` (default `persistent`; the env wins over a profile's `session:`) |
 | egress domains | `--allow-domains a,b` | `SANDBOXER_DOMAINS` |
 | disable egress | — | `SANDBOXER_NO_EGRESS=1` |
-| skip auto-scaffold | — | `SANDBOXER_NO_SCAFFOLD=1` (create/enter writes a default `.sandboxer/config.yaml` otherwise) |
+| skip auto-scaffold | — | `SANDBOXER_NO_SCAFFOLD=1` (create/enter writes a default `sandboxer.yaml` otherwise) |
 | container engine | — | `SANDBOXER_ENGINE` (default: auto-detect docker→podman) |
 | container user | — | `SANDBOXER_CONTAINER_USER` (default: host uid:gid; empty omits `--user` — macOS escape hatch, see [docs/macos.md](docs/macos.md)) |
 | image | — | `SANDBOXER_IMAGE` (default `sandboxer-toolbox:latest`) |
@@ -150,18 +150,15 @@ defaults; `pids` (a `--pids-limit`, bounding fork-bomb blast radius) is
 profile-only. Empty means uncapped.
 
 Structured fields (`deps`, `extraMounts`, `env`, `setup`, `tools`, `image`, `limits`) live in an **optional**
-`.sandboxer/config.yaml`. Point at it with `-f`/`--config`, which accepts a **file**, a
+`sandboxer.yaml`. Point at it with `-f`/`--config`, which accepts a **file**, a
 **directory** of profiles, or the **name** of a profile in the store (see
-[Named profiles](#named-profiles)); with nothing given, a `.sandboxer/config.yaml` in
+[Named profiles](#named-profiles)); with nothing given, a `sandboxer.yaml` in
 the cwd is auto-discovered. See `examples/config.yaml`,
 `examples/with-deps.yaml` and `examples/profiles/`.
 
-> The generated `.sandboxer/.gitignore` is an **allowlist**: all generated
-> state stays out of git while `config.yaml` and `image.nix` are meant to be
-> **committed** with your repo. Don't add `.sandboxer/` to your repo's root
-> `.gitignore` — git cannot re-include files under an ignored directory, so
-> that rule would silently un-commit the profile (`sandboxer doctor` warns
-> when this happens).
+> `sandboxer.yaml` and `sandboxer-image.nix` are meant to be **committed**
+> with your repo — don't gitignore them (`sandboxer doctor` warns when a
+> rule hides them).
 
 ```yaml
 name: feature-x
@@ -233,7 +230,7 @@ A profile can customize the toolbox image itself — extra packages, files, env,
 even a nixpkgs overlay — **without nix on your machine** (the same builder
 container does everything) and without forking the image. `sandboxer config init`
 scaffolds this section together with an inert, fully-commented
-`image.nix` hook next to the profile under `.sandboxer/`, ready to edit:
+`sandboxer-image.nix` hook next to the profile at the repo root, ready to edit:
 
 ```yaml
 image:
@@ -280,7 +277,7 @@ never re-resolve; only `sandboxer image build --refresh` moves it.
 
 ### Multiple profiles in one file
 
-Instead of one profile per file, a `.sandboxer/config.yaml` can hold many under a
+Instead of one profile per file, a `sandboxer.yaml` can hold many under a
 `profiles:` map. Every section is **self-contained** — there is no shared
 defaults layer and no merging between files. To reuse a block between sections,
 use plain **YAML anchors** — anchor one (`&api`) and merge it into another

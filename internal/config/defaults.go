@@ -5,30 +5,41 @@ import (
 	"path/filepath"
 )
 
-// StateDirName is the per-project state directory holding sandbox copies and
-// metadata (the bash STATE_DIR_NAME).
-const StateDirName = ".sandboxer"
+// ConfigFileName is the project profile file, committed at the project root
+// next to the code it configures (like docker-compose.yaml).
+const ConfigFileName = "sandboxer.yaml"
 
-// ConfigFileName is the project-local profile file auto-discovered under the
-// state dir (see ConfigPath). It is committed alongside the image hook via the
-// allowlisting .sandboxer/.gitignore.
-const ConfigFileName = "config.yaml"
+// ImageNixFileName is the image-customization hook scaffolded beside the
+// config at the project root; the profile's image.nix key points at it by its
+// bare relative name.
+const ImageNixFileName = "sandboxer-image.nix"
 
 // ConfigPath is the cwd-relative location of the project profile —
-// .sandboxer/config.yaml — used for display and as the default when no project
-// root is known.
-func ConfigPath() string { return filepath.Join(StateDirName, ConfigFileName) }
+// sandboxer.yaml — used for display and as the default when no project root is
+// known.
+func ConfigPath() string { return ConfigFileName }
 
 // ConfigPathIn is the project profile under a given project root (absolute or
-// relative): <root>/.sandboxer/config.yaml. Discovery and scaffolding use it so
-// --src (or any explicit project root) locates the config, not just the cwd.
+// relative): <root>/sandboxer.yaml. Discovery and scaffolding use it so --src
+// (or any explicit project root) locates the config, not just the cwd.
 func ConfigPathIn(root string) string {
-	return filepath.Join(root, StateDirName, ConfigFileName)
+	return filepath.Join(root, ConfigFileName)
 }
 
-// LegacyConfigFileName is the pre-consolidation root-level profile path. It is
-// no longer read; discovery only uses it to print a one-line migration hint
-// when it is present but the new location is not.
+// LegacyStateDirName is the pre-relocation .sandboxer/ project directory that
+// held the committed config (config.yaml + image.nix) and, before the
+// config/data split, the runtime state. It is no longer read; only migration
+// hints and doctor's leftover checks look at it.
+const LegacyStateDirName = ".sandboxer"
+
+// LegacyConfigDirPath is the pre-relocation committed profile path
+// (.sandboxer/config.yaml). Discovery only uses it to print a one-line
+// migration hint when it is present but sandboxer.yaml is not.
+func LegacyConfigDirPath() string { return filepath.Join(LegacyStateDirName, "config.yaml") }
+
+// LegacyConfigFileName is the ancient pre-consolidation root-level profile
+// path. It is no longer read; discovery only uses it to print a one-line
+// migration hint when it is present but the new location is not.
 const LegacyConfigFileName = ".sandboxer.yaml"
 
 // DefaultImage is the toolbox image reference used by the container backend.

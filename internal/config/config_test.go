@@ -9,12 +9,12 @@ import (
 )
 
 func TestConfigPath(t *testing.T) {
-	// The project profile lives under the state dir: .sandboxer/config.yaml.
-	if got, want := ConfigPath(), filepath.Join(StateDirName, ConfigFileName); got != want {
+	// The project profile lives at the repo root: sandboxer.yaml.
+	if got, want := ConfigPath(), ConfigFileName; got != want {
 		t.Errorf("ConfigPath() = %q, want %q", got, want)
 	}
-	if ConfigFileName != "config.yaml" || StateDirName != ".sandboxer" {
-		t.Errorf("unexpected names: dir=%q file=%q", StateDirName, ConfigFileName)
+	if ConfigFileName != "sandboxer.yaml" || ImageNixFileName != "sandboxer-image.nix" {
+		t.Errorf("unexpected names: file=%q image=%q", ConfigFileName, ImageNixFileName)
 	}
 }
 

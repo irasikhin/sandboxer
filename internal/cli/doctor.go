@@ -30,16 +30,16 @@ var gitCheckIgnore = func(root, rel string) bool {
 }
 
 // warnIgnoredConfig prints a one-line advisory when the user's repo gitignore
-// hides .sandboxer/config.yaml. Runtime state lives outside the repo now, so
-// .sandboxer/ holds only the committed config.yaml + image.nix — a stale
-// ".sandboxer/" ignore rule (from before the split) would keep them out of git.
+// hides sandboxer.yaml. The config is meant to be committed (runtime state
+// lives outside the repo), so an ignore rule covering it would silently keep
+// it out of git.
 func warnIgnoredConfig(w io.Writer, root string) {
 	rel := config.ConfigPath()
 	if !fileExists(filepath.Join(root, rel)) || !gitCheckIgnore(root, rel) {
 		return
 	}
-	fmt.Fprintf(w, "sandboxer: %s is ignored by your repo's gitignore (a %q rule?) — drop that rule so config.yaml/image.nix can be committed (runtime state now lives outside the repo)\n",
-		rel, config.StateDirName+"/")
+	fmt.Fprintf(w, "sandboxer: %s is ignored by your repo's gitignore — drop that rule so the config can be committed (runtime state lives outside the repo)\n",
+		rel)
 }
 
 func newDoctorCmd() *cobra.Command {
@@ -120,9 +120,10 @@ Run this after a fresh install or when something isn't working.`,
 				}
 			}
 
-			// Project config under .sandboxer/.
+			// Project config at the repo root.
 			cfgPath := config.ConfigPath()
-			if fileExists(cfgPath) {
+			switch {
+			case fileExists(cfgPath):
 				if _, err := config.LoadDocument(cfgPath); err == nil {
 					fmt.Fprintf(tw, "%s\t✓\tparses ok\n", cfgPath)
 					ok++
@@ -130,15 +131,20 @@ Run this after a fresh install or when something isn't working.`,
 					fmt.Fprintf(tw, "%s\t⚠\t%v\n", cfgPath, err)
 					warn++
 				}
-				// .sandboxer/ now holds only the committed config.yaml/image.nix;
-				// a stale ".sandboxer/" ignore rule would keep them out of git.
+				// The config is meant to be committed; an ignore rule covering it
+				// would silently keep it out of git.
 				if gitCheckIgnore(getwd(), cfgPath) {
-					fmt.Fprintf(tw, "%s\t⚠\tignored by the repo's gitignore — drop the %q rule so config.yaml/image.nix can be committed\n",
-						cfgPath, config.StateDirName+"/")
+					fmt.Fprintf(tw, "%s\t⚠\tignored by the repo's gitignore — drop that rule so the config can be committed\n",
+						cfgPath)
 					warn++
 				}
-			} else if fileExists(config.LegacyConfigFileName) {
-				// An upgrading user with the stale root-level profile: flag the move.
+			case fileExists(config.LegacyConfigDirPath()):
+				// An upgrading user with the pre-relocation .sandboxer/config.yaml.
+				fmt.Fprintf(tw, "%s\t⚠\tlegacy location — git mv it to %s (no longer read)\n",
+					config.LegacyConfigDirPath(), cfgPath)
+				warn++
+			case fileExists(config.LegacyConfigFileName):
+				// An upgrading user with the ancient root-level profile: flag the move.
 				fmt.Fprintf(tw, "./%s\t⚠\tlegacy location — move it to %s (no longer read)\n",
 					config.LegacyConfigFileName, cfgPath)
 				warn++
@@ -149,7 +155,7 @@ Run this after a fresh install or when something isn't working.`,
 			// so an upgrading user can delete them.
 			if legacyStateLeftover(getwd()) {
 				fmt.Fprintf(tw, "%s/_meta\t⚠\tpre-split runtime state — data now lives in %s; safe to delete the old _meta/_home/_logs/<slug> dirs\n",
-					config.StateDirName, config.StateDir(getwd()))
+					config.LegacyStateDirName, config.StateDir(getwd()))
 				warn++
 			}
 
@@ -198,5 +204,5 @@ func reportSessions(tw io.Writer, engine string, ok, warn *int) {
 // (<root>/.sandboxer/_meta) is still present — runtime state has moved to
 // config.StateDir, so its lingering presence is worth a one-line cleanup hint.
 func legacyStateLeftover(root string) bool {
-	return fileExists(filepath.Join(root, config.StateDirName, "_meta"))
+	return fileExists(filepath.Join(root, config.LegacyStateDirName, "_meta"))
 }

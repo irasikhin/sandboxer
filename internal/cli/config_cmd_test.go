@@ -85,9 +85,6 @@ func TestConfigSetGetUnsetFlat(t *testing.T) {
 func TestConfigSetRejectsBadInput(t *testing.T) {
 	isolateGlobals(t)
 	t.Chdir(t.TempDir())
-	if err := os.MkdirAll(config.StateDirName, 0o755); err != nil {
-		t.Fatal(err)
-	}
 	orig := "name: demo\nbackend: docker # keep\n"
 	if err := os.WriteFile(config.ConfigPath(), []byte(orig), 0o644); err != nil {
 		t.Fatal(err)
@@ -181,9 +178,6 @@ func TestConfigTargetingMulti(t *testing.T) {
 func TestConfigTargetingEdges(t *testing.T) {
 	isolateGlobals(t)
 	t.Chdir(t.TempDir())
-	if err := os.MkdirAll(config.StateDirName, 0o755); err != nil {
-		t.Fatal(err)
-	}
 
 	// Sole profile, no default: → picked.
 	if err := os.WriteFile(config.ConfigPath(), []byte("profiles:\n  only:\n    backend: docker\n"), 0o644); err != nil {
@@ -227,9 +221,6 @@ func TestConfigTargetingEdges(t *testing.T) {
 func TestConfigUnsetMergeKeyInherited(t *testing.T) {
 	isolateGlobals(t)
 	t.Chdir(t.TempDir())
-	if err := os.MkdirAll(config.StateDirName, 0o755); err != nil {
-		t.Fatal(err)
-	}
 	multi := "profiles:\n  api: &api\n    backend: docker\n  api-prod:\n    <<: *api\n    session: ephemeral\ndefault: api\n"
 	if err := os.WriteFile(config.ConfigPath(), []byte(multi), 0o644); err != nil {
 		t.Fatal(err)
@@ -269,9 +260,6 @@ func TestConfigExplicitFile(t *testing.T) {
 func TestConfigSetAnchoredSectionNote(t *testing.T) {
 	isolateGlobals(t)
 	t.Chdir(t.TempDir())
-	if err := os.MkdirAll(config.StateDirName, 0o755); err != nil {
-		t.Fatal(err)
-	}
 	multi := "profiles:\n  api: &api\n    backend: docker\n  api-prod:\n    <<: *api\n    session: ephemeral\ndefault: api\n"
 	if err := os.WriteFile(config.ConfigPath(), []byte(multi), 0o644); err != nil {
 		t.Fatal(err)
