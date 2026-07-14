@@ -122,7 +122,7 @@ per-sandbox `$HOME`) is still there.
 
 > **Historical note:** the detach-time deps push described below was removed in
 > v0.27.0 when sandboxes became git worktrees — work lands on branch
-> `sandbox/<slug>`; nothing is pushed back on detach.
+> `feat/<slug>-sb`; nothing is pushed back on detach.
 
 The detach-time deps push is likewise best-effort **by design**: detaching
 pushes rw deps back to their origins while the session — and anything running

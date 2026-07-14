@@ -20,7 +20,7 @@ files, and a generated `.gitignore` allowlists exactly them.
 └── image.nix             # the image hook the profile's image: points at (committed)
 
 $XDG_STATE_HOME/sandboxer/<project-id>/     # runtime state, outside the repo
-├── <slug>/               # one per sandbox: a git worktree on branch sandbox/<slug>
+├── <slug>/               # one per sandbox: a git worktree on branch feat/<slug>-sb
 ├── _meta/
 │   ├── run.env           # SRC / DOMAINS for this base
 │   ├── current           # the active sandbox slug (sandboxer use)
@@ -36,7 +36,7 @@ $XDG_STATE_HOME/sandboxer/<project-id>/     # runtime state, outside the repo
 
 Key invariants (`internal/sandbox`, `internal/worktree`):
 
-- **`<slug>/` is a git worktree** of the project repo on branch `sandbox/<slug>`
+- **`<slug>/` is a git worktree** of the project repo on branch `feat/<slug>-sb`
   (off HEAD), optionally narrowed by the profile's `deps` to a subset of
   repo-relative directories via cone `git sparse-checkout` (empty = the whole
   repo). The agent's work returns as an ordinary branch — no copy-in, no
@@ -51,7 +51,7 @@ Key invariants (`internal/sandbox`, `internal/worktree`):
 ```
   init ──────────►  scaffold .sandboxer/config.yaml (+ .sandboxer/image.nix)   [optional]
                     │
-  create <slug> ──► add a git worktree on branch sandbox/<slug> (sparse to deps);
+  create <slug> ──► add a git worktree on branch feat/<slug>-sb (sparse to deps);
                     │   mkdir _home/<slug>; snapshot profile.json; register slug
                     ▼
   enter / exec ───► run the agent inside the container:
@@ -59,7 +59,7 @@ Key invariants (`internal/sandbox`, `internal/worktree`):
                     │   • run the one-time `setup:` if its hash changed
                     │   • attach (persistent tmux session) or one-shot
                     ▼
-  review ─────────► the work is a branch: git -C <repo> log sandbox/<slug>,
+  review ─────────► the work is a branch: git -C <repo> log feat/<slug>-sb,
                     │   git diff / merge / cherry-pick
   stop ───────────► park the persistent session container (enter resumes it)
                     │

@@ -12,7 +12,7 @@ import (
 const flatFixture = `# yaml-language-server: $schema=https://example.com/schema.json
 # sandboxer profile — edit to taste.
 
-# Sandbox name (slug); drives the worktree branch sandbox/<name>.
+# Sandbox name (slug); drives the worktree branch feat/<name>-sb.
 name: feat
 
 # Isolation backend: docker | podman.
@@ -80,7 +80,7 @@ func TestEditableSetFlat(t *testing.T) {
 	for _, comment := range []string{
 		"# yaml-language-server:",
 		"# sandboxer profile — edit to taste.",
-		"# Sandbox name (slug); drives the worktree branch sandbox/<name>.",
+		"# Sandbox name (slug); drives the worktree branch feat/<name>-sb.",
 		"# Isolation backend: docker | podman.",
 		"# Egress allowlist — trim to what your task needs.",
 		"# inline note",

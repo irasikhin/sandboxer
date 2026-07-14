@@ -134,7 +134,7 @@ func starterProfile(name string, d config.Defaults) string {
 # sandboxer profile — edit to taste. Auto-discovered when you run sandboxer
 # in this directory (no -f needed). Full reference: examples/ in the repo.
 
-# Sandbox name (slug); drives the worktree branch sandbox/<name>.
+# Sandbox name (slug); drives the worktree branch feat/<name>-sb.
 name: %s
 
 # Isolation backend: docker | podman.
@@ -168,7 +168,7 @@ network:
   #     proxy: http://bypass-ru:8080
 
 # Sandbox content: the sandbox is a git worktree of THIS repo on branch
-# sandbox/<name> (the whole repo by default). deps narrows the worktree to the
+# feat/<name>-sb (the whole repo by default). deps narrows the worktree to the
 # listed repo-relative directories via cone sparse-checkout — useful in a large
 # monorepo. Editing deps takes effect on 'sandboxer recreate'.
 # deps:

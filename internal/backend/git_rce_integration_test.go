@@ -92,7 +92,7 @@ func TestRun_RealEngine_GitDir_CommitStillWorks(t *testing.T) {
 
 	// A worktree on a sandbox branch, as MakeSandbox would create.
 	wt := t.TempDir()
-	gc := exec.Command("git", "-C", repo, "worktree", "add", "-q", "-b", "sandbox/itest", wt, "HEAD")
+	gc := exec.Command("git", "-C", repo, "worktree", "add", "-q", "-b", "feat/itest-sb", wt, "HEAD")
 	gc.Env = append(os.Environ(), "GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@e", "GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@e")
 	if out, err := gc.CombinedOutput(); err != nil {
 		t.Fatalf("worktree add: %v\n%s", err, out)
@@ -112,7 +112,7 @@ func TestRun_RealEngine_GitDir_CommitStillWorks(t *testing.T) {
 		t.Errorf("commit did not use the injected identity:\n%s", out.String())
 	}
 	// The commit must be visible on the host branch (work comes back as a branch).
-	hostLog := exec.Command("git", "-C", repo, "log", "--oneline", "-1", "sandbox/itest", "--format=%s")
+	hostLog := exec.Command("git", "-C", repo, "log", "--oneline", "-1", "feat/itest-sb", "--format=%s")
 	if b, _ := hostLog.CombinedOutput(); !strings.Contains(string(b), "from sandbox") {
 		t.Errorf("host does not see the sandbox commit on the branch: %s", b)
 	}

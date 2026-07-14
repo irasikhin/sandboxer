@@ -2,7 +2,7 @@
 //
 // Rather than copying dependency directories into the sandbox and pushing the
 // changes back over their origins, sandboxer checks the project repository out
-// into a per-sandbox worktree on its own branch (sandbox/<slug>), optionally
+// into a per-sandbox worktree on its own branch (feat/<slug>-sb), optionally
 // narrowed to a subset of directories via cone-mode sparse-checkout. The
 // worktree shares the project's object store, so an agent gets a real git
 // (branch, commit, diff) and its work comes back as an ordinary branch — no
@@ -25,11 +25,17 @@ import (
 	"strings"
 )
 
-// BranchPrefix names the branch a sandbox's worktree is checked out on.
-const BranchPrefix = "sandbox/"
+// BranchPrefix and BranchSuffix name the branch a sandbox's worktree is
+// checked out on: feat/<slug>-sb. The -sb suffix marks the branch as
+// sandboxer-managed (recreate --full deletes it), so it can never collide
+// with — or accidentally adopt — an ordinary feat/<slug> branch of yours.
+const (
+	BranchPrefix = "feat/"
+	BranchSuffix = "-sb"
+)
 
 // Branch is the branch name for a sandbox slug.
-func Branch(slug string) string { return BranchPrefix + slug }
+func Branch(slug string) string { return BranchPrefix + slug + BranchSuffix }
 
 // Detect reports whether dir is inside a git repository that has at least one
 // commit, returning the repository's top-level working directory and its shared

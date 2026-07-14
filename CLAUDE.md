@@ -58,7 +58,7 @@ was extracted from:
   `_meta`/`_logs`/`_home/<slug>`/`<slug>` dirs, so credentials/scratch can never be committed. `sandboxer clean`
   wipes that state (config stays).
 - **Sandbox backing = git worktree** (`internal/worktree`, `internal/sandbox`): a sandbox `<stateDir>/<slug>/` is
-  a **git worktree** of the project repo on branch `sandbox/<slug>` (off HEAD) — the agent gets a real git and
+  a **git worktree** of the project repo on branch `feat/<slug>-sb` (off HEAD) — the agent gets a real git and
   its work returns as an ordinary branch (no copy, no push-back). Zero-config: empty profile → whole-repo
   worktree. `deps` narrows it to repo-relative dirs via cone `sparse-checkout` (empty = whole repo). The shared
   repo git dir (`git rev-parse --git-common-dir`) is bind-mounted at its host path so git resolves in-container;

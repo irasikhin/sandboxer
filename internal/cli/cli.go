@@ -121,7 +121,7 @@ func register(factory func() *cobra.Command) {
 
 const rootLong = `sandboxer — config-driven isolated sandboxes for coding agents.
 
-A sandbox is a git worktree of your repo on branch sandbox/<slug>, checked out
+A sandbox is a git worktree of your repo on branch feat/<slug>-sb, checked out
 under the per-project state dir (outside the repo). The agent works there with
 real git, and its work comes back as an ordinary branch you review and merge —
 your working tree and current branch are never touched, and nothing is copied.
@@ -139,7 +139,7 @@ can hold one profile or several under a profiles: map (pick a section with
 
 Tips:
   • 'sandboxer use <slug>' sets an active sandbox so you can omit the slug after.
-  • Review with plain git: git log sandbox/<slug> — there is no pull/push/diff.
+  • Review with plain git: git log feat/<slug>-sb — there is no pull/push/diff.
   • Outbound traffic is restricted to an egress allowlist
     (network.allowedDomains / --allow-domains; disable with SANDBOXER_NO_EGRESS=1).
   • Each create/enter/exec prints the resolved backend/egress/profile it used.`

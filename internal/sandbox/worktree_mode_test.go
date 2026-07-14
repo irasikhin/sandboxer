@@ -68,8 +68,8 @@ func TestMakeSandboxGitModeFull(t *testing.T) {
 			t.Errorf("missing %s in worktree: %v", p, err)
 		}
 	}
-	if br := strings.TrimSpace(runGit(t, dest, "rev-parse", "--abbrev-ref", "HEAD")); br != "sandbox/wt" {
-		t.Errorf("branch = %q, want sandbox/wt", br)
+	if br := strings.TrimSpace(runGit(t, dest, "rev-parse", "--abbrev-ref", "HEAD")); br != "feat/wt-sb" {
+		t.Errorf("branch = %q, want feat/wt-sb", br)
 	}
 	if s := runGit(t, dest, "status", "--porcelain"); strings.TrimSpace(s) != "" {
 		t.Errorf("worktree not clean:\n%s", s)
@@ -129,13 +129,13 @@ func TestRemoveStateGitModeKeepsBranch(t *testing.T) {
 	if strings.Contains(runGit(t, repo, "worktree", "list"), dest) {
 		t.Error("worktree still listed after RemoveState")
 	}
-	if !strings.Contains(runGit(t, repo, "branch", "--list", "sandbox/gone"), "sandbox/gone") {
+	if !strings.Contains(runGit(t, repo, "branch", "--list", "feat/gone-sb"), "feat/gone-sb") {
 		t.Error("branch removed by RemoveState, want kept")
 	}
 
 	// and: RemoveSandboxBranch then deletes it (recreate --full path)
 	b.RemoveSandboxBranch("gone")
-	if strings.TrimSpace(runGit(t, repo, "branch", "--list", "sandbox/gone")) != "" {
+	if strings.TrimSpace(runGit(t, repo, "branch", "--list", "feat/gone-sb")) != "" {
 		t.Error("branch present after RemoveSandboxBranch")
 	}
 }

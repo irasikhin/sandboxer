@@ -121,5 +121,5 @@ and reused by every sandbox.
 one-off command in it; `sandboxer enter <slug>` drops you into an interactive
 shell. From there you have the same view the agent does — check the state dir's
 `_logs/` for captured output. To review the agent's pending work use ordinary
-git: it lives on branch `sandbox/<slug>` (`git log sandbox/<slug>`,
-`git diff main...sandbox/<slug>`).
+git: it lives on branch `feat/<slug>-sb` (`git log feat/<slug>-sb`,
+`git diff main...feat/<slug>-sb`).

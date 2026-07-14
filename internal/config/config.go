@@ -146,7 +146,7 @@ func (p *Profile) resolveImageNix(dir string) {
 // Profile is a sandbox configuration. All fields are optional; an empty profile
 // is valid (everything then comes from flags/env/defaults) — that yields a
 // full-repo worktree with zero config. A sandbox is always a git worktree of the
-// project on branch sandbox/<slug>; deps then narrow it to a subset of
+// project on branch feat/<slug>-sb; deps then narrow it to a subset of
 // repo-relative directories via sparse-checkout (empty = the whole repo).
 type Profile struct {
 	Name    string  `yaml:"name,omitempty"        json:"name,omitempty"`

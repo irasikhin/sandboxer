@@ -4,7 +4,7 @@
 // committed config (.sandboxer/config.yaml + image.nix) so runtime data —
 // including agent homes that may hold login tokens — never lands in git.
 //
-// A sandbox is a git worktree of the project repo on branch sandbox/<slug> (see
+// A sandbox is a git worktree of the project repo on branch feat/<slug>-sb (see
 // internal/worktree), optionally narrowed to a subset of directories via cone
 // sparse-checkout. A project that is not a git repository (or has no commit) is
 // rejected — there is no copy-mode fallback.
@@ -221,7 +221,7 @@ func (b *Base) SetDomains(domains string) error {
 }
 
 // MakeSandbox creates a sandbox's working tree: a git worktree of the repo on
-// branch sandbox/<slug>, narrowed to the profile's deps when it lists any
+// branch feat/<slug>-sb, narrowed to the profile's deps when it lists any
 // (empty = the whole repo). Progress is written to w. A project that is not a
 // git repository (or has no commit) is rejected — sandboxer is git-only.
 func (b *Base) MakeSandbox(slug string, w io.Writer) error {

@@ -23,19 +23,19 @@ drives.
 ## How it works
 
 A **sandbox** is a **git worktree** of your repo on its own branch
-`sandbox/<slug>`, checked out under the state dir. Run sandboxer inside a repo and
+`feat/<slug>-sb`, checked out under the state dir. Run sandboxer inside a repo and
 it just works — **zero config**: the whole repo is checked out, the agent runs
 there with a real git (branch, commit, diff), and its work comes back as an
 ordinary branch you review and merge. Your working tree and current branch are
 never touched, and nothing is copied.
 
-- **Sandbox** — a git worktree on branch `sandbox/<slug>`, off the current HEAD.
+- **Sandbox** — a git worktree on branch `feat/<slug>-sb`, off the current HEAD.
   The agent commits there; there is no copy and no push-back.
 - **slug** — a short sandbox name (`feat`, `bugfix-auth`, …), set at `create`.
 - **deps (optional)** — repo-relative directories to **narrow** the sandbox to,
   via cone-mode `git sparse-checkout`. Omit them to get the whole repo.
-- **review** — the work is on `sandbox/<slug>` in your repo: `git log
-  sandbox/<slug>`, `git diff …sandbox/<slug>`, then merge or cherry-pick.
+- **review** — the work is on `feat/<slug>-sb` in your repo: `git log
+  feat/<slug>-sb`, `git diff …feat/<slug>-sb`, then merge or cherry-pick.
 
 sandboxer is **git-only**: the project must be a git repo with at least one
 commit (`git init && git add -A && git commit -m init`). Other trees a sandbox
@@ -69,10 +69,10 @@ Or grab a [pre-built binary](https://github.com/irasikhin/sandboxer/releases)
 
 ```bash
 sandboxer config init                     # scaffold a commented .sandboxer/config.yaml + image.nix to edit (optional)
-sandboxer create feat                     # create a sandbox named "feat" (a worktree on branch sandbox/feat)
+sandboxer create feat                     # create a sandbox named "feat" (a worktree on branch feat/feat-sb)
 sandboxer enter  feat                     # attach a shell (persistent session; Ctrl-q detaches)
 sandboxer exec   feat -- claude           # run an agent/command inside it
-git log sandbox/feat                      # the agent's work is an ordinary branch
+git log feat/feat-sb                      # the agent's work is an ordinary branch
 sandboxer stop   feat                     # park the session container (enter resumes it)
 sandboxer list                            # status of all sandboxes (alias: sandboxer status)
 sandboxer rm     feat                     # delete the sandbox and its session (keeps the branch)
@@ -105,9 +105,9 @@ state for the project; the config stays.
 ## How changes flow
 
 Changes flow through git: the sandbox is a **git worktree** on branch
-`sandbox/<slug>`, and the agent commits into your repo's shared object store, so
+`feat/<slug>-sb`, and the agent commits into your repo's shared object store, so
 its work is a branch you review and merge (`git log`/`git diff`/`git merge
-sandbox/<slug>`). There is no copy-in and no push-back. Teardown (`rm`,
+feat/<slug>-sb`). There is no copy-in and no push-back. Teardown (`rm`,
 `recreate`) keeps the branch; `recreate --full` deletes it for a fresh start.
 
 ## Persistent sessions

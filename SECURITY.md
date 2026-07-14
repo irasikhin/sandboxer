@@ -47,8 +47,8 @@ important — where it stops.
 ### What the isolation gives you
 
 - **Git-worktree working copy.** A sandbox is a `git worktree` of your repo on
-  branch `sandbox/<slug>`. The agent commits there; its work returns as an
-  ordinary branch you review (`git log`/`git diff`/`git merge sandbox/<slug>`)
+  branch `feat/<slug>-sb`. The agent commits there; its work returns as an
+  ordinary branch you review (`git log`/`git diff`/`git merge feat/<slug>-sb`)
   before it touches your main line. There is no copy-back over host files.
 
 - **Isolated `$HOME` — no host credentials.** Each sandbox has its own private
