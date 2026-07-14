@@ -6,6 +6,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.30.0] — 2026-07-14
+
+### Added
+
+- accept --backend on create (4762980)
+- config get/set/unset; move profile init/edit/validate to config (b40ec55)
+- remove config inheritance — no defaults:, no global config (6a74cf0)
+
+### Fixed
+
+- retire copy-in-era help text and ghost commands (b0bb7c7)
+- align enter's Use string, add enter/rm help, de-collide the profile-list default marker (f29de25)
+
+### Refactored
+
+- add comment-preserving yaml editor, key registry, LoadDocumentBytes (5394372)
+
+### Docs
+
+- fix stale examples, dedupe restated config docs, drop the PoC eval matrix (f821cde)
+
+
 ## [0.29.0] — 2026-07-13
 
 ### Refactored
@@ -239,3 +261,4 @@ isolated, containerized dev sandbox, on a local Linux machine:
 [0.27.0]: https://github.com/irasikhin/sandboxer/compare/v0.26.3...v0.27.0
 [0.28.0]: https://github.com/irasikhin/sandboxer/compare/v0.27.0...v0.28.0
 [0.29.0]: https://github.com/irasikhin/sandboxer/compare/v0.28.0...v0.29.0
+[0.30.0]: https://github.com/irasikhin/sandboxer/compare/v0.29.0...v0.30.0
