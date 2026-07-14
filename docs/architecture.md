@@ -70,10 +70,10 @@ Key invariants (`internal/sandbox`, `internal/worktree`):
 
 Notes:
 
-- `enter` attaches to a **persistent session container** (tmux inside): Ctrl-q
-  detaches and the session — and any agent in it — keeps running; a later `enter`
-  reattaches. `exec` reuses a running session; `stop` parks it; `rm` removes it.
-  A session survives client disconnects but **not** a host/engine restart.
+- `enter` attaches to a **persistent session container** (tmux inside); `exec`
+  reuses a running session; `stop` parks it; `rm` removes it. Full semantics
+  and escape hatches: README "Persistent sessions"; decisions:
+  [sessions-design.md](./sessions-design.md).
 - The agent's work is a git branch in your repo's shared object store; you review
   and merge it with plain git. There is no `pull`/`push`/`diff`.
 - The whole flow refuses to run **inside** the container — every command is

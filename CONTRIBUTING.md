@@ -207,11 +207,8 @@ help text is generated from them.
 
 ## Config layering
 
-A resolved profile is composed from up to four layers, high → low precedence:
-
-```
-flags  >  project profile section  >  project defaults  >  GLOBAL defaults  >  SANDBOXER_* env  >  built-in
-```
+A resolved profile is composed from up to four layers; the user-facing precedence chain is documented once in
+the README ([Global config](README.md#global-config)). How it maps to code:
 
 - The **project config** is `.sandboxer/config.yaml` (`config.ConfigPath()`), discovered in the cwd.
 - The **global config** is optional and merges *under* the project: `SANDBOXER_CONFIG` →
@@ -225,6 +222,5 @@ The composition lives in **`Document.SelectWithGlobal`** (`internal/config/docum
 `ProfilesDir()` store; a `defaults:`-only file (the common global shape) is parsed as a Document, not a flat
 profile.
 
-`deps:` is **project-specific** (the repo-relative dirs to sparse-checkout), so it is discouraged at global
-scope — a global `defaults.deps` would narrow every project's worktree to paths that may not exist. Keep it in
-the project config.
+`deps:` is project-specific — keep it out of the global config (the README's
+[Global config](README.md#global-config) foot-gun note explains why).

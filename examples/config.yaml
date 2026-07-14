@@ -5,11 +5,11 @@
 # positionally `sandboxer create feat.yaml`). This file is a standalone sample of
 # the flat single-profile form — copy it to .sandboxer/config.yaml to use it.
 
-# Sandbox name (slug). Drives the working directory at .sandboxer/<name>.
+# Sandbox name (slug). Drives the worktree branch sandbox/<name>.
 name: feature-x
 
 # Isolation backend — a podman or docker container built from the toolbox image
-# (works with any agent). Leave empty to auto-detect (prefers podman).
+# (works with any agent). Leave empty to auto-detect (docker, then podman).
 backend: podman
 
 # A sandbox is not bound to one agent — run any of them with 'sandboxer exec
@@ -74,20 +74,13 @@ network:
 # agents: [opencode, claude]
 
 # Proxy — ONE URL under network: (network.proxy above); the egress toggle
-# (below) decides the trust model:
-#   - egress on (the default): the allowlist stays ON and traffic is CHAINED
-#     through the proxy — sandboxer still enforces allowedDomains. http:// only.
-#   - egress off: the agent talks to the proxy DIRECTLY (HTTP(S)_PROXY); the proxy
-#     is trusted to police egress. http:// or https://.
-#
-# A proxy on localhost/127.0.0.1 means a proxy on your HOST: sandboxer rewrites it
-# to the host gateway (host.docker.internal) automatically, so the obvious URL
-# just works on either engine (incl. Linux Docker). A real host/IP is left as-is.
-#
-# To route only certain domains through a different proxy (e.g. bypass a
-# geo-block for one API), use network.routes above instead. Global default for
-# every project: defaults.proxy in the global config, or the SANDBOXER_PROXY env
-# var (lowest precedence).
+# (below) decides the trust model: egress on (default) = allowlist stays ON and
+# traffic is CHAINED through the proxy (http:// only); egress off = the agent
+# talks to the proxy DIRECTLY (http:// or https://; noProxy applies). A
+# localhost/127.0.0.1 proxy means a proxy on your HOST (rewritten to the host
+# gateway automatically). Per-domain overrides: network.routes above. Global
+# default: defaults.proxy / SANDBOXER_PROXY. Full story: README "Egress
+# allowlist (container backend)".
 
 # Container backends force the allowlist proxy by default (agent on an
 # --internal network, sole exit via the forward-proxy). Set to false to disable.

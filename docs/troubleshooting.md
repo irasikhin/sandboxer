@@ -20,15 +20,18 @@ the first `create`/`enter`.
 - `sandboxer doctor` reports which engine it found and whether the toolbox image
   is present.
 
-## Permission denied on `.sandboxer/`
+## Permission denied on the state dir
 
-The `.sandboxer/` tree is created by the CLI as your user; `_home/<slug>` is
-`0700` (it holds login tokens). A `permission denied` here usually means the tree
-was created under a different user — commonly a rootful container that wrote back
-as root.
+All runtime state lives under `$XDG_STATE_HOME/sandboxer/<project>` (default
+`~/.local/state/sandboxer/...`); `.sandboxer/` in the repo holds only the
+committed config. The state tree is created by the CLI as your user;
+`_home/<slug>` is `0700` (it holds login tokens). A `permission denied` here
+usually means the tree was created under a different user — commonly a rootful
+container that wrote back as root.
 
-- Check ownership: `ls -la .sandboxer .sandboxer/_home`. If anything is owned by
-  `root`, reclaim it: `sudo chown -R "$USER:$USER" .sandboxer`.
+- Check ownership: `ls -la "${XDG_STATE_HOME:-$HOME/.local/state}/sandboxer"`.
+  If anything is owned by `root`, reclaim it:
+  `sudo chown -R "$USER:$USER" "${XDG_STATE_HOME:-$HOME/.local/state}/sandboxer"`.
 - Prefer **rootless** podman, or docker via the user's `docker` group, so
   in-container writes land as your uid.
 - If a sandbox is wedged, `sandboxer rm <slug>` removes its state; re-`create` it.
@@ -60,7 +63,8 @@ package install almost always means the host isn't allowed.
 `setup:` is a one-time `bash -lc` script run inside the sandbox before you take
 over. A failed setup is **fatal by default**, so the `enter`/`exec` aborts.
 
-- Read the captured output under `.sandboxer/_logs/` (`<slug>.*`).
+- Read the captured output under `$XDG_STATE_HOME/sandboxer/<project>/_logs/`
+  (`<slug>.*`).
 - Skip it for one run with `--no-setup` to get a shell and debug interactively.
 - A common cause is a network step under the egress allowlist — see the section
   above and allow the domains the script needs.
@@ -70,8 +74,8 @@ over. A failed setup is **fatal by default**, so the `enter`/`exec` aborts.
 ## Persistent session won't reattach
 
 `enter` attaches to a persistent session container (tmux inside); a later `enter`
-reattaches. A session survives client disconnects but **not** a host/engine
-restart.
+reattaches (full semantics: README "Persistent sessions"). A session survives
+client disconnects but **not** a host/engine restart.
 
 - After a reboot or `docker`/`podman` restart, the session container is gone —
   just `sandboxer enter <slug>` again to recreate it. Resuming the agent's own
@@ -106,14 +110,16 @@ orchestrator, no daemon of its own, nothing in the cloud.
 persistent session is a container on the local engine; it does not follow you to
 another machine and does not survive a host/engine restart.
 
-**How much disk does a sandbox use?** The `<slug>/` working dir holds only the
-`deps` you listed (flat copies — nothing by default), plus a small private
-`_home/<slug>`. The big cost is shared, not per-sandbox: the
+**How much disk does a sandbox use?** The `<slug>/` working dir is a git
+worktree — a checkout of your repo (narrowed to the `deps` directories when the
+profile sets them) whose object store is shared with your repo, not duplicated —
+plus a small private `_home/<slug>`. The big cost is shared, not per-sandbox: the
 `sandboxer-toolbox:latest` image (and any `var-*` variant) is pulled/built once
 and reused by every sandbox.
 
 **How do I debug inside a sandbox?** `sandboxer exec <slug> -- <cmd>` runs a
 one-off command in it; `sandboxer enter <slug>` drops you into an interactive
-shell. From there you have the same view the agent does — check `.sandboxer/_logs/`
-for captured output, and `sandboxer diff <slug>` to see pending changes before
-you `push`.
+shell. From there you have the same view the agent does — check the state dir's
+`_logs/` for captured output. To review the agent's pending work use ordinary
+git: it lives on branch `sandbox/<slug>` (`git log sandbox/<slug>`,
+`git diff main...sandbox/<slug>`).

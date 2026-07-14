@@ -26,11 +26,9 @@ network:
 # --internal network, sole exit via the forward-proxy). Disable with:
 # egress: false        # or set env SANDBOXER_NO_EGRESS=1
 
-# Proxy — ONE URL under network:; the egress toggle (above) decides the mode
-# (see examples/config.yaml for detail). egress on → allowlist stays on, traffic
-# CHAINED through the proxy (http:// only). egress off → agent uses the proxy
-# DIRECTLY (http:// or https://). A localhost proxy means one on your HOST and is
-# rewritten to the host gateway automatically. Put it under network.proxy above.
+# Proxy — ONE URL under network: (network.proxy); the egress toggle above
+# decides the mode — see examples/config.yaml and README "Egress allowlist
+# (container backend)".
 
 # Deps: repo-relative directories the worktree is narrowed to (cone
 # sparse-checkout). Omit to check out the whole repo.

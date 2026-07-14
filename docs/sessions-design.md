@@ -84,7 +84,7 @@ behavior, nothing surprising to flag), so scripts keep working.
 
 Addendum (image customization work): freshness now also compares the
 container's **image ID** against the engine's current one for the same tag, so
-an image rebuilt under an unchanged tag (e.g. `build-image` re-run on the
+an image rebuilt under an unchanged tag (e.g. `image build` re-run on the
 default image) recreates the session through the same table; an image the
 engine doesn't have yet reads as unknown and skips the check.
 
@@ -119,6 +119,10 @@ filesystem are kept and restarted by the next enter). Resuming the *agent's
 conversation* after that is the agent's own job — e.g. `claude --continue` —
 sandboxer only guarantees the place it runs in (container fs, sandbox dir,
 per-sandbox `$HOME`) is still there.
+
+> **Historical note:** the detach-time deps push described below was removed in
+> v0.27.0 when sandboxes became git worktrees — work lands on branch
+> `sandbox/<slug>`; nothing is pushed back on detach.
 
 The detach-time deps push is likewise best-effort **by design**: detaching
 pushes rw deps back to their origins while the session — and anything running

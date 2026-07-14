@@ -1,7 +1,7 @@
 # sandboxer
 
 [![CI](https://github.com/irasikhin/sandboxer/actions/workflows/ci.yml/badge.svg)](https://github.com/irasikhin/sandboxer/actions/workflows/ci.yml)
-[![Coverage](https://img.shields.io/badge/coverage-92.2%25-brightgreen.svg)](#testing)
+[![Coverage](https://img.shields.io/badge/coverage-%E2%89%A590%25-brightgreen.svg)](#testing)
 [![Go](https://img.shields.io/badge/Go-1.24+-00ADD8?logo=go)](https://go.dev/)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
@@ -74,7 +74,7 @@ sandboxer enter  feat                     # attach a shell (persistent session; 
 sandboxer exec   feat -- claude           # run an agent/command inside it
 git log sandbox/feat                      # the agent's work is an ordinary branch
 sandboxer stop   feat                     # park the session container (enter resumes it)
-sandboxer list                            # status of all sandboxes (incl. session state)
+sandboxer list                            # status of all sandboxes (alias: sandboxer status)
 sandboxer rm     feat                     # delete the sandbox and its session (keeps the branch)
 ```
 
@@ -500,18 +500,10 @@ go tool cover -func=cov.out | tail -1         # total coverage
 go tool cover -html=cov.out -o cov.html       # browseable report
 ```
 
-Current coverage: **91.4%** total. Per package:
-
-| Package             | Coverage |
-| ------------------- | -------- |
-| `cmd/sandboxer`     | 100.0%   |
-| `internal/config`   | 97.1%    |
-| `internal/backend`  | 96.2%    |
-| `internal/registry` | 93.7%    |
-| `internal/egress`   | 92.0%    |
-| `internal/toolbox`  | 91.1%    |
-| `internal/sandbox`  | 88.4%    |
-| `internal/cli`      | 90.1%    |
+CI enforces an engine-free **90% total coverage gate** on every push and PR
+([ci.yml](./.github/workflows/ci.yml)); the badge above reflects that floor.
+The container/e2e integration suite (`-tags integration`) runs separately —
+see [CONTRIBUTING.md](./CONTRIBUTING.md#integration-tests).
 
 Backend tests use fake engine/agent stubs on `PATH`, so they run without
 containers or touching real credentials; the few tests that shell out (`git`,

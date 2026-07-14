@@ -1,7 +1,7 @@
 # A profile with a customized toolbox image (no nix on your machine — the
 # builder container does everything):
 #
-#   sandboxer build-image custom-image -f ./examples/profiles   # build the variant
+#   sandboxer image build custom-image -f ./examples/profiles   # build the variant
 #   sandboxer create custom-image -f ./examples/profiles        # or just create +
 #   sandboxer enter  custom-image                               # enter — auto-builds
 #
@@ -28,6 +28,6 @@ image:
   # Flake-input pin overrides; empty keeps the pins embedded in the binary.
   # "latest" resolves the remote head ONCE at build time and stamps it into
   # the per-user pins cache (~/.cache/sandboxer/image-pins.json); enter/exec
-  # reuse the stamp, and only `sandboxer build-image --refresh` re-resolves.
+  # reuse the stamp, and only `sandboxer image build --refresh` re-resolves.
   # llmAgentsRev: latest             # newer agents without a sandboxer release
   # nixpkgsRev: 64c08a7ca051951c8eae34e3e3cb1e202fe36786   # or pin exactly
