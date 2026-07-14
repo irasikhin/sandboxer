@@ -63,7 +63,7 @@ func newCreateCmd() *cobra.Command {
 				}
 			}
 			if t.profile == nil {
-				return fmt.Errorf("no profile for %q — scaffold one with 'sandboxer init', then re-create", t.slug)
+				return fmt.Errorf("no profile for %q — scaffold one with 'sandboxer profile init', then re-create", t.slug)
 			}
 			if t.json != nil {
 				if err := t.base.WriteProfileJSON(t.slug, t.json); err != nil {
@@ -346,7 +346,7 @@ func warnIgnoredRoutes(w io.Writer, rt config.Runtime) {
 // interactiveShellArgs is the in-container command for `enter`: launch bash with
 // the baked rc (sandbox-aware prompt, aliases, EDITOR/PAGER) when it is present,
 // otherwise a plain interactive shell. The guard tolerates an older cached
-// toolbox image built before the rc existed — a fresh `sandboxer build-image`
+// toolbox image built before the rc existed — a fresh `sandboxer image build`
 // adds it — so flipping the launcher never strands such an image at a dead
 // `--rcfile` path.
 func interactiveShellArgs() []string {

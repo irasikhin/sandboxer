@@ -29,7 +29,8 @@ type commonFlags struct {
 	ephemeral bool // --ephemeral: one-shot container instead of the persistent session
 }
 
-// bindExisting registers the flags used by enter/exec/pull/push/show/diff/rm.
+// bindExisting registers the flags shared by commands that operate on an
+// existing sandbox (enter/exec/show/stop/recreate/rm/compose).
 func bindExisting(cmd *cobra.Command, f *commonFlags) {
 	fl := cmd.Flags()
 	fl.StringVar(&f.src, "src", "", "project root (default: cwd)")

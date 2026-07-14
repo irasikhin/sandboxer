@@ -75,7 +75,7 @@ func printList(cmd *cobra.Command, base *sandbox.Base, wide bool) {
 			marker, slugDisp, sessionState(states, slug), exit, secs, resDisp)
 	}
 	fmt.Fprintln(out)
-	fmt.Fprintln(out, "* = active (use). enter <s> | exec <s> -- cmd | diff [s] | push [s] | rm <s>")
+	fmt.Fprintln(out, "* = active (use). enter <s> | exec <s> -- cmd | show [s] | rm <s>")
 }
 
 // projectSessionStates returns slug→container status for the project's

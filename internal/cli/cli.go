@@ -50,7 +50,8 @@ func newRootCmd() *cobra.Command {
 		// (egress is a separate squid sidecar), so it is normally absent inside the
 		// sandbox; this guard is belt-and-suspenders for a custom image that bakes
 		// it in anyway — deny-all when SANDBOXER_IN_CONTAINER is set. The agent
-		// works on the vendored copies; pull/push/clean run from the host.
+		// works on the sandbox worktree; lifecycle and cleanup (create/rm/clean)
+		// run from the host.
 		PersistentPreRunE: func(cmd *cobra.Command, _ []string) error {
 			if inContainer() {
 				return fmt.Errorf("sandboxer is a host tool and is not available inside the sandbox — run %q on the host", cmd.Name())
@@ -63,7 +64,7 @@ func newRootCmd() *cobra.Command {
 	root.AddGroup(
 		&cobra.Group{ID: groupSetup, Title: "Image & config:"},
 		&cobra.Group{ID: groupSandbox, Title: "Sandbox (enter & work):"},
-		&cobra.Group{ID: groupData, Title: "Data (pull / push / clean):"},
+		&cobra.Group{ID: groupData, Title: "Data (clean / show):"},
 		&cobra.Group{ID: groupOther, Title: "Other:"},
 	)
 	// Subcommands are registered by their respective files via register().
@@ -101,10 +102,7 @@ var commandGroups = map[string]string{
 	"list":     groupSandbox,
 	"use":      groupSandbox,
 
-	"pull":  groupData,
-	"push":  groupData,
 	"clean": groupData,
-	"diff":  groupData,
 	"show":  groupData,
 
 	"compose": groupOther,
@@ -122,19 +120,25 @@ func register(factory func() *cobra.Command) {
 
 const rootLong = `sandboxer — config-driven isolated sandboxes for coding agents.
 
-A sandbox is a directory under .sandboxer/<slug>/ holding only the deps you list
-(each located by path suffix under your roots and copied in); nothing is copied by
-default and no git is involved. The agent runs inside a podman/docker container
-built from the toolbox image (the agents baked in: claude/codex/opencode/crush/…);
-each sandbox has its own isolated home, and network, proxy and credentials are
-wired per-config.
+A sandbox is a git worktree of your repo on branch sandbox/<slug>, checked out
+under the per-project state dir (outside the repo). The agent works there with
+real git, and its work comes back as an ordinary branch you review and merge —
+your working tree and current branch are never touched, and nothing is copied.
+An optional profile narrows the worktree to a subset of directories (deps:, via
+sparse-checkout); other trees come in via extraMounts.
 
-Config: flags + SANDBOXER_* env, with an optional .sandboxer/config.yaml profile for
-structured fields (roots/deps, extraMounts, env). A profile file can hold one
-profile or several under a profiles: map (pick a section with 'create <name>').
+The agent runs inside a podman/docker container built from the toolbox image
+(the agents baked in — see 'sandboxer agents'); each sandbox has its own
+isolated home, and network, proxy and credentials are wired per-config.
+
+Config: flags + SANDBOXER_* env, with an optional .sandboxer/config.yaml for
+structured fields (deps, extraMounts, env, setup, tools, image). A profile file
+can hold one profile or several under a profiles: map (pick a section with
+'create <name>').
 
 Tips:
   • 'sandboxer use <slug>' sets an active sandbox so you can omit the slug after.
+  • Review with plain git: git log sandbox/<slug> — there is no pull/push/diff.
   • Outbound traffic is restricted to an egress allowlist
     (network.allowedDomains / --allow-domains; disable with SANDBOXER_NO_EGRESS=1).
-  • Each create/enter/exec prints the resolved agent/backend/model/egress it used.`
+  • Each create/enter/exec prints the resolved backend/egress/profile it used.`

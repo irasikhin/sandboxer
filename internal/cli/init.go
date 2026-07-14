@@ -133,7 +133,7 @@ func starterProfile(name string, d config.Defaults) string {
 # sandboxer profile — edit to taste. Auto-discovered when you run sandboxer
 # in this directory (no -f needed). Full reference: examples/ in the repo.
 
-# Sandbox name (slug); drives .sandboxer/<name>/.
+# Sandbox name (slug); drives the worktree branch sandbox/<name>.
 name: %s
 
 # Isolation backend: docker | podman.
@@ -166,21 +166,13 @@ network:
   #   - domains: [api.anthropic.com]
   #     proxy: http://bypass-ru:8080
 
-# Sandbox content. Nothing is copied unless listed here: each dep is located by
-# path suffix under roots — this directory is always searched as an implicit
-# last root — copied INTO the sandbox's workspace/, and pushed back with
-# 'sandboxer push'. Uncomment and adjust:
+# Sandbox content: the sandbox is a git worktree of THIS repo on branch
+# sandbox/<name> (the whole repo by default). deps narrows the worktree to the
+# listed repo-relative directories via cone sparse-checkout — useful in a large
+# monorepo. Editing deps takes effect on 'sandboxer recreate'.
 # deps:
 #   - src/lib
-# roots: only needed to search OTHER trees besides this directory:
-# roots:
-#   - ~/work/other-repo
-
-# Agent context: project files copied to the sandbox ROOT (beside workspace/)
-# so agents see your instructions — refreshed on pull, never pushed back.
-# Default when unset: CLAUDE.md, AGENTS.md, .claude (existing entries only).
-# Listing context: REPLACES that set, so re-list what you keep:
-# context: [CLAUDE.md, AGENTS.md, .claude, docs/agent-notes.md]
+# To bring in OTHER trees (outside this repo), use extraMounts below.
 
 # Extra bind mounts / env for the container backend (optional). To pin the
 # agent's model, set the agent's own env var here (e.g. ANTHROPIC_MODEL for
@@ -223,7 +215,7 @@ network:
 	return profile
 }
 
-// starterImageSection is the active image: block appended by `sandboxer init`.
+// starterImageSection is the active image: block appended by `sandboxer profile init`.
 // It points at the image.nix hook written alongside under .sandboxer/ by its
 // bare relative name (resolved against the profile's directory); the spec is
 // non-empty (a nix hook is set), so the first create builds a content-addressed
@@ -239,7 +231,7 @@ image:
   # nixpkgsRev: <full 40-char hex commit>
 `
 
-// starterImageNix is the annotated, inert image hook `sandboxer init` writes.
+// starterImageNix is the annotated, inert image hook `sandboxer profile init` writes.
 // Every example is commented, so it evaluates to { } (the variant is content-
 // equivalent to the stock image) until the user uncomments something.
 const starterImageNix = `# image.nix — the image hook this profile's image: section points at,

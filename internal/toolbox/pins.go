@@ -179,12 +179,12 @@ func ResolveLatest(engine, nixImage string, stderr io.Writer) (Pins, error) {
 // spec can be tagged and built. Concrete and empty revs pass through
 // untouched. "latest" reads the stamped pins cache; a miss (or refresh)
 // resolves the remote heads once via ResolveLatest and stamps the result —
-// so enter/exec never re-resolve a warm cache, only `build-image --refresh`
+// so enter/exec never re-resolve a warm cache, only `image build --refresh`
 // moves the pins. A miss stamps ONLY the inputs that were missing (an
 // existing stamp another profile relies on never moves as a side effect);
 // refresh re-stamps everything. nixImage overrides the resolver's builder
 // image ("" = the pinned default). With no engine (a dry run) a cold cache
-// is a fail-closed error pointing at build-image instead of a guessing
+// is a fail-closed error pointing at `image build` instead of a guessing
 // fallback.
 func PinSpec(s Spec, engine, nixImage string, refresh bool, stderr io.Writer) (Spec, error) {
 	latestNixpkgs := s.NixpkgsRev == "latest"

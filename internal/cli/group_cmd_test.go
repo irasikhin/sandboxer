@@ -140,7 +140,7 @@ func TestHelpGroups(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("--help = %d", code)
 	}
-	for _, want := range []string{"Image & config:", "Sandbox (enter & work):", "Data (", "image", "profile", "clean"} {
+	for _, want := range []string{"Image & config:", "Sandbox (enter & work):", "Data (clean / show):", "image", "profile", "clean"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("--help missing %q:\n%s", want, out)
 		}

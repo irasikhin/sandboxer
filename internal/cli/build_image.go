@@ -135,11 +135,11 @@ is left behind. Use --cache to keep a nix-store volume for faster rebuilds.`,
 // backendRun seam's sibling.
 var toolboxBuild = toolbox.BuildImage
 
-// buildImageProfile resolves build-image's optional profile — a named profile,
+// buildImageProfile resolves image build's optional profile — a named profile,
 // a profile file/directory (-f), or a section of a multi-profile file —
 // through the same chain enter/exec use. No argument and no -f mean no
 // profile: the stock default image is built, deliberately NOT auto-discovering
-// .sandboxer/config.yaml so a bare `sandboxer build-image` keeps today's behavior.
+// .sandboxer/config.yaml so a bare `sandboxer image build` keeps today's behavior.
 func buildImageProfile(configPath, pos string) (*config.Profile, error) {
 	if configPath == "" && pos == "" {
 		return nil, nil
