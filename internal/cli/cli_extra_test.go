@@ -63,7 +63,7 @@ func TestRunInit(t *testing.T) {
 	t.Setenv("SANDBOXER_IN_CONTAINER", "")
 	t.Chdir(t.TempDir())
 
-	if code, out, errs := run("profile", "init", "demo"); code != 0 || !strings.Contains(out, "wrote "+config.ConfigPath()) {
+	if code, out, errs := run("config", "init", "demo"); code != 0 || !strings.Contains(out, "wrote "+config.ConfigPath()) {
 		t.Fatalf("init = (%d, %q, %q)", code, out, errs)
 	}
 	doc, err := config.LoadDocument(config.ConfigPath())
@@ -90,18 +90,18 @@ func TestRunInit(t *testing.T) {
 		t.Errorf("scaffolded image.nix should resolve under .sandboxer/: got %q, want %q", p.Image.Nix, wantNix)
 	}
 	// Refuses to overwrite the config without --force.
-	if code, _, errs := run("profile", "init"); code != 1 || !strings.Contains(errs, "already exists") {
+	if code, _, errs := run("config", "init"); code != 1 || !strings.Contains(errs, "already exists") {
 		t.Errorf("init over existing = (%d, %q), want refusal", code, errs)
 	}
 	// Refuses to clobber an existing image.nix even when the config is gone.
 	if err := os.Remove(config.ConfigPath()); err != nil {
 		t.Fatal(err)
 	}
-	if code, _, errs := run("profile", "init"); code != 1 || !strings.Contains(errs, imageNixFileName) {
+	if code, _, errs := run("config", "init"); code != 1 || !strings.Contains(errs, imageNixFileName) {
 		t.Errorf("init over existing %s = (%d, %q), want refusal", imageNixPath(), code, errs)
 	}
 	// --force rewrites both.
-	if code, _, errs := run("profile", "init", "other", "--force"); code != 0 {
+	if code, _, errs := run("config", "init", "other", "--force"); code != 0 {
 		t.Errorf("init --force = %d (%q)", code, errs)
 	}
 	doc2, _ := config.LoadDocument(config.ConfigPath())

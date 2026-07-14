@@ -76,7 +76,7 @@ func listDir(out io.Writer, dir string) error {
 func listAllSources(out io.Writer) error {
 	entries := config.ListAllProfiles(config.ConfigPath(), config.GlobalConfigPath(), config.ProfilesDir())
 	if len(entries) == 0 {
-		fmt.Fprintf(out, "no profiles found — scaffold a project profile with 'sandboxer profile init', or add <name>.yaml under %s\n", config.ProfilesDir())
+		fmt.Fprintf(out, "no profiles found — scaffold a project profile with 'sandboxer config init', or add <name>.yaml under %s\n", config.ProfilesDir())
 		return nil
 	}
 	tw := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)

@@ -11,7 +11,7 @@ import (
 	"github.com/irasikhin/sandboxer/internal/config"
 )
 
-// imageNixFileName is the starter image hook `sandboxer profile init` writes
+// imageNixFileName is the starter image hook `sandboxer config init` writes
 // beside the profile under .sandboxer/; the scaffolded image.nix points at it
 // by its bare relative name (see starterImageSection), resolved against
 // .sandboxer/.
@@ -21,9 +21,10 @@ const imageNixFileName = "image.nix"
 // .sandboxer/image.nix — beside .sandboxer/config.yaml.
 func imageNixPath() string { return filepath.Join(config.StateDirName, imageNixFileName) }
 
-// newProfileInitCmd is the `init` verb of the `profile` group (see profile.go):
-// it scaffolds a commented .sandboxer/config.yaml (and the image.nix hook).
-func newProfileInitCmd() *cobra.Command {
+// newConfigInitCmd is the `init` verb of the `config` group (see
+// config_cmd.go): it scaffolds a commented .sandboxer/config.yaml (and the
+// image.nix hook).
+func newConfigInitCmd() *cobra.Command {
 	var force bool
 	cmd := &cobra.Command{
 		Use:   "init [name]",
@@ -33,9 +34,9 @@ to edit instead of relying on the silent defaults. It is auto-discovered by
 create/enter/exec here (no -f needed). A starter ` + imageNixFileName + ` image hook is
 written alongside it under ` + config.StateDirName + `/, wired in via the profile's image:
 section (delete that block for the stock toolbox image).`,
-		Example: `  sandboxer profile init            # name defaults to the directory
-  sandboxer profile init web        # set the profile name
-  sandboxer profile init --force    # overwrite an existing ` + config.ConfigPath(),
+		Example: `  sandboxer config init             # name defaults to the directory
+  sandboxer config init web         # set the profile name
+  sandboxer config init --force     # overwrite an existing ` + config.ConfigPath(),
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			path := config.ConfigPath()
@@ -215,7 +216,7 @@ network:
 	return profile
 }
 
-// starterImageSection is the active image: block appended by `sandboxer profile init`.
+// starterImageSection is the active image: block appended by `sandboxer config init`.
 // It points at the image.nix hook written alongside under .sandboxer/ by its
 // bare relative name (resolved against the profile's directory); the spec is
 // non-empty (a nix hook is set), so the first create builds a content-addressed
@@ -231,7 +232,7 @@ image:
   # nixpkgsRev: <full 40-char hex commit>
 `
 
-// starterImageNix is the annotated, inert image hook `sandboxer profile init` writes.
+// starterImageNix is the annotated, inert image hook `sandboxer config init` writes.
 // Every example is commented, so it evaluates to { } (the variant is content-
 // equivalent to the stock image) until the user uncomments something.
 const starterImageNix = `# image.nix — the image hook this profile's image: section points at,

@@ -165,6 +165,28 @@ func descend(m *yaml.Node, seg string, create bool, at string) (*yaml.Node, erro
 	return v, nil
 }
 
+// Anchor returns the anchor name on the mapping at path (e.g. a profile
+// section `api: &api`), or "". Callers use it to warn that sections aliasing
+// the anchor see the edit too.
+func (e *EditableConfig) Anchor(path []string) string {
+	m := e.root.Content[0]
+	for i, seg := range path {
+		idx := findKey(m, seg)
+		if idx < 0 {
+			return ""
+		}
+		v := m.Content[idx+1]
+		if i == len(path)-1 {
+			return v.Anchor
+		}
+		if v.Kind != yaml.MappingNode {
+			return ""
+		}
+		m = v
+	}
+	return ""
+}
+
 // findKey returns the index of key's key-node in mapping m's Content pairs,
 // or -1 when absent.
 func findKey(m *yaml.Node, key string) int {

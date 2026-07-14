@@ -68,7 +68,7 @@ Or grab a [pre-built binary](https://github.com/irasikhin/sandboxer/releases)
 ## Quick start
 
 ```bash
-sandboxer profile init                    # scaffold a commented .sandboxer/config.yaml + image.nix to edit (optional)
+sandboxer config init                     # scaffold a commented .sandboxer/config.yaml + image.nix to edit (optional)
 sandboxer create feat                     # create a sandbox named "feat" (a worktree on branch sandbox/feat)
 sandboxer enter  feat                     # attach a shell (persistent session; Ctrl-q detaches)
 sandboxer exec   feat -- claude           # run an agent/command inside it
@@ -87,8 +87,9 @@ to a stored profile by name; the sandbox slug then comes from the profile's
 
 Commands group into three activities (also shown that way in `--help`): forming
 the **image** (`sandboxer image build|edit|rm`) and **config**
-(`sandboxer profile init|edit|validate|list|use`), managing **state**
-(`clean`), and **entering/working** in the sandbox
+(`sandboxer config init|edit|validate|get|set|unset`, plus
+`sandboxer profile list|use` for picking one), managing **state** (`clean`),
+and **entering/working** in the sandbox
 (`create` / `enter` / `exec` / `stop` / `rm` / `list` / `use`).
 
 ## Config vs data
@@ -205,11 +206,35 @@ MCP servers need no sandboxer wiring: the sandbox is a worktree of your repo,
 so agent-level MCP config committed there (e.g. a `.mcp.json`) works as-is —
 just add the servers' domains to `network.allowedDomains`.
 
+### Editing config from the CLI
+
+`sandboxer config set|get|unset` edit the config file **in place, preserving
+comments and key order** (only long lines may re-wrap once), so you never have
+to open an editor for one knob:
+
+```bash
+sandboxer config set backend podman                    # dotted keys into the profile
+sandboxer config set network.allowedDomains '[api.anthropic.com, github.com]'
+sandboxer config set env.NODE_ENV production           # one env var
+sandboxer config set limits.memory 4G -p web           # target a profiles: section
+sandboxer config set egress false --global             # the global config's defaults:
+sandboxer config get network.proxy                     # read one value
+sandboxer config unset network.proxy                   # remove a key
+```
+
+Without `-p` the target section is the **active sandbox** (`sandboxer use`)
+when it names one, then the file's `default:`, then its sole profile. `set` is
+strictly validated in memory before writing — a bad key or type never lands on
+disk. `get` shows the **effective** value (the section merged over `defaults:`
+and the global config — exactly what `create`/`enter` would use), while
+`set`/`unset` edit the raw file. Existing sandboxes pick changes up on their
+next `enter`/`exec`; `deps` changes take effect on `sandboxer recreate`.
+
 ### Custom toolbox image (`image:`)
 
 A profile can customize the toolbox image itself — extra packages, files, env,
 even a nixpkgs overlay — **without nix on your machine** (the same builder
-container does everything) and without forking the image. `sandboxer profile init`
+container does everything) and without forking the image. `sandboxer config init`
 scaffolds this section together with an inert, fully-commented
 `image.nix` hook next to the profile under `.sandboxer/`, ready to edit:
 

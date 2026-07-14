@@ -91,6 +91,7 @@ const (
 // here (completion, hook) fall under cobra's "Additional Commands".
 var commandGroups = map[string]string{
 	"image":   groupSetup,
+	"config":  groupSetup,
 	"profile": groupSetup,
 
 	"create":   groupSandbox,

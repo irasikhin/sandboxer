@@ -33,7 +33,7 @@ branch, making recreate a full reset.`,
 				return err
 			}
 			if t.profile == nil {
-				return fmt.Errorf("no profile for %q — scaffold one with 'sandboxer profile init', then recreate", t.slug)
+				return fmt.Errorf("no profile for %q — scaffold one with 'sandboxer config init', then recreate", t.slug)
 			}
 			// Capture the stored snapshot and the active marker before the wipe:
 			// MakeSandbox below needs a profile snapshot even when the target was

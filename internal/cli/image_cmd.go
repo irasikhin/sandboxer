@@ -107,7 +107,7 @@ func newImageRmCmd() *cobra.Command {
 
 // openInEditor launches $VISUAL/$EDITOR on path (falling back to vi), wiring the
 // child process to the command's stdio so an interactive editor works. Shared
-// by `image edit` and `profile edit`.
+// by `image edit` and `config edit`.
 func openInEditor(cmd *cobra.Command, path string) error {
 	editor := firstNonEmpty(os.Getenv("VISUAL"), os.Getenv("EDITOR"))
 	if editor == "" {

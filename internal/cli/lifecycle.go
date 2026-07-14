@@ -63,7 +63,7 @@ func newCreateCmd() *cobra.Command {
 				}
 			}
 			if t.profile == nil {
-				return fmt.Errorf("no profile for %q — scaffold one with 'sandboxer profile init', then re-create", t.slug)
+				return fmt.Errorf("no profile for %q — scaffold one with 'sandboxer config init', then re-create", t.slug)
 			}
 			if t.json != nil {
 				if err := t.base.WriteProfileJSON(t.slug, t.json); err != nil {
