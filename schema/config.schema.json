@@ -101,9 +101,9 @@
         "egress": {
           "type": "boolean"
         },
-        "deps": {
+        "srcs": {
           "items": {
-            "type": "string"
+            "$ref": "#/$defs/Src"
           },
           "type": "array"
         },
@@ -155,6 +155,27 @@
       },
       "additionalProperties": false,
       "type": "object"
+    },
+    "Src": {
+      "properties": {
+        "src": {
+          "type": "string"
+        },
+        "include": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "branch": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "src"
+      ]
     },
     "schemaDocument": {
       "properties": {

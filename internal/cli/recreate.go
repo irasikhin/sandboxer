@@ -15,12 +15,13 @@ func newRecreateCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "recreate [slug|profile|file.yaml]",
 		Short: "Re-create a sandbox from scratch (keeps the agent home; --full also drops the branch)",
-		Long: `Tear a sandbox down and build it again from the profile. The worktree is
-removed and re-created off HEAD, reusing the sandbox branch so the agent's prior
-commits survive. The setup script re-runs on the next
-enter. The private agent home (_home/<slug> — logins, shell history) is preserved
-so agents need no re-authentication; --full removes it too AND drops the sandbox
-branch, making recreate a full reset.`,
+		Long: `Tear a sandbox down and build it again from the profile. Every managed
+source worktree is removed and re-created off HEAD, reusing its branch so prior
+commits survive. The setup script re-runs on the next enter. The private agent
+home (_home/<slug> — logins, shell history) is preserved so agents need no
+re-authentication; --full removes it too AND drops the auto-named sandbox
+branches (never a branch you set via srcs branch:), making recreate a full
+reset.`,
 		Example: `  # rebuild the active sandbox's working copy, keep agent logins
   sandboxer recreate
 
@@ -46,13 +47,16 @@ branch, making recreate a full reset.`,
 			// its sandbox rebuilt.
 			removeSessionBestEffort(t, f, cmd.ErrOrStderr())
 			if full {
+				// Capture the recorded sources before Remove wipes the meta; the
+				// branches can only be deleted once their worktrees are gone.
+				srcs := t.base.Srcs(t.slug)
 				if err := t.base.Remove(t.slug); err != nil {
 					return err
 				}
-				// A full reset starts from a clean slate: drop the sandbox branch too
-				// (git mode) so MakeSandbox re-branches off HEAD. A normal recreate
-				// keeps the branch, so the agent's prior commits are reused.
-				t.base.RemoveSandboxBranch(t.slug)
+				// A full reset starts from a clean slate: drop the auto-named
+				// sandbox branches too, so MakeSandbox re-branches off HEAD. A
+				// normal recreate keeps them, reusing the agent's prior commits.
+				t.base.RemoveSandboxBranches(t.slug, srcs)
 			} else {
 				t.base.RemoveState(t.slug, true)
 			}

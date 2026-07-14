@@ -42,7 +42,7 @@ func TestLoadDocumentMulti(t *testing.T) {
 profiles:
   web:
     backend: podman
-    deps: [shared/ui]
+    srcs: [{src: ., include: ["/shared/ui/"]}]
     env:
       LOG: info
   api:

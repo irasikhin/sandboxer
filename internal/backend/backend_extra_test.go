@@ -167,18 +167,15 @@ func TestRunArgvExact(t *testing.T) {
 	}
 }
 
-// TestRunArgvGitCommonDir pins the hardened git-worktree mount: the shared git
-// dir is bound rw so git can commit, but `config` and `hooks/` — the two paths
-// git executes as host commands — are re-mounted read-only so a compromised
-// agent cannot plant host code (the git-common-dir RCE). safe.directory=* and
-// hook-disabling config are injected, plus the host identity when provided. All
-// of it appears only when GitCommonDir is set, so copy-mode runs (and their
-// ConfigHash) are untouched.
-func TestRunArgvGitCommonDir(t *testing.T) {
+// TestRunArgvSrcMounts: adopted source worktrees are bind-mounted rw at their
+// own host paths, and NO git plumbing ever reaches the argv — no git-dir
+// mount, no GIT_CONFIG_* env (the git-outside model: the sparse worktree
+// contents are the wall, commits happen on the host).
+func TestRunArgvSrcMounts(t *testing.T) {
 	o := RunOpts{
 		Engine: "docker", Image: "img:1", Dest: "/d", Slug: "s", HomeDir: "/h",
-		GitCommonDir: "/repo/.git", GitUserName: "Dev", GitUserEmail: "dev@x",
-		Args: []string{"true"},
+		SrcMounts: []string{"/repos/lib", "/repos/proto"},
+		Args:      []string{"true"},
 	}
 	argv, err := RunArgv(o)
 	if err != nil {
@@ -186,43 +183,17 @@ func TestRunArgvGitCommonDir(t *testing.T) {
 	}
 	s := strings.Join(argv, " ")
 	for _, w := range []string{
-		"--volume /repo/.git:/repo/.git:rw",
-		// the RCE fix: config and hooks are read-only
-		"--volume /repo/.git/config:/repo/.git/config:ro",
-		"--volume /repo/.git/hooks:/repo/.git/hooks:ro",
-		"GIT_CONFIG_COUNT=5",
-		"GIT_CONFIG_KEY_0=safe.directory", "GIT_CONFIG_VALUE_0=*",
-		"GIT_CONFIG_KEY_1=core.hooksPath", "GIT_CONFIG_VALUE_1=/dev/null",
-		"GIT_CONFIG_KEY_2=core.fsmonitor", "GIT_CONFIG_VALUE_2=false",
-		"GIT_CONFIG_KEY_3=user.name", "GIT_CONFIG_VALUE_3=Dev",
-		"GIT_CONFIG_KEY_4=user.email", "GIT_CONFIG_VALUE_4=dev@x",
+		"--volume /repos/lib:/repos/lib:rw",
+		"--volume /repos/proto:/repos/proto:rw",
 	} {
 		if !strings.Contains(s, w) {
-			t.Errorf("git-mode RunArgv missing %q in:\n%s", w, s)
+			t.Errorf("RunArgv missing %q in:\n%s", w, s)
 		}
 	}
-	// config/hooks must NOT be writable anywhere in the argv.
-	for _, bad := range []string{
-		"/repo/.git/config:/repo/.git/config:rw",
-		"/repo/.git/hooks:/repo/.git/hooks:rw",
-	} {
+	for _, bad := range []string{"GIT_CONFIG", ".git"} {
 		if strings.Contains(s, bad) {
-			t.Errorf("git-mode RunArgv exposes %q (RCE):\n%s", bad, s)
+			t.Errorf("RunArgv leaked git plumbing (%q):\n%s", bad, s)
 		}
-	}
-
-	// No host identity → those pairs are omitted (count drops to 3).
-	o.GitUserName, o.GitUserEmail = "", ""
-	argv3, _ := RunArgv(o)
-	if s3 := strings.Join(argv3, " "); !strings.Contains(s3, "GIT_CONFIG_COUNT=3") || strings.Contains(s3, "user.name") {
-		t.Errorf("no-identity RunArgv should carry 3 config pairs and no user.name:\n%s", s3)
-	}
-
-	// copy mode (no GitCommonDir) carries none of it
-	o.GitCommonDir = ""
-	argv2, _ := RunArgv(o)
-	if s2 := strings.Join(argv2, " "); strings.Contains(s2, "GIT_CONFIG") || strings.Contains(s2, "/repo/.git") {
-		t.Errorf("copy-mode RunArgv leaked the git mount:\n%s", s2)
 	}
 }
 

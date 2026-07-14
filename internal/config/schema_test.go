@@ -83,7 +83,7 @@ func TestSchemaShape(t *testing.T) {
 	for _, frag := range []string{
 		`"#/$defs/Profile"`,
 		`"#/$defs/schemaDocument"`,
-		`"deps"`,
+		`"srcs"`,
 		`"allowedDomains"`,
 		`"extraPkgs"`,
 		`"additionalProperties": false`,

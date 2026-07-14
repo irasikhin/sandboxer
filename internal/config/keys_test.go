@@ -15,7 +15,6 @@ func TestProfileKeys(t *testing.T) {
 	want := []Key{
 		{Path: "agents", IsString: false},
 		{Path: "backend", IsString: true},
-		{Path: "deps", IsString: false},
 		{Path: "egress", IsString: false},
 		{Path: "env", IsString: false},
 		{Path: "extraMounts", IsString: false},
@@ -33,6 +32,7 @@ func TestProfileKeys(t *testing.T) {
 		{Path: "network.routes", IsString: false},
 		{Path: "session", IsString: true},
 		{Path: "setup", IsString: true},
+		{Path: "srcs", IsString: false},
 		{Path: "tools", IsString: false},
 	}
 	got := ProfileKeys()
@@ -90,9 +90,9 @@ func TestParseValue(t *testing.T) {
 		{key: str("setup"), raw: "npm ci\nnpm run build", tag: "!!str", kind: yaml.ScalarNode},
 		{key: str("egress"), raw: "false", tag: "!!bool", kind: yaml.ScalarNode},
 		{key: str("limits.pids"), raw: "512", tag: "!!int", kind: yaml.ScalarNode},
-		{key: str("deps"), raw: "[src/lib, docs]", kind: yaml.SequenceNode},
+		{key: str("srcs"), raw: "[{src: ., include: [\"/lib/\"]}]", kind: yaml.SequenceNode},
 		{key: str("extraMounts"), raw: "[{source: /x, target: /y, mode: rw}]", kind: yaml.SequenceNode},
-		{key: str("deps"), raw: "[unclosed", errPart: "invalid value"},
+		{key: str("srcs"), raw: "[unclosed", errPart: "invalid value"},
 		{key: str("egress"), raw: "", errPart: "empty value"},
 	} {
 		n, err := ParseValue(tt.raw, tt.key)

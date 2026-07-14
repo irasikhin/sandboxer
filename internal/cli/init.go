@@ -157,13 +157,19 @@ network:
   #   - domains: [api.anthropic.com]
   #     proxy: http://bypass-ru:8080
 
-# Sandbox content: the sandbox is a git worktree of THIS repo on branch
-# feat/<name>-sb (the whole repo by default). deps narrows the worktree to the
-# listed repo-relative directories via cone sparse-checkout — useful in a large
-# monorepo. Editing deps takes effect on 'sandboxer recreate'.
-# deps:
-#   - src/lib
-# To bring in OTHER trees (outside this repo), use extraMounts below.
+# Sandbox content: srcs lists the repos the sandbox sees — each becomes a git
+# worktree on the host (branch feat/<name>-sb unless branch: names one), and
+# ONLY the selected files are visible inside the container (git itself never
+# is; review/commit on the host). Default: this repo, whole. include uses
+# gitignore-style patterns; srcs edits apply on the next enter/exec — even a
+# running session sees them live.
+# srcs:
+#   - src: .
+#     include: ["/services/api/", "*.md"]
+#   - src: ../shared-lib               # another repo, whole
+#   - src: ../protolib
+#     branch: feat/proto-v2            # adopt an existing branch/worktree
+# To bring in OTHER (non-git) trees, use extraMounts below.
 
 # Extra bind mounts / env for the container backend (optional). To pin the
 # agent's model, set the agent's own env var here (e.g. ANTHROPIC_MODEL for

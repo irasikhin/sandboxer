@@ -9,6 +9,7 @@ import (
 
 	"github.com/irasikhin/sandboxer/internal/backend"
 	"github.com/irasikhin/sandboxer/internal/config"
+	"github.com/irasikhin/sandboxer/internal/sandbox"
 )
 
 func init() { register(newComposeCmd) }
@@ -67,9 +68,7 @@ equivalent — its purpose is "run it with your own tooling".`,
 				Image:           image,
 				Spec:            spec,
 				Dest:            t.base.SandboxDir(t.slug),
-				GitCommonDir:    t.base.GitDir,
-				GitUserName:     t.base.GitUserName,
-				GitUserEmail:    t.base.GitUserEmail,
+				SrcMounts:       sandbox.SrcMounts(t.base.Srcs(t.slug)),
 				Slug:            t.slug,
 				BaseDir:         t.base.Dir,
 				HomeDir:         t.base.HomeDir(t.slug),

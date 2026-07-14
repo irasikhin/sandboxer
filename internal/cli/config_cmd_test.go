@@ -57,11 +57,11 @@ func TestConfigSetGetUnsetFlat(t *testing.T) {
 	}
 
 	// A compound value prints as YAML.
-	if code, _, errs := run("config", "set", "deps", "[src/lib, docs]"); code != 0 {
-		t.Fatalf("set deps = %d, %s", code, errs)
+	if code, _, errs := run("config", "set", "srcs", "[{src: ./src/lib}, {src: ./docs}]"); code != 0 {
+		t.Fatalf("set srcs = %d, %s", code, errs)
 	}
-	if code, out, _ := run("config", "get", "deps"); code != 0 || !strings.Contains(out, "- src/lib") {
-		t.Errorf("get deps = (%d, %q)", code, out)
+	if code, out, _ := run("config", "get", "srcs"); code != 0 || !strings.Contains(out, "src/lib") {
+		t.Errorf("get srcs = (%d, %q)", code, out)
 	}
 
 	if code, out, _ := run("config", "unset", "backend"); code != 0 || !strings.Contains(out, "unset backend") {
@@ -100,7 +100,7 @@ func TestConfigSetRejectsBadInput(t *testing.T) {
 		{[]string{"proxy", "http://x"}, "network.proxy"},               // removed-key hint
 		{[]string{"network.allowedDomains", "[nodot]"}, "missing dot"}, // ValidateDomains gate
 		{[]string{"image.llmAgentsRev", "abc"}, "40-char"},             // ValidateImageSpec gate
-		{[]string{"deps", "[unclosed"}, "invalid value"},               // value parse error
+		{[]string{"srcs", "[unclosed"}, "invalid value"},               // value parse error
 		{[]string{"env.A.B", "x"}, "dot-free"},                         // dotted env name
 		{[]string{"backend.sub", "x"}, "unknown key"},                  // path into a scalar
 	} {

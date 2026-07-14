@@ -34,12 +34,17 @@ $XDG_STATE_HOME/sandboxer/<project-id>/     # runtime state, outside the repo
 
 Key invariants (`internal/sandbox`, `internal/worktree`):
 
-- **`<slug>/` is a git worktree** of the project repo on branch `feat/<slug>-sb`
-  (off HEAD), optionally narrowed by the profile's `deps` to a subset of
-  repo-relative directories via cone `git sparse-checkout` (empty = the whole
-  repo). The agent's work returns as an ordinary branch — no copy-in, no
-  push-back. sandboxer is **git-only**: a non-git project (or one with no commit)
-  is rejected with an init hint.
+- **`<slug>/` holds one git worktree per source** (`srcs` entry): each source
+  repo checked out at `<slug>/<repo>/` on branch `feat/<slug>-sb` (or the
+  entry's `branch:`), narrowed by its gitignore-style `include` patterns via
+  non-cone `git sparse-checkout`. The container mounts `<slug>/` (and any
+  adopted worktrees) — **never git metadata** — so the sparse contents ARE the
+  access boundary; work returns as ordinary branches committed on the host.
+  The resolved list is recorded at `_meta/<slug>.srcs.json`; every enter/exec
+  re-syncs it (a live session sees srcs edits immediately), and a dropped
+  source's worktree is set aside under `_detached/`, never destroyed.
+  sandboxer is **git-only**: a non-git source (or one with no commit) is
+  rejected with an init hint.
 - **`_home/<slug>` lives outside `<slug>/`** deliberately, so the agent's `$HOME`
   is never part of the worktree. It is `0700` because an in-sandbox `claude login`
   stores credentials there; the host's real `~/.claude`/tokens are never mounted.
@@ -49,21 +54,23 @@ Key invariants (`internal/sandbox`, `internal/worktree`):
 ```
   init ──────────►  scaffold sandboxer.yaml (+ sandboxer-image.nix)   [optional]
                     │
-  create <slug> ──► add a git worktree on branch feat/<slug>-sb (sparse to deps);
-                    │   mkdir _home/<slug>; snapshot profile.json; register slug
+  create <slug> ──► per srcs entry: git worktree at <slug>/<repo>/ (sparse to
+                    │   include patterns); mkdir _home/<slug>; snapshot
+                    │   profile.json + srcs.json; register slug
                     ▼
   enter / exec ───► run the agent inside the container:
                     │   • bring up the egress allowlist sidecar (unless disabled)
                     │   • run the one-time `setup:` if its hash changed
                     │   • attach (persistent tmux session) or one-shot
                     ▼
-  review ─────────► the work is a branch: git -C <repo> log feat/<slug>-sb,
-                    │   git diff / merge / cherry-pick
+  review ─────────► per source, ON THE HOST: git -C <repo> log feat/<slug>-sb,
+                    │   commit in the worktree, git diff / merge / cherry-pick
   stop ───────────► park the persistent session container (enter resumes it)
                     │
-  rm ─────────────► git worktree remove + prune, delete _home/<slug>, meta, logs,
-                    │   session container — KEEPS the sandbox branch
-  recreate --full ► also delete the branch, for a clean slate
+  rm ─────────────► git worktree remove + prune (managed sources only), delete
+                    │   _home/<slug>, meta, logs, session container — KEEPS the
+                    │   branches; adopted worktrees are never touched
+  recreate --full ► also delete the AUTO-NAMED branches, for a clean slate
 ```
 
 Notes:

@@ -51,21 +51,6 @@ func git(t *testing.T, dir string, args ...string) string {
 	return out
 }
 
-func TestIdentity(t *testing.T) {
-	repo := gitRepo(t) // gitRepo sets user.name=t, user.email=t@example.com
-
-	name, email := Identity(repo)
-	if name != "t" || email != "t@example.com" {
-		t.Errorf("Identity = %q/%q, want t/t@example.com", name, email)
-	}
-
-	// repo-local overrides win (as a host commit would resolve).
-	git(t, repo, "config", "user.email", "local@x")
-	if _, email := Identity(repo); email != "local@x" {
-		t.Errorf("Identity email = %q, want local@x (local should win)", email)
-	}
-}
-
 func TestDetect(t *testing.T) {
 	repo := gitRepo(t)
 
@@ -136,19 +121,16 @@ func TestEnsureSparse(t *testing.T) {
 	repo := gitRepo(t)
 	dest := filepath.Join(t.TempDir(), "wt")
 
-	// when: a worktree narrowed to serviceA
-	if err := Ensure(repo, dest, Branch("narrow"), []string{"serviceA"}, nil); err != nil {
+	// when: a worktree narrowed by a gitignore-style pattern
+	if err := Ensure(repo, dest, Branch("narrow"), []string{"/serviceA/"}, nil); err != nil {
 		t.Fatalf("Ensure sparse: %v", err)
 	}
 
-	// then: serviceA and root files present, serviceB/docs absent, status clean
+	// then: ONLY the selection is materialized — non-cone keeps no root files
 	if _, err := os.Stat(filepath.Join(dest, "serviceA", "f.txt")); err != nil {
 		t.Errorf("serviceA missing in sparse worktree: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(dest, "CLAUDE.md")); err != nil {
-		t.Errorf("root file missing in sparse worktree: %v", err)
-	}
-	for _, gone := range []string{"serviceB", "docs"} {
+	for _, gone := range []string{"serviceB", "docs", "CLAUDE.md"} {
 		if _, err := os.Stat(filepath.Join(dest, gone)); !os.IsNotExist(err) {
 			t.Errorf("%s present in sparse worktree, want absent (err=%v)", gone, err)
 		}
@@ -156,8 +138,104 @@ func TestEnsureSparse(t *testing.T) {
 	if s := git(t, dest, "status", "--porcelain"); strings.TrimSpace(s) != "" {
 		t.Errorf("sparse worktree not clean:\n%s", s)
 	}
-	if l := strings.Fields(git(t, dest, "sparse-checkout", "list")); len(l) != 1 || l[0] != "serviceA" {
-		t.Errorf("sparse-checkout list = %v, want [serviceA]", l)
+	if l := strings.Fields(git(t, dest, "sparse-checkout", "list")); len(l) != 1 || l[0] != "/serviceA/" {
+		t.Errorf("sparse-checkout list = %v, want [/serviceA/]", l)
+	}
+}
+
+// TestEnsureDoubleStarIsFull: ["**"] is the explicit whole-repo selection — no
+// sparse-checkout is set up at all.
+func TestEnsureDoubleStarIsFull(t *testing.T) {
+	repo := gitRepo(t)
+	dest := filepath.Join(t.TempDir(), "wt")
+	if err := Ensure(repo, dest, Branch("all"), []string{"**"}, nil); err != nil {
+		t.Fatalf("Ensure: %v", err)
+	}
+	for _, p := range []string{"serviceA", "serviceB", "docs", "CLAUDE.md"} {
+		if _, err := os.Stat(filepath.Join(dest, p)); err != nil {
+			t.Errorf("missing %s: %v", p, err)
+		}
+	}
+	if got := sparseList(dest); got != nil {
+		t.Errorf("sparse-checkout active for [**]: %v", got)
+	}
+}
+
+// TestSyncSparse converges an existing worktree in place: narrow → widen →
+// disable, order-sensitively, and reports whether anything changed.
+func TestSyncSparse(t *testing.T) {
+	repo := gitRepo(t)
+	dest := filepath.Join(t.TempDir(), "wt")
+	if err := Ensure(repo, dest, Branch("sync"), []string{"/serviceA/"}, nil); err != nil {
+		t.Fatalf("Ensure: %v", err)
+	}
+
+	// same patterns → no-op
+	if changed, err := SyncSparse(dest, []string{"/serviceA/"}, nil); err != nil || changed {
+		t.Errorf("SyncSparse(same) = (%v, %v), want no-op", changed, err)
+	}
+	// widen to a second dir → serviceB materializes
+	if changed, err := SyncSparse(dest, []string{"/serviceA/", "/serviceB/"}, nil); err != nil || !changed {
+		t.Fatalf("SyncSparse(widen) = (%v, %v)", changed, err)
+	}
+	if _, err := os.Stat(filepath.Join(dest, "serviceB", "f.txt")); err != nil {
+		t.Errorf("widen did not materialize serviceB: %v", err)
+	}
+	// disable → full checkout, root files back
+	if changed, err := SyncSparse(dest, nil, nil); err != nil || !changed {
+		t.Fatalf("SyncSparse(disable) = (%v, %v)", changed, err)
+	}
+	if _, err := os.Stat(filepath.Join(dest, "CLAUDE.md")); err != nil {
+		t.Errorf("disable did not restore the full checkout: %v", err)
+	}
+	if changed, err := SyncSparse(dest, nil, nil); err != nil || changed {
+		t.Errorf("SyncSparse(full,again) = (%v, %v), want no-op", changed, err)
+	}
+}
+
+// TestFindWorktree locates the checkout of a branch — the main checkout or an
+// added worktree — and reports absence for a branch checked out nowhere.
+func TestFindWorktree(t *testing.T) {
+	repo := gitRepo(t)
+	main := strings.TrimSpace(git(t, repo, "rev-parse", "--abbrev-ref", "HEAD"))
+	if p, ok := FindWorktree(repo, main); !ok || p != repo {
+		t.Errorf("FindWorktree(main) = (%q, %v), want the main checkout", p, ok)
+	}
+	dest := filepath.Join(t.TempDir(), "wt")
+	if err := Ensure(repo, dest, Branch("found"), nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	if p, ok := FindWorktree(repo, Branch("found")); !ok || p != dest {
+		t.Errorf("FindWorktree(added) = (%q, %v), want %q", p, ok, dest)
+	}
+	if _, ok := FindWorktree(repo, "no/such-branch"); ok {
+		t.Error("FindWorktree(missing) = ok, want false")
+	}
+	if CurrentBranch(dest) != Branch("found") {
+		t.Errorf("CurrentBranch = %q, want %q", CurrentBranch(dest), Branch("found"))
+	}
+}
+
+// TestMove relocates a worktree with uncommitted work intact (the _detached
+// path for dropped sources).
+func TestMove(t *testing.T) {
+	repo := gitRepo(t)
+	from := filepath.Join(t.TempDir(), "wt")
+	if err := Ensure(repo, from, Branch("mv"), nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(from, "wip.txt"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	to := filepath.Join(t.TempDir(), "moved")
+	if err := Move(repo, from, to); err != nil {
+		t.Fatalf("Move: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(to, "wip.txt")); err != nil {
+		t.Errorf("uncommitted work lost in Move: %v", err)
+	}
+	if !IsWorktree(to) {
+		t.Error("moved dir is no longer a tracked worktree")
 	}
 }
 
@@ -235,7 +313,7 @@ func TestEnsureReportsProgress(t *testing.T) {
 
 	// when: a sparse worktree with a progress writer → scope names the dirs
 	var sparse strings.Builder
-	if err := Ensure(repo, filepath.Join(t.TempDir(), "wt"), Branch("s"), []string{"serviceA"}, &sparse); err != nil {
+	if err := Ensure(repo, filepath.Join(t.TempDir(), "wt"), Branch("s"), []string{"/serviceA/"}, &sparse); err != nil {
 		t.Fatalf("Ensure sparse: %v", err)
 	}
 	if got := sparse.String(); !strings.Contains(got, "serviceA") {

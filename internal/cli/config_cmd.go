@@ -225,10 +225,11 @@ verbatim for string keys. The edited file is strictly re-validated in memory
 first, so a bad key or type never lands on disk.
 
 Keys are dotted paths into the profile — backend, network.proxy,
-network.allowedDomains, limits.memory, image.extraPkgs, env.<NAME>, deps, …
-Lists are set whole. Existing sandboxes pick the change up on their next
-enter/exec (the stored snapshot refreshes); deps changes take effect on
-'sandboxer recreate'.`,
+network.allowedDomains, limits.memory, image.extraPkgs, env.<NAME>, srcs, …
+Lists are set whole (for srcs, 'sandboxer config edit' is usually nicer).
+Existing sandboxes pick the change up on their next enter/exec (the stored
+snapshot refreshes) — srcs changes included: even a running session sees the
+new sources live.`,
 		Example: `  sandboxer config set backend podman
   sandboxer config set network.proxy http://localhost:3128
   sandboxer config set network.allowedDomains '[api.anthropic.com, github.com]'

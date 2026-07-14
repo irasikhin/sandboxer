@@ -35,9 +35,11 @@ func newRmCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "rm [slug]",
 		Short: "Remove a sandbox and its state",
-		Long: `Remove a sandbox: its worktree, private agent home, logs, metadata and the
-persistent session container. The sandbox branch (feat/<slug>-sb) is KEPT — the
-work stays reviewable in your repo; delete it with plain git when done.`,
+		Long: `Remove a sandbox: its managed source worktrees, private agent home, logs,
+metadata and the persistent session container. The source branches
+(feat/<slug>-sb) are KEPT — the work stays reviewable in each repo; delete
+them with plain git when done. Adopted worktrees (srcs branch:) are never
+touched.`,
 		Example: `  # remove the sandbox "feat" (branch feat/feat-sb survives)
   sandboxer rm feat
 

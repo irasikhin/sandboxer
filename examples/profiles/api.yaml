@@ -7,6 +7,7 @@ name: api
 backend: podman
 network:
   allowedDomains: [api.openai.com, registry.npmjs.org, pypi.org]
-# deps narrows the worktree to these repo-relative dirs (cone sparse-checkout).
-deps:
-  - shared/lib
+# srcs narrows the sandbox with gitignore-style include patterns.
+srcs:
+  - src: .
+    include: ["/shared/lib/"]

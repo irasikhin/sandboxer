@@ -1,13 +1,13 @@
-// Package worktree backs a sandbox with a git worktree instead of a copy.
+// Package worktree backs a sandbox source with a host-side git worktree.
 //
-// Rather than copying dependency directories into the sandbox and pushing the
-// changes back over their origins, sandboxer checks the project repository out
-// into a per-sandbox worktree on its own branch (feat/<slug>-sb), optionally
-// narrowed to a subset of directories via cone-mode sparse-checkout. The
-// worktree shares the project's object store, so an agent gets a real git
-// (branch, commit, diff) and its work comes back as an ordinary branch — no
-// byte copy, no manifest push-back. A project that is not a git repository (or
-// has no commit yet) is rejected — there is no copy-mode fallback.
+// Each source repository is checked out into a per-sandbox worktree on its own
+// branch (feat/<slug>-sb by default), optionally narrowed to a subset of files
+// via non-cone sparse-checkout with gitignore-syntax include patterns. The
+// worktree is the containment boundary: only its (sparse) contents are mounted
+// into the container — git metadata never is — so work accumulates in the
+// worktree and returns as an ordinary branch via HOST-side git. A source that
+// is not a git repository (or has no commit yet) is rejected — there is no
+// copy-mode fallback.
 //
 // Everything here is thin orchestration over the git CLI; git is expected on
 // PATH (Detect reports the repo as absent when it is not, so the caller falls
@@ -41,9 +41,9 @@ func Branch(slug string) string { return BranchPrefix + slug + BranchSuffix }
 // commit, returning the repository's top-level working directory and its shared
 // (common) git directory — both absolute. ok is false when dir is not a git
 // repo, git is unavailable, or the repo has no HEAD yet (a fresh `git init`
-// with no commit): in every such case the caller falls back to the copy path,
-// because `git worktree add` needs a commit to branch from. dir may be any
-// subdirectory of the repo — the returned top-level is the repo root.
+// with no commit) — `git worktree add` needs a commit to branch from, so the
+// caller rejects such a source with a hint. dir may be any subdirectory of the
+// repo — the returned top-level is the repo root.
 func Detect(dir string) (toplevel, commonDir string, ok bool) {
 	out, err := run(dir, "rev-parse", "--path-format=absolute", "--show-toplevel", "--git-common-dir")
 	if err != nil {
@@ -54,43 +54,34 @@ func Detect(dir string) (toplevel, commonDir string, ok bool) {
 		return "", "", false
 	}
 	// A repo with no commits cannot be branched from — treat it as non-git so
-	// the caller uses the copy path.
+	// the caller rejects it with an actionable hint.
 	if _, err := run(dir, "rev-parse", "--verify", "-q", "HEAD"); err != nil {
 		return "", "", false
 	}
 	return strings.TrimSpace(lines[0]), strings.TrimSpace(lines[1]), true
 }
 
-// Identity returns the git author identity effective in the repo at dir
-// (repo-local config wins over the user's global, exactly as a host commit
-// would resolve it). Either value is "" when git has none configured; the caller
-// injects what it finds so the agent commits as the developer without writing to
-// the sandbox's read-only repo config. Best-effort: a git error yields "", "".
-func Identity(dir string) (name, email string) {
-	if out, err := run(dir, "config", "--get", "user.name"); err == nil {
-		name = strings.TrimSpace(out)
-	}
-	if out, err := run(dir, "config", "--get", "user.email"); err == nil {
-		email = strings.TrimSpace(out)
-	}
-	return name, email
+// wholeRepo reports whether the include patterns select the whole repository —
+// no patterns, or the single catch-all "**" — so no sparse-checkout is needed.
+func wholeRepo(include []string) bool {
+	return len(include) == 0 || (len(include) == 1 && include[0] == "**")
 }
 
 // Ensure makes dest a git worktree of the repo at repoToplevel, checked out on
 // branch — created off HEAD when new, reused when it already exists (so a
-// recreate keeps the agent's prior commits). When includes is empty the whole
-// repo is checked out; otherwise only those repo-relative directories (plus the
-// root-level files cone mode always keeps) are materialized via sparse-checkout,
-// so `git status` stays clean. dest must not already exist — the caller removes
-// it first (git worktree add refuses a non-empty path).
-func Ensure(repoToplevel, dest, branch string, includes []string, w io.Writer) error {
+// recreate keeps the agent's prior commits). include narrows what is
+// materialized via non-cone sparse-checkout with gitignore-syntax patterns
+// (last match wins, "!…" negates); empty (or ["**"]) checks out the whole
+// repo. dest must not already exist — the caller removes it first (git
+// worktree add refuses a non-empty path).
+func Ensure(repoToplevel, dest, branch string, include []string, w io.Writer) error {
 	branchExists := false
 	if _, err := run(repoToplevel, "rev-parse", "--verify", "-q", "refs/heads/"+branch); err == nil {
 		branchExists = true
 	}
 
 	add := []string{"worktree", "add"}
-	if len(includes) > 0 {
+	if !wholeRepo(include) {
 		add = append(add, "--no-checkout")
 	}
 	if branchExists {
@@ -102,24 +93,138 @@ func Ensure(repoToplevel, dest, branch string, includes []string, w io.Writer) e
 		return fmt.Errorf("git worktree add: %w", err)
 	}
 
-	if len(includes) > 0 {
-		set := append([]string{"sparse-checkout", "set", "--cone", "--"}, includes...)
+	if !wholeRepo(include) {
+		set := append([]string{"sparse-checkout", "set", "--no-cone", "--"}, include...)
 		if _, err := run(dest, set...); err != nil {
 			return fmt.Errorf("git sparse-checkout: %w", err)
 		}
 		// The worktree was added --no-checkout; check HEAD out now, honoring the
-		// sparse cone just configured.
+		// sparse patterns just configured.
 		if _, err := run(dest, "checkout"); err != nil {
 			return fmt.Errorf("git checkout (sparse): %w", err)
 		}
 	}
 
 	if w != nil {
-		scope := "full repo"
-		if len(includes) > 0 {
-			scope = strings.Join(includes, ", ")
+		fmt.Fprintf(w, "worktree %s on %s (%s)\n", branch, filepath.Base(dest), scopeLabel(include))
+	}
+	return nil
+}
+
+// scopeLabel renders the include patterns for progress lines.
+func scopeLabel(include []string) string {
+	if wholeRepo(include) {
+		return "full repo"
+	}
+	return strings.Join(include, ", ")
+}
+
+// SyncSparse converges an existing worktree's sparse-checkout onto the include
+// patterns: narrowing, widening or disabling as needed, in place. It is
+// idempotent and cheap when nothing changed. Pattern ORDER matters (gitignore
+// semantics: last match wins), so the comparison is order-sensitive. Locally
+// modified files in paths that fall out of the selection are left on disk by
+// git — nothing is lost. changed reports whether the working tree was touched.
+func SyncSparse(dest string, include []string, w io.Writer) (changed bool, err error) {
+	current := sparseList(dest)
+	if wholeRepo(include) {
+		if current == nil {
+			return false, nil // already a full checkout
 		}
-		fmt.Fprintf(w, "worktree %s on %s (%s)\n", branch, filepath.Base(dest), scope)
+		if _, err := run(dest, "sparse-checkout", "disable"); err != nil {
+			return false, fmt.Errorf("git sparse-checkout disable: %w", err)
+		}
+	} else {
+		if slicesEqual(current, include) {
+			return false, nil
+		}
+		set := append([]string{"sparse-checkout", "set", "--no-cone", "--"}, include...)
+		if _, err := run(dest, set...); err != nil {
+			return false, fmt.Errorf("git sparse-checkout: %w", err)
+		}
+	}
+	if w != nil {
+		fmt.Fprintf(w, "worktree %s resynced (%s)\n", filepath.Base(dest), scopeLabel(include))
+	}
+	return true, nil
+}
+
+// sparseList returns the worktree's current sparse-checkout patterns, or nil
+// when sparse-checkout is not active (a full checkout). Errors read as "not
+// sparse" — SyncSparse then converges from scratch.
+func sparseList(dest string) []string {
+	if out, err := run(dest, "config", "--worktree", "core.sparseCheckout"); err != nil || strings.TrimSpace(out) != "true" {
+		return nil
+	}
+	out, err := run(dest, "sparse-checkout", "list")
+	if err != nil {
+		return nil
+	}
+	var patterns []string
+	for _, line := range strings.Split(out, "\n") {
+		if l := strings.TrimSpace(line); l != "" {
+			patterns = append(patterns, l)
+		}
+	}
+	return patterns
+}
+
+func slicesEqual(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
+// FindWorktree reports where branch is currently checked out — any worktree of
+// the repo, including its main checkout — so a srcs entry naming an existing
+// branch adopts that checkout instead of failing git's one-worktree-per-branch
+// rule. ok is false when the branch is not checked out anywhere (or git
+// fails).
+func FindWorktree(repoToplevel, branch string) (path string, ok bool) {
+	out, err := run(repoToplevel, "worktree", "list", "--porcelain")
+	if err != nil {
+		return "", false
+	}
+	want := "refs/heads/" + branch
+	cur := ""
+	for _, line := range strings.Split(out, "\n") {
+		switch {
+		case strings.HasPrefix(line, "worktree "):
+			cur = strings.TrimPrefix(line, "worktree ")
+		case strings.TrimSpace(line) == "branch "+want && cur != "":
+			return cur, true
+		}
+	}
+	return "", false
+}
+
+// CurrentBranch returns the branch a worktree is on ("" for a detached HEAD or
+// on error). Used to notice that a managed worktree's configured branch
+// changed, so the old tree can be set aside and a fresh one checked out.
+func CurrentBranch(dest string) string {
+	out, err := run(dest, "rev-parse", "--abbrev-ref", "HEAD")
+	if err != nil {
+		return ""
+	}
+	b := strings.TrimSpace(out)
+	if b == "HEAD" {
+		return ""
+	}
+	return b
+}
+
+// Move relocates a worktree's working directory (git worktree move), keeping
+// its checkout, branch and any uncommitted changes intact. Used to set a
+// dropped source aside under _detached/ instead of destroying its work.
+func Move(repoToplevel, from, to string) error {
+	if _, err := run(repoToplevel, "worktree", "move", from, to); err != nil {
+		return fmt.Errorf("git worktree move: %w", err)
 	}
 	return nil
 }
@@ -157,7 +262,7 @@ func Prune(repoToplevel string) error {
 
 // IsWorktree reports whether dest is a git worktree — it has a .git entry that
 // resolves inside a work tree. Used so a teardown only routes a real worktree
-// through git (a copy-mode sandbox dir is just removed).
+// through git (anything else is just removed).
 func IsWorktree(dest string) bool {
 	if _, err := os.Lstat(filepath.Join(dest, ".git")); err != nil {
 		return false

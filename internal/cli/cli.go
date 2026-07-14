@@ -121,25 +121,27 @@ func register(factory func() *cobra.Command) {
 
 const rootLong = `sandboxer — config-driven isolated sandboxes for coding agents.
 
-A sandbox is a git worktree of your repo on branch feat/<slug>-sb, checked out
-under the per-project state dir (outside the repo). The agent works there with
-real git, and its work comes back as an ordinary branch you review and merge —
-your working tree and current branch are never touched, and nothing is copied.
-An optional profile narrows the worktree to a subset of directories (deps:, via
-sparse-checkout); other trees come in via extraMounts.
+A sandbox exposes SOURCES: git repos checked out into per-sandbox worktrees
+(branch feat/<slug>-sb) under the state dir, outside the repo. The container
+sees ONLY the files the srcs select — git metadata never enters it — so the
+agent edits files while your working tree, branches and git stay untouched;
+you review and commit the result with plain git on the host. srcs entries can
+narrow a repo with gitignore-style include patterns, span several repos, or
+pin an existing branch/worktree; other trees come in via extraMounts.
 
 The agent runs inside a podman/docker container built from the toolbox image
 (the agents baked in — see 'sandboxer agents'); each sandbox has its own
 isolated home, and network, proxy and credentials are wired per-config.
 
 Config: flags + SANDBOXER_* env, with an optional sandboxer.yaml for
-structured fields (deps, extraMounts, env, setup, tools, image). A profile file
+structured fields (srcs, extraMounts, env, setup, tools, image). A profile file
 can hold one profile or several under a profiles: map (pick a section with
 'create <name>').
 
 Tips:
   • 'sandboxer use <slug>' sets an active sandbox so you can omit the slug after.
-  • Review with plain git: git log feat/<slug>-sb — there is no pull/push/diff.
+  • Review and commit with plain git ON THE HOST: git log feat/<slug>-sb
+    (each source repo gets its own worktree and branch).
   • Outbound traffic is restricted to an egress allowlist
     (network.allowedDomains / --allow-domains; disable with SANDBOXER_NO_EGRESS=1).
   • Each create/enter/exec prints the resolved backend/egress/profile it used.`

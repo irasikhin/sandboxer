@@ -32,7 +32,7 @@ profiles:
     backend: podman # web runs podman
   api: &api
     backend: docker
-    deps: [src/api]
+    tools: [node]
   api-prod:
     <<: *api
     session: ephemeral
@@ -148,7 +148,7 @@ func TestEditableSetProfileSection(t *testing.T) {
 // NEW value on the next parse.
 func TestEditableAnchorsSurvive(t *testing.T) {
 	out := editFixture(t, multiFixture, func(ed *EditableConfig) {
-		mustSet(t, ed, []string{"profiles", "api", "deps"}, "[src/api, src/shared]")
+		mustSet(t, ed, []string{"profiles", "api", "tools"}, "[node, python]")
 	})
 	if !strings.Contains(out, "&api") || !strings.Contains(out, "!!merge <<: *api") && !strings.Contains(out, "<<: *api") {
 		t.Fatalf("anchor or merge key lost:\n%s", out)
@@ -161,8 +161,8 @@ func TestEditableAnchorsSurvive(t *testing.T) {
 	if err != nil {
 		t.Fatalf("select api-prod: %v", err)
 	}
-	if len(prod.Deps) != 2 || prod.Deps[1] != "src/shared" {
-		t.Errorf("api-prod did not inherit the edited deps: %v", prod.Deps)
+	if len(prod.Tools) != 2 || prod.Tools[1] != "python" {
+		t.Errorf("api-prod did not inherit the edited tools: %v", prod.Tools)
 	}
 }
 
@@ -185,9 +185,9 @@ func TestEditableAliasRefused(t *testing.T) {
 // TestEditableReplaceKeepsCommentAndAnchor: replacing a value node carries its
 // inline comment and anchor onto the new node.
 func TestEditableReplaceKeepsCommentAndAnchor(t *testing.T) {
-	const in = "deps: &d [src] # keep me\nother: *d\n"
+	const in = "tools: &d [go] # keep me\nother: *d\n"
 	out := editFixture(t, in, func(ed *EditableConfig) {
-		mustSet(t, ed, []string{"deps"}, "[src, docs]")
+		mustSet(t, ed, []string{"tools"}, "[go, rust]")
 	})
 	if !strings.Contains(out, "&d") {
 		t.Errorf("anchor dropped — aliases elsewhere would break:\n%s", out)
@@ -273,8 +273,8 @@ func TestEditableUnset(t *testing.T) {
 	if ok, err := ed.Unset([]string{"profiles", "web", "backend"}); ok || err != nil {
 		t.Errorf("unset absent = (%v, %v), want (false, nil)", ok, err)
 	}
-	// api-prod only inherits deps via <<: *api — its own section has no deps.
-	if ok, err := ed.Unset([]string{"profiles", "api-prod", "deps"}); ok || err != nil {
+	// api-prod only inherits tools via <<: *api — its own section has none.
+	if ok, err := ed.Unset([]string{"profiles", "api-prod", "tools"}); ok || err != nil {
 		t.Errorf("unset merge-inherited = (%v, %v), want (false, nil)", ok, err)
 	}
 	// A missing intermediate section is absent, not an error.

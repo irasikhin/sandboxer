@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"regexp"
 
 	"github.com/spf13/cobra"
@@ -11,7 +12,6 @@ import (
 	"github.com/irasikhin/sandboxer/internal/backend"
 	"github.com/irasikhin/sandboxer/internal/config"
 	"github.com/irasikhin/sandboxer/internal/sandbox"
-	"github.com/irasikhin/sandboxer/internal/worktree"
 )
 
 // announceFreshState prints a one-time notice when this command initialised the
@@ -35,7 +35,7 @@ func newCreateCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "create [slug|profile|file.yaml]",
 		Short: "Create a sandbox (a git worktree on branch feat/<slug>-sb)",
-		Example: `  # named sandbox (the whole repo unless a profile narrows it with deps)
+		Example: `  # named sandbox (the whole repo unless a profile narrows it with srcs)
   sandboxer create feat
 
   # from a profile file — slug comes from the profile's name:
@@ -84,7 +84,9 @@ func newCreateCmd() *cobra.Command {
 			fmt.Fprintf(out, "sandbox %q created: %s\n", t.slug, t.base.SandboxDir(t.slug))
 			fmt.Fprintf(out, "enter:  sandboxer enter %s\n", t.slug)
 			fmt.Fprintf(out, "run:    sandboxer exec %s -- claude\n", t.slug)
-			fmt.Fprintf(out, "review: git -C %s log %s\n", t.base.RepoRoot, worktree.Branch(t.slug))
+			for _, s := range t.base.Srcs(t.slug) {
+				fmt.Fprintf(out, "review: git -C %s log %s\n", s.RepoRoot, s.Branch)
+			}
 			return nil
 		},
 	}
@@ -138,8 +140,16 @@ instead. A sandbox that doesn't exist yet is created first.`,
 				if err := t.base.MakeSandbox(t.slug, cmd.ErrOrStderr()); err != nil {
 					return err
 				}
-			} else if err := t.syncSnapshot(); err != nil {
-				return err
+			} else {
+				if err := t.syncSnapshot(); err != nil {
+					return err
+				}
+				// Converge the sources onto the (possibly edited) profile: new
+				// srcs materialize under <slug>/ — a live session sees them
+				// immediately through its stable mount.
+				if _, err := t.base.SyncSrcs(t.slug, cmd.ErrOrStderr()); err != nil {
+					return err
+				}
 			}
 			rt, rtErr := t.runtime(f)
 			if rtErr != nil {
@@ -184,11 +194,9 @@ instead. A sandbox that doesn't exist yet is created first.`,
 			}
 			o := backend.RunOpts{
 				Engine: engine, Image: image, Spec: spec, Dest: dest, Slug: t.slug,
-				GitCommonDir: t.base.GitDir,
-				GitUserName:  t.base.GitUserName,
-				GitUserEmail: t.base.GitUserEmail,
-				HomeDir:      t.base.HomeDir(t.slug),
-				RT:           rt, Profile: t.profile,
+				SrcMounts: sandbox.SrcMounts(t.base.Srcs(t.slug)),
+				HomeDir:   t.base.HomeDir(t.slug),
+				RT:        rt, Profile: t.profile,
 				ProfileJSONPath: t.base.ProfileJSONPath(t.slug),
 				Mem:             rt.Mem, CPU: rt.CPU, Pids: rt.Pids,
 				Interactive: true, Args: interactiveShellArgs(),
@@ -210,9 +218,10 @@ instead. A sandbox that doesn't exist yet is created first.`,
 			} else {
 				code, runErr = backendRun(o)
 			}
-			br := worktree.Branch(t.slug)
-			fmt.Fprintf(errOut, "sandboxer: work is on branch %s — review with: git -C %s log %s\n",
-				br, t.base.RepoRoot, br)
+			for _, s := range t.base.Srcs(t.slug) {
+				fmt.Fprintf(errOut, "sandboxer: %s: work is in %s — commit/review on the host: git -C %s log %s\n",
+					filepath.Base(s.RepoRoot), s.Path, s.RepoRoot, s.Branch)
+			}
 			fmt.Fprintf(errOut, "sandboxer: done in %s\n", dest)
 			if runErr != nil {
 				return silentErr{runErr}
@@ -261,6 +270,9 @@ func newExecCmd() *cobra.Command {
 			if err := t.syncSnapshot(); err != nil {
 				return err
 			}
+			if _, err := t.base.SyncSrcs(t.slug, cmd.ErrOrStderr()); err != nil {
+				return err
+			}
 			rt, rtErr := t.runtime(f)
 			if rtErr != nil {
 				return rtErr
@@ -289,11 +301,9 @@ func newExecCmd() *cobra.Command {
 			}
 			o := backend.RunOpts{
 				Engine: engine, Image: image, Spec: spec, Dest: dest, Slug: t.slug,
-				GitCommonDir: t.base.GitDir,
-				GitUserName:  t.base.GitUserName,
-				GitUserEmail: t.base.GitUserEmail,
-				HomeDir:      t.base.HomeDir(t.slug),
-				RT:           rt, Profile: t.profile,
+				SrcMounts: sandbox.SrcMounts(t.base.Srcs(t.slug)),
+				HomeDir:   t.base.HomeDir(t.slug),
+				RT:        rt, Profile: t.profile,
 				ProfileJSONPath: t.base.ProfileJSONPath(t.slug),
 				Mem:             rt.Mem, CPU: rt.CPU, Pids: rt.Pids,
 				Interactive: true, Args: rest,
@@ -461,9 +471,7 @@ func runSetup(t *target, rt config.Runtime, engine string, noSetup bool, errOut 
 	code, err := backendRun(backend.RunOpts{
 		Engine: engine, Image: image, Spec: spec,
 		Dest: t.base.SandboxDir(t.slug), Slug: t.slug,
-		GitCommonDir:    t.base.GitDir,
-		GitUserName:     t.base.GitUserName,
-		GitUserEmail:    t.base.GitUserEmail,
+		SrcMounts:       sandbox.SrcMounts(t.base.Srcs(t.slug)),
 		HomeDir:         t.base.HomeDir(t.slug),
 		RT:              rt,
 		Profile:         t.profile,

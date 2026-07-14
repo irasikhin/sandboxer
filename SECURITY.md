@@ -46,10 +46,14 @@ important — where it stops.
 
 ### What the isolation gives you
 
-- **Git-worktree working copy.** A sandbox is a `git worktree` of your repo on
-  branch `feat/<slug>-sb`. The agent commits there; its work returns as an
-  ordinary branch you review (`git log`/`git diff`/`git merge feat/<slug>-sb`)
-  before it touches your main line. There is no copy-back over host files.
+- **Sources are sparse git worktrees; git never enters the container.** Each
+  source repo is checked out host-side into a worktree on branch
+  `feat/<slug>-sb`, narrowed by the profile's include patterns — the container
+  is bind-mounted ONLY those (sparse) contents. No git metadata is mounted, so
+  the agent cannot read repo history, widen the selection, touch refs, or
+  reach hooks/config at all; you review and commit its file edits on the host
+  (`git log`/`git diff`/`git merge feat/<slug>-sb`). There is no copy-back
+  over host files.
 
 - **Isolated `$HOME` — no host credentials.** Each sandbox has its own private
   home (`_home/<slug>` under the XDG state dir, `0700`), mounted as `$HOME`. The
@@ -80,17 +84,15 @@ important — where it stops.
 
 ### Where it stops (know these before you trust it)
 
-- **The shared git object store is writable.** For git to work in-container the
-  repo's common git dir is bind-mounted. PR-hardening masks it read-only and
-  restores rw only to `objects/`, `refs/`, `logs/`, `worktrees/`, and neutralizes
-  `core.hooksPath` / `core.fsmonitor` via `GIT_CONFIG_*` — so an agent can **no
-  longer** get host code execution by writing `.git/hooks/*` or `.git/config`.
-  Residual risk remains: the agent can still **rewrite refs** (e.g. move
-  `refs/heads/main`) in the shared object store, so do not blindly trust your
-  repo's branches after a sandbox run — review the sandbox branch and be wary of
-  unexpected movement elsewhere. And **submodule git dirs under `.git/modules/`
-  are not masked**, so a repo with submodules still has a hooks/config surface
-  there. Prefer not to run untrusted agents against a submodule-heavy repo.
+- **The worktree's `.git` pointer file is writable.** Git metadata is not
+  mounted (the whole hooks/config/object-store attack surface of earlier
+  releases is gone with it), but a managed worktree's root still contains the
+  one-line `.git` *pointer file*, and the mount is rw. Corrupting or deleting
+  it cannot execute anything — the path it names does not exist in the
+  container — but it can confuse the host-side worktree until you run
+  `git worktree repair` (or `sandboxer recreate`). Also remember an **adopted**
+  source (`srcs branch:` naming your existing checkout) is your live tree,
+  mounted rw by explicit request — there is no isolation from it.
 
 - **`setup:` and the image hook run arbitrary code.** A profile's `setup:` is a
   shell script run in the sandbox, and `sandboxer-image.nix` executes nix code
@@ -117,6 +119,6 @@ important — where it stops.
   > `egress: false` + proxy expecting the domain allowlist to also apply.
 
 - **Not a multi-tenant boundary.** Assume an adversarial agent can reach anything
-  the sandbox can reach (the allowed domains, the mounted paths, the shared git
-  object store). sandboxer raises the cost of a bad agent on your own machine; it
-  is not a container-escape-proof jail.
+  the sandbox can reach (the allowed domains, the mounted paths). sandboxer
+  raises the cost of a bad agent on your own machine; it is not a
+  container-escape-proof jail.

@@ -32,7 +32,7 @@ was extracted from:
   the root is assembled from `commandFactories` in `internal/cli/cli.go` (no central command list). The
   `Run(args, stdin, stdout, stderr) int` stdio seam is exactly as `arch-go-cli` describes.
 - **Config = `gopkg.in/yaml.v3`** (kpass uses TOML). Scalars resolve flag → `SANDBOXER_*` env → default;
-  structured fields (deps/extraMounts/env) come from an optional `sandboxer.yaml` profile at the project
+  structured fields (srcs/extraMounts/env) come from an optional `sandboxer.yaml` profile at the project
   root — centralized as `config.ConfigPath()` (= `ConfigFileName`), one profile or several under a
   `profiles:` map. The image hook sits beside it at `sandboxer-image.nix` (`config.ImageNixFileName`);
   both are committed. See `internal/config`.
@@ -57,15 +57,17 @@ was extracted from:
   `$XDG_STATE_HOME/sandboxer/<project-id>` (`<project-id>` = basename + short hash of the abs path) — the
   `_meta`/`_logs`/`_home/<slug>`/`<slug>` dirs, so credentials/scratch can never be committed. `sandboxer clean`
   wipes that state (config stays).
-- **Sandbox backing = git worktree** (`internal/worktree`, `internal/sandbox`): a sandbox `<stateDir>/<slug>/` is
-  a **git worktree** of the project repo on branch `feat/<slug>-sb` (off HEAD) — the agent gets a real git and
-  its work returns as an ordinary branch (no copy, no push-back). Zero-config: empty profile → whole-repo
-  worktree. `deps` narrows it to repo-relative dirs via cone `sparse-checkout` (empty = whole repo). The shared
-  repo git dir (`git rev-parse --git-common-dir`) is bind-mounted at its host path so git resolves in-container;
-  `safe.directory=*` is injected via `GIT_CONFIG_*`. Teardown routes through `git worktree remove`/`prune` and
-  KEEPS the branch (delete only via `recreate --full`). **git-only:** a non-git project (or one with no commit)
-  is rejected by `MakeSandbox` with an init hint — there is no copy-mode fallback (removed with `internal/srcs`);
-  other trees come in via `extraMounts`.
+- **Sandbox backing = srcs** (`internal/worktree`, `internal/sandbox/srcs.go`): a sandbox exposes SOURCES —
+  `srcs: [{src, include, branch}]` — each a git worktree at `<stateDir>/<slug>/<repo>/` on branch
+  `feat/<slug>-sb` (or the entry's `branch:`, which ADOPTS an existing worktree of that branch, incl. the main
+  checkout), narrowed by gitignore-style `include` patterns via **non-cone** `sparse-checkout`. Zero-config:
+  empty profile → `[{src: .}]`. **Git never enters the container**: no git-dir mounts, no `GIT_CONFIG_*` — the
+  container gets one stable rw mount of `<slug>/` (plus adopted paths), so the sparse worktree contents ARE the
+  wall and srcs edits are picked up by every enter/exec (a LIVE session sees them immediately); commits happen
+  on the host. Resolved sources are recorded at `_meta/<slug>.srcs.json`; dropped sources move to `_detached/`
+  (data-safe). Teardown removes managed worktrees only and KEEPS branches (`recreate --full` deletes just the
+  auto-named ones). **git-only:** a non-git source is rejected with an init hint; non-git trees come in via
+  `extraMounts`.
 - **Egress** (`internal/egress`): outbound traffic is restricted to an allowlist
   (`network.allowedDomains` / `--allow-domains`) through a **squid** sidecar (the `sandboxer-proxy` image, built
   beside the toolbox image; `config.ProxyImage()`) running a generated `squid.conf` — the binary is never in the

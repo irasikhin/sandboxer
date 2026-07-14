@@ -184,16 +184,16 @@ func TestConfigLine(t *testing.T) {
 	// Defaults, no profile: egress on with a domain count, profile=none.
 	rt := config.Runtime{Backend: "docker", Egress: true, Domains: []string{"a.com", "b.com"}}
 	line := configLine(rt, "feat", nil, "docker")
-	for _, want := range []string{"feat —", "backend=docker", "egress=on (2 domains)", "profile=none", "deps=0"} {
+	for _, want := range []string{"feat —", "backend=docker", "egress=on (2 domains)", "profile=none", "srcs=1"} {
 		if !strings.Contains(line, want) {
 			t.Errorf("configLine missing %q in %q", want, line)
 		}
 	}
 
-	// With a named profile and deps; egress off when not enabled.
-	prof := &config.Profile{Name: "web", Deps: []string{"x", "y"}}
+	// With a named profile and srcs; egress off when not enabled.
+	prof := &config.Profile{Name: "web", Srcs: []config.Src{{Src: "x"}, {Src: "y"}}}
 	line2 := configLine(config.Runtime{Backend: "podman"}, "web", prof, "podman")
-	for _, want := range []string{"profile=web", "deps=2", "egress=off"} {
+	for _, want := range []string{"profile=web", "srcs=2", "egress=off"} {
 		if !strings.Contains(line2, want) {
 			t.Errorf("configLine (profile) missing %q in %q", want, line2)
 		}

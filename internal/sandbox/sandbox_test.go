@@ -301,15 +301,12 @@ func TestParseEnvFile(t *testing.T) {
 }
 
 // TestMakeSandboxRejectsNonGit: sandboxer is git-only — MakeSandbox on a project
-// that is not a git repo (RepoRoot=="") errors with the init guidance rather than
-// falling back to a copy-mode workspace.
+// that is not a git repo errors with the init guidance rather than falling
+// back to a copy-mode workspace.
 func TestMakeSandboxRejectsNonGit(t *testing.T) {
 	b, err := ResolveBase(t.TempDir()) // a bare temp dir is not a git repo
 	if err != nil {
 		t.Fatal(err)
-	}
-	if b.RepoRoot != "" {
-		t.Skip("temp dir unexpectedly inside a git repo")
 	}
 	err = b.MakeSandbox("feat", io.Discard)
 	if err == nil || !strings.Contains(err.Error(), "git repo") {

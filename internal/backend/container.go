@@ -7,7 +7,6 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -68,13 +67,16 @@ func containerRoutes(routes []config.Route) []config.Route {
 
 // RunOpts configures a single container invocation.
 type RunOpts struct {
-	Engine          string
-	Image           string
-	Spec            toolbox.Spec // image variant customization; drives the auto-build of a missing variant
-	Dest            string       // sandbox working tree (git worktree or copy dir), mounted and used as workdir
-	GitCommonDir    string       // shared git dir bind-mounted so git works in-container; "" when unset
-	GitUserName     string       // host-resolved git identity, injected so the agent can commit
-	GitUserEmail    string       // without writing to (now read-only) repo config
+	Engine string
+	Image  string
+	Spec   toolbox.Spec // image variant customization; drives the auto-build of a missing variant
+	Dest   string       // sandbox root (<stateDir>/<slug>), mounted rw and used as workdir
+	// SrcMounts are ADOPTED source worktrees living outside Dest, each bind-
+	// mounted rw at its own host path. Managed source worktrees need no entry —
+	// they live under Dest, whose single stable mount is a live window (a srcs
+	// edit shows up in a running session without recreating it). Sorted by the
+	// caller: the order is part of the ConfigHash contract.
+	SrcMounts       []string
 	Slug            string
 	BaseDir         string // host state dir (config.StateDir); names/labels the persistent session (zero value fine for one-shot runs)
 	HomeDir         string // sandbox-private agent home, mounted as $HOME (isolated per sandbox)
@@ -189,36 +191,14 @@ func commonArgs(o RunOpts, egNet, egProxyURL string) []string {
 		args = append(args, "--env", "HOME="+o.HomeDir,
 			"--volume", o.HomeDir+":"+o.HomeDir+":rw")
 	}
-	// In git-worktree mode the shared (common) git dir is bind-mounted at its own
-	// host path so the worktree's gitdir pointer and object store resolve inside
-	// the container — the agent gets a real git (branch, commit, diff). The mount
-	// is writable (git must update objects/refs/logs/worktrees to commit), but the
-	// two paths git executes as commands on the HOST — `config` (core.hooksPath,
-	// core.fsmonitor, filter.*.clean/smudge, core.pager, gpg.program, …) and
-	// `hooks/` — are re-mounted read-only, so a compromised agent cannot plant
-	// host code that runs on the developer's next git command. safe.directory=*
-	// clears git's dubious-ownership guard (the repo is host-owned, the container
-	// is a mapped user); hooks are additionally disabled in-container as
-	// defense-in-depth; and the host's git identity is injected so the agent can
-	// commit without writing to the now-read-only config. See SECURITY.md.
-	// An empty GitCommonDir leaves the argv (and ConfigHash) untouched.
-	if o.GitCommonDir != "" {
-		cd := o.GitCommonDir
-		args = append(args, "--volume", cd+":"+cd+":rw",
-			"--volume", roMount(cd, "config"),
-			"--volume", roMount(cd, "hooks"))
-		gc := []string{
-			"safe.directory", "*",
-			"core.hooksPath", "/dev/null",
-			"core.fsmonitor", "false",
-		}
-		if o.GitUserName != "" {
-			gc = append(gc, "user.name", o.GitUserName)
-		}
-		if o.GitUserEmail != "" {
-			gc = append(gc, "user.email", o.GitUserEmail)
-		}
-		args = append(args, gitConfigEnv(gc)...)
+	// Adopted source worktrees live outside Dest, so each needs its own mount.
+	// GIT METADATA IS NEVER MOUNTED: a worktree's .git file points at a host
+	// path that does not exist in the container, so git inside fails cleanly —
+	// the (sparse) worktree contents ARE the access boundary, commits happen on
+	// the host, and the whole git-RCE surface (hooks, config, filters) is gone
+	// with the mount. See SECURITY.md.
+	for _, m := range o.SrcMounts {
+		args = append(args, "--volume", m+":"+m+":rw")
 	}
 	if o.Engine == "podman" {
 		args = append(args, "--userns=keep-id")
@@ -291,31 +271,6 @@ func containerUserArgs() []string {
 		return []string{"--user", v}
 	}
 	return []string{"--user", strconv.Itoa(os.Getuid()) + ":" + strconv.Itoa(os.Getgid())}
-}
-
-// roMount builds the `--volume` value that re-mounts sub (a child of the shared
-// git dir dir) read-only on top of the writable git-dir mount, so the agent
-// cannot write it. sub always exists in a git dir (config, hooks/), so the
-// engine binds the real path rather than auto-creating a root-owned placeholder.
-func roMount(dir, sub string) string {
-	p := filepath.Join(dir, sub)
-	return p + ":" + p + ":ro"
-}
-
-// gitConfigEnv renders key/value pairs as the GIT_CONFIG_COUNT / GIT_CONFIG_KEY_i
-// / GIT_CONFIG_VALUE_i --env flags git reads as ephemeral config (highest
-// precedence below `git -c`), so values are injected without touching any config
-// file. pairs must have even length (k0, v0, k1, v1, …).
-func gitConfigEnv(pairs []string) []string {
-	n := len(pairs) / 2
-	out := []string{"--env", "GIT_CONFIG_COUNT=" + strconv.Itoa(n)}
-	for i := 0; i < n; i++ {
-		idx := strconv.Itoa(i)
-		out = append(out,
-			"--env", "GIT_CONFIG_KEY_"+idx+"="+pairs[2*i],
-			"--env", "GIT_CONFIG_VALUE_"+idx+"="+pairs[2*i+1])
-	}
-	return out
 }
 
 // Test seams: overridable so ensureImage can be unit-tested without a real

@@ -265,9 +265,11 @@ func TestLoadAndJSONRoundTrip(t *testing.T) {
 backend: podman
 network:
   allowedDomains: [api.anthropic.com, registry.npmjs.org]
-deps:
-  - shared-lib
-  - src/lib/util.go
+srcs:
+  - src: .
+    include: ["/src/lib/"]
+  - src: ../shared-lib
+    branch: feat/x
 `
 	if err := os.WriteFile(path, []byte(yaml), 0o644); err != nil {
 		t.Fatal(err)
@@ -282,15 +284,20 @@ deps:
 	if len(p.Network.AllowedDomains) != 2 {
 		t.Errorf("domains: %v", p.Network.AllowedDomains)
 	}
-	if len(p.Deps) != 2 || p.Deps[1] != "src/lib/util.go" {
-		t.Errorf("deps: %v", p.Deps)
+	if len(p.Srcs) != 2 || p.Srcs[1].Branch != "feat/x" || p.Srcs[0].Include[0] != "/src/lib/" {
+		t.Errorf("srcs: %+v", p.Srcs)
+	}
+	// Relative src paths are resolved against the file's directory (like
+	// image.nix), so the stored snapshot stays self-contained.
+	if p.Srcs[0].Src != dir || filepath.IsAbs(p.Srcs[1].Src) == false {
+		t.Errorf("srcs not resolved absolute: %+v", p.Srcs)
 	}
 	// JSON serialization uses camelCase keys the container and sandbox read.
 	b, err := p.JSON()
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{`"deps"`, `"allowedDomains"`} {
+	for _, want := range []string{`"srcs"`, `"allowedDomains"`} {
 		if !strings.Contains(string(b), want) {
 			t.Errorf("JSON missing %s:\n%s", want, b)
 		}
@@ -299,7 +306,7 @@ deps:
 
 func TestExampleProfilesParse(t *testing.T) {
 	// The shipped examples must stay valid under the strict (KnownFields) schema.
-	for _, name := range []string{"config.yaml", "with-deps.yaml", "profiles/web.yaml", "profiles/api.yaml", "profiles/custom-image.yaml"} {
+	for _, name := range []string{"config.yaml", "with-srcs.yaml", "profiles/web.yaml", "profiles/api.yaml", "profiles/custom-image.yaml"} {
 		path := filepath.Join("..", "..", "examples", name)
 		if _, err := os.Stat(path); err != nil {
 			t.Skipf("example %s not present", name)

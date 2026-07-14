@@ -110,10 +110,10 @@ orchestrator, no daemon of its own, nothing in the cloud.
 persistent session is a container on the local engine; it does not follow you to
 another machine and does not survive a host/engine restart.
 
-**How much disk does a sandbox use?** The `<slug>/` working dir is a git
-worktree — a checkout of your repo (narrowed to the `deps` directories when the
-profile sets them) whose object store is shared with your repo, not duplicated —
-plus a small private `_home/<slug>`. The big cost is shared, not per-sandbox: the
+**How much disk does a sandbox use?** The `<slug>/` dir holds a git worktree
+per source — checkouts (narrowed by the `srcs` include patterns) whose object
+stores are shared with their repos, not duplicated — plus a small private
+`_home/<slug>`. The big cost is shared, not per-sandbox: the
 `sandboxer-toolbox:latest` image (and any `var-*` variant) is pulled/built once
 and reused by every sandbox.
 
@@ -121,5 +121,6 @@ and reused by every sandbox.
 one-off command in it; `sandboxer enter <slug>` drops you into an interactive
 shell. From there you have the same view the agent does — check the state dir's
 `_logs/` for captured output. To review the agent's pending work use ordinary
-git: it lives on branch `feat/<slug>-sb` (`git log feat/<slug>-sb`,
-`git diff main...feat/<slug>-sb`).
+git ON THE HOST (the container has no git access): uncommitted edits sit in the
+source worktrees under `<slug>/`, committed work on `feat/<slug>-sb`
+(`git log feat/<slug>-sb`, `git diff main...feat/<slug>-sb`).

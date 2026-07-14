@@ -26,6 +26,26 @@ type Mount struct {
 	Mode   string `yaml:"mode,omitempty" json:"mode,omitempty"`
 }
 
+// Src is one sandbox source: a git repository, optionally narrowed to a subset
+// of its files and pinned to a branch. A sandbox may list several sources —
+// each becomes its own host-side git worktree; only the selected files are
+// visible inside the container (git itself never is).
+type Src struct {
+	// Src is the path to the repository's top-level directory ("." = the
+	// project itself). Relative paths resolve against the config file's
+	// directory (like image.nix).
+	Src string `yaml:"src" json:"src"`
+	// Include are gitignore-syntax patterns (non-cone sparse-checkout:
+	// "/services/api/", "*.md", "!…") selecting what the sandbox sees. Empty
+	// or ["**"] means the whole repo.
+	Include []string `yaml:"include,omitempty" json:"include,omitempty"`
+	// Branch checks the source out on a named branch instead of the managed
+	// feat/<slug>-sb one. An existing worktree of that branch (including the
+	// repo's main checkout) is adopted as-is; a missing branch is created off
+	// HEAD.
+	Branch string `yaml:"branch,omitempty" json:"branch,omitempty"`
+}
+
 // Network holds the egress allowlist and the sandbox's proxy settings.
 type Network struct {
 	AllowedDomains []string `yaml:"allowedDomains,omitempty" json:"allowedDomains,omitempty"`
@@ -143,11 +163,28 @@ func (p *Profile) resolveImageNix(dir string) {
 	p.Image.Nix = nix
 }
 
+// resolveSrcs makes each relative srcs path absolute against dir (the profile
+// file's directory), for the same reason as resolveImageNix: the stored
+// _meta/<slug>.profile.json snapshot must stay self-contained when read from
+// another working directory.
+func (p *Profile) resolveSrcs(dir string) {
+	for i, s := range p.Srcs {
+		if s.Src == "" || filepath.IsAbs(s.Src) {
+			continue
+		}
+		joined := filepath.Join(dir, s.Src)
+		if abs, err := filepath.Abs(joined); err == nil {
+			joined = abs
+		}
+		p.Srcs[i].Src = joined
+	}
+}
+
 // Profile is a sandbox configuration. All fields are optional; an empty profile
 // is valid (everything then comes from flags/env/defaults) — that yields a
-// full-repo worktree with zero config. A sandbox is always a git worktree of the
-// project on branch feat/<slug>-sb; deps then narrow it to a subset of
-// repo-relative directories via sparse-checkout (empty = the whole repo).
+// whole-repo sandbox with zero config. Each srcs entry is backed by a host-side
+// git worktree; git metadata never enters the container, so the container sees
+// exactly the files the include patterns select and nothing else.
 type Profile struct {
 	Name    string  `yaml:"name,omitempty"        json:"name,omitempty"`
 	Backend string  `yaml:"backend,omitempty"     json:"backend,omitempty"`
@@ -157,9 +194,10 @@ type Profile struct {
 	// agent in the registry.
 	Agents []string `yaml:"agents,omitempty"      json:"agents,omitempty"`
 	Egress *bool    `yaml:"egress,omitempty"      json:"egress,omitempty"`
-	// Deps are the repo-relative directories the worktree is narrowed to via cone
-	// sparse-checkout (empty = the whole repo).
-	Deps        []string          `yaml:"deps,omitempty"        json:"deps,omitempty"`
+	// Srcs are the sandbox's sources — repositories (whole, or narrowed by
+	// gitignore-style include patterns) exposed inside the container. Empty
+	// means the project repo, whole: [{src: "."}].
+	Srcs        []Src             `yaml:"srcs,omitempty"        json:"srcs,omitempty"`
 	ExtraMounts []Mount           `yaml:"extraMounts,omitempty" json:"extraMounts,omitempty"`
 	Env         map[string]string `yaml:"env,omitempty"         json:"env,omitempty"`
 	// Setup is a one-time shell script run inside the sandbox (bash -lc) before
@@ -196,6 +234,7 @@ func Load(file string) (*Profile, error) {
 		return nil, err
 	}
 	p.resolveImageNix(filepath.Dir(file))
+	p.resolveSrcs(filepath.Dir(file))
 	return p, nil
 }
 
@@ -223,6 +262,7 @@ var removedKeys = map[string]string{
 	"agentProxy": "removed — route by destination instead: network.routes",
 	"roots":      "removed — sandboxes are git worktrees now (no copy mode); mount other trees with extraMounts",
 	"context":    "removed — a git-worktree sandbox already contains the repo's files (nothing is copied in)",
+	"deps":       "replaced by srcs — e.g. srcs: [{src: ., include: [\"/some/dir/\"]}] (src = path to a repo; include = gitignore-style patterns; empty include = the whole repo)",
 	"defaults":   "removed — profiles are self-contained; put the values in each profiles: section (share between sections with plain YAML anchors: `web: &base` / `<<: *base`)",
 }
 

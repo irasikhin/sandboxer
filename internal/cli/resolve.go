@@ -275,17 +275,19 @@ func configLine(rt config.Runtime, slug string, prof *config.Profile, backendSho
 	case rt.Proxy != "":
 		egress = "off → proxy (direct)"
 	}
-	profile, deps := "none (defaults)", 0
+	profile, srcs := "none (defaults)", 1 // no srcs listed = the project repo
 	if prof != nil {
 		if prof.Name != "" {
 			profile = prof.Name
 		} else {
 			profile = "(unnamed)"
 		}
-		deps = len(prof.Deps)
+		if len(prof.Srcs) > 0 {
+			srcs = len(prof.Srcs)
+		}
 	}
-	return fmt.Sprintf("sandboxer: %s — backend=%s egress=%s profile=%s deps=%d",
-		slug, backendShown, egress, profile, deps)
+	return fmt.Sprintf("sandboxer: %s — backend=%s egress=%s profile=%s srcs=%d",
+		slug, backendShown, egress, profile, srcs)
 }
 
 // syncSnapshot refreshes the sandbox's stored profile.json from the freshly

@@ -16,30 +16,35 @@ drives.
 > or support guarantees. Use at your own risk.
 
 > ⚠️ **Pre-1.0.** CLI flags, the `sandboxer.yaml` schema and the on-disk layout may change
-> between minor versions until 1.0. Sandboxes are **git worktrees** by default;
-> `deps` narrows which directories are checked out (see below). Any future change
-> will be called out in the changelog.
+> between minor versions until 1.0. Sandboxes expose **sources** — git repos
+> checked out into host-side worktrees, narrowed by `srcs` include patterns
+> (see below). Any future change will be called out in the changelog.
 
 ## How it works
 
-A **sandbox** is a **git worktree** of your repo on its own branch
-`feat/<slug>-sb`, checked out under the state dir. Run sandboxer inside a repo and
-it just works — **zero config**: the whole repo is checked out, the agent runs
-there with a real git (branch, commit, diff), and its work comes back as an
-ordinary branch you review and merge. Your working tree and current branch are
-never touched, and nothing is copied.
+A **sandbox** exposes **sources**: git repos checked out into per-sandbox
+worktrees (branch `feat/<slug>-sb`) under the state dir. Run sandboxer inside a
+repo and it just works — **zero config**: the whole repo is the one source. The
+container sees **only the files the sources select — git itself never enters
+it**: no `.git` mounts, no history, no hooks. The agent edits files; the edits
+land live in the host-side worktree, where you review and commit them with
+plain git. Your working tree and current branch are never touched, and nothing
+is copied.
 
-- **Sandbox** — a git worktree on branch `feat/<slug>-sb`, off the current HEAD.
-  The agent commits there; there is no copy and no push-back.
+- **Sandbox** — a set of sources materialized as git worktrees under one dir.
 - **slug** — a short sandbox name (`feat`, `bugfix-auth`, …), set at `create`.
-- **deps (optional)** — repo-relative directories to **narrow** the sandbox to,
-  via cone-mode `git sparse-checkout`. Omit them to get the whole repo.
-- **review** — the work is on `feat/<slug>-sb` in your repo: `git log
-  feat/<slug>-sb`, `git diff …feat/<slug>-sb`, then merge or cherry-pick.
+- **srcs (optional)** — the sources: each entry is `src:` (path to a repo root,
+  also other repos), an optional `include:` (gitignore-style patterns — only
+  matching files exist in the sandbox) and an optional `branch:` (adopt an
+  existing branch/worktree). Omit srcs to get `[{src: .}]` — this repo, whole.
+  Editing srcs applies on the next `enter`/`exec` — a running session sees the
+  change live, no recreate.
+- **review** — on the HOST, per source repo: `git -C <repo> log feat/<slug>-sb`,
+  `git add`/`commit` in the worktree, then merge or cherry-pick.
 
-sandboxer is **git-only**: the project must be a git repo with at least one
-commit (`git init && git add -A && git commit -m init`). Other trees a sandbox
-needs come in via `extraMounts`.
+sandboxer is **git-only**: every `src` must be a git repo with at least one
+commit (`git init && git add -A && git commit -m init`). Non-git trees come in
+via `extraMounts`.
 
 Isolation backend — a **docker / podman** container built from a toolbox image
 with the agents baked in (claude, opencode, crush, aider, pi, gemini). Any of
@@ -69,16 +74,16 @@ Or grab a [pre-built binary](https://github.com/irasikhin/sandboxer/releases)
 
 ```bash
 sandboxer config init                     # scaffold a commented sandboxer.yaml + sandboxer-image.nix to edit (optional)
-sandboxer create feat                     # create a sandbox named "feat" (a worktree on branch feat/feat-sb)
+sandboxer create feat                     # create a sandbox named "feat" (worktree on branch feat/feat-sb)
 sandboxer enter  feat                     # attach a shell (persistent session; Ctrl-q detaches)
 sandboxer exec   feat -- claude           # run an agent/command inside it
-git log feat/feat-sb                      # the agent's work is an ordinary branch
+git log feat/feat-sb                      # the work is an ordinary branch (commit it on the host)
 sandboxer stop   feat                     # park the session container (enter resumes it)
 sandboxer list                            # status of all sandboxes (alias: sandboxer status)
 sandboxer rm     feat                     # delete the sandbox and its session (keeps the branch)
 ```
 
-A profile is optional (empty = the whole repo). To narrow the worktree or add
+A profile is optional (empty = the whole repo). To narrow the sandbox or add
 setup/tools/env, drop a `sandboxer.yaml` in the cwd (auto-discovered),
 pass one with `-f` (a file, a directory of profiles, or a
 [named profile](#named-profiles) from `~/.config/sandboxer/profiles/`), or refer
@@ -104,11 +109,14 @@ state for the project; the config stays.
 
 ## How changes flow
 
-Changes flow through git: the sandbox is a **git worktree** on branch
-`feat/<slug>-sb`, and the agent commits into your repo's shared object store, so
-its work is a branch you review and merge (`git log`/`git diff`/`git merge
-feat/<slug>-sb`). There is no copy-in and no push-back. Teardown (`rm`,
-`recreate`) keeps the branch; `recreate --full` deletes it for a fresh start.
+Changes flow through git — on the host. Each source is a **git worktree** on
+branch `feat/<slug>-sb`; the container's edits appear there live (bind mount),
+and **you** commit/review them with plain git (`git -C <worktree> add/commit`,
+`git log`/`git diff`/`git merge feat/<slug>-sb`). The container itself has no
+git access at all: no object store, no hooks, no history. There is no copy-in
+and no push-back. Teardown (`rm`, `recreate`) keeps the branches;
+`recreate --full` deletes the auto-named ones for a fresh start (never a
+branch you set via `srcs branch:`).
 
 ## Persistent sessions
 
@@ -149,12 +157,12 @@ The sandbox container's resource caps come from the profile's `limits:` block
 defaults; `pids` (a `--pids-limit`, bounding fork-bomb blast radius) is
 profile-only. Empty means uncapped.
 
-Structured fields (`deps`, `extraMounts`, `env`, `setup`, `tools`, `image`, `limits`) live in an **optional**
+Structured fields (`srcs`, `extraMounts`, `env`, `setup`, `tools`, `image`, `limits`) live in an **optional**
 `sandboxer.yaml`. Point at it with `-f`/`--config`, which accepts a **file**, a
 **directory** of profiles, or the **name** of a profile in the store (see
 [Named profiles](#named-profiles)); with nothing given, a `sandboxer.yaml` in
 the cwd is auto-discovered. See `examples/config.yaml`,
-`examples/with-deps.yaml` and `examples/profiles/`.
+`examples/with-srcs.yaml` and `examples/profiles/`.
 
 > `sandboxer.yaml` and `sandboxer-image.nix` are meant to be **committed**
 > with your repo — don't gitignore them (`sandboxer doctor` warns when a
@@ -165,19 +173,21 @@ name: feature-x
 backend: docker
 network:
   allowedDomains: [api.anthropic.com, registry.npmjs.org, github.com]
-deps:                    # narrow the worktree to these repo-relative dirs
-  - src/lib
-  - shared/proto
+srcs:                    # the sources the sandbox sees (this repo, narrowed)
+  - src: .
+    include: ["/src/lib/", "/shared/proto/"]
 setup: |                 # one-time prep, run once inside the sandbox
   npm ci
 tools: [node, go]        # runtime tool packs baked into a per-profile image
 ```
 
-`deps` narrows the worktree to the listed **repo-relative directories** via cone
-`git sparse-checkout` (omit it to check out the whole repo) — useful in a large
-monorepo to give the agent just the tree it needs. Editing `deps` takes effect
-on `sandboxer recreate`. To bring in trees **outside** the repo, use
-`extraMounts` (a sandbox is only its own repo's worktree).
+Each `srcs` entry is a repo (`src:` — `.` or a path to another repo's root)
+narrowed by `include:` **gitignore-style patterns** (`/dir/`, `*.md`, `!…`;
+non-cone `git sparse-checkout` under the hood — omit for the whole repo), and
+optionally pinned with `branch:` — naming a branch whose worktree already
+exists (even your main checkout) **adopts** it instead of creating one. Editing
+`srcs` applies on the next `enter`/`exec` and is visible to a **running**
+session immediately. To bring in **non-git** trees, use `extraMounts`.
 
 `setup` is a one-time shell script (`bash -lc`) run inside the sandbox before
 you take over — e.g. `npm ci`, a build, a DB seed. It runs on the first
@@ -199,7 +209,7 @@ plugins) or write `~/.config/sandboxer/rc` (per-sandbox `$HOME`).
 variant, built on demand and content-addressed (see
 [Custom toolbox image](#custom-toolbox-image-image)).
 
-MCP servers need no sandboxer wiring: the sandbox is a worktree of your repo,
+MCP servers need no sandboxer wiring: the sandbox contains your repo's files,
 so agent-level MCP config committed there (e.g. a `.mcp.json`) works as-is —
 just add the servers' domains to `network.allowedDomains`.
 
@@ -221,8 +231,8 @@ sandboxer config unset network.proxy                   # remove a key
 Without `-p` the target section is the **active sandbox** (`sandboxer use`)
 when it names one, then the file's `default:`, then its sole profile. `set` is
 strictly validated in memory before writing — a bad key or type never lands on
-disk. Existing sandboxes pick changes up on their next `enter`/`exec`; `deps`
-changes take effect on `sandboxer recreate`.
+disk. Existing sandboxes pick changes up on their next `enter`/`exec` —
+`srcs` included: even a running session sees new sources live.
 
 ### Custom toolbox image (`image:`)
 
@@ -291,7 +301,7 @@ profiles:
     backend: docker
     network:
       allowedDomains: [api.anthropic.com, github.com]
-    deps: [shared/proto]
+    srcs: [{src: ., include: ["/shared/proto/"]}]
   api-prod:                # sandboxer create api-prod
     <<: *api               # inherit api via the anchor, then override
     env: { NODE_ENV: production }

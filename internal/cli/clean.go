@@ -8,6 +8,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/irasikhin/sandboxer/internal/config"
+	"github.com/irasikhin/sandboxer/internal/sandbox"
 	"github.com/irasikhin/sandboxer/internal/worktree"
 )
 
@@ -47,6 +48,21 @@ to remove a single sandbox instead.`,
 			// every installed engine, since per-profile backends may have created
 			// sessions on either; best-effort — the state dir must go even with
 			// no engine installed.
+			// Collect every source repo the sandboxes span BEFORE the wipe, so
+			// their then-dangling worktree admin entries can be pruned after it.
+			repos := map[string]bool{}
+			if b, oerr := sandbox.OpenBase(abs); oerr == nil && b != nil {
+				for _, slug := range b.Agents() {
+					for _, s := range b.Srcs(slug) {
+						if s.Managed {
+							repos[s.RepoRoot] = true
+						}
+					}
+				}
+			}
+			if top, _, ok := worktree.Detect(abs); ok {
+				repos[top] = true // pre-srcs-model sandboxes lived on the project repo
+			}
 			engines := backendInstalledEngines(config.LoadDefaults())
 			if len(engines) == 0 {
 				fmt.Fprintln(cmd.ErrOrStderr(),
@@ -60,11 +76,11 @@ to remove a single sandbox instead.`,
 			if err := os.RemoveAll(dir); err != nil {
 				return err
 			}
-			// The wiped sandbox dirs were git worktrees in git mode; prune their
-			// now-dangling admin entries from the repo. Branches are kept — they
-			// live in the user's repo, not the state dir; delete any by hand.
-			if top, _, ok := worktree.Detect(abs); ok {
-				_ = worktree.Prune(top)
+			// The wiped sandbox dirs held git worktrees; prune their now-dangling
+			// admin entries from every source repo. Branches are kept — they live
+			// in the repos, not the state dir; delete any by hand.
+			for r := range repos {
+				_ = worktree.Prune(r)
 			}
 			fmt.Fprintf(cmd.OutOrStdout(), "removed: %s\n", dir)
 			return nil

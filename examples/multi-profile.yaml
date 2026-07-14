@@ -16,15 +16,16 @@
 # (The original flat one-profile-per-file form still works — see config.yaml.)
 
 profiles:
-  # Frontend: container backend, worktree narrowed to the shared UI lib.
+  # Frontend: container backend, sandbox narrowed to the shared UI lib.
   web:
     backend: podman
     network: &net
       allowedDomains: [api.anthropic.com, github.com, registry.npmjs.org, repo.maven.apache.org, repo1.maven.org, central.sonatype.com]
     env:
       NODE_ENV: development
-    deps:
-      - shared/ui
+    srcs:
+      - src: .
+        include: ["/shared/ui/"]
 
   # Backend API base: docker engine, same allowlist via the anchor.
   api: &api
@@ -32,8 +33,9 @@ profiles:
     network: *net
     env:
       NODE_ENV: development
-    deps:
-      - shared/proto
+    srcs:
+      - src: .
+        include: ["/shared/proto/"]
 
   # Production variant: inherit api via the anchor, change only env.
   api-prod:
