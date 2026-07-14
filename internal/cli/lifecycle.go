@@ -88,9 +88,12 @@ func newCreateCmd() *cobra.Command {
 			return nil
 		},
 	}
+	// No -S/--sandbox (and no bindExisting) here: the sandbox does not exist
+	// yet — its name is the positional (or the profile's name:).
 	fl := cmd.Flags()
 	fl.StringVar(&f.src, "src", "", "project root")
 	fl.StringVarP(&f.config, "config", "f", "", "profile: a file, a directory of profiles, or a named profile (store: ~/.config/sandboxer/profiles)")
+	fl.StringVar(&f.backend, "backend", "", "backend: docker | podman")
 	fl.StringVar(&f.domains, "allow-domains", "", "egress allowlist (csv)")
 	return cmd
 }

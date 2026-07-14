@@ -50,6 +50,20 @@ func TestRunEnterAutoCreate(t *testing.T) {
 	}
 }
 
+// TestCreateBackendFlag: create accepts --backend like the other lifecycle
+// verbs, and the banner reflects the override.
+func TestCreateBackendFlag(t *testing.T) {
+	project := newProject(t)
+	fakePodman(t)
+	code, _, errs := run("create", "feat", "--src", project, "--backend", "podman")
+	if code != 0 {
+		t.Fatalf("create --backend = %d, %s", code, errs)
+	}
+	if !strings.Contains(errs, "backend=podman") {
+		t.Errorf("configLine should show the overridden backend: %q", errs)
+	}
+}
+
 func TestRunCreateWithDomains(t *testing.T) {
 	project := newProject(t)
 	if code, _, errs := run("create", "feat", "--src", project, "--allow-domains", "a.com,b.com"); code != 0 {
