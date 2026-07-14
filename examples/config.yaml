@@ -78,9 +78,9 @@ network:
 # traffic is CHAINED through the proxy (http:// only); egress off = the agent
 # talks to the proxy DIRECTLY (http:// or https://; noProxy applies). A
 # localhost/127.0.0.1 proxy means a proxy on your HOST (rewritten to the host
-# gateway automatically). Per-domain overrides: network.routes above. Global
-# default: defaults.proxy / SANDBOXER_PROXY. Full story: README "Egress
-# allowlist (container backend)".
+# gateway automatically). Per-domain overrides: network.routes above. Env
+# default: SANDBOXER_PROXY. Full story: README "Egress allowlist (container
+# backend)".
 
 # Container backends force the allowlist proxy by default (agent on an
 # --internal network, sole exit via the forward-proxy). Set to false to disable.

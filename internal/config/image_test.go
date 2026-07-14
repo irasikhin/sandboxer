@@ -161,19 +161,18 @@ func TestImageNixPathResolution(t *testing.T) {
 }
 
 func TestImageNixPathResolutionMulti(t *testing.T) {
-	// Every section of a multi document is resolved — defaults: included — so a
-	// profile inheriting defaults' image.nix gets an absolute path too.
+	// Every section of a multi document is resolved, so each profile's relative
+	// image.nix becomes an absolute path anchored at the file's directory.
 	dir := t.TempDir()
 	body := `
-defaults:
-  image:
-    nix: base.nix
 profiles:
   web:
     image:
       nix: web.nix
   api:
     backend: docker
+    image:
+      nix: base.nix
 `
 	f := writeFile(t, dir, ConfigFileName, body)
 	d, err := LoadDocument(f)
@@ -192,59 +191,6 @@ profiles:
 		t.Fatal(err)
 	}
 	if want := filepath.Join(dir, "base.nix"); api.Image.Nix != want {
-		t.Errorf("api should inherit defaults' resolved Nix: %q, want %q", api.Image.Nix, want)
-	}
-}
-
-// TestMergeProfileImagePerField pins the per-field merge semantics: each of the
-// four ImageSpec fields overrides independently, so defaults: can pin revs
-// while a profile adds extraPkgs without losing them.
-func TestMergeProfileImagePerField(t *testing.T) {
-	base := ImageSpec{
-		ExtraPkgs:    []string{"base-pkg"},
-		Nix:          "/base/image.nix",
-		LLMAgentsRev: "abcdef0",
-		NixpkgsRev:   "1234567",
-	}
-	cases := []struct {
-		name string
-		over ImageSpec
-		want ImageSpec
-	}{
-		{"empty over keeps base", ImageSpec{}, base},
-		{
-			"extraPkgs only",
-			ImageSpec{ExtraPkgs: []string{"jq"}},
-			ImageSpec{ExtraPkgs: []string{"jq"}, Nix: "/base/image.nix", LLMAgentsRev: "abcdef0", NixpkgsRev: "1234567"},
-		},
-		{
-			"nix only",
-			ImageSpec{Nix: "/over/image.nix"},
-			ImageSpec{ExtraPkgs: []string{"base-pkg"}, Nix: "/over/image.nix", LLMAgentsRev: "abcdef0", NixpkgsRev: "1234567"},
-		},
-		{
-			"llmAgentsRev only",
-			ImageSpec{LLMAgentsRev: "latest"},
-			ImageSpec{ExtraPkgs: []string{"base-pkg"}, Nix: "/base/image.nix", LLMAgentsRev: "latest", NixpkgsRev: "1234567"},
-		},
-		{
-			"nixpkgsRev only",
-			ImageSpec{NixpkgsRev: "latest"},
-			ImageSpec{ExtraPkgs: []string{"base-pkg"}, Nix: "/base/image.nix", LLMAgentsRev: "abcdef0", NixpkgsRev: "latest"},
-		},
-		{
-			"all fields",
-			ImageSpec{ExtraPkgs: []string{"jq"}, Nix: "/o.nix", LLMAgentsRev: "latest", NixpkgsRev: "fedcba9"},
-			ImageSpec{ExtraPkgs: []string{"jq"}, Nix: "/o.nix", LLMAgentsRev: "latest", NixpkgsRev: "fedcba9"},
-		},
-	}
-	for _, c := range cases {
-		got := mergeProfile(Profile{Image: base}, Profile{Image: c.over}).Image
-		if !slices.Equal(got.ExtraPkgs, c.want.ExtraPkgs) ||
-			got.Nix != c.want.Nix ||
-			got.LLMAgentsRev != c.want.LLMAgentsRev ||
-			got.NixpkgsRev != c.want.NixpkgsRev {
-			t.Errorf("%s: merged Image = %+v, want %+v", c.name, got, c.want)
-		}
+		t.Errorf("api Nix = %q, want %q", api.Image.Nix, want)
 	}
 }

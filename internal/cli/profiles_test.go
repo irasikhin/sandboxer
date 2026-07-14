@@ -77,10 +77,9 @@ func TestSelectFromDir(t *testing.T) {
 
 func TestProfilesCommand(t *testing.T) {
 	t.Setenv("SANDBOXER_IN_CONTAINER", "")
-	// Isolate the project config (read relative to the cwd) and the global config
-	// so the listing reflects only the fixtures, never the host's.
+	// Isolate the project config (read relative to the cwd) so the listing
+	// reflects only the fixtures, never the host's.
 	t.Chdir(t.TempDir())
-	t.Setenv("SANDBOXER_CONFIG", filepath.Join(t.TempDir(), "none.yaml"))
 
 	store := t.TempDir()
 	t.Setenv("SANDBOXER_PROFILES", store)

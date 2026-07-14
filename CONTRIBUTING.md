@@ -205,22 +205,14 @@ Go style and formatting are owned by the `lang-go-style` and `build-go-tooling` 
 Repo-specific: new flags are wired into the cobra command structs and documented via their struct tags — the
 help text is generated from them.
 
-## Config layering
+## Config resolution
 
-A resolved profile is composed from up to four layers; the user-facing precedence chain is documented once in
-the README ([Global config](README.md#global-config)). How it maps to code:
+There is **no config-level inheritance**: no defaults block, no global config, no merging between files — a
+profile is exactly what its file/section says (reuse inside one file is plain YAML anchors/`<<:` merge keys,
+resolved by the decoder). The user-facing precedence chain (`flags > profile > SANDBOXER_* env > built-in`)
+is documented in the README ([Named profiles](README.md#named-profiles)). How it maps to code:
 
 - The **project config** is `.sandboxer/config.yaml` (`config.ConfigPath()`), discovered in the cwd.
-- The **global config** is optional and merges *under* the project: `SANDBOXER_CONFIG` →
-  `$XDG_CONFIG_HOME/sandboxer/config.yaml` → `~/.config/sandboxer/config.yaml` (`config.GlobalConfigPath()` /
-  `config.LoadGlobalConfig()` in `internal/config/store.go`). An absent file is a clean no-op.
-
-The composition lives in **`Document.SelectWithGlobal`** (`internal/config/document.go`): it sets the base to
-`mergeProfile(global.Defaults, project.Defaults)` and merges the selected section on top, reusing the single
-`mergeProfile` (per-field; `env` key-wise, `image:` per field) — there is no second merger. `resolveTarget`
-(`internal/cli/resolve.go`) loads both documents and calls it. A profile **name** resolves project → global →
-`ProfilesDir()` store; a `defaults:`-only file (the common global shape) is parsed as a Document, not a flat
-profile.
-
-`deps:` is project-specific — keep it out of the global config (the README's
-[Global config](README.md#global-config) foot-gun note explains why).
+- **`Document.Select`** (`internal/config/document.go`) picks a self-contained `profiles:` section (or the
+  flat file's single profile). A profile **name** resolves project → `ProfilesDir()` store.
+- Scalar precedence lives in `config.ResolveRuntime` (`internal/config/runtime.go`).

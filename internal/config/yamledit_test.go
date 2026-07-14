@@ -23,17 +23,15 @@ network:
   allowedDomains: [api.anthropic.com, github.com] # inline note
 `
 
-// multiFixture mirrors examples/multi-profile.yaml: defaults, anchors, a
-// merge key, an alias-valued section and a null (empty) section.
-const multiFixture = `# shared defaults for every profile
-defaults:
-  backend: docker
-
+// multiFixture mirrors examples/multi-profile.yaml: anchors, a merge key, an
+// alias-valued section and a null (empty) section.
+const multiFixture = `# per-project profiles — each section is self-contained
 profiles:
   # the web profile
   web:
     backend: podman # web runs podman
   api: &api
+    backend: docker
     deps: [src/api]
   api-prod:
     <<: *api
@@ -119,7 +117,7 @@ func TestEditableSetCreatesIntermediates(t *testing.T) {
 }
 
 // TestEditableSetProfileSection: a profiles.<name>.… path edits only that
-// section; defaults: is untouched.
+// section; sibling sections are untouched.
 func TestEditableSetProfileSection(t *testing.T) {
 	out := editFixture(t, multiFixture, func(ed *EditableConfig) {
 		if !ed.Multi() {
@@ -135,10 +133,10 @@ func TestEditableSetProfileSection(t *testing.T) {
 	if web.Network.Proxy != "http://localhost:3128" {
 		t.Errorf("web proxy = %q", web.Network.Proxy)
 	}
-	if d.Defaults.Network.Proxy != "" {
-		t.Errorf("defaults gained a proxy: %q", d.Defaults.Network.Proxy)
+	if api, _ := d.Select("api"); api.Network.Proxy != "" {
+		t.Errorf("api gained a proxy: %q", api.Network.Proxy)
 	}
-	for _, comment := range []string{"# shared defaults for every profile", "# the web profile", "# web runs podman"} {
+	for _, comment := range []string{"# per-project profiles — each section is self-contained", "# the web profile", "# web runs podman"} {
 		if !strings.Contains(out, comment) {
 			t.Errorf("comment lost:\n%s\nmissing %q", out, comment)
 		}
@@ -291,8 +289,8 @@ func TestEditableUnset(t *testing.T) {
 	if err != nil {
 		t.Fatalf("emptied section no longer decodes: %v\n%s", err, out)
 	}
-	if p, _ := d.Select("web"); p.Backend != "docker" {
-		t.Errorf("web backend after unset = %q, want docker (from defaults)", p.Backend)
+	if p, _ := d.Select("web"); p.Backend != "" {
+		t.Errorf("web backend after unset = %q, want empty (sections are self-contained)", p.Backend)
 	}
 }
 

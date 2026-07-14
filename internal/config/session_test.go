@@ -68,21 +68,6 @@ func TestLoadDefaultsSession(t *testing.T) {
 	}
 }
 
-// TestMergeProfileSession: mergeProfile must overlay the session field. Every
-// file-loaded profile — flat files included, which wrap into a one-entry
-// Document — reaches the runtime through Select/mergeProfile, so a missing
-// case here silently drops `session: ephemeral`.
-func TestMergeProfileSession(t *testing.T) {
-	got := mergeProfile(Profile{Session: SessionPersistent}, Profile{Session: SessionEphemeral})
-	if got.Session != SessionEphemeral {
-		t.Errorf("set session must override base, got %q", got.Session)
-	}
-	got = mergeProfile(Profile{Session: SessionEphemeral}, Profile{})
-	if got.Session != SessionEphemeral {
-		t.Errorf("unset session must inherit base, got %q", got.Session)
-	}
-}
-
 // TestLoadDocumentFlatSession pins the full file path: a flat profile with
 // `session: ephemeral` keeps the field through LoadDocument + Select (the
 // route every file-based profile takes).

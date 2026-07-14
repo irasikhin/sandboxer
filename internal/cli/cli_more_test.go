@@ -5,8 +5,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-
-	"github.com/irasikhin/sandboxer/internal/config"
 )
 
 // fakePodman puts a no-op `podman` engine on PATH and points HOME at an empty
@@ -91,49 +89,6 @@ func TestResolveTargetSelection(t *testing.T) {
 	}
 	if code, out, _ := run("show", "--src", project); code != 0 || !strings.Contains(out, "only") {
 		t.Errorf("single-agent auto-select = (%d, %q)", code, out)
-	}
-}
-
-// TestResolveTargetGlobalDefaults wires resolveTarget through the global config:
-// a project profile leaves agent unset, a global config provides it, and the
-// resolved profile inherits the global default while the project value wins where
-// both set it.
-func TestResolveTargetGlobalDefaults(t *testing.T) {
-	t.Setenv("SANDBOXER_IN_CONTAINER", "")
-	t.Setenv("SANDBOXER_PROFILES", t.TempDir())
-
-	project := t.TempDir()
-	// resolveProfileFile discovers .sandboxer/config.yaml relative to the cwd.
-	t.Chdir(project)
-	if err := os.MkdirAll(config.StateDirName, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	// Project: a multi-profile doc whose "web" section sets only the session mode.
-	if err := os.WriteFile(config.ConfigPath(), []byte("profiles:\n  web:\n    session: ephemeral\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	// Global: defaults that the project inherits (backend).
-	globalCfg := filepath.Join(t.TempDir(), "global.yaml")
-	if err := os.WriteFile(globalCfg, []byte("defaults:\n  backend: podman\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("SANDBOXER_CONFIG", globalCfg)
-
-	tgt, err := resolveTarget(commonFlags{src: project}, "web")
-	if err != nil {
-		t.Fatalf("resolveTarget: %v", err)
-	}
-	if tgt.profile == nil {
-		t.Fatal("resolveTarget returned a nil profile")
-	}
-	if tgt.profile.Backend != "podman" {
-		t.Errorf("Backend = %q, want podman (from the global defaults)", tgt.profile.Backend)
-	}
-	if tgt.profile.Session != "ephemeral" {
-		t.Errorf("Session = %q, want ephemeral (from the project profile)", tgt.profile.Session)
-	}
-	if tgt.slug != "web" {
-		t.Errorf("slug = %q, want web", tgt.slug)
 	}
 }
 

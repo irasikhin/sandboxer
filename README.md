@@ -217,7 +217,6 @@ sandboxer config set backend podman                    # dotted keys into the pr
 sandboxer config set network.allowedDomains '[api.anthropic.com, github.com]'
 sandboxer config set env.NODE_ENV production           # one env var
 sandboxer config set limits.memory 4G -p web           # target a profiles: section
-sandboxer config set egress false --global             # the global config's defaults:
 sandboxer config get network.proxy                     # read one value
 sandboxer config unset network.proxy                   # remove a key
 ```
@@ -225,10 +224,8 @@ sandboxer config unset network.proxy                   # remove a key
 Without `-p` the target section is the **active sandbox** (`sandboxer use`)
 when it names one, then the file's `default:`, then its sole profile. `set` is
 strictly validated in memory before writing — a bad key or type never lands on
-disk. `get` shows the **effective** value (the section merged over `defaults:`
-and the global config — exactly what `create`/`enter` would use), while
-`set`/`unset` edit the raw file. Existing sandboxes pick changes up on their
-next `enter`/`exec`; `deps` changes take effect on `sandboxer recreate`.
+disk. Existing sandboxes pick changes up on their next `enter`/`exec`; `deps`
+changes take effect on `sandboxer recreate`.
 
 ### Custom toolbox image (`image:`)
 
@@ -284,24 +281,22 @@ never re-resolve; only `sandboxer image build --refresh` moves it.
 ### Multiple profiles in one file
 
 Instead of one profile per file, a `.sandboxer/config.yaml` can hold many under a
-`profiles:` map. A shared **`defaults:`** block is auto-applied under every
-profile (a profile's own fields win; `env` merges key-by-key). To inherit from
-*another profile*, use plain **YAML anchors** — anchor one (`&api`) and merge it
-into another (`<<: *api`); no special key is needed, and the node's own fields
-win over the merge. `default:` names the one used when you don't name a section.
-The flat one-profile form above still works. See `examples/multi-profile.yaml`.
+`profiles:` map. Every section is **self-contained** — there is no shared
+defaults layer and no merging between files. To reuse a block between sections,
+use plain **YAML anchors** — anchor one (`&api`) and merge it into another
+(`<<: *api`); no special key is needed, and the node's own fields win over the
+merge. `default:` names the one used when you don't name a section. The flat
+one-profile form above still works. See `examples/multi-profile.yaml`.
 
 ```yaml
-defaults:
-  network:
-    allowedDomains: [api.anthropic.com, github.com]
-
 profiles:
   api: &api                # sandboxer create api
     backend: docker
+    network:
+      allowedDomains: [api.anthropic.com, github.com]
     deps: [shared/proto]
   api-prod:                # sandboxer create api-prod
-    <<: *api               # inherit api (anchor) + defaults, then override
+    <<: *api               # inherit api via the anchor, then override
     env: { NODE_ENV: production }
 
 default: api               # sandboxer create   (no name → api)
@@ -315,8 +310,7 @@ slug. With no name, `create` uses the `default:` (or sole) profile.
 
 Keep reusable profiles as files and select them by **name** instead of by path.
 A profile's name is its file's base name (`web.yaml` → `web`) unless the file
-sets an explicit `name:`, which wins. There are three sources, in precedence
-order:
+sets an explicit `name:`, which wins. A name resolves project config → store:
 
 ```bash
 sandboxer create ./feat.yaml          # an explicit file
@@ -332,46 +326,13 @@ otherwise it stays a plain sandbox slug, so existing `create feat` usage is
 unchanged. `-f`/`--config` works the same on `create`, `enter`, `exec` and
 `show`.
 
-### Global config
-
-A **global config** lets you set defaults once for every project. It is a full
-document — a `defaults:` block plus an optional `profiles:` map, the same shape
-as a project `.sandboxer/config.yaml` — read from the first of:
+A stored profile is used **whole** — there is no config-level inheritance or
+merging between files. The effective precedence for a resolved setting is,
+high → low:
 
 ```
-$SANDBOXER_CONFIG                          # explicit override
-$XDG_CONFIG_HOME/sandboxer/config.yaml
-~/.config/sandboxer/config.yaml            # the default
+flags  >  profile  >  SANDBOXER_* env  >  built-in
 ```
-
-It is **optional**: an absent file is a clean no-op. When present, its
-**`defaults:` merge UNDER the project's** — the project always wins. The
-effective precedence for a resolved profile is, high → low:
-
-```
-flags  >  project profile section  >  project defaults  >  GLOBAL defaults  >  SANDBOXER_* env  >  built-in
-```
-
-The merge is per field (`env` merges key-by-key, `image:` per field), so the
-global can pin the image revisions (`image.llmAgentsRev` / `image.nixpkgsRev`)
-while a project adds its own `image.extraPkgs` and both apply. A profile **name**
-resolves project → global → store: a name not found in the project config falls
-back to a `profiles:` entry in the global config, then to the named-profile
-store above.
-
-```yaml
-# ~/.config/sandboxer/config.yaml
-defaults:
-  backend: podman               # every project's default backend
-  image:
-    llmAgentsRev: <40-hex>      # pin the toolbox flake inputs org-wide
-    nixpkgsRev:   <40-hex>
-```
-
-> **Keep `deps:` out of the global config.** It is project-specific (the
-> repo-relative dirs to sparse-checkout), so a global `defaults.deps` is a
-> foot-gun — it would narrow every project's worktree to paths that may not
-> exist. Put `deps` in the project `.sandboxer/config.yaml`.
 
 ## Egress allowlist (container backend)
 
@@ -387,8 +348,7 @@ A single `network.proxy` URL routes outbound traffic; the egress toggle picks th
 mode. With egress **on** the allowlist stays enforced and the sidecar chains
 allowed traffic through the proxy (squid `cache_peer`, http:// only). With egress
 **off** the agent talks to the proxy directly (`HTTP(S)_PROXY`); `network.noProxy`
-is the direct-mode `NO_PROXY`. The global default goes in the global config's
-`defaults: { network: { proxy: … } }`; the env fallback is `SANDBOXER_PROXY`. A
+is the direct-mode `NO_PROXY`. The env default is `SANDBOXER_PROXY`. A
 `localhost`/`127.0.0.1` proxy is rewritten to the host gateway, so a proxy on your
 host works with the obvious URL.
 

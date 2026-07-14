@@ -210,7 +210,7 @@ network:
 #   egress off: the agent talks to the proxy DIRECTLY; the proxy polices egress.
 #               http:// or https://; network.noProxy applies.
 # A localhost/127.0.0.1 proxy means a proxy on your HOST (rewritten to the host
-# gateway automatically). Global default: defaults.proxy / SANDBOXER_PROXY.
+# gateway automatically). Env default: SANDBOXER_PROXY.
 `, name, d.Backend, domains)
 	profile += starterImageSection
 	return profile

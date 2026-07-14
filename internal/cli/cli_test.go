@@ -166,10 +166,6 @@ func TestResolveProfileFile(t *testing.T) {
 	// Hermetic store: an empty dir until a case populates it.
 	store := t.TempDir()
 	t.Setenv("SANDBOXER_PROFILES", store)
-	// Hermetic global config: a path that stays missing until a case writes it,
-	// so the lookup never reads the host's ~/.config/sandboxer/config.yaml.
-	globalCfg := filepath.Join(t.TempDir(), "global.yaml")
-	t.Setenv("SANDBOXER_CONFIG", globalCfg)
 
 	must := func(label, wantFile, wantPos, gotFile, gotPos string, err error) {
 		t.Helper()
@@ -216,15 +212,6 @@ func TestResolveProfileFile(t *testing.T) {
 	f, p, err = resolveProfileFile("web", ".", "")
 	must("store by -f name", web, "", f, p, err)
 
-	// A bare positional naming a profile only in the global config resolves to
-	// the global config file (between the project config and the store), keeping
-	// the name as the section selector.
-	if err := os.WriteFile(globalCfg, []byte("profiles:\n  ops:\n    backend: docker\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	f, p, err = resolveProfileFile("", ".", "ops")
-	must("global config by positional", globalCfg, "ops", f, p, err)
-
 	// -f DIR selects by name; an unknown name errors with the listing.
 	envs := t.TempDir()
 	api := filepath.Join(envs, "api.yaml")
@@ -241,8 +228,7 @@ func TestResolveProfileFile(t *testing.T) {
 // TestResolveProfileFileUsesRoot pins the fix: an existing project config is
 // discovered under the given root (--src), not only the process cwd.
 func TestResolveProfileFileUsesRoot(t *testing.T) {
-	t.Setenv("SANDBOXER_CONFIG", filepath.Join(t.TempDir(), "none.yaml")) // isolate the global config
-	t.Chdir(t.TempDir())                                                  // cwd deliberately has no .sandboxer
+	t.Chdir(t.TempDir()) // cwd deliberately has no .sandboxer
 
 	root := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(root, config.StateDirName), 0o755); err != nil {
@@ -295,10 +281,9 @@ func requireExec(t *testing.T, names ...string) {
 func newProject(t *testing.T) string {
 	t.Helper()
 	t.Setenv("SANDBOXER_IN_CONTAINER", "")
-	// Isolate the global profile store and the global config so a bare slug never
-	// resolves to a host-installed named profile or the host's global config.
+	// Isolate the global profile store so a bare slug never resolves to a
+	// host-installed named profile.
 	t.Setenv("SANDBOXER_PROFILES", t.TempDir())
-	t.Setenv("SANDBOXER_CONFIG", filepath.Join(t.TempDir(), "global.yaml"))
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "f.txt"), []byte("v1\n"), 0o644); err != nil {
 		t.Fatal(err)

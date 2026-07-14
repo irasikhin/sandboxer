@@ -29,47 +29,6 @@ func ProfilesDir() string {
 	return filepath.Join(home, ".config", "sandboxer", "profiles")
 }
 
-// GlobalConfigPath is the location of the optional global config — a full
-// Document (defaults: plus an optional profiles:) that merges UNDER the project
-// config. Resolution order mirrors ProfilesDir:
-//   - $SANDBOXER_CONFIG (explicit override);
-//   - $XDG_CONFIG_HOME/sandboxer/config.yaml;
-//   - ~/.config/sandboxer/config.yaml.
-//
-// It returns "" only when the home directory cannot be determined and no
-// override is set.
-func GlobalConfigPath() string {
-	if c := os.Getenv("SANDBOXER_CONFIG"); c != "" {
-		return c
-	}
-	if x := os.Getenv("XDG_CONFIG_HOME"); x != "" {
-		return filepath.Join(x, "sandboxer", "config.yaml")
-	}
-	home, err := os.UserHomeDir()
-	if err != nil || home == "" {
-		return ""
-	}
-	return filepath.Join(home, ".config", "sandboxer", "config.yaml")
-}
-
-// LoadGlobalConfig reads the optional global config as a Document. It is a clean
-// no-op — (nil, nil) — when no path can be resolved (no home and no override) or
-// the file does not exist, so callers can always call it and merge only when a
-// non-nil document comes back.
-func LoadGlobalConfig() (*Document, error) {
-	path := GlobalConfigPath()
-	if path == "" {
-		return nil, nil
-	}
-	if _, err := os.Stat(path); err != nil {
-		if os.IsNotExist(err) {
-			return nil, nil
-		}
-		return nil, err
-	}
-	return LoadDocument(path)
-}
-
 // ProfileRef is a discovered named profile: its effective name and file path.
 type ProfileRef struct {
 	Name string
@@ -128,7 +87,6 @@ type ProfileSource string
 
 const (
 	SourceProject ProfileSource = "project" // .sandboxer/config.yaml
-	SourceGlobal  ProfileSource = "global"  // ~/.config/sandboxer/config.yaml
 	SourceStore   ProfileSource = "store"   // ~/.config/sandboxer/profiles/*.yaml
 )
 
@@ -146,17 +104,16 @@ type ProfileEntry struct {
 	Shadowed  bool
 }
 
-// ListAllProfiles enumerates every profile reachable by name across the three
+// ListAllProfiles enumerates every profile reachable by name across the two
 // sources resolveProfileFile consults, in that precedence order: the project
-// config, then the global config, then the named-profile store. projectConfig
-// and globalConfig are file paths and storeDir a directory; any that is empty,
-// absent, or unparseable simply contributes nothing (a stray file never breaks
-// the listing). When the same name appears in more than one source, the
-// higher-precedence one wins and every later same-name entry is marked
-// Shadowed — mirroring which profile create/enter/exec would actually pick.
-func ListAllProfiles(projectConfig, globalConfig, storeDir string) []ProfileEntry {
+// config, then the named-profile store. projectConfig is a file path and
+// storeDir a directory; either being empty, absent, or unparseable simply
+// contributes nothing (a stray file never breaks the listing). When the same
+// name appears in both sources, the project one wins and the store entry is
+// marked Shadowed — mirroring which profile create/enter/exec would actually
+// pick.
+func ListAllProfiles(projectConfig, storeDir string) []ProfileEntry {
 	out := documentProfiles(projectConfig, SourceProject)
-	out = append(out, documentProfiles(globalConfig, SourceGlobal)...)
 	for _, r := range ListProfilesIn(storeDir) {
 		e := ProfileEntry{Name: r.Name, Source: SourceStore, Path: r.Path}
 		if p, err := Load(r.Path); err == nil {
@@ -176,11 +133,9 @@ func ListAllProfiles(projectConfig, globalConfig, storeDir string) []ProfileEntr
 }
 
 // documentProfiles enumerates the named profiles in a single config Document
-// (the project or global file), sorted by name. It returns nothing when path is
-// empty, missing, or unparseable. Backend is the effective value after the
-// document's defaults: merge under the section (via Select). IsDefault flags the
-// document's default:, but only for the project source — an empty profile name
-// resolves against the project's default:, never the global's.
+// (the project file), sorted by name. It returns nothing when path is empty,
+// missing, or unparseable. IsDefault flags the document's default: for the
+// project source.
 func documentProfiles(path string, src ProfileSource) []ProfileEntry {
 	if path == "" {
 		return nil

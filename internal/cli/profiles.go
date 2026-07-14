@@ -12,30 +12,29 @@ import (
 
 // newProfileListCmd is the `list` verb of the `profile` group (see profile.go):
 // it lists every profile create/enter/exec can resolve by name. By default it
-// spans the three sources resolution consults — the project config, the global
-// config and the named-profile store — so a profile you can actually use never
-// goes missing from the listing. A -f directory narrows it to just that dir.
+// spans the two sources resolution consults — the project config and the
+// named-profile store — so a profile you can actually use never goes missing
+// from the listing. A -f directory narrows it to just that dir.
 func newProfileListCmd() *cobra.Command {
 	var dir string
 	cmd := &cobra.Command{
 		Use:   "list",
-		Short: "List profiles (project config + global config + store)",
-		Long: `List the profiles available to create/enter/exec, across the three sources
+		Short: "List profiles (project config + store)",
+		Long: `List the profiles available to create/enter/exec, across the two sources
 they are resolved from, in precedence order:
 
   project  .sandboxer/config.yaml          (committed, per-project)
-  global   ~/.config/sandboxer/config.yaml (your defaults + shared profiles)
   store    ~/.config/sandboxer/profiles/   (one *.yaml per named profile)
 
 A profile's name is its file's base name unless it sets an explicit name:. When
-the same name exists in more than one source the higher-precedence one wins
-(project > global > store) and the shadowed entries are marked. Use one by name:
+the same name exists in both sources the project one wins and the shadowed
+store entry is marked. Use one by name:
 
-  sandboxer create web        # resolves web across the three sources
+  sandboxer create web        # resolves web across the two sources
   sandboxer create web -f ./envs
 
 Pass -f <dir> to instead list a specific directory of profiles.`,
-		Example: `  sandboxer profile list            # project + global + store
+		Example: `  sandboxer profile list            # project + store
   sandboxer profile list -f ./envs  # just this directory`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
@@ -70,11 +69,10 @@ func listDir(out io.Writer, dir string) error {
 	return tw.Flush()
 }
 
-// listAllSources lists the project config, global config and store together,
-// tagged by source, with the precedence winner marked and shadowed duplicates
-// flagged.
+// listAllSources lists the project config and the store together, tagged by
+// source, with the precedence winner marked and shadowed duplicates flagged.
 func listAllSources(out io.Writer) error {
-	entries := config.ListAllProfiles(config.ConfigPath(), config.GlobalConfigPath(), config.ProfilesDir())
+	entries := config.ListAllProfiles(config.ConfigPath(), config.ProfilesDir())
 	if len(entries) == 0 {
 		fmt.Fprintf(out, "no profiles found — scaffold a project profile with 'sandboxer config init', or add <name>.yaml under %s\n", config.ProfilesDir())
 		return nil

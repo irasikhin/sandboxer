@@ -223,6 +223,7 @@ var removedKeys = map[string]string{
 	"agentProxy": "removed — route by destination instead: network.routes",
 	"roots":      "removed — sandboxes are git worktrees now (no copy mode); mount other trees with extraMounts",
 	"context":    "removed — a git-worktree sandbox already contains the repo's files (nothing is copied in)",
+	"defaults":   "removed — profiles are self-contained; put the values in each profiles: section (share between sections with plain YAML anchors: `web: &base` / `<<: *base`)",
 }
 
 // annotateRemovedKeys upgrades the strict YAML decoder's "field <key> not found"

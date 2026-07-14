@@ -9,13 +9,12 @@ import (
 	"github.com/irasikhin/sandboxer/internal/config"
 )
 
-// isolateGlobals keeps a config-command test away from the host's named-profile
-// store and global config (newProject does the same for project-based tests).
+// isolateGlobals keeps a config-command test away from the host's
+// named-profile store (newProject does the same for project-based tests).
 func isolateGlobals(t *testing.T) {
 	t.Helper()
 	t.Setenv("SANDBOXER_IN_CONTAINER", "")
 	t.Setenv("SANDBOXER_PROFILES", t.TempDir())
-	t.Setenv("SANDBOXER_CONFIG", filepath.Join(t.TempDir(), "global.yaml"))
 }
 
 // TestConfigSetGetUnsetFlat: the end-to-end round trip on a scaffolded flat
@@ -75,7 +74,7 @@ func TestConfigSetGetUnsetFlat(t *testing.T) {
 		t.Errorf("double unset = (%d, %q), want not-set error", code, errs)
 	}
 
-	// get with no key dumps the merged profile as YAML.
+	// get with no key dumps the profile as YAML.
 	if code, out, _ := run("config", "get"); code != 0 || !strings.Contains(out, "name: demo") || !strings.Contains(out, "NODE_ENV: production") {
 		t.Errorf("config get dump = (%d, %q)", code, out)
 	}
@@ -223,63 +222,28 @@ func TestConfigTargetingEdges(t *testing.T) {
 	}
 }
 
-// TestConfigGlobal: --global reads/writes the global config's defaults:,
-// creating the file on first set; a project get sees the inherited value and
-// unset explains inheritance.
-func TestConfigGlobal(t *testing.T) {
+// TestConfigUnsetMergeKeyInherited: a key a section only receives via a YAML
+// merge key (<<:) is not in the raw section — unset says so and points at set.
+func TestConfigUnsetMergeKeyInherited(t *testing.T) {
 	isolateGlobals(t)
 	t.Chdir(t.TempDir())
-	globalPath := os.Getenv("SANDBOXER_CONFIG")
-
-	// get/unset need an existing file; set creates it.
-	if code, _, errs := run("config", "get", "--global", "egress"); code != 1 || !strings.Contains(errs, "config set --global") {
-		t.Errorf("global get missing = (%d, %q)", code, errs)
-	}
-	if code, out, errs := run("config", "set", "--global", "egress", "false"); code != 0 || !strings.Contains(out, "(defaults)") {
-		t.Fatalf("global set = (%d, %q, %q)", code, out, errs)
-	}
-	body, err := os.ReadFile(globalPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(string(body), "# sandboxer global config") || !strings.Contains(string(body), "defaults:") {
-		t.Errorf("fresh global file missing header/defaults:\n%s", body)
-	}
-	if code, out, _ := run("config", "get", "--global", "egress"); code != 0 || strings.TrimSpace(out) != "false" {
-		t.Errorf("global get = (%d, %q)", code, out)
-	}
-
-	// A project profile inherits the global default and get shows the merge.
 	if err := os.MkdirAll(config.StateDirName, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(config.ConfigPath(), []byte("name: demo\nbackend: docker\n"), 0o644); err != nil {
+	multi := "profiles:\n  api: &api\n    backend: docker\n  api-prod:\n    <<: *api\n    session: ephemeral\ndefault: api\n"
+	if err := os.WriteFile(config.ConfigPath(), []byte(multi), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if code, out, _ := run("config", "get", "egress"); code != 0 || strings.TrimSpace(out) != "false" {
-		t.Errorf("merged get = (%d, %q), want the global egress", code, out)
+	// api-prod sees backend (merged) but its own section has no backend key.
+	if code, out, _ := run("config", "get", "backend", "-p", "api-prod"); code != 0 || strings.TrimSpace(out) != "docker" {
+		t.Errorf("merged get = (%d, %q)", code, out)
 	}
-	// unset can't remove an inherited key from the project file — say so.
-	if code, _, errs := run("config", "unset", "egress"); code != 1 || !strings.Contains(errs, "inherited") {
-		t.Errorf("unset inherited = (%d, %q)", code, errs)
+	if code, _, errs := run("config", "unset", "backend", "-p", "api-prod"); code != 1 || !strings.Contains(errs, "merge key") {
+		t.Errorf("unset merge-inherited = (%d, %q)", code, errs)
 	}
-
-	// A profiles: section in the global file is addressable with --global -p.
-	if err := os.WriteFile(globalPath,
-		[]byte("defaults:\n  egress: false\nprofiles:\n  shared:\n    backend: podman\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if code, out, _ := run("config", "get", "--global", "-p", "shared", "backend"); code != 0 || strings.TrimSpace(out) != "podman" {
-		t.Errorf("global -p get = (%d, %q)", code, out)
-	}
-	if code, out, _ := run("config", "set", "--global", "-p", "shared", "env.G", "1"); code != 0 || !strings.Contains(out, "(profile shared)") {
-		t.Errorf("global -p set = (%d, %q)", code, out)
-	}
-	if code, _, errs := run("config", "set", "--global", "-p", "nosuch", "env.G", "1"); code != 1 || !strings.Contains(errs, "no profile") {
-		t.Errorf("global -p absent = (%d, %q)", code, errs)
-	}
-	if code, out, _ := run("config", "unset", "--global", "egress"); code != 0 || !strings.Contains(out, "(defaults)") {
-		t.Errorf("global unset = (%d, %q)", code, out)
+	// Removed keys get their migration hint — defaults: included.
+	if code, _, errs := run("config", "set", "defaults", "x"); code != 1 || !strings.Contains(errs, "self-contained") {
+		t.Errorf("set defaults = (%d, %q), want the removed-key hint", code, errs)
 	}
 }
 

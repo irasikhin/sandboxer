@@ -1,37 +1,37 @@
 # Several environments in one file (multi-profile form).
 #
 # A file with a top-level `profiles:` map holds many named profiles instead of
-# one. Inheritance:
-#   - `defaults:`   a shared base auto-applied to every profile;
-#   - YAML anchors  to inherit from another profile: anchor one (`&api`) and
-#                   merge it into another (`<<: *api`) — a native YAML feature,
-#                   no special key. The node's own fields win over the merge.
-# A profile's own fields win over defaults; `env` merges key-by-key. `default:`
-# names the profile used when you don't name one.
+# one. Every section is SELF-CONTAINED — there is no shared defaults layer and
+# no merging between files. To reuse a block between sections use plain YAML
+# anchors: anchor a node (`&net`, `&api`) and reference (`network: *net`) or
+# merge (`<<: *api`) it elsewhere — a native YAML feature, no special key. The
+# node's own fields win over a `<<:` merge. `default:` names the profile used
+# when you don't name one.
 #
 # Pick a profile by its section name:
 #   sandboxer create web        # the `web` profile
-#   sandboxer create api-prod   # inherits api (anchor) + defaults
+#   sandboxer create api-prod   # inherits api via the anchor
 #   sandboxer create            # the `default:` profile (web)
 #
 # (The original flat one-profile-per-file form still works — see config.yaml.)
-
-defaults:
-  network:
-    allowedDomains: [api.anthropic.com, github.com, registry.npmjs.org, repo.maven.apache.org, repo1.maven.org, central.sonatype.com]
-  env:
-    NODE_ENV: development
 
 profiles:
   # Frontend: container backend, worktree narrowed to the shared UI lib.
   web:
     backend: podman
+    network: &net
+      allowedDomains: [api.anthropic.com, github.com, registry.npmjs.org, repo.maven.apache.org, repo1.maven.org, central.sonatype.com]
+    env:
+      NODE_ENV: development
     deps:
       - shared/ui
 
-  # Backend API base: docker engine, narrowed to its own dir.
+  # Backend API base: docker engine, same allowlist via the anchor.
   api: &api
     backend: docker
+    network: *net
+    env:
+      NODE_ENV: development
     deps:
       - shared/proto
 
@@ -39,6 +39,6 @@ profiles:
   api-prod:
     <<: *api
     env:
-      NODE_ENV: production   # overrides the shared default; api's fields stay inherited
+      NODE_ENV: production   # the section's own env wins over the merged one
 
 default: web

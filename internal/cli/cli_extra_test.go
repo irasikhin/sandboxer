@@ -305,23 +305,22 @@ func TestCleanNonexistent(t *testing.T) {
 }
 
 // TestRunMultiProfileSelect: a project .sandboxer/config.yaml with a profiles:
-// map — `create` picks the default section, `create <name>` picks that section,
-// and the section inherits the shared defaults.
+// map — `create` picks the default section, `create <name>` picks that
+// self-contained section.
 func TestRunMultiProfileSelect(t *testing.T) {
 	t.Setenv("SANDBOXER_IN_CONTAINER", "")
 	t.Setenv("SANDBOXER_PROFILES", t.TempDir()) // isolate the global store
 	project := t.TempDir()
 	gitInitProject(t, project)
 	t.Chdir(project)
-	body := `defaults:
-  network:
-    allowedDomains: [api.anthropic.com]
-profiles:
+	body := `profiles:
   web:
     backend: podman
   api:
     backend: docker
     session: ephemeral
+    network:
+      allowedDomains: [api.anthropic.com]
 default: web
 `
 	if err := os.MkdirAll(config.StateDirName, 0o755); err != nil {
@@ -335,7 +334,7 @@ default: web
 	if code, out, errs := run("create"); code != 0 || !strings.Contains(out, `"web"`) {
 		t.Fatalf("create default = (%d, %q, %q)", code, out, errs)
 	}
-	// Named section → api, inheriting defaults' agent + domains.
+	// Named section → api, with its own backend/session/domains.
 	if code, out, errs := run("create", "api"); code != 0 || !strings.Contains(out, `"api"`) {
 		t.Fatalf("create api = (%d, %q, %q)", code, out, errs)
 	}

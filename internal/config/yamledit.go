@@ -18,7 +18,7 @@ import (
 // the flat top level) is the caller's job: methods take full node paths.
 type EditableConfig struct {
 	root  *yaml.Node // the DocumentNode; Content[0] is the top-level mapping
-	multi bool       // the file uses the profiles:/defaults: document form
+	multi bool       // the file uses the profiles: document form
 }
 
 // ParseEditable parses config bytes into an editable node tree. An empty (or
@@ -52,13 +52,12 @@ func ParseEditable(data []byte) (*EditableConfig, error) {
 	if top.Kind != yaml.MappingNode {
 		return nil, errors.New("top level is not a yaml mapping")
 	}
-	multi := findKey(top, "profiles") >= 0 || findKey(top, "defaults") >= 0
-	return &EditableConfig{root: root, multi: multi}, nil
+	return &EditableConfig{root: root, multi: findKey(top, "profiles") >= 0}, nil
 }
 
-// Multi reports whether the file uses the profiles:/defaults: document form —
-// the same probe LoadDocument applies — so callers know whether a profile key
-// lives under profiles.<name> or at the top level.
+// Multi reports whether the file uses the profiles: document form — the same
+// probe LoadDocument applies — so callers know whether a profile key lives
+// under profiles.<name> or at the top level.
 func (e *EditableConfig) Multi() bool { return e.multi }
 
 // Set writes value at the dotted node path, creating intermediate mappings as
