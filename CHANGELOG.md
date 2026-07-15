@@ -6,6 +6,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.32.0] — 2026-07-15
+
+### Added
+
+- srcs is always explicit — no implicit current-dir source (c11af59)
+- profiles live in one config file — drop the store and -f dirs (d2db9c9)
+
+### Fixed
+
+- name the real cause when srcs is empty; warn on empty include (7ccb3c4)
+
+
 ## [0.31.0] — 2026-07-15
 
 ### Added
@@ -272,3 +284,4 @@ isolated, containerized dev sandbox, on a local Linux machine:
 [0.29.0]: https://github.com/irasikhin/sandboxer/compare/v0.28.0...v0.29.0
 [0.30.0]: https://github.com/irasikhin/sandboxer/compare/v0.29.0...v0.30.0
 [0.31.0]: https://github.com/irasikhin/sandboxer/compare/v0.30.0...v0.31.0
+[0.32.0]: https://github.com/irasikhin/sandboxer/compare/v0.31.0...v0.32.0
