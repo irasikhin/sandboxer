@@ -116,11 +116,13 @@ func (b *Base) resolveSrcs(slug string, specs []config.Src, w io.Writer) ([]Sour
 		top, _, ok := worktree.Detect(path)
 		if !ok {
 			if zeroConfig {
-				return nil, errors.New("sandboxer needs a git repo with at least one commit — " +
-					"run: git init && git add -A && git commit -m init")
+				return nil, fmt.Errorf("srcs is empty, so the current directory is the only source — "+
+					"but %s is not a git repo with a commit; either list your repos in %s:\n"+
+					"  srcs: [{src: ./path-to-repo}]\n"+
+					"or make this directory one: git init && git add -A && git commit -m init", b.Src, config.ConfigFileName)
 			}
-			return nil, fmt.Errorf("srcs entry %q: not a git repository with a commit "+
-				"(mount non-git trees with extraMounts)", spec.Src)
+			return nil, fmt.Errorf("srcs entry %q: not a git repository with a commit — "+
+				"run git init && git commit in it first (non-git trees come in via extraMounts)", spec.Src)
 		}
 		if path != top {
 			return nil, fmt.Errorf("srcs entry %q: must point at the repository root (%s)", spec.Src, top)
@@ -219,13 +221,31 @@ func (b *Base) SyncSrcs(slug string, w io.Writer) ([]Source, error) {
 			if _, err := worktree.SyncSparse(s.Path, s.Include, w); err != nil {
 				return nil, err
 			}
-			continue
-		}
-		if err := worktree.Ensure(s.RepoRoot, s.Path, s.Branch, s.Include, w); err != nil {
+		} else if err := worktree.Ensure(s.RepoRoot, s.Path, s.Branch, s.Include, w); err != nil {
 			return nil, err
 		}
+		warnEmptySelection(s, w)
 	}
 	return srcs, b.writeSrcs(slug, srcs)
+}
+
+// warnEmptySelection notes when a narrowed source materialized no files — a
+// typo'd include pattern would otherwise yield a silently empty sandbox.
+func warnEmptySelection(s Source, w io.Writer) {
+	if w == nil || len(s.Include) == 0 || (len(s.Include) == 1 && s.Include[0] == "**") {
+		return
+	}
+	entries, err := os.ReadDir(s.Path)
+	if err != nil {
+		return
+	}
+	for _, e := range entries {
+		if e.Name() != ".git" {
+			return
+		}
+	}
+	fmt.Fprintf(w, "sandboxer: srcs %s: include matched no files — check the patterns "+
+		"(gitignore syntax; a directory is \"/dir/\")\n", filepath.Base(s.Path))
 }
 
 // detachSrc moves a managed worktree out of the mounted <slug>/ tree into

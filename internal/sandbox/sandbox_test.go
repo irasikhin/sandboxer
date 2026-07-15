@@ -309,8 +309,8 @@ func TestMakeSandboxRejectsNonGit(t *testing.T) {
 		t.Fatal(err)
 	}
 	err = b.MakeSandbox("feat", io.Discard)
-	if err == nil || !strings.Contains(err.Error(), "git repo") {
-		t.Errorf("MakeSandbox on a non-git project = %v, want a git-repo error", err)
+	if err == nil || !strings.Contains(err.Error(), "srcs is empty") || !strings.Contains(err.Error(), "git repo") {
+		t.Errorf("MakeSandbox on a non-git project = %v, want the srcs-is-empty explanation", err)
 	}
 	if _, err := os.Stat(b.SandboxDir("feat")); !os.IsNotExist(err) {
 		t.Error("no sandbox dir should be created for a rejected non-git project")

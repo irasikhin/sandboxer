@@ -289,6 +289,26 @@ func TestRemoveStateKeepsBranchesFullDropsAuto(t *testing.T) {
 	}
 }
 
+// TestSyncSrcsWarnsEmptyInclude: include patterns that match nothing yield a
+// loud notice instead of a silently empty sandbox.
+func TestSyncSrcsWarnsEmptyInclude(t *testing.T) {
+	repo := gitRepoWithCommit(t)
+	b, err := ResolveBase(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := b.WriteProfileJSON("typo", []byte(`{"srcs":[{"src":".","include":["/no-such-dir/"]}]}`)); err != nil {
+		t.Fatal(err)
+	}
+	var progress strings.Builder
+	if err := b.MakeSandbox("typo", &progress); err != nil {
+		t.Fatalf("MakeSandbox: %v", err)
+	}
+	if !strings.Contains(progress.String(), "include matched no files") {
+		t.Errorf("expected an empty-selection notice, got %q", progress.String())
+	}
+}
+
 // TestSyncSrcsRejectsPreSrcsLayout: a sandbox whose dir is itself a worktree
 // (the pre-srcs layout) is refused with a recreate hint instead of nesting new
 // worktrees inside the old one.
