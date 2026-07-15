@@ -22,6 +22,9 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
+      # The config layer shells out to nix-instantiate (sandboxer.nix is the
+      # config format), so the tests need a real nix — eval only, no builds.
+      - uses: cachix/install-nix-action@v31
       # Tag and nix/package.nix must agree (scripts/release.sh keeps them in
       # sync; this catches a hand-pushed tag).
       - name: verify tag matches nix/package.nix
