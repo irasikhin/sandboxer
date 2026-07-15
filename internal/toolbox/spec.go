@@ -22,10 +22,13 @@ type Spec struct {
 	// and deduplicated. Dotted attribute paths (python3Packages.requests) are
 	// allowed.
 	Attrs []string
-	// NixFile is the path to the profile's user nix hook ("" = none). After
-	// any profile load config guarantees it is absolute, so the spec stays
-	// valid from any working directory.
+	// NixFile is the path to the profile's user nix hook file ("" = none).
+	// After any profile load config guarantees it is absolute, so the spec
+	// stays valid from any working directory.
 	NixFile string
+	// NixInline is the hook's nix source carried inline (image.hook — the
+	// single-file form); mutually exclusive with NixFile.
+	NixInline string
 	// NixSHA is the sha256 hex of NixFile's content ("" when NixFile is "") —
 	// the file's contribution to the content-addressed tag.
 	NixSHA string
@@ -60,16 +63,24 @@ func ResolveSpec(p *config.Profile) (Spec, error) {
 		}
 	}
 	sort.Strings(attrs)
+	if err := config.ValidateImageSpec(p.Image); err != nil {
+		return Spec{}, err
+	}
 	s := Spec{
 		Attrs:        attrs,
 		NixFile:      p.Image.Nix,
+		NixInline:    p.Image.Hook,
 		LLMAgentsRev: p.Image.LLMAgentsRev,
 		NixpkgsRev:   p.Image.NixpkgsRev,
 	}
-	if s.NixFile != "" {
+	switch {
+	case s.NixInline != "":
+		sum := sha256.Sum256([]byte(s.NixInline))
+		s.NixSHA = hex.EncodeToString(sum[:])
+	case s.NixFile != "":
 		data, err := os.ReadFile(s.NixFile)
 		if err != nil {
-			return Spec{}, fmt.Errorf("image.nix: %w", err)
+			return Spec{}, fmt.Errorf("image.nix: %w — fix the profile's image.nix path (or inline the hook as image.hook)", err)
 		}
 		sum := sha256.Sum256(data)
 		s.NixSHA = hex.EncodeToString(sum[:])

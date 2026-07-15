@@ -1,7 +1,7 @@
 // Package sandbox owns the on-disk runtime state for a project: the base
 // metadata (run.env), per-sandbox directories and logs. This state lives under
 // config.StateDir (an XDG state dir outside the repo), kept separate from the
-// committed config (sandboxer.yaml + sandboxer-image.nix) so runtime data —
+// committed config (sandboxer.nix) so runtime data —
 // including agent homes that may hold login tokens — never lands in git.
 //
 // A sandbox is a set of SOURCES (see srcs.go): per-repo git worktrees under

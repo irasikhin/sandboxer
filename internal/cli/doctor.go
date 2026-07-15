@@ -30,7 +30,7 @@ var gitCheckIgnore = func(root, rel string) bool {
 }
 
 // warnIgnoredConfig prints a one-line advisory when the user's repo gitignore
-// hides sandboxer.yaml. The config is meant to be committed (runtime state
+// hides sandboxer.nix. The config is meant to be committed (runtime state
 // lives outside the repo), so an ignore rule covering it would silently keep
 // it out of git.
 func warnIgnoredConfig(w io.Writer, root string) {
@@ -57,6 +57,17 @@ Run this after a fresh install or when something isn't working.`,
 			ok, warn := 0, 0
 
 			d := config.LoadDefaults()
+
+			// Host nix — required to evaluate sandboxer.nix (eval only; images
+			// still build inside a container).
+			if _, err := exec.LookPath("nix-instantiate"); err != nil {
+				fmt.Fprintf(tw, "nix\t⚠\tnot found — required to evaluate %s (install: https://nixos.org/download)\n",
+					config.ConfigFileName)
+				warn++
+			} else {
+				fmt.Fprintf(tw, "nix\t✓\tnix-instantiate available\n")
+				ok++
+			}
 
 			// Container engine.
 			engine, engineErr := backend.DetectEngine(d)
@@ -125,14 +136,19 @@ Run this after a fresh install or when something isn't working.`,
 						cfgPath)
 					warn++
 				}
+			case fileExists(config.LegacyYAMLConfigFileName):
+				// An upgrading user with the YAML-era config: translate by hand.
+				fmt.Fprintf(tw, "./%s\t⚠\tlegacy YAML config — translate it to %s (same camelCase keys; no longer read)\n",
+					config.LegacyYAMLConfigFileName, cfgPath)
+				warn++
 			case fileExists(config.LegacyConfigDirPath()):
 				// An upgrading user with the pre-relocation .sandboxer/config.yaml.
-				fmt.Fprintf(tw, "%s\t⚠\tlegacy location — git mv it to %s (no longer read)\n",
+				fmt.Fprintf(tw, "%s\t⚠\tlegacy location — translate it to %s (no longer read)\n",
 					config.LegacyConfigDirPath(), cfgPath)
 				warn++
 			case fileExists(config.LegacyConfigFileName):
 				// An upgrading user with the ancient root-level profile: flag the move.
-				fmt.Fprintf(tw, "./%s\t⚠\tlegacy location — move it to %s (no longer read)\n",
+				fmt.Fprintf(tw, "./%s\t⚠\tlegacy location — translate it to %s (no longer read)\n",
 					config.LegacyConfigFileName, cfgPath)
 				warn++
 			}

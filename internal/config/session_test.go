@@ -73,7 +73,7 @@ func TestLoadDefaultsSession(t *testing.T) {
 // route every file-based profile takes).
 func TestLoadDocumentFlatSession(t *testing.T) {
 	dir := t.TempDir()
-	p := writeFile(t, dir, "feat.yaml", "session: ephemeral\n")
+	p := writeFile(t, dir, "feat.nix", "{ session = \"ephemeral\"; }\n")
 	d, err := LoadDocument(p)
 	if err != nil {
 		t.Fatal(err)
@@ -87,10 +87,10 @@ func TestLoadDocumentFlatSession(t *testing.T) {
 	}
 }
 
-// TestProfileSessionYAML: the `session:` field round-trips through the strict
-// YAML decode (KnownFields) and the JSON snapshot.
-func TestProfileSessionYAML(t *testing.T) {
-	p, err := decodeProfile([]byte("name: x\nsession: ephemeral\n"))
+// TestProfileSessionDecode: the `session` field round-trips through the
+// strict decode and the JSON snapshot.
+func TestProfileSessionDecode(t *testing.T) {
+	p, err := decodeProfileJSON([]byte(`{"name":"x","session":"ephemeral"}`))
 	if err != nil {
 		t.Fatal(err)
 	}

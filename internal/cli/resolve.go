@@ -33,7 +33,7 @@ type commonFlags struct {
 func bindExisting(cmd *cobra.Command, f *commonFlags) {
 	fl := cmd.Flags()
 	fl.StringVar(&f.src, "src", "", "project root (default: cwd)")
-	fl.StringVarP(&f.config, "config", "f", "", "profile file (default: the project sandboxer.yaml; pick a profiles: section by name)")
+	fl.StringVarP(&f.config, "config", "f", "", "profile file (default: the project sandboxer.nix; pick a profiles section by name)")
 	fl.StringVarP(&f.sandbox, "sandbox", "S", "", "sandbox slug")
 	fl.StringVar(&f.backend, "backend", "", "backend: docker | podman")
 	fl.StringVar(&f.domains, "allow-domains", "", "egress allowlist, csv (e.g. api.anthropic.com,github.com)")
@@ -54,8 +54,8 @@ type target struct {
 //
 //	-f/--config FILE   → that file (the positional is kept as a slug override)
 //	positional NAME    → the project config, when it has a section of that name
-//	positional *.yaml  → that file
-//	sandboxer.yaml     → auto-discovered under the project root (--src or cwd)
+//	positional *.nix   → that file
+//	sandboxer.nix      → auto-discovered under the project root (--src or cwd)
 //
 // Anything else leaves the positional as a bare slug ("", pos). root is the
 // project root the project config is discovered under (--src, else cwd).
@@ -63,18 +63,26 @@ func resolveProfileFile(configPath, root, pos string) (string, string, error) {
 	if configPath != "" {
 		if isDir(configPath) {
 			return "", pos, fmt.Errorf("-f %s is a directory — profiles live in one config file; "+
-				"point -f at a *.yaml (several profiles go under its profiles: map)", configPath)
+				"point -f at a *.nix (several profiles go under its profiles attrset)", configPath)
+		}
+		if isYAML(configPath) {
+			return "", pos, fmt.Errorf("%s: sandboxer configs are nix now — translate the YAML to %s "+
+				"by hand (same camelCase keys)", configPath, config.ConfigFileName)
 		}
 		return configPath, pos, nil
 	}
 	// A bare positional first tries to name a profile in the project's
-	// sandboxer.yaml — a multi-profile section or a flat file whose single
+	// sandboxer.nix — a multi-profile section or a flat file whose single
 	// profile is named pos. This is what lets a re-`enter <slug>` re-read an
 	// edited project file instead of the frozen snapshot.
-	if pos != "" && !isYAML(pos) && !inContainer() && config.FileHasProfile(config.ConfigPathIn(root), pos) {
+	if pos != "" && !isNix(pos) && !isYAML(pos) && !inContainer() && config.FileHasProfile(config.ConfigPathIn(root), pos) {
 		return config.ConfigPathIn(root), pos, nil
 	}
-	if pos != "" && isYAML(pos) && fileExists(pos) {
+	if pos != "" && isYAML(pos) {
+		return "", pos, fmt.Errorf("%s: sandboxer configs are nix now — translate the YAML to %s "+
+			"by hand (same camelCase keys)", pos, config.ConfigFileName)
+	}
+	if pos != "" && isNix(pos) && fileExists(pos) {
 		return pos, "", nil
 	}
 	if pos == "" && !inContainer() && fileExists(config.ConfigPathIn(root)) {
@@ -83,12 +91,12 @@ func resolveProfileFile(configPath, root, pos string) (string, string, error) {
 	return "", pos, nil
 }
 
-// legacyConfigHint reports a one-line migration notice when a config exists at
-// a retired location under root but the current sandboxer.yaml does not — so
-// an upgrading user isn't silently met with the no-profile defaults. Two
-// retired generations are recognized: .sandboxer/config.yaml (pre-relocation)
-// and the ancient root-level .sandboxer.yaml. Purely advisory (the old paths
-// are no longer read) and a no-op inside the container.
+// legacyConfigHint reports a one-line migration notice when a config exists
+// at a retired location/format under root but the current sandboxer.nix does
+// not — so an upgrading user isn't silently met with the no-profile defaults.
+// Recognized: the YAML-era sandboxer.yaml, the pre-relocation
+// .sandboxer/config.yaml and the ancient root-level .sandboxer.yaml. Purely
+// advisory (the old files are no longer read) and a no-op in the container.
 func legacyConfigHint(w io.Writer, root string) {
 	if inContainer() {
 		return
@@ -96,16 +104,17 @@ func legacyConfigHint(w io.Writer, root string) {
 	if fileExists(config.ConfigPathIn(root)) {
 		return
 	}
-	if prev := filepath.Join(root, config.LegacyConfigDirPath()); fileExists(prev) {
-		fmt.Fprintf(w, "sandboxer: found legacy %s — the config moved to the project root: "+
-			"git mv %s %s (and %s to %s if present; it is no longer read here)\n",
-			prev, config.LegacyConfigDirPath(), config.ConfigFileName,
-			filepath.Join(config.LegacyStateDirName, "image.nix"), config.ImageNixFileName)
-		return
-	}
-	if legacy := filepath.Join(root, config.LegacyConfigFileName); fileExists(legacy) {
-		fmt.Fprintf(w, "sandboxer: found legacy %s — move it to %s (it is no longer read here)\n",
-			legacy, config.ConfigPathIn(root))
+	for _, legacy := range []string{
+		filepath.Join(root, config.LegacyYAMLConfigFileName),
+		filepath.Join(root, config.LegacyConfigDirPath()),
+		filepath.Join(root, config.LegacyConfigFileName),
+	} {
+		if fileExists(legacy) {
+			fmt.Fprintf(w, "sandboxer: found legacy %s — the config is a nix file now: translate it "+
+				"by hand to %s (same camelCase keys; several profiles = { profiles = {...}; default = \"...\"; })\n",
+				legacy, config.ConfigPathIn(root))
+			return
+		}
 	}
 }
 
@@ -234,7 +243,7 @@ func configLine(rt config.Runtime, slug string, prof *config.Profile, backendSho
 }
 
 // syncSnapshot refreshes the sandbox's stored profile.json from the freshly
-// resolved profile, so editing sandboxer.yaml propagates to an existing
+// resolved profile, so editing sandboxer.nix propagates to an existing
 // sandbox (its resolved settings) instead of being frozen at create time.
 //
 // It is a no-op inside the container (the snapshot is a read-only mount and
@@ -270,6 +279,8 @@ func inContainer() bool { return os.Getenv("SANDBOXER_IN_CONTAINER") != "" }
 func isYAML(p string) bool {
 	return strings.HasSuffix(p, ".yaml") || strings.HasSuffix(p, ".yml")
 }
+
+func isNix(p string) bool { return strings.HasSuffix(p, ".nix") }
 
 func fileExists(p string) bool {
 	_, err := os.Stat(p)

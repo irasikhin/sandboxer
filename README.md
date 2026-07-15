@@ -15,7 +15,7 @@ drives.
 > personal tool for running AI coding agents locally, shipped with no stability
 > or support guarantees. Use at your own risk.
 
-> ⚠️ **Pre-1.0.** CLI flags, the `sandboxer.yaml` schema and the on-disk layout may change
+> ⚠️ **Pre-1.0.** CLI flags, the `sandboxer.nix` schema and the on-disk layout may change
 > between minor versions until 1.0. Sandboxes expose **sources** — git repos
 > checked out into host-side worktrees, narrowed by `srcs` include patterns
 > (see below). Any future change will be called out in the changelog.
@@ -75,7 +75,7 @@ Or grab a [pre-built binary](https://github.com/irasikhin/sandboxer/releases)
 ## Quick start
 
 ```bash
-sandboxer config init                     # scaffold a commented sandboxer.yaml + sandboxer-image.nix to edit (optional)
+sandboxer config init                     # scaffold a commented sandboxer.nix to edit (optional)
 sandboxer create feat                     # create a sandbox named "feat" (worktree on branch feat/feat-sb)
 sandboxer enter  feat                     # attach a shell (persistent session; Ctrl-q detaches)
 sandboxer exec   feat -- claude           # run an agent/command inside it
@@ -86,22 +86,24 @@ sandboxer rm     feat                     # delete the sandbox and its session (
 ```
 
 A profile is optional (empty = the whole repo). To narrow the sandbox or add
-setup/tools/env, edit the `sandboxer.yaml` in the cwd (auto-discovered) or pass
-another file with `-f`; several profiles live in ONE file under a `profiles:`
-map and are picked by name (`create <name>`). The sandbox slug comes from the
-profile's `name:`.
+setup/tools/env, edit the `sandboxer.nix` in the cwd (auto-discovered) or pass
+another file with `-f`; several profiles live in ONE file under a `profiles`
+attrset and are picked by name (`create <name>`). The sandbox slug comes from
+the profile's `name`.
 
 Commands group into three activities (also shown that way in `--help`): forming
-the **image** (`sandboxer image build|edit|rm`) and **config**
-(`sandboxer config init|edit|validate|get|set|unset`, plus
+the **image** (`sandboxer image build|rm`) and **config**
+(`sandboxer config init|edit|validate`, plus
 `sandboxer profile list|use` for picking one), managing **state** (`clean`),
 and **entering/working** in the sandbox
 (`create` / `enter` / `exec` / `stop` / `rm` / `list` / `use`).
 
 ## Config vs data
 
-The committed config is just two files at your repo root — `sandboxer.yaml` and
-the optional `sandboxer-image.nix` — checked in as-is. All runtime
+The committed config is ONE file at your repo root — `sandboxer.nix`,
+image-customization hook included — checked in as-is. It is a nix attrset,
+evaluated by the **host nix** under a restricted eval (no network, no reads
+outside its directory); nix on the host is a hard requirement. All runtime
 state (per-sandbox working copies, the private agent homes, logs and metadata)
 lives **outside** the repo under the XDG state dir
 (`$XDG_STATE_HOME/sandboxer/<project>`, default `~/.local/state/...`), so secrets
@@ -147,7 +149,7 @@ Scalars come from **flags** and `SANDBOXER_*` env vars:
 | session mode | `--ephemeral` | `SANDBOXER_SESSION` (default `persistent`; the env wins over a profile's `session:`) |
 | egress domains | `--allow-domains a,b` | `SANDBOXER_DOMAINS` |
 | disable egress | — | `SANDBOXER_NO_EGRESS=1` |
-| skip auto-scaffold | — | `SANDBOXER_NO_SCAFFOLD=1` (create/enter writes a default `sandboxer.yaml` otherwise) |
+| skip auto-scaffold | — | `SANDBOXER_NO_SCAFFOLD=1` (create/enter writes a default `sandboxer.nix` otherwise) |
 | container engine | — | `SANDBOXER_ENGINE` (default: auto-detect docker→podman) |
 | container user | — | `SANDBOXER_CONTAINER_USER` (default: host uid:gid; empty omits `--user` — macOS escape hatch, see [docs/macos.md](docs/macos.md)) |
 | image | — | `SANDBOXER_IMAGE` (default `sandboxer-toolbox:latest`) |
@@ -159,32 +161,33 @@ defaults; `pids` (a `--pids-limit`, bounding fork-bomb blast radius) is
 profile-only. Empty means uncapped.
 
 Structured fields (`srcs`, `extraMounts`, `env`, `setup`, `tools`, `image`, `limits`) live in an **optional**
-`sandboxer.yaml`. With nothing given, the `sandboxer.yaml` in the cwd is
-auto-discovered; `-f`/`--config` points at another profile **file**. Several
-profiles live in one file under a `profiles:` map. See `examples/config.yaml`,
-`examples/with-srcs.yaml` and `examples/multi-profile.yaml`.
+`sandboxer.nix`. With nothing given, the `sandboxer.nix` in the cwd is
+auto-discovered; `-f`/`--config` points at another config **file**. Several
+profiles live in one file under a `profiles` attrset. See `examples/config.nix`,
+`examples/with-srcs.nix` and `examples/multi-profile.nix`.
 
-> `sandboxer.yaml` and `sandboxer-image.nix` are meant to be **committed**
-> with your repo — don't gitignore them (`sandboxer doctor` warns when a
-> rule hides them).
+> `sandboxer.nix` is meant to be **committed** with your repo — don't
+> gitignore it (`sandboxer doctor` warns when a rule hides it).
 
-```yaml
-name: feature-x
-backend: docker
-network:
-  allowedDomains: [api.anthropic.com, registry.npmjs.org, github.com]
-srcs:                    # the sources the sandbox sees (this repo, narrowed)
-  - src: .
-    include: ["/src/lib/", "/shared/proto/"]
-setup: |                 # one-time prep, run once inside the sandbox
-  npm ci
-tools: [node, go]        # runtime tool packs baked into a per-profile image
+```nix
+{
+  name = "feature-x";
+  backend = "docker";
+  network.allowedDomains = [ "api.anthropic.com" "registry.npmjs.org" "github.com" ];
+  srcs = [                  # the sources the sandbox sees (this repo, narrowed)
+    { src = "."; include = [ "/src/lib/" "/shared/proto/" ]; }
+  ];
+  setup = ''                # one-time prep, run once inside the sandbox
+    npm ci
+  '';
+  tools = [ "node" "go" ];  # runtime tool packs baked into a per-profile image
+}
 ```
 
-Each `srcs` entry is a repo (`src:` — `.` or a path to another repo's root)
-narrowed by `include:` **gitignore-style patterns** (`/dir/`, `*.md`, `!…`;
+Each `srcs` entry is a repo (`src` — `.` or a path to another repo's root)
+narrowed by `include` **gitignore-style patterns** (`/dir/`, `*.md`, `!…`;
 non-cone `git sparse-checkout` under the hood — omit for the whole repo), and
-optionally pinned with `branch:` — naming a branch whose worktree already
+optionally pinned with `branch` — naming a branch whose worktree already
 exists (even your main checkout) **adopts** it instead of creating one. Editing
 `srcs` applies on the next `enter`/`exec` and is visible to a **running**
 session immediately. To bring in **non-git** trees, use `extraMounts`.
@@ -198,11 +201,12 @@ skip it with `--no-setup`. The baked shell can also be extended without
 rebuilding the image: drop `*.sh` files in `/etc/sandboxer/rc.d/` (image
 plugins) or write `~/.config/sandboxer/rc` (per-sandbox `$HOME`).
 
-> ⚠️ `setup:` and `image.nix` (below) both run **arbitrary code the profile
-> points at** — setup inside the sandbox under its egress allowlist, the nix
-> hook inside the throwaway image-builder container with full network. That is
-> the intended trust level for *your own* profiles; treat a third-party
-> profile like a shell script someone sent you — read it before running it.
+> ⚠️ The config itself **evaluates on your host** (restricted: no network, no
+> reads outside its directory), and `setup` / the image hook run **arbitrary
+> code** — setup inside the sandbox under its egress allowlist, the hook
+> inside the throwaway image-builder container with full network. That is the
+> intended trust level for *your own* configs; treat a third-party
+> sandboxer.nix like a shell script someone sent you — read it first.
 
 `tools` names language/runtime packs (`node`, `python`, `go`, `rust`, … — see
 `internal/registry/tools.json`) baked into a **per-profile toolbox image**
@@ -213,46 +217,44 @@ MCP servers need no sandboxer wiring: the sandbox contains your repo's files,
 so agent-level MCP config committed there (e.g. a `.mcp.json`) works as-is —
 just add the servers' domains to `network.allowedDomains`.
 
-### Editing config from the CLI
+### Editing the config
 
-`sandboxer config set|get|unset` edit the config file **in place, preserving
-comments and key order** (only long lines may re-wrap once), so you never have
-to open an editor for one knob:
-
-```bash
-sandboxer config set backend podman                    # dotted keys into the profile
-sandboxer config set network.allowedDomains '[api.anthropic.com, github.com]'
-sandboxer config set env.NODE_ENV production           # one env var
-sandboxer config set limits.memory 4G -p web           # target a profiles: section
-sandboxer config get network.proxy                     # read one value
-sandboxer config unset network.proxy                   # remove a key
-```
-
-Without `-p` the target section is the **active sandbox** (`sandboxer use`)
-when it names one, then the file's `default:`, then its sole profile. `set` is
-strictly validated in memory before writing — a bad key or type never lands on
-disk. Existing sandboxes pick changes up on their next `enter`/`exec` —
-`srcs` included: even a running session sees new sources live.
+The file is the whole interface: `sandboxer config edit` opens it in `$EDITOR`
+(scaffolding the commented starter first if missing), `sandboxer config
+validate` evaluates it and checks the schema strictly — an unknown attr or a
+retired key fails with a precise message. Existing sandboxes pick changes up
+on their next `enter`/`exec` — `srcs` included: even a running session sees
+new sources live.
 
 ### Custom toolbox image (`image:`)
 
 A profile can customize the toolbox image itself — extra packages, files, env,
-even a nixpkgs overlay — **without nix on your machine** (the same builder
-container does everything) and without forking the image. `sandboxer config init`
-scaffolds this section together with an inert, fully-commented
-`sandboxer-image.nix` hook next to the profile at the repo root, ready to edit:
+even a nixpkgs overlay — without forking the image (the build itself still
+runs inside a builder container; host nix only evaluates the config). The hook
+lives INLINE in the config:
 
-```yaml
-image:
-  extraPkgs: [gh, python3Packages.requests]  # extra nixpkgs attrs baked in
-  nix: image.nix                             # build hook (path relative to this file)
-  llmAgentsRev: latest                       # input pin override: latest | full commit hash
-  # nixpkgsRev: <commit>                     # empty = the pin embedded in the binary
+```nix
+{
+  image = {
+    extraPkgs = [ "gh" "python3Packages.requests" ];  # extra nixpkgs attrs baked in
+    hook = ''
+      { pkgs }: {
+        # packages = [ pkgs.httpie ];
+        # files."/etc/sandboxer/rc.d/10-custom.sh" = "alias hi=hello";
+        # env = { SANDBOX_FLAVOR = "custom"; };
+        # overlay = final: prev: { };
+      }
+    '';
+    # nix = "./my-hook.nix";     # or a separate file instead of inlining
+    # llmAgentsRev = "latest";   # input pin override: latest | full commit hash
+    # nixpkgsRev = "<commit>";   # empty = the pin embedded in the binary
+  };
+}
 ```
 
 The customization is **content-addressed**: the sandbox runs
 `sandboxer-toolbox:var-<12hex>` — hashed over the effective input pins, the
-package set (`tools` packs + `extraPkgs`) and the nix file's content —
+package set (`tools` packs + `extraPkgs`) and the hook's content —
 auto-built on first use and shared by identical profiles; the stock
 `sandboxer-toolbox:latest` is untouched. Any change (a package, the hook's
 content, a pin) is a new tag, and an idle persistent session recreates itself
@@ -275,8 +277,7 @@ The contract is two-phase: `overlay` is read from a first call with base
 nixpkgs, then the function is called again with the overlay'd `pkgs` for
 `packages`/`files`/`env` — packages see the overlay, but the overlay cannot
 reference its own result. Full commented example:
-[examples/custom-image.yaml](./examples/custom-image.yaml) +
-[custom-image.nix](./examples/custom-image.nix).
+[examples/custom-image.nix](./examples/custom-image.nix).
 
 `llmAgentsRev`/`nixpkgsRev` move the image's flake-input pins — e.g. pick up
 newer agents without waiting for a sandboxer release. A full 40-hex commit
@@ -287,32 +288,33 @@ never re-resolve; only `sandboxer image build --refresh` moves it.
 
 ### Multiple profiles in one file
 
-Instead of one profile per file, a `sandboxer.yaml` can hold many under a
-`profiles:` map. Every section is **self-contained** — there is no shared
-defaults layer and no merging between files. To reuse a block between sections,
-use plain **YAML anchors** — anchor one (`&api`) and merge it into another
-(`<<: *api`); no special key is needed, and the node's own fields win over the
-merge. `default:` names the one used when you don't name a section. The flat
-one-profile form above still works. See `examples/multi-profile.yaml`.
+Instead of one profile per file, a `sandboxer.nix` can hold many under a
+`profiles` attrset. Every section is **self-contained** — there is no shared
+defaults layer and no merging between files. Reuse between sections is
+ordinary nix — a `let`-bound base merged in with `//` (the section's own attrs
+win). `default` names the one used when you don't name a section. The flat
+one-profile form above still works. See `examples/multi-profile.nix`.
 
-```yaml
-profiles:
-  api: &api                # sandboxer create api
-    backend: docker
-    network:
-      allowedDomains: [api.anthropic.com, github.com]
-    srcs: [{src: ., include: ["/shared/proto/"]}]
-  api-prod:                # sandboxer create api-prod
-    <<: *api               # inherit api via the anchor, then override
-    env: { NODE_ENV: production }
-
-default: api               # sandboxer create   (no name → api)
+```nix
+let
+  api = {
+    backend = "docker";
+    network.allowedDomains = [ "api.anthropic.com" "github.com" ];
+    srcs = [ { src = "."; include = [ "/shared/proto/" ]; } ];
+  };
+in {
+  profiles = {
+    inherit api;                                  # sandboxer create api
+    api-prod = api // { env.NODE_ENV = "production"; };  # sandboxer create api-prod
+  };
+  default = "api";                                # sandboxer create  (no name → api)
+}
 ```
 
 `sandboxer create <name>` selects the section by name (that name becomes the
 sandbox slug); a name that matches no section stays a plain slug. With no
-name, `create` uses the `default:` (or sole) profile. An explicit file also
-works: `sandboxer create ./feat.yaml` or `-f other.yaml`; `sandboxer profile
+name, `create` uses the `default` (or sole) profile. An explicit file also
+works: `sandboxer create ./feat.nix` or `-f other.nix`; `sandboxer profile
 list` shows the file's sections.
 
 ## Egress allowlist (container backend)
@@ -338,13 +340,16 @@ through their own upstream proxy, overriding `network.proxy` for just those
 domains — e.g. reach a geo-blocked API through a bypass proxy while everything
 else stays direct (or on the default proxy):
 
-```yaml
-network:
-  allowedDomains: [api.anthropic.com, registry.npmjs.org, github.com]
-  proxy: http://corp:3128            # optional default parent for everything else
-  routes:
-    - domains: [api.anthropic.com]   # this one API bypasses the geo-block
-      proxy: http://bypass-ru:8080
+```nix
+{
+  network = {
+    allowedDomains = [ "api.anthropic.com" "registry.npmjs.org" "github.com" ];
+    proxy = "http://corp:3128";        # optional default parent for everything else
+    routes = [
+      { domains = [ "api.anthropic.com" ]; proxy = "http://bypass-ru:8080"; }
+    ];
+  };
+}
 ```
 
 Each routed domain must also be in `allowedDomains` (squid denies it before the

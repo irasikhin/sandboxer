@@ -1,69 +1,59 @@
 package config
 
 import (
-	"bytes"
+	"encoding/json"
 	"fmt"
-	"os"
 	"path/filepath"
 	"sort"
 	"strings"
-
-	"gopkg.in/yaml.v3"
 )
 
-// Document is a profile file in either of two shapes:
+// Document is an evaluated config in either of two shapes:
 //
-//   - flat: the Profile fields at the top level (one profile per file), the
-//     original form; or
-//   - multi: a `profiles:` map of named, SELF-CONTAINED profiles, with an
-//     optional `default:` naming the profile used when none is requested.
+//   - flat: the profile attrs at the top level (one profile per file); or
+//   - multi: { profiles = { <name> = {...}; }; default = "<name>"; } — a map
+//     of named, SELF-CONTAINED profiles with an optional default.
 //
 // There is no config-level inheritance: no shared defaults block and no
-// merging between files — a profile is exactly what its section says. Reuse
-// between sections, when wanted, is plain YAML (anchors + `<<:` merge keys),
-// resolved by the decoder before we ever see it.
+// merging between files — a profile is exactly what its attrset says. Reuse
+// between sections is ordinary nix (let bindings, functions, // merges),
+// resolved by the evaluator before we ever see the JSON.
 //
 // LoadDocument normalizes both shapes into a Document so callers can Select a
 // profile by name without caring which one the file uses.
 type Document struct {
-	Profiles map[string]Profile `yaml:"profiles,omitempty"`
-	Default  string             `yaml:"default,omitempty"`
+	Profiles map[string]Profile
+	Default  string
 
-	multi bool // the file used the `profiles:` form
+	multi bool // the config used the profiles = {...} form
 }
 
-// LoadDocument reads a profile file and normalizes it. A file with a top-level
-// `profiles:` key is parsed as the multi form (strict); anything else is parsed
-// as a single flat profile (strict) and wrapped as a one-entry document keyed by
-// its effective name.
+// LoadDocument evaluates a sandboxer.nix config (EvalConfig — host nix,
+// restricted eval) and normalizes it. An attrset with a top-level `profiles`
+// key is the multi form; anything else is a single flat profile wrapped as a
+// one-entry document keyed by its effective name.
 func LoadDocument(file string) (*Document, error) {
-	data, err := os.ReadFile(file)
+	data, err := EvalConfig(file)
 	if err != nil {
 		return nil, err
 	}
-	return LoadDocumentBytes(data, file)
+	return parseDocument(data, file)
 }
 
-// LoadDocumentBytes parses profile config bytes exactly as LoadDocument does,
-// without touching the filesystem. file is the nominal path the bytes belong
-// to: its directory anchors relative image.nix resolution and its base name is
-// the flat-form name fallback. It exists so an in-memory edit (config set) can
-// be strictly validated before anything lands on disk.
-func LoadDocumentBytes(data []byte, file string) (*Document, error) {
-	// Probe (non-strict) for the document marker: a `profiles:` map puts the
-	// file in the multi/document form; anything else is a flat profile.
-	var probe struct {
-		Profiles map[string]yaml.Node `yaml:"profiles"`
-	}
-	if err := yaml.Unmarshal(data, &probe); err != nil {
-		return nil, err
+// parseDocument decodes the evaluated JSON strictly (unknown keys are errors,
+// with removed-key migration hints) and resolves relative image.nix paths
+// against the config's directory so the _meta snapshot stays self-contained.
+func parseDocument(data []byte, file string) (*Document, error) {
+	var probe map[string]json.RawMessage
+	if err := json.Unmarshal(data, &probe); err != nil {
+		return nil, fmt.Errorf("%s: the config must evaluate to an attrset: %w", file, err)
 	}
 
 	dir := filepath.Dir(file)
-	if probe.Profiles == nil {
-		p, err := decodeProfile(data)
+	if _, multi := probe["profiles"]; !multi {
+		p, err := decodeProfileJSON(data)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("%s: %w", file, err)
 		}
 		p.resolveImageNix(dir)
 		name := ProfileName(file, p)
@@ -74,26 +64,39 @@ func LoadDocumentBytes(data []byte, file string) (*Document, error) {
 		}, nil
 	}
 
-	var d Document
-	dec := yaml.NewDecoder(bytes.NewReader(data))
-	dec.KnownFields(true)
-	if err := dec.Decode(&d); err != nil {
-		return nil, annotateRemovedKeys(err)
+	d := &Document{Profiles: map[string]Profile{}, multi: true}
+	for key, raw := range probe {
+		switch key {
+		case "profiles":
+			var sections map[string]json.RawMessage
+			if err := json.Unmarshal(raw, &sections); err != nil {
+				return nil, fmt.Errorf("%s: profiles must be an attrset of profiles: %w", file, err)
+			}
+			for name, sec := range sections {
+				p, err := decodeProfileJSON(sec)
+				if err != nil {
+					return nil, fmt.Errorf("%s: profiles.%s: %w", file, name, err)
+				}
+				p.resolveImageNix(dir)
+				d.Profiles[name] = *p
+			}
+		case "default":
+			if err := json.Unmarshal(raw, &d.Default); err != nil {
+				return nil, fmt.Errorf("%s: default must be a profile name string: %w", file, err)
+			}
+		default:
+			if hint, ok := removedKeys[key]; ok {
+				return nil, fmt.Errorf("%s: unknown top-level key %q — %s", file, key, hint)
+			}
+			return nil, fmt.Errorf("%s: unknown top-level key %q — the multi form allows only profiles and default", file, key)
+		}
 	}
-	// Resolve relative image.nix paths against the file's directory in every
-	// section, so the snapshot written to _meta is self-contained. (srcs paths
-	// deliberately stay relative: they resolve against the PROJECT ROOT at
-	// sandbox-sync time, so a store/-f profile's "src: ." means the project.)
-	for name, p := range d.Profiles {
-		p.resolveImageNix(dir)
-		d.Profiles[name] = p
-	}
-	d.multi = true
-	return &d, nil
+	return d, nil
 }
 
-// Multi reports whether the document used the `profiles:` form. Callers use it to
-// decide whether a positional argument selects a section or is a slug override.
+// Multi reports whether the document used the profiles = {...} form. Callers
+// use it to decide whether a positional argument selects a section or is a
+// slug override.
 func (d *Document) Multi() bool { return d.multi }
 
 // Has reports whether the document defines a profile named name.
@@ -103,10 +106,10 @@ func (d *Document) Has(name string) bool {
 }
 
 // Select resolves one profile by name. Sections are self-contained — there is
-// no defaults layer; reuse between profiles is plain YAML anchors and merge
-// keys (`&base` / `<<: *base`), resolved by the decoder before we get here.
-// An empty name uses `default:` (or the sole profile when there is exactly
-// one). The returned profile's Name is set to the selected key.
+// no defaults layer; reuse between profiles is ordinary nix, resolved by the
+// evaluator before we get here. An empty name uses `default` (or the sole
+// profile when there is exactly one). The returned profile's Name is set to
+// the selected key.
 func (d *Document) Select(name string) (*Profile, error) {
 	if name == "" {
 		name = d.Default
@@ -139,9 +142,10 @@ func (d *Document) names() string {
 }
 
 // FileHasProfile reports whether file defines a profile named name, in either
-// the flat (the single profile's effective name) or multi (a `profiles:`
+// the flat (the single profile's effective name) or multi (a profiles
 // section) form. It is used during resolution to decide whether a bare
-// positional selects a profile from the project file. Parse errors yield false.
+// positional selects a profile from the project file. Eval/parse errors yield
+// false.
 func FileHasProfile(file, name string) bool {
 	d, err := LoadDocument(file)
 	return err == nil && d.Has(name)

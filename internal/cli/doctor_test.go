@@ -134,12 +134,12 @@ func stubGitCheckIgnore(t *testing.T, ignored bool) {
 }
 
 // TestDoctorWarnsIgnoredConfig: when the repo's gitignore hides
-// sandboxer.yaml, doctor adds a warning row; when it doesn't, no row.
+// sandboxer.nix, doctor adds a warning row; when it doesn't, no row.
 func TestDoctorWarnsIgnoredConfig(t *testing.T) {
 	project := newProject(t)
 	t.Chdir(project)
 	stubInstalledEngines(t, nil)
-	if err := os.WriteFile(config.ConfigPath(), []byte("name: feat\n"), 0o644); err != nil {
+	if err := os.WriteFile(config.ConfigPath(), []byte("{ name = \"feat\"; }\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -169,7 +169,7 @@ func TestCreateWarnsIgnoredConfig(t *testing.T) {
 }
 
 // TestGitCheckIgnoreReal exercises the real `git check-ignore` mapping: a
-// repo whose root gitignore lists sandboxer.yaml ignores the config; a plain
+// repo whose root gitignore lists sandboxer.nix ignores the config; a plain
 // directory (no repo) reads as not-ignored.
 func TestGitCheckIgnoreReal(t *testing.T) {
 	requireExec(t, "git")

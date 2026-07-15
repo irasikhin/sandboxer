@@ -39,7 +39,7 @@ func newCreateCmd() *cobra.Command {
   sandboxer create feat
 
   # from a profile file — slug comes from the profile's name:
-  sandboxer create ./sandboxer.yaml
+  sandboxer create ./sandboxer.nix
 
   # from a named profile in the store (~/.config/sandboxer/profiles)
   sandboxer create web
@@ -94,7 +94,7 @@ func newCreateCmd() *cobra.Command {
 	// yet — its name is the positional (or the profile's name:).
 	fl := cmd.Flags()
 	fl.StringVar(&f.src, "src", "", "project root")
-	fl.StringVarP(&f.config, "config", "f", "", "profile file (default: the project sandboxer.yaml; pick a profiles: section by name)")
+	fl.StringVarP(&f.config, "config", "f", "", "profile file (default: the project sandboxer.nix; pick a profiles section by name)")
 	fl.StringVar(&f.backend, "backend", "", "backend: docker | podman")
 	fl.StringVar(&f.domains, "allow-domains", "", "egress allowlist (csv)")
 	return cmd

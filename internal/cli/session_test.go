@@ -169,8 +169,8 @@ func TestEnterEphemeralRouting(t *testing.T) {
 		project := newProject(t)
 		fakePodman(t)
 		c := stubSessionSeams(t, backend.SessionInfo{}, "h")
-		cfg := filepath.Join(t.TempDir(), "p.yaml")
-		if err := os.WriteFile(cfg, []byte("name: feat\nsession: ephemeral\nsrcs: [{src: .}]\n"), 0o644); err != nil {
+		cfg := filepath.Join(t.TempDir(), "p.nix")
+		if err := os.WriteFile(cfg, []byte("{ name = \"feat\"; session = \"ephemeral\"; srcs = [ { src = \".\"; } ]; }\n"), 0o644); err != nil {
 			t.Fatal(err)
 		}
 		if code, _, errs := run("create", "--src", project, "--config", cfg); code != 0 {

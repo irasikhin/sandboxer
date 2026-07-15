@@ -79,8 +79,8 @@ func TestResolveRuntimeDomainsPrecedence(t *testing.T) {
 }
 
 func TestLoadMissingFile(t *testing.T) {
-	if _, err := Load("/no/such/profile.yaml"); err == nil {
-		t.Error("Load of missing file should error")
+	if _, err := LoadDocument("/no/such/profile.nix"); err == nil {
+		t.Error("LoadDocument of a missing file should error")
 	}
 }
 

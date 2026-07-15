@@ -9,12 +9,12 @@ import (
 )
 
 func TestConfigPath(t *testing.T) {
-	// The project profile lives at the repo root: sandboxer.yaml.
+	// The project config lives at the repo root: sandboxer.nix.
 	if got, want := ConfigPath(), ConfigFileName; got != want {
 		t.Errorf("ConfigPath() = %q, want %q", got, want)
 	}
-	if ConfigFileName != "sandboxer.yaml" || ImageNixFileName != "sandboxer-image.nix" {
-		t.Errorf("unexpected names: file=%q image=%q", ConfigFileName, ImageNixFileName)
+	if ConfigFileName != "sandboxer.nix" {
+		t.Errorf("unexpected config name: %q", ConfigFileName)
 	}
 }
 
@@ -109,17 +109,17 @@ func TestAnnotateRemovedKeys(t *testing.T) {
 	for key, hint := range removedKeys {
 		t.Run(key, func(t *testing.T) {
 			dir := t.TempDir()
-			flat := writeFile(t, dir, "flat.yaml", key+": whatever\n")
-			_, err := Load(flat)
+			flat := writeFile(t, dir, "flat.nix", "{ "+key+" = \"whatever\"; }\n")
+			_, err := LoadDocument(flat)
 			if err == nil {
 				t.Fatalf("a removed key %q must still be rejected", key)
 			}
 			for _, want := range []string{key, hint} {
 				if !strings.Contains(err.Error(), want) {
-					t.Errorf("Load error %q missing %q", err, want)
+					t.Errorf("flat error %q missing %q", err, want)
 				}
 			}
-			doc := writeFile(t, dir, "doc.yaml", "profiles:\n  web:\n    "+key+": whatever\n")
+			doc := writeFile(t, dir, "doc.nix", "{ profiles.web."+key+" = \"whatever\"; }\n")
 			if _, err := LoadDocument(doc); err == nil || !strings.Contains(err.Error(), hint) {
 				t.Errorf("LoadDocument for removed key %q = %v, want the migration hint", key, err)
 			}
@@ -261,20 +261,24 @@ func TestEgressDisabled(t *testing.T) {
 func TestLoadAndJSONRoundTrip(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, ConfigFileName)
-	yaml := `name: feature-x
-backend: podman
-network:
-  allowedDomains: [api.anthropic.com, registry.npmjs.org]
-srcs:
-  - src: .
-    include: ["/src/lib/"]
-  - src: ../shared-lib
-    branch: feat/x
+	nix := `{
+  name = "feature-x";
+  backend = "podman";
+  network.allowedDomains = [ "api.anthropic.com" "registry.npmjs.org" ];
+  srcs = [
+    { src = "."; include = [ "/src/lib/" ]; }
+    { src = "../shared-lib"; branch = "feat/x"; }
+  ];
+}
 `
-	if err := os.WriteFile(path, []byte(yaml), 0o644); err != nil {
+	if err := os.WriteFile(path, []byte(nix), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	p, err := Load(path)
+	d, err := LoadDocument(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err := d.Select("")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -305,13 +309,11 @@ srcs:
 }
 
 func TestExampleProfilesParse(t *testing.T) {
-	// The shipped examples must stay valid under the strict (KnownFields) schema.
-	for _, name := range []string{"config.yaml", "with-srcs.yaml", "profiles/web.yaml", "profiles/api.yaml", "profiles/custom-image.yaml"} {
+	// The shipped examples must stay valid under the strict schema. No Skip:
+	// a renamed example must fail here, not silently vanish from coverage.
+	for _, name := range []string{"config.nix", "with-srcs.nix", "custom-image.nix", "multi-profile.nix"} {
 		path := filepath.Join("..", "..", "examples", name)
-		if _, err := os.Stat(path); err != nil {
-			t.Skipf("example %s not present", name)
-		}
-		if _, err := Load(path); err != nil {
+		if _, err := LoadDocument(path); err != nil {
 			t.Errorf("example %s failed to load: %v", name, err)
 		}
 	}
@@ -319,11 +321,11 @@ func TestExampleProfilesParse(t *testing.T) {
 
 func TestLoadUnknownFieldRejected(t *testing.T) {
 	dir := t.TempDir()
-	path := filepath.Join(dir, "bad.yaml")
-	if err := os.WriteFile(path, []byte("name: x\nbogusField: 1\n"), 0o644); err != nil {
+	path := filepath.Join(dir, "bad.nix")
+	if err := os.WriteFile(path, []byte("{ name = \"x\"; bogusField = 1; }\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := Load(path); err == nil {
-		t.Error("expected error on unknown field (KnownFields strict)")
+	if _, err := LoadDocument(path); err == nil || !strings.Contains(err.Error(), "unknown field") {
+		t.Errorf("unknown attr = %v, want a strict unknown-field error", err)
 	}
 }

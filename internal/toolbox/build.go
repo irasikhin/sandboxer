@@ -201,12 +201,19 @@ func writeContext(ctxDir string, spec Spec) error {
 	// user.nix is the profile's image hook — copied verbatim when set, the
 	// no-op stub otherwise — so the flake imports it unconditionally.
 	userNix := filepath.Join(ctxDir, "user.nix")
-	if spec.NixFile != "" {
+	switch {
+	case spec.NixInline != "":
+		if err := os.WriteFile(userNix, []byte(spec.NixInline), 0o644); err != nil {
+			return err
+		}
+	case spec.NixFile != "":
 		if err := copyFile(spec.NixFile, userNix); err != nil {
 			return fmt.Errorf("copy image.nix: %w", err)
 		}
-	} else if err := os.WriteFile(userNix, []byte(stubUserNix), 0o644); err != nil {
-		return err
+	default:
+		if err := os.WriteFile(userNix, []byte(stubUserNix), 0o644); err != nil {
+			return err
+		}
 	}
 	// The sandboxer binary is NOT copied into the image anymore — it is a host
 	// tool, and egress is a separate squid sidecar (the flake's proxyImage).

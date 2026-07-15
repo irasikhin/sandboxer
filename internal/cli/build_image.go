@@ -119,7 +119,7 @@ is left behind. Use --cache to keep a nix-store volume for faster rebuilds.`,
 	}
 	fl := cmd.Flags()
 	fl.StringVar(&engineFlag, "engine", "", "container engine: docker | podman (default: auto-detect)")
-	fl.StringVarP(&configPath, "config", "f", "", "profile file (default: the project sandboxer.yaml; pick a profiles: section by name)")
+	fl.StringVarP(&configPath, "config", "f", "", "profile file (default: the project sandboxer.nix; pick a profiles section by name)")
 	fl.StringVar(&nixImage, "nix-image", "", "builder image (default: pinned "+toolbox.NixImage+")")
 	fl.BoolVar(&cache, "cache", false, "keep a persistent nix-store volume for faster rebuilds")
 	fl.BoolVar(&keepBuilder, "keep-builder", false, "keep the nixos/nix builder image afterward")
@@ -139,7 +139,7 @@ var toolboxBuild = toolbox.BuildImage
 // (-f) or a section of the project's multi-profile config — through the same
 // chain enter/exec use. No argument and no -f mean no
 // profile: the stock default image is built, deliberately NOT auto-discovering
-// sandboxer.yaml so a bare `sandboxer image build` keeps today's behavior.
+// sandboxer.nix so a bare `sandboxer image build` keeps today's behavior.
 func buildImageProfile(configPath, pos string) (*config.Profile, error) {
 	if configPath == "" && pos == "" {
 		return nil, nil

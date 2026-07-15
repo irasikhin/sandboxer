@@ -5,10 +5,10 @@ import (
 	"testing"
 )
 
-// TestProfileSetupDecodes checks the new `setup:` profile field round-trips
-// through the strict YAML decoder and the stored JSON.
+// TestProfileSetupDecodes checks the `setup` profile field round-trips
+// through the strict decoder and the stored JSON.
 func TestProfileSetupDecodes(t *testing.T) {
-	p, err := decodeProfile([]byte("name: web\nsetup: |\n  npm ci\n  npm run build\n"))
+	p, err := decodeProfileJSON([]byte(`{"name":"web","setup":"npm ci\nnpm run build\n"}`))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -25,7 +25,7 @@ func TestProfileSetupDecodes(t *testing.T) {
 	}
 
 	// Absent setup stays empty and is omitted from JSON.
-	empty, err := decodeProfile([]byte("name: web\n"))
+	empty, err := decodeProfileJSON([]byte(`{"name":"web"}`))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -34,9 +34,9 @@ func TestProfileSetupDecodes(t *testing.T) {
 	}
 }
 
-// TestProfileToolsDecode checks the `tools:` list field decodes from YAML.
+// TestProfileToolsDecode checks the `tools` list field decodes.
 func TestProfileToolsDecode(t *testing.T) {
-	p, err := decodeProfile([]byte("name: web\ntools: [node, go]\n"))
+	p, err := decodeProfileJSON([]byte(`{"name":"web","tools":["node","go"]}`))
 	if err != nil {
 		t.Fatal(err)
 	}

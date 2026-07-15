@@ -11,37 +11,25 @@ import (
 	"github.com/irasikhin/sandboxer/internal/config"
 )
 
-// imageNixPath is the cwd-relative location of the scaffolded image hook —
-// sandboxer-image.nix, beside sandboxer.yaml at the project root. The
-// scaffolded config points at it by its bare relative name (see
-// starterImageSection), resolved against the config's directory.
-func imageNixPath() string { return config.ImageNixFileName }
-
 // newConfigInitCmd is the `init` verb of the `config` group (see
-// config_cmd.go): it scaffolds a commented sandboxer.yaml (and the
-// sandboxer-image.nix hook).
+// config_cmd.go): it scaffolds a commented sandboxer.nix.
 func newConfigInitCmd() *cobra.Command {
 	var force bool
 	cmd := &cobra.Command{
 		Use:   "init [name]",
-		Short: "Write a starter " + config.ConfigPath() + " (and " + imageNixPath() + ")",
+		Short: "Write a starter " + config.ConfigPath(),
 		Long: `Scaffold a commented ` + config.ConfigPath() + ` so you have a concrete config
 to edit instead of relying on the silent defaults. It is auto-discovered by
-create/enter/exec here (no -f needed). A starter ` + config.ImageNixFileName + ` image hook
-is written alongside it at the project root, wired in via the profile's image:
-section (delete that block for the stock toolbox image).`,
+create/enter/exec here (no -f needed). Everything lives in this one file,
+including the optional inline image hook (image.hook).`,
 		Example: `  sandboxer config init             # name defaults to the directory
   sandboxer config init web         # set the profile name
   sandboxer config init --force     # overwrite an existing ` + config.ConfigPath(),
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			path := config.ConfigPath()
-			nixPath := imageNixPath()
 			if fileExists(path) && !force {
 				return fmt.Errorf("%s already exists (use --force to overwrite)", path)
-			}
-			if fileExists(nixPath) && !force {
-				return fmt.Errorf("%s already exists (use --force to overwrite)", nixPath)
 			}
 			name := config.Sanitize(posArg(args))
 			if name == "" {
@@ -56,30 +44,22 @@ section (delete that block for the stock toolbox image).`,
 			if err := os.WriteFile(path, []byte(starterProfile(name, d)), 0o644); err != nil {
 				return err
 			}
-			if err := os.WriteFile(nixPath, []byte(starterImageNix), 0o644); err != nil {
-				return err
-			}
 			out := cmd.OutOrStdout()
-			fmt.Fprintf(out, "wrote %s + %s (name=%s backend=%s)\n", path, nixPath, name, d.Backend)
-			fmt.Fprintln(out, "edit them, then: sandboxer create")
+			fmt.Fprintf(out, "wrote %s (name=%s backend=%s)\n", path, name, d.Backend)
+			fmt.Fprintln(out, "edit it, then: sandboxer create")
 			return nil
 		},
 	}
-	cmd.Flags().BoolVar(&force, "force", false, "overwrite an existing "+config.ConfigPath()+"/"+imageNixPath())
+	cmd.Flags().BoolVar(&force, "force", false, "overwrite an existing "+config.ConfigPath())
 	return cmd
 }
 
-// maybeAutoScaffold writes a default sandboxer.yaml at the project root and
+// maybeAutoScaffold writes a default sandboxer.nix at the project root and
 // points this run at it when the user has no config at all — so create/enter
 // in a fresh project land on a concrete, announced profile instead of silent
 // defaults. It is a no-op (current behaviour) when an explicit -f is given, a
 // project config already exists, we're inside the container, or the user opts
 // out with SANDBOXER_NO_SCAFFOLD=1.
-//
-// Like the explicit `init`, it scaffolds the active image: section and a
-// sandboxer-image.nix hook beside the config, so the custom image works on the
-// auto-scaffold path too (enter/exec/run build the variant on first use, with
-// a one-time notice). An existing hook file is left untouched.
 func maybeAutoScaffold(cmd *cobra.Command, f *commonFlags, pos string) error {
 	if f.config != "" || inContainer() || os.Getenv("SANDBOXER_NO_SCAFFOLD") == "1" {
 		return nil
@@ -89,8 +69,8 @@ func maybeAutoScaffold(cmd *cobra.Command, f *commonFlags, pos string) error {
 	if fileExists(path) {
 		return nil // a project config already exists; leave resolution as-is
 	}
-	// An upgrading user with a config at a retired location gets a clear
-	// migration hint rather than a silently-scaffolded-over default.
+	// An upgrading user with a config at a retired location/format gets a
+	// clear migration hint rather than a silently-scaffolded-over default.
 	legacyConfigHint(cmd.ErrOrStderr(), root)
 	name := config.Sanitize(pos)
 	if name == "" {
@@ -102,173 +82,103 @@ func maybeAutoScaffold(cmd *cobra.Command, f *commonFlags, pos string) error {
 	if err := os.WriteFile(path, []byte(starterProfile(name, config.LoadDefaults())), 0o644); err != nil {
 		return err
 	}
-	nixPath := filepath.Join(root, config.ImageNixFileName)
-	if !fileExists(nixPath) {
-		if err := os.WriteFile(nixPath, []byte(starterImageNix), 0o644); err != nil {
-			return err
-		}
-	}
 	fmt.Fprintf(cmd.ErrOrStderr(),
 		"sandboxer: no %s — scaffolded a default (name=%s; edit it, or set SANDBOXER_NO_SCAFFOLD=1 to skip)\n", config.ConfigPath(), name)
 	f.config = path
 	return nil
 }
 
-// starterProfile renders a commented sandboxer.yaml seeded with the effective
+// starterProfile renders a commented sandboxer.nix seeded with the effective
 // defaults (so it reflects the user's environment) and the common knobs left
-// as hints to fill in, plus an active image: section wired to the
-// sandboxer-image.nix hook both init and auto-scaffold write alongside.
+// as hints to fill in. The whole config — image hook included — is this one
+// file.
 func starterProfile(name string, d config.Defaults) string {
-	domains := strings.ReplaceAll(d.Domains, ",", ", ")
-	profile := fmt.Sprintf(`# yaml-language-server: $schema=`+config.SchemaURL+`
-# sandboxer profile — edit to taste. Auto-discovered when you run sandboxer
-# in this directory (no -f needed). Full reference: examples/ in the repo.
-
-# Sandbox name (slug); drives the worktree branch feat/<name>-sb.
-name: %s
-
-# Isolation backend: docker | podman.
-backend: %s
-
-# Which agents' credentials to pass through (see: sandboxer agents). A sandbox is
-# not bound to one agent — run any with 'sandboxer exec <slug> -- <agent>'.
-# Defaults to every agent in the registry; narrow it to avoid passing creds you
-# don't need. To pin a model, set the agent's env var under env: below.
-# agents: [claude, codex]
-
-# Session mode for enter/exec: persistent (default; one detached container
-# reused across invocations) | ephemeral (a fresh one-shot container each time).
-# session: persistent
-
-# Egress allowlist: the ONLY domains the sandbox may reach (everything else is
-# blocked). Seeded with the effective defaults (SANDBOXER_DOMAINS or the built-in
-# set — AI APIs + the common package registries: npm, PyPI, Maven, Gradle,
-# crates, Go, RubyGems, GitHub). Setting allowedDomains REPLACES that default set
-# wholesale — re-list EVERY domain you need (not just additions), or delete this
-# block to keep the full defaults. Trim to what your task needs.
-network:
-  allowedDomains: [%s]
-  # proxy: http://localhost:9999        # ONE proxy URL — see the proxy note below
-  # noProxy: localhost,127.0.0.1,.corp  # direct mode only (egress off)
-  # Per-domain routes: send specific domains through their own upstream proxy
-  # (e.g. bypass a geo-block). Each routed domain must also be in allowedDomains;
-  # routes need egress on (ignored in direct mode).
-  # routes:
-  #   - domains: [api.anthropic.com]
-  #     proxy: http://bypass-ru:8080
-
-# Sandbox content: srcs lists the repos the sandbox sees — ALWAYS explicit,
-# there is no implicit default. Each entry becomes a git worktree on the host
-# (branch feat/<name>-sb unless branch: names one), and ONLY the selected
-# files are visible inside the container (git itself never is; review/commit
-# on the host). include uses gitignore-style patterns; srcs edits apply on
-# the next enter/exec — even a running session sees them live.
-srcs:
-  - src: .                             # this repo, whole
-  #   include: ["/services/api/", "*.md"]
-  # - src: ../shared-lib               # another repo, whole
-  # - src: ../protolib
-  #   branch: feat/proto-v2            # adopt an existing branch/worktree
-# To bring in OTHER (non-git) trees, use extraMounts below.
-
-# Extra bind mounts / env for the container backend (optional). To pin the
-# agent's model, set the agent's own env var here (e.g. ANTHROPIC_MODEL for
-# claude) — sandboxer has no model: knob, it never launches the agent itself.
-# extraMounts:
-#   - { source: /data/cache, target: /data/cache, mode: rw }
-# env:
-#   NODE_ENV: development
-#   ANTHROPIC_MODEL: opus
-
-# One-time setup script (bash -lc) run inside the sandbox before the agent takes
-# over — re-run only when the script changes:
-# setup: |
-#   npm ci
-
-# Language/runtime tool packs baked into a per-profile image variant
-# (see registry/tools.json: node, python, go, rust, …):
-# tools: [node, python]
-
-# Resource caps for the sandbox container (empty = uncapped). memory/cpus
-# override SANDBOXER_MEM/SANDBOXER_CPU; pids is a --pids-limit (fork-bomb guard).
-# limits:
-#   memory: 4G
-#   cpus: 2
-#   pids: 512
-
-# Turn the egress allowlist off entirely for this profile (default: on):
-# egress: false
-
-# Proxy — ONE URL under network: (network.proxy); the egress toggle (above)
-# decides the mode:
-#   egress on  (default): allowlist stays on, traffic is CHAINED through the
-#               proxy (allowedDomains still enforced). http:// only.
-#   egress off: the agent talks to the proxy DIRECTLY; the proxy polices egress.
-#               http:// or https://; network.noProxy applies.
-# A localhost/127.0.0.1 proxy means a proxy on your HOST (rewritten to the host
-# gateway automatically). Env default: SANDBOXER_PROXY.
-`, name, d.Backend, domains)
-	profile += starterImageSection
-	return profile
-}
-
-// starterImageSection is the active image: block appended by `sandboxer config init`.
-// It points at the sandboxer-image.nix hook written alongside at the project
-// root by its bare relative name (resolved against the profile's directory);
-// the spec is non-empty (a nix hook is set), so the first create builds a
-// content-addressed toolbox variant, cached thereafter — the stock image is
-// untouched.
-const starterImageSection = `
-# Custom toolbox image (optional). Sandboxes in this profile run a
-# content-addressed variant built on first 'create' (cached after; the stock
-# sandboxer-toolbox:latest is untouched). Delete this block for the stock image.
-image:
-  extraPkgs: []            # extra nixpkgs attrs baked in (dotted paths allowed)
-  nix: ` + config.ImageNixFileName + `   # { packages, files, env, overlay } hook — see that file
-  # llmAgentsRev: latest   # flake-input pin overrides; empty keeps embedded pins
-  # nixpkgsRev: <full 40-char hex commit>
-`
-
-// starterImageNix is the annotated, inert image hook `sandboxer config init` writes.
-// Every example is commented, so it evaluates to { } (the variant is content-
-// equivalent to the stock image) until the user uncomments something.
-const starterImageNix = `# sandboxer-image.nix — the image hook this profile's image: section points at,
-# imported by the embedded toolbox flake during 'sandboxer image build' (or the
-# auto-build on first enter). A function over { pkgs } returning any of FOUR
-# keys: packages, files, env, overlay. The contract is fail-closed — an unknown
-# key aborts the build, so a typo never silently drops a customization.
-#
-# Two-phase evaluation: the function is first called with BASE nixpkgs and only
-# 'overlay' is read; nixpkgs is then re-imported with the overlay applied, and
-# the function is called again with that final 'pkgs' for packages/files/env.
-# Everything below is commented — uncomment what you need.
-{ pkgs }:
+	domains := "\"" + strings.ReplaceAll(d.Domains, ",", "\" \"") + "\""
+	return fmt.Sprintf(`# sandboxer config — a nix attrset, evaluated with a RESTRICTED nix eval (no
+# network; imports/reads only inside this directory). Auto-discovered when you
+# run sandboxer here (no -f needed). One profile at the top level — or several:
+#   { profiles = { api = { ... }; web = { ... }; }; default = "api"; }
+# Reuse between profiles is ordinary nix:
+#   let base = { backend = "docker"; }; in { profiles.api = base // { ... }; }
 {
-  # nixpkgs overlay (phase 1): add or override packages; everything in phase 2
-  # sees the result. (An overlay cannot reference its own result.)
-  # overlay = final: prev: {
-  #   hello-sandboxer = prev.writeShellScriptBin "hello-sandboxer" ''
-  #     echo "hello from a custom toolbox image"
+  # Sandbox name (slug); drives the worktree branch feat/<name>-sb.
+  name = %q;
+
+  # Isolation backend: docker | podman.
+  backend = %q;
+
+  # The sources the sandbox sees — ALWAYS explicit, there is no implicit
+  # default. Each entry becomes a git worktree on the host (branch
+  # feat/<name>-sb unless branch names one), and ONLY the selected files are
+  # visible inside the container (git itself never is; review/commit on the
+  # host). include uses gitignore-style patterns; srcs edits apply on the
+  # next enter/exec — even a running session sees them live.
+  srcs = [
+    { src = "."; }                        # this repo, whole
+    # { src = "."; include = [ "/services/api/" "*.md" ]; }
+    # { src = "../shared-lib"; }          # another repo, whole
+    # { src = "../proto"; branch = "feat/proto-v2"; }  # adopt an existing branch/worktree
+  ];
+
+  # Egress allowlist: the ONLY domains the sandbox may reach (everything else
+  # is blocked). Seeded with the effective defaults (SANDBOXER_DOMAINS or the
+  # built-in set — AI APIs + common package registries). Setting
+  # allowedDomains REPLACES that default set wholesale — re-list EVERY domain
+  # you need, or delete the attr to keep the full defaults.
+  network = {
+    allowedDomains = [ %s ];
+    # proxy = "http://localhost:9999";       # ONE proxy URL; localhost is
+    #                                        # rewritten to the host gateway
+    # noProxy = "localhost,127.0.0.1,.corp"; # direct mode only (egress = false)
+    # routes = [                             # per-domain upstream proxies
+    #   { domains = [ "api.anthropic.com" ]; proxy = "http://bypass:8080"; }
+    # ];
+  };
+
+  # Which agents' credentials to pass through (see: sandboxer agents).
+  # Defaults to every agent in the registry.
+  # agents = [ "claude" "codex" ];
+
+  # Session mode for enter/exec: "persistent" (default) | "ephemeral".
+  # session = "persistent";
+
+  # Extra bind mounts / env for the container (non-git trees come in here).
+  # extraMounts = [ { source = "/data/cache"; target = "/data/cache"; mode = "rw"; } ];
+  # env = { NODE_ENV = "development"; ANTHROPIC_MODEL = "opus"; };
+
+  # One-time setup script (bash -lc) run inside the sandbox before the agent
+  # takes over — re-run only when the script changes:
+  # setup = ''
+  #   npm ci
+  # '';
+
+  # Language/runtime tool packs baked into a per-profile image variant
+  # (node, python, go, rust, java, …):
+  # tools = [ "node" "python" ];
+
+  # Resource caps (empty = uncapped): memory/cpus/pids.
+  # limits = { memory = "4G"; cpus = "2"; pids = 512; };
+
+  # Turn the egress allowlist off entirely for this profile (default: on):
+  # egress = false;
+
+  # Custom toolbox image (optional). Sandboxes then run a content-addressed
+  # variant built on first use (cached after; the stock image is untouched).
+  # image = {
+  #   extraPkgs = [ "gh" "python3Packages.requests" ];  # nixpkgs attrs baked in
+  #   # llmAgentsRev = "latest";   # flake-input pin overrides
+  #   # nixpkgsRev = "<full 40-hex commit>";
+  #   # The image hook INLINE — a { pkgs }: { packages, files, env, overlay }
+  #   # function (fail-closed: unknown keys abort the build):
+  #   hook = ''
+  #     { pkgs }: {
+  #       # packages = [ pkgs.httpie ];
+  #       # files."/etc/sandboxer/rc.d/10-custom.sh" = "alias hi=hello";
+  #       # env = { SANDBOX_FLAVOR = "custom"; };
+  #       # overlay = final: prev: { };
+  #     }
   #   '';
-  # };
-
-  # Extra store paths baked into the image — 'pkgs' has the overlay applied.
-  # packages = [
-  #   pkgs.httpie
-  # ];
-
-  # Text files at absolute paths inside the image. /etc/sandboxer/rc.d/*.sh are
-  # the shell's plugin drop-ins, sourced by every interactive shell.
-  # files = {
-  #   "/etc/sandboxer/rc.d/10-custom.sh" = ''
-  #     alias hi=hello-sandboxer
-  #   '';
-  # };
-
-  # Appended to the image's OCI env; a user variable overrides a same-named
-  # default (last occurrence wins).
-  # env = {
-  #   SANDBOX_FLAVOR = "custom";
   # };
 }
-`
+`, name, d.Backend, domains)
+}

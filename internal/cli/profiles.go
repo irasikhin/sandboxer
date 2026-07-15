@@ -12,7 +12,7 @@ import (
 
 // newProfileListCmd is the `list` verb of the `profile` group (see profile.go):
 // it lists the profiles create/enter/exec can resolve by name — the sections
-// of ONE config file. That is the project's sandboxer.yaml by default; -f
+// of ONE config file. That is the project's sandboxer.nix by default; -f
 // points at another file. There is no directory scan and no global store.
 func newProfileListCmd() *cobra.Command {
 	var file string

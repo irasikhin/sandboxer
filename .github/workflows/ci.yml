@@ -18,6 +18,10 @@ jobs:
         with:
           # Track the toolchain pinned in go.mod (do not hardcode the version).
           go-version-file: go.mod
+      # The config layer shells out to nix-instantiate (sandboxer.nix is the
+      # config format), so the unit tests need a real nix — eval only, no
+      # builds.
+      - uses: cachix/install-nix-action@v31
       - run: go build ./...
       # Cross-build the other release target so arch-specific breakage is
       # caught here, not only at release time.

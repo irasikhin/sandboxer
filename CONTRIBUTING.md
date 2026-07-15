@@ -208,11 +208,12 @@ help text is generated from them.
 ## Config resolution
 
 There is **no config-level inheritance**: no defaults block, no global config, no merging between files — a
-profile is exactly what its file/section says (reuse inside one file is plain YAML anchors/`<<:` merge keys,
-resolved by the decoder). The user-facing precedence chain (`flags > profile > SANDBOXER_* env > built-in`)
-is documented in the README. How it maps to code:
+profile is exactly what its file/section says (reuse inside one file is ordinary nix — let bindings and
+`//` merges, resolved by the evaluator). The user-facing precedence chain (`flags > profile > SANDBOXER_*
+env > built-in`) is documented in the README. How it maps to code:
 
-- The **project config** is `sandboxer.yaml` (`config.ConfigPath()`), discovered in the cwd.
+- The **project config** is `sandboxer.nix` (`config.ConfigPath()`), discovered in the cwd and evaluated
+  via the host nix (`config.EvalConfig`: `nix-instantiate --eval --strict --json` under restrict-eval).
 - **`Document.Select`** (`internal/config/document.go`) picks a self-contained `profiles:` section (or the
   flat file's single profile). Profiles live in ONE config file — no directory scan, no global store.
 - Scalar precedence lives in `config.ResolveRuntime` (`internal/config/runtime.go`).

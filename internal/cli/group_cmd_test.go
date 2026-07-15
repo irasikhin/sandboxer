@@ -9,9 +9,9 @@ import (
 	"github.com/irasikhin/sandboxer/internal/config"
 )
 
-// fakeEditor writes an executable script that appends a marker to the file it is
-// given, and points $EDITOR at it — so `image edit` / `profile edit` exercise
-// openInEditor end to end (the editor runs and touches the file).
+// fakeEditor writes an executable script that appends a marker to the file it
+// is given, and points $EDITOR at it — so `config edit` exercises openInEditor
+// end to end (the editor runs and touches the file).
 func fakeEditor(t *testing.T) {
 	t.Helper()
 	dir := t.TempDir()
@@ -24,7 +24,8 @@ func fakeEditor(t *testing.T) {
 }
 
 // TestConfigEditScaffoldsThenEdits: with no config, `config edit` scaffolds
-// the annotated starter, then runs $EDITOR on it.
+// the annotated starter (ONE file — the image hook lives inline in it), then
+// runs $EDITOR on it.
 func TestConfigEditScaffoldsThenEdits(t *testing.T) {
 	t.Chdir(t.TempDir())
 	fakeEditor(t)
@@ -38,25 +39,8 @@ func TestConfigEditScaffoldsThenEdits(t *testing.T) {
 	if !strings.Contains(string(body), "EDITED") {
 		t.Errorf("editor did not run on the config:\n%s", body)
 	}
-	if !strings.Contains(string(body), "name:") {
+	if !strings.Contains(string(body), "name =") {
 		t.Errorf("scaffold missing expected content:\n%s", body)
-	}
-}
-
-// TestImageEditScaffoldsThenEdits: `image edit` scaffolds image.nix when absent,
-// then runs $EDITOR on it.
-func TestImageEditScaffoldsThenEdits(t *testing.T) {
-	t.Chdir(t.TempDir())
-	fakeEditor(t)
-	if code, _, errs := run("image", "edit"); code != 0 {
-		t.Fatalf("image edit = %d, %s", code, errs)
-	}
-	body, err := os.ReadFile(imageNixPath())
-	if err != nil {
-		t.Fatalf("image.nix not scaffolded: %v", err)
-	}
-	if !strings.Contains(string(body), "EDITED") || !strings.Contains(string(body), "{ pkgs }") {
-		t.Errorf("image edit did not scaffold+edit:\n%s", body)
 	}
 }
 
@@ -81,14 +65,14 @@ func TestConfigValidate(t *testing.T) {
 	}
 
 	// Valid config.
-	if err := os.WriteFile(config.ConfigPath(), []byte("name: ok\nbackend: docker\n"), 0o644); err != nil {
+	if err := os.WriteFile(config.ConfigPath(), []byte("{ name = \"ok\"; backend = \"docker\"; }\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if code, out, errs := run("config", "validate"); code != 0 || !strings.Contains(out, "ok") {
 		t.Errorf("validate good = (%d, %q, %q)", code, out, errs)
 	}
-	// Unknown field is rejected (strict decode).
-	if err := os.WriteFile(config.ConfigPath(), []byte("name: bad\nbogusField: 1\n"), 0o644); err != nil {
+	// Unknown attr is rejected (strict decode).
+	if err := os.WriteFile(config.ConfigPath(), []byte("{ name = \"bad\"; bogusField = 1; }\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if code, _, errs := run("config", "validate"); code != 1 || errs == "" {

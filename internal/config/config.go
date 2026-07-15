@@ -1,29 +1,32 @@
 // Package config models the sandboxer profile and resolves runtime settings.
 //
-// A profile is optional: scalar settings come from flags and SANDBOXER_* env
-// vars, and only structured fields (deps, extraMounts, env) require a
-// sandboxer.yaml file. The resolved profile is serialized to JSON (camelCase
-// keys) and stored under the state dir's _meta/<slug>.profile.json; that JSON
-// is the single artifact the container backend and the sandbox package read.
+// The config is a NIX file — sandboxer.nix — evaluated to JSON via the host
+// nix (see EvalConfig; sandboxed, no network). It must evaluate to an attrset
+// with the profile's camelCase keys: one flat profile, or
+// { profiles = { <name> = {...}; }; default = "<name>"; }. Reuse between
+// profiles is ordinary nix (let bindings, functions, //-merges) — there is no
+// config-level inheritance. Scalar settings may also come from flags and
+// SANDBOXER_* env vars; the resolved profile is serialized to JSON and stored
+// under the state dir's _meta/<slug>.profile.json — that JSON is the single
+// artifact the container backend and the sandbox package read.
 package config
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
-	"os"
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
-
-	"gopkg.in/yaml.v3"
 )
 
 // Mount is an extra bind mount for the container backend.
 type Mount struct {
-	Source string `yaml:"source" json:"source"`
-	Target string `yaml:"target" json:"target"`
-	Mode   string `yaml:"mode,omitempty" json:"mode,omitempty"`
+	Source string `json:"source"`
+	Target string `json:"target"`
+	Mode   string `json:"mode,omitempty"`
 }
 
 // Src is one sandbox source: a git repository, optionally narrowed to a subset
@@ -35,44 +38,44 @@ type Src struct {
 	// project itself). Relative paths resolve against the PROJECT ROOT
 	// (--src, default cwd) — one rule regardless of where the profile file
 	// lives (project root or an explicit -f path).
-	Src string `yaml:"src" json:"src"`
+	Src string `json:"src"`
 	// Include are gitignore-syntax patterns (non-cone sparse-checkout:
 	// "/services/api/", "*.md", "!…") selecting what the sandbox sees. Empty
 	// or ["**"] means the whole repo.
-	Include []string `yaml:"include,omitempty" json:"include,omitempty"`
+	Include []string `json:"include,omitempty"`
 	// Branch checks the source out on a named branch instead of the managed
 	// feat/<slug>-sb one. An existing worktree of that branch (including the
 	// repo's main checkout) is adopted as-is; a missing branch is created off
 	// HEAD.
-	Branch string `yaml:"branch,omitempty" json:"branch,omitempty"`
+	Branch string `json:"branch,omitempty"`
 }
 
 // Network holds the egress allowlist and the sandbox's proxy settings.
 type Network struct {
-	AllowedDomains []string `yaml:"allowedDomains,omitempty" json:"allowedDomains,omitempty"`
+	AllowedDomains []string `json:"allowedDomains,omitempty"`
 	// Proxy is the single proxy URL the sandbox routes through (http://host:port,
 	// or https:// only with egress off). Empty means no proxy. The egress toggle
 	// decides whether it CHAINS through the allowlist sidecar (egress on) or the
 	// agent talks to it DIRECTLY (egress off). A localhost/127.0.0.1 host is
 	// rewritten to the host gateway at launch (see backend.ContainerProxyURL).
-	Proxy string `yaml:"proxy,omitempty" json:"proxy,omitempty"`
+	Proxy string `json:"proxy,omitempty"`
 	// NoProxy is the NO_PROXY list applied only in direct mode (egress off); it
 	// is ignored when traffic is chained through the allowlist sidecar.
-	NoProxy string `yaml:"noProxy,omitempty" json:"noProxy,omitempty"`
+	NoProxy string `json:"noProxy,omitempty"`
 	// Routes send specific destination domains through a dedicated upstream proxy
 	// (a squid cache_peer), overriding Proxy for just those domains — e.g. bypass
 	// a geo-block for one API while everything else stays direct or on the default
 	// proxy. Routes only apply with the egress allowlist on; they are ignored in
 	// direct mode (egress off), where the agent talks to Proxy directly.
-	Routes []Route `yaml:"routes,omitempty" json:"routes,omitempty"`
+	Routes []Route `json:"routes,omitempty"`
 }
 
 // Route pins a set of destination domains to a dedicated upstream proxy. Every
 // routed domain must also be in Network.AllowedDomains (squid denies it before
 // the peer otherwise), and a domain may appear in at most one route.
 type Route struct {
-	Domains []string `yaml:"domains,omitempty" json:"domains,omitempty"`
-	Proxy   string   `yaml:"proxy,omitempty"   json:"proxy,omitempty"`
+	Domains []string `json:"domains,omitempty"`
+	Proxy   string   `json:"proxy,omitempty"`
 }
 
 // Limits caps a sandbox container's resources. Every field is optional; an empty
@@ -81,9 +84,9 @@ type Route struct {
 // (--pids-limit) that bounds fork-bomb blast radius. Memory/CPUs override the
 // SANDBOXER_MEM / SANDBOXER_CPU env defaults; Pids has no env default.
 type Limits struct {
-	Memory string `yaml:"memory,omitempty" json:"memory,omitempty"`
-	CPUs   string `yaml:"cpus,omitempty"   json:"cpus,omitempty"`
-	Pids   int    `yaml:"pids,omitempty"   json:"pids,omitempty"`
+	Memory string `json:"memory,omitempty"`
+	CPUs   string `json:"cpus,omitempty"`
+	Pids   int    `json:"pids,omitempty"`
 }
 
 // Proxy handling: a sandbox reaches the outside world through ONE proxy URL
@@ -108,23 +111,29 @@ type Limits struct {
 type ImageSpec struct {
 	// ExtraPkgs are nixpkgs attribute names baked into the image (dotted
 	// attribute paths like nodePackages.pnpm are allowed).
-	ExtraPkgs []string `yaml:"extraPkgs,omitempty" json:"extraPkgs,omitempty"`
+	ExtraPkgs []string `json:"extraPkgs,omitempty"`
 	// Nix is a user nix file imported by the image build. It may be written
-	// relative to the profile file; Load/LoadDocument resolve it to an absolute
+	// relative to the profile file; LoadDocument resolves it to an absolute
 	// path so the stored _meta/<slug>.profile.json snapshot stays
 	// self-contained.
-	Nix string `yaml:"nix,omitempty" json:"nix,omitempty"`
+	Nix string `json:"nix,omitempty"`
+	// Hook is the same image customization INLINE: the nix source of a
+	// { pkgs }: { packages, files, env, overlay } function, carried as a
+	// string (a nix multiline string in the config), so the whole config
+	// stays one file. Mutually exclusive with Nix.
+	Hook string `json:"hook,omitempty"`
 	// LLMAgentsRev / NixpkgsRev override the embedded flake-input pins: empty
 	// keeps the embedded pin, "latest" resolves the remote head once at build
 	// time, and a full 40-hex commit hash pins exactly (see ValidateImageSpec).
-	LLMAgentsRev string `yaml:"llmAgentsRev,omitempty" json:"llmAgentsRev,omitempty"`
-	NixpkgsRev   string `yaml:"nixpkgsRev,omitempty"   json:"nixpkgsRev,omitempty"`
+	LLMAgentsRev string `json:"llmAgentsRev,omitempty"`
+	NixpkgsRev   string `json:"nixpkgsRev,omitempty"`
 }
 
 // Empty reports whether the spec requests no customization, i.e. the sandbox
 // runs the stock toolbox image.
 func (s ImageSpec) Empty() bool {
-	return len(s.ExtraPkgs) == 0 && s.Nix == "" && s.LLMAgentsRev == "" && s.NixpkgsRev == ""
+	return len(s.ExtraPkgs) == 0 && s.Nix == "" && s.Hook == "" &&
+		s.LLMAgentsRev == "" && s.NixpkgsRev == ""
 }
 
 var imageRevRe = regexp.MustCompile(`^[0-9a-f]{40}$`)
@@ -136,6 +145,9 @@ var imageRevRe = regexp.MustCompile(`^[0-9a-f]{40}$`)
 // tags, and nix treats a non-40-hex rev in a github: flakeref as a ref needing
 // a GitHub API resolve — a network dependency a pin must not have.
 func ValidateImageSpec(s ImageSpec) error {
+	if s.Nix != "" && s.Hook != "" {
+		return fmt.Errorf("image.nix and image.hook are mutually exclusive — inline the hook OR point at a file")
+	}
 	for _, r := range []struct{ field, rev string }{
 		{"image.llmAgentsRev", s.LLMAgentsRev},
 		{"image.nixpkgsRev", s.NixpkgsRev},
@@ -170,64 +182,49 @@ func (p *Profile) resolveImageNix(dir string) {
 // worktree; git metadata never enters the container, so the container sees
 // exactly the files the include patterns select and nothing else.
 type Profile struct {
-	Name    string  `yaml:"name,omitempty"        json:"name,omitempty"`
-	Backend string  `yaml:"backend,omitempty"     json:"backend,omitempty"`
-	Network Network `yaml:"network,omitempty"     json:"network,omitempty"`
+	Name    string  `json:"name,omitempty"`
+	Backend string  `json:"backend,omitempty"`
+	Network Network `json:"network,omitempty"`
 	// Agents lists whose credentials to pass through to the sandbox (a sandbox is
 	// not bound to one agent — pick which agent to run per exec). Empty means every
 	// agent in the registry.
-	Agents []string `yaml:"agents,omitempty"      json:"agents,omitempty"`
-	Egress *bool    `yaml:"egress,omitempty"      json:"egress,omitempty"`
+	Agents []string `json:"agents,omitempty"`
+	Egress *bool    `json:"egress,omitempty"`
 	// Srcs are the sandbox's sources — repositories (whole, or narrowed by
 	// gitignore-style include patterns) exposed inside the container. ALWAYS
 	// explicit: an empty list is rejected at sandbox creation (the scaffolded
 	// config seeds srcs: [{src: .}]); there is no implicit default.
-	Srcs        []Src             `yaml:"srcs,omitempty"        json:"srcs,omitempty"`
-	ExtraMounts []Mount           `yaml:"extraMounts,omitempty" json:"extraMounts,omitempty"`
-	Env         map[string]string `yaml:"env,omitempty"         json:"env,omitempty"`
+	Srcs        []Src             `json:"srcs,omitempty"`
+	ExtraMounts []Mount           `json:"extraMounts,omitempty"`
+	Env         map[string]string `json:"env,omitempty"`
 	// Setup is a one-time shell script run inside the sandbox (bash -lc) before
 	// the user/agent takes over — e.g. `npm ci`, a build, a DB seed. It runs
 	// once per sandbox (re-run only when the script changes) under the same
 	// isolation and egress allowlist as the sandbox.
-	Setup string `yaml:"setup,omitempty" json:"setup,omitempty"`
+	Setup string `json:"setup,omitempty"`
 	// Tools names language/runtime tool packs (see registry/tools.json: node,
 	// python, go, rust, …) baked into a per-profile toolbox image variant,
 	// built on demand and cached by tool-set hash.
-	Tools []string `yaml:"tools,omitempty" json:"tools,omitempty"`
+	Tools []string `json:"tools,omitempty"`
 	// Image customizes the toolbox image variant this profile's sandbox runs
 	// in; an empty spec keeps the stock image. See ImageSpec.
-	Image ImageSpec `yaml:"image,omitempty" json:"image,omitempty"`
+	Image ImageSpec `json:"image,omitempty"`
 	// Session selects how enter/exec use the container: "persistent" (the
 	// default) keeps one detached session container running across invocations,
 	// "ephemeral" starts a fresh one-shot container per command.
-	Session string `yaml:"session,omitempty" json:"session,omitempty"`
+	Session string `json:"session,omitempty"`
 	// Limits caps the sandbox container's memory/cpus/pids; empty fields inherit
 	// the SANDBOXER_MEM/SANDBOXER_CPU env defaults (memory/cpus) or stay uncapped.
-	Limits Limits `yaml:"limits,omitempty" json:"limits,omitempty"`
+	Limits Limits `json:"limits,omitempty"`
 }
 
-// Load reads and parses a single flat YAML profile from disk. Multi-profile
-// documents (a `profiles:` map) are handled by LoadDocument; Load is the flat
-// one-file-one-profile path.
-func Load(file string) (*Profile, error) {
-	data, err := os.ReadFile(file)
-	if err != nil {
-		return nil, err
-	}
-	p, err := decodeProfile(data)
-	if err != nil {
-		return nil, err
-	}
-	p.resolveImageNix(filepath.Dir(file))
-	return p, nil
-}
-
-// decodeProfile strictly decodes one profile from YAML bytes (unknown fields are
-// rejected, catching typos). Shared by Load and the flat path of LoadDocument.
-func decodeProfile(data []byte) (*Profile, error) {
+// decodeProfileJSON strictly decodes one profile from evaluated-config JSON
+// (unknown fields are rejected, catching typos — the same posture the YAML
+// era had with KnownFields).
+func decodeProfileJSON(data []byte) (*Profile, error) {
+	dec := json.NewDecoder(bytes.NewReader(data))
+	dec.DisallowUnknownFields()
 	var p Profile
-	dec := yaml.NewDecoder(strings.NewReader(string(data)))
-	dec.KnownFields(true)
 	if err := dec.Decode(&p); err != nil {
 		return nil, annotateRemovedKeys(err)
 	}
@@ -246,11 +243,11 @@ var removedKeys = map[string]string{
 	"agentProxy": "removed — route by destination instead: network.routes",
 	"roots":      "removed — sandboxes are git worktrees now (no copy mode); mount other trees with extraMounts",
 	"context":    "removed — a git-worktree sandbox already contains the repo's files (nothing is copied in)",
-	"deps":       "replaced by srcs — e.g. srcs: [{src: ., include: [\"/some/dir/\"]}] (src = path to a repo; include = gitignore-style patterns; empty include = the whole repo)",
-	"defaults":   "removed — profiles are self-contained; put the values in each profiles: section (share between sections with plain YAML anchors: `web: &base` / `<<: *base`)",
+	"deps":       "replaced by srcs — e.g. srcs = [ { src = \".\"; include = [ \"/some/dir/\" ]; } ] (src = path to a repo; include = gitignore-style patterns; empty include = the whole repo)",
+	"defaults":   "removed — profiles are self-contained; share between them with ordinary nix (let base = { ... }; in { profiles.web = base // { ... }; })",
 }
 
-// annotateRemovedKeys upgrades the strict YAML decoder's "field <key> not found"
+// annotateRemovedKeys upgrades the strict decoder's `unknown field "<key>"`
 // error into a migration hint when <key> is a knob that was intentionally
 // removed, so an upgrading user is told what to do instead of thinking they
 // typo'd. Any other decode error passes through unchanged. Modeled on the
@@ -262,8 +259,8 @@ func annotateRemovedKeys(err error) error {
 	msg := err.Error()
 	var hints []string
 	for key, hint := range removedKeys {
-		if strings.Contains(msg, "field "+key+" not found") {
-			hints = append(hints, fmt.Sprintf("  `%s:` %s", key, hint))
+		if strings.Contains(msg, "unknown field "+strconv.Quote(key)) {
+			hints = append(hints, fmt.Sprintf("  `%s` %s", key, hint))
 		}
 	}
 	if len(hints) == 0 {

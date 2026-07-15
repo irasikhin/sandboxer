@@ -40,8 +40,8 @@ func listRow(t *testing.T, out, slug string) []string {
 func TestListStateColumn(t *testing.T) {
 	project := sessionProject(t)
 	for _, slug := range []string{"idle", "off"} {
-		cfg := filepath.Join(t.TempDir(), slug+".yaml")
-		if err := os.WriteFile(cfg, []byte("name: "+slug+"\nsrcs: [{src: .}]\n"), 0o644); err != nil {
+		cfg := filepath.Join(t.TempDir(), slug+".nix")
+		if err := os.WriteFile(cfg, []byte("{ name = \""+slug+"\"; srcs = [ { src = \".\"; } ]; }\n"), 0o644); err != nil {
 			t.Fatal(err)
 		}
 		if code, _, errs := run("create", "--src", project, "--config", cfg); code != 0 {

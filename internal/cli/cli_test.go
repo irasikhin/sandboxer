@@ -174,19 +174,29 @@ func TestResolveProfileFile(t *testing.T) {
 		}
 	}
 
-	// -f *.yaml wins; the positional is kept as a slug override.
-	f, p, err := resolveProfileFile("cfg.yaml", ".", "leftover")
-	must("config precedence", "cfg.yaml", "leftover", f, p, err)
+	// -f FILE wins; the positional is kept as a slug override.
+	f, p, err := resolveProfileFile("cfg.nix", ".", "leftover")
+	must("config precedence", "cfg.nix", "leftover", f, p, err)
 
 	dir := t.TempDir()
 	t.Chdir(dir)
-	if err := os.WriteFile("p.yaml", []byte("name: x\n"), 0o644); err != nil {
+	if err := os.WriteFile("p.nix", []byte("{ name = \"x\"; }\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	f, p, err = resolveProfileFile("", ".", "p.yaml")
-	must("positional yaml", "p.yaml", "", f, p, err)
+	f, p, err = resolveProfileFile("", ".", "p.nix")
+	must("positional nix", "p.nix", "", f, p, err)
 
-	if err := os.WriteFile(config.ConfigPath(), []byte("name: y\n"), 0o644); err != nil {
+	// YAML-era arguments get the translate hint instead of a silent slug.
+	if _, _, err := resolveProfileFile("", ".", "old.yaml"); err == nil ||
+		!strings.Contains(err.Error(), "nix now") {
+		t.Errorf("positional yaml = %v, want the nix-now hint", err)
+	}
+	if _, _, err := resolveProfileFile("old.yaml", ".", ""); err == nil ||
+		!strings.Contains(err.Error(), "nix now") {
+		t.Errorf("-f yaml = %v, want the nix-now hint", err)
+	}
+
+	if err := os.WriteFile(config.ConfigPath(), []byte("{ name = \"y\"; }\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	f, p, err = resolveProfileFile("", ".", "")
@@ -212,7 +222,7 @@ func TestResolveProfileFileUsesRoot(t *testing.T) {
 	cfg := config.ConfigPathIn(root)
 
 	// Multi-profile config under root: a positional selects a section, found via root.
-	if err := os.WriteFile(cfg, []byte("profiles:\n  svc:\n    backend: docker\n"), 0o644); err != nil {
+	if err := os.WriteFile(cfg, []byte("{ profiles.svc.backend = \"docker\"; }\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if f, p, err := resolveProfileFile("", root, "svc"); err != nil || f != cfg || p != "svc" {
@@ -224,7 +234,7 @@ func TestResolveProfileFileUsesRoot(t *testing.T) {
 	}
 
 	// Flat config under root: no positional, discovered via root.
-	if err := os.WriteFile(cfg, []byte("name: svc\n"), 0o644); err != nil {
+	if err := os.WriteFile(cfg, []byte("{ name = \"svc\"; }\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if f, _, err := resolveProfileFile("", root, ""); err != nil || f != cfg {
@@ -251,7 +261,7 @@ func requireExec(t *testing.T, names ...string) {
 
 // newProject returns a fresh project dir (plain, no git) with one file, and
 // ensures the in-container guard is off. Auto-scaffold is left enabled — a
-// bare create/enter without a profile writes a default sandboxer.yaml so
+// bare create/enter without a profile writes a default sandboxer.nix so
 // the user never lands in an empty no-profile state.
 func newProject(t *testing.T) string {
 	t.Helper()

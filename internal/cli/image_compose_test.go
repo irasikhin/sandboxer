@@ -258,8 +258,8 @@ func TestComposePrintRunImageVariant(t *testing.T) {
 	project := newProject(t)
 	fakePodman(t)
 	t.Setenv("SANDBOXER_SESSION", "")
-	cfg := filepath.Join(t.TempDir(), "p.yaml")
-	if err := os.WriteFile(cfg, []byte("name: feat\nsrcs: [{src: .}]\nimage:\n  extraPkgs: [ripgrep]\n"), 0o644); err != nil {
+	cfg := filepath.Join(t.TempDir(), "p.nix")
+	if err := os.WriteFile(cfg, []byte("{ name = \"feat\"; srcs = [ { src = \".\"; } ]; image.extraPkgs = [ \"ripgrep\" ]; }\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if code, _, errs := run("create", "--src", project, "--config", cfg); code != 0 {
@@ -308,8 +308,8 @@ func TestBuildImageCommand(t *testing.T) {
 
 	// With a profile (-f): the profile's content-addressed variant tag is
 	// built instead of the stock default (the progress banner names it).
-	cfg := filepath.Join(t.TempDir(), "img.yaml")
-	if err := os.WriteFile(cfg, []byte("name: feat\nsrcs: [{src: .}]\nimage:\n  extraPkgs: [ripgrep]\n"), 0o644); err != nil {
+	cfg := filepath.Join(t.TempDir(), "img.nix")
+	if err := os.WriteFile(cfg, []byte("{ name = \"feat\"; srcs = [ { src = \".\"; } ]; image.extraPkgs = [ \"ripgrep\" ]; }\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	code, _, errs := run("image", "build", "--engine", "podman", "-f", cfg)
@@ -321,9 +321,9 @@ func TestBuildImageCommand(t *testing.T) {
 	}
 
 	// A multi-profile file: the positional names the section to build.
-	multi := filepath.Join(t.TempDir(), "multi.yaml")
+	multi := filepath.Join(t.TempDir(), "multi.nix")
 	if err := os.WriteFile(multi,
-		[]byte("profiles:\n  web:\n    tools: [node]\n  plain: {}\n"), 0o644); err != nil {
+		[]byte("{ profiles = { web.tools = [ \"node\" ]; plain = { }; }; }\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	code, _, errs = run("image", "build", "web", "--engine", "podman", "-f", multi)
@@ -338,8 +338,8 @@ func TestBuildImageCommand(t *testing.T) {
 	}
 
 	// A profile whose image.nix is missing fails spec resolution fast.
-	noNix := filepath.Join(t.TempDir(), "no-nix.yaml")
-	if err := os.WriteFile(noNix, []byte("name: feat\nimage:\n  nix: missing.nix\n"), 0o644); err != nil {
+	noNix := filepath.Join(t.TempDir(), "no-nix.nix")
+	if err := os.WriteFile(noNix, []byte("{ name = \"feat\"; image.nix = \"missing.nix\"; }\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if code, _, errs := run("image", "build", "--engine", "podman", "-f", noNix); code != 1 ||
@@ -348,8 +348,8 @@ func TestBuildImageCommand(t *testing.T) {
 	}
 
 	// A malformed profile file fails the document load.
-	broken := filepath.Join(t.TempDir(), "broken.yaml")
-	if err := os.WriteFile(broken, []byte("image: [not a map\n"), 0o644); err != nil {
+	broken := filepath.Join(t.TempDir(), "broken.nix")
+	if err := os.WriteFile(broken, []byte("{ image = [ \"not-a-map\" ]; }\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if code, _, errs := run("image", "build", "--engine", "podman", "-f", broken); code != 1 || errs == "" {
@@ -441,8 +441,8 @@ func TestBuildImageRevFlags(t *testing.T) {
 
 	// A concrete flag rev is a one-shot override of the profile's "latest" —
 	// no resolver involved, the spec carries the flag's commit.
-	cfg := filepath.Join(t.TempDir(), "p.yaml")
-	if err := os.WriteFile(cfg, []byte("name: feat\nimage:\n  nixpkgsRev: latest\n"), 0o644); err != nil {
+	cfg := filepath.Join(t.TempDir(), "p.nix")
+	if err := os.WriteFile(cfg, []byte("{ name = \"feat\"; image.nixpkgsRev = \"latest\"; }\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	override := strings.Repeat("e", 40)

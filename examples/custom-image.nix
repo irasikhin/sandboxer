@@ -1,42 +1,40 @@
-# image.nix — the user hook a profile's `image:` section points at, imported
-# by the embedded toolbox flake during `sandboxer image build` (or the
-# auto-build on first enter). A function over { pkgs } returning any of FOUR
-# keys: packages, files, env, overlay. The contract is fail-closed — an unknown
-# key aborts the build, so a typo never silently drops a customization.
+# A config with a customized toolbox image (no nix builds on your machine —
+# the builder container does everything; only config EVALUATION uses host nix):
 #
-# Two-phase evaluation: the function is first called with BASE nixpkgs and only
-# `overlay` is read; nixpkgs is then re-imported with the overlay applied, and
-# the function is called again with that final `pkgs` for packages/files/env.
-# So `packages` below already sees the overlay — but the overlay itself cannot
-# reference its own result (no recursive overlays).
-{ pkgs }:
+#   sandboxer image build -f ./examples/custom-image.nix   # build the variant
+#   sandboxer create -f ./examples/custom-image.nix        # or just create +
+#   sandboxer enter  custom-image                          # enter — auto-builds
+#
+# The customization is content-addressed: this profile's sandboxes run
+# sandboxer-toolbox:var-<12hex> (hashed over the input pins, the package set
+# and the hook's content), built on first use and shared by identical
+# profiles. The stock sandboxer-toolbox:latest is untouched.
 {
-  # nixpkgs overlay (phase 1): add or override packages; everything in phase 2
-  # sees the result.
-  overlay = final: prev: {
-    hello-sandboxer = prev.writeShellScriptBin "hello-sandboxer" ''
-      echo "hello from a custom toolbox image"
+  name = "custom-image";
+  backend = "podman";
+  srcs = [ { src = "."; } ];
+
+  image = {
+    # Extra nixpkgs attrs baked into the image (dotted paths allowed).
+    extraPkgs = [ "httpie" ];
+
+    # The image hook INLINE — nix source of a { pkgs }: { packages, files,
+    # env, overlay } function (fail-closed: an unknown key aborts the build).
+    # Two-phase evaluation: `overlay` is read first, nixpkgs is re-imported
+    # with it applied, then the function is called again for the rest.
+    hook = ''
+      { pkgs }:
+      {
+        # overlay = final: prev: {
+        #   hello-sandboxer = prev.writeShellScriptBin "hello-sandboxer" "echo hi";
+        # };
+        # packages = [ pkgs.ripgrep ];
+        # files."/etc/sandboxer/rc.d/10-custom.sh" = "alias hi=hello-sandboxer";
+        # env = { SANDBOX_FLAVOR = "custom"; };
+      }
     '';
-  };
 
-  # Extra store paths baked into the image — `pkgs` has the overlay applied,
-  # so hello-sandboxer (defined above) resolves here.
-  packages = [
-    pkgs.hello-sandboxer
-    pkgs.httpie
-  ];
-
-  # Text files at absolute paths inside the image. /etc/sandboxer/rc.d/*.sh
-  # are the shell's plugin drop-ins, sourced by every interactive shell.
-  files = {
-    "/etc/sandboxer/rc.d/10-custom.sh" = ''
-      alias hi=hello-sandboxer
-    '';
-  };
-
-  # Appended to the image's OCI env; a user variable overrides a same-named
-  # default (last occurrence wins).
-  env = {
-    SANDBOX_FLAVOR = "custom";
+    # Or point at a separate file instead of inlining:
+    # nix = "./my-image-hook.nix";
   };
 }

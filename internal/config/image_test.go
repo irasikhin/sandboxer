@@ -67,15 +67,17 @@ func TestResolveRuntimeRejectsBadImageRev(t *testing.T) {
 func TestImageStrictDecode(t *testing.T) {
 	dir := t.TempDir()
 
-	// Nested image: keys are accepted in the flat form...
-	good := writeFile(t, dir, "good.yaml", `
-image:
-  extraPkgs: [ripgrep, nodePackages.pnpm]
-  nix: image.nix
-  llmAgentsRev: latest
-  nixpkgsRev: abcdef0
+	// Nested image keys are accepted in the flat form...
+	good := writeFile(t, dir, "good.nix", `{
+  image = {
+    extraPkgs = [ "ripgrep" "nodePackages.pnpm" ];
+    nix = "image.nix";
+    llmAgentsRev = "latest";
+    nixpkgsRev = "abcdef0";
+  };
+}
 `)
-	p, err := Load(good)
+	p, err := loadFlat(t, good)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -86,8 +88,8 @@ image:
 		t.Errorf("revs = %+v", p.Image)
 	}
 
-	// ...and inside a profiles: section.
-	multi := writeFile(t, dir, "multi.yaml", "profiles:\n  x:\n    image:\n      extraPkgs: [jq]\n")
+	// ...and inside a profiles section.
+	multi := writeFile(t, dir, "multi.nix", "{ profiles.x.image.extraPkgs = [ \"jq\" ]; }\n")
 	d, err := LoadDocument(multi)
 	if err != nil {
 		t.Fatal(err)
@@ -100,14 +102,14 @@ image:
 		t.Errorf("multi ExtraPkgs = %v", x.Image.ExtraPkgs)
 	}
 
-	// A typo inside image: is rejected by the strict decoder in both forms.
-	badFlat := writeFile(t, dir, "bad-flat.yaml", "image:\n  extraPackages: [jq]\n")
-	if _, err := Load(badFlat); err == nil {
-		t.Error("flat: unknown image key must be rejected (KnownFields)")
+	// A typo inside image is rejected by the strict decoder in both forms.
+	badFlat := writeFile(t, dir, "bad-flat.nix", "{ image.extraPackages = [ \"jq\" ]; }\n")
+	if _, err := LoadDocument(badFlat); err == nil {
+		t.Error("flat: unknown image key must be rejected (strict decode)")
 	}
-	badMulti := writeFile(t, dir, "bad-multi.yaml", "profiles:\n  x:\n    image:\n      nixRev: abc\n")
+	badMulti := writeFile(t, dir, "bad-multi.nix", "{ profiles.x.image.nixRev = \"abc\"; }\n")
 	if _, err := LoadDocument(badMulti); err == nil {
-		t.Error("multi: unknown image key must be rejected (KnownFields)")
+		t.Error("multi: unknown image key must be rejected (strict decode)")
 	}
 }
 
@@ -118,7 +120,7 @@ func TestImageNixPathResolution(t *testing.T) {
 	dir := t.TempDir()
 	cases := []struct {
 		name string
-		nix  string // value written into the yaml
+		nix  string // value written into the config
 		want string // expected after load
 	}{
 		{"relative", "image.nix", filepath.Join(dir, "image.nix")},
@@ -126,32 +128,19 @@ func TestImageNixPathResolution(t *testing.T) {
 		{"absolute passthrough", "/abs/image.nix", "/abs/image.nix"},
 	}
 	for _, c := range cases {
-		f := writeFile(t, dir, Sanitize(c.name)+".yaml", "image:\n  nix: "+c.nix+"\n")
-
-		p, err := Load(f)
+		f := writeFile(t, dir, Sanitize(c.name)+".nix", "{ image.nix = \""+c.nix+"\"; }\n")
+		sel, err := loadFlat(t, f)
 		if err != nil {
-			t.Fatalf("%s: Load: %v", c.name, err)
-		}
-		if p.Image.Nix != c.want {
-			t.Errorf("%s: Load Nix = %q, want %q", c.name, p.Image.Nix, c.want)
-		}
-
-		d, err := LoadDocument(f) // flat path of LoadDocument resolves too
-		if err != nil {
-			t.Fatalf("%s: LoadDocument: %v", c.name, err)
-		}
-		sel, err := d.Select("")
-		if err != nil {
-			t.Fatal(err)
+			t.Fatalf("%s: load: %v", c.name, err)
 		}
 		if sel.Image.Nix != c.want {
-			t.Errorf("%s: LoadDocument Nix = %q, want %q", c.name, sel.Image.Nix, c.want)
+			t.Errorf("%s: Nix = %q, want %q", c.name, sel.Image.Nix, c.want)
 		}
 	}
 
 	// Empty stays empty (no-op, not resolved to the profile dir).
-	empty := writeFile(t, dir, "empty.yaml", "backend: docker\n")
-	p, err := Load(empty)
+	empty := writeFile(t, dir, "empty.nix", "{ backend = \"docker\"; }\n")
+	p, err := loadFlat(t, empty)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -164,15 +153,12 @@ func TestImageNixPathResolutionMulti(t *testing.T) {
 	// Every section of a multi document is resolved, so each profile's relative
 	// image.nix becomes an absolute path anchored at the file's directory.
 	dir := t.TempDir()
-	body := `
-profiles:
-  web:
-    image:
-      nix: web.nix
-  api:
-    backend: docker
-    image:
-      nix: base.nix
+	body := `{
+  profiles = {
+    web = { backend = "podman"; image.nix = "web.nix"; };
+    api = { backend = "docker"; image.nix = "base.nix"; };
+  };
+}
 `
 	f := writeFile(t, dir, ConfigFileName, body)
 	d, err := LoadDocument(f)
@@ -193,4 +179,15 @@ profiles:
 	if want := filepath.Join(dir, "base.nix"); api.Image.Nix != want {
 		t.Errorf("api Nix = %q, want %q", api.Image.Nix, want)
 	}
+}
+
+// loadFlat evaluates a flat config file and selects its single profile — the
+// nix-era stand-in for the retired flat Load helper.
+func loadFlat(t *testing.T, path string) (*Profile, error) {
+	t.Helper()
+	d, err := LoadDocument(path)
+	if err != nil {
+		return nil, err
+	}
+	return d.Select("")
 }

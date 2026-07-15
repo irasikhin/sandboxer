@@ -5,22 +5,24 @@ import (
 	"path/filepath"
 )
 
-// ConfigFileName is the project profile file, committed at the project root
-// next to the code it configures (like docker-compose.yaml).
-const ConfigFileName = "sandboxer.yaml"
+// ConfigFileName is the project config, committed at the project root next
+// to the code it configures. It is a NIX file, evaluated by the host nix
+// under restricted eval (see EvalConfig) — nix on the host is a hard
+// requirement of the CLI.
+const ConfigFileName = "sandboxer.nix"
 
-// ImageNixFileName is the image-customization hook scaffolded beside the
-// config at the project root; the profile's image.nix key points at it by its
-// bare relative name.
-const ImageNixFileName = "sandboxer-image.nix"
+// LegacyYAMLConfigFileName is the retired YAML-era config (v0.24–v0.32). It
+// is no longer read; discovery only prints a translate-by-hand hint when it
+// is present but sandboxer.nix is not.
+const LegacyYAMLConfigFileName = "sandboxer.yaml"
 
-// ConfigPath is the cwd-relative location of the project profile —
-// sandboxer.yaml — used for display and as the default when no project root is
+// ConfigPath is the cwd-relative location of the project config —
+// sandboxer.nix — used for display and as the default when no project root is
 // known.
 func ConfigPath() string { return ConfigFileName }
 
-// ConfigPathIn is the project profile under a given project root (absolute or
-// relative): <root>/sandboxer.yaml. Discovery and scaffolding use it so --src
+// ConfigPathIn is the project config under a given project root (absolute or
+// relative): <root>/sandboxer.nix. Discovery and scaffolding use it so --src
 // (or any explicit project root) locates the config, not just the cwd.
 func ConfigPathIn(root string) string {
 	return filepath.Join(root, ConfigFileName)
@@ -34,7 +36,7 @@ const LegacyStateDirName = ".sandboxer"
 
 // LegacyConfigDirPath is the pre-relocation committed profile path
 // (.sandboxer/config.yaml). Discovery only uses it to print a one-line
-// migration hint when it is present but sandboxer.yaml is not.
+// migration hint when it is present but sandboxer.nix is not.
 func LegacyConfigDirPath() string { return filepath.Join(LegacyStateDirName, "config.yaml") }
 
 // LegacyConfigFileName is the ancient pre-consolidation root-level profile

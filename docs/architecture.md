@@ -14,8 +14,8 @@ can never be committed. The repo carries only two sandboxer-owned files:
 
 ```
 <project-root>/
-├── sandboxer.yaml        # the profile (optional; auto-discovered; committed)
-└── sandboxer-image.nix   # the image hook the profile's image: points at (committed)
+└── sandboxer.nix         # the whole config, image hook inline (auto-discovered;
+                          #   committed; evaluated via host nix, restricted eval)
 
 $XDG_STATE_HOME/sandboxer/<project-id>/     # runtime state, outside the repo
 ├── <slug>/               # one per sandbox: a git worktree on branch feat/<slug>-sb
@@ -52,7 +52,7 @@ Key invariants (`internal/sandbox`, `internal/worktree`):
 ## Sandbox lifecycle
 
 ```
-  init ──────────►  scaffold sandboxer.yaml (+ sandboxer-image.nix)   [optional]
+  init ──────────►  scaffold sandboxer.nix   [optional]
                     │
   create <slug> ──► per srcs entry: git worktree at <slug>/<repo>/ (sparse to
                     │   include patterns); mkdir _home/<slug>; snapshot

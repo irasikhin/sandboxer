@@ -25,40 +25,19 @@ func newImageCmd() *cobra.Command {
 		Short: "Build, edit and remove the toolbox image",
 		Long: `Manage the toolbox image the sandbox runs in.
 
-  sandboxer image build   build it (docker/podman, no host nix needed)
-  sandboxer image edit    edit the ` + config.ImageNixFileName + ` customization hook
-  sandboxer image rm      remove a built image`,
+  sandboxer image build   build it (in a builder container)
+  sandboxer image rm      remove a built image
+
+Customize it from the config: image.extraPkgs, or the inline image.hook
+(edit with 'sandboxer config edit').`,
 	}
-	cmd.AddCommand(newImageBuildCmd(), newImageEditCmd(), newImageRmCmd())
+	cmd.AddCommand(newImageBuildCmd(), newImageRmCmd())
 	return cmd
 }
 
 // backendRemoveImage is the image-removal seam, overridable in tests so
 // `image rm` can be exercised without a real engine.
 var backendRemoveImage = backend.RemoveImage
-
-// newImageEditCmd opens sandboxer-image.nix in $EDITOR, scaffolding the
-// annotated starter hook first when the file does not exist yet — so a user can
-// go straight from "I want a custom image" to editing without hunting for the
-// template.
-func newImageEditCmd() *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   "edit",
-		Short: "Edit " + imageNixPath() + " in $EDITOR (scaffolds it if missing)",
-		Args:  cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			path := imageNixPath()
-			if !fileExists(path) {
-				if err := os.WriteFile(path, []byte(starterImageNix), 0o644); err != nil {
-					return err
-				}
-				fmt.Fprintf(cmd.ErrOrStderr(), "sandboxer: scaffolded %s\n", path)
-			}
-			return openInEditor(cmd, path)
-		},
-	}
-	return cmd
-}
 
 // newImageRmCmd removes a built toolbox image: the stock default image, or —
 // with a profile — that profile's content-addressed variant tag. Idempotent:
@@ -103,8 +82,8 @@ func newImageRmCmd() *cobra.Command {
 }
 
 // openInEditor launches $VISUAL/$EDITOR on path (falling back to vi), wiring the
-// child process to the command's stdio so an interactive editor works. Shared
-// by `image edit` and `config edit`.
+// child process to the command's stdio so an interactive editor works. Used by
+// `config edit`.
 func openInEditor(cmd *cobra.Command, path string) error {
 	editor := firstNonEmpty(os.Getenv("VISUAL"), os.Getenv("EDITOR"))
 	if editor == "" {

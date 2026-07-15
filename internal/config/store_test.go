@@ -19,8 +19,8 @@ func TestProfileName(t *testing.T) {
 func TestListProfiles(t *testing.T) {
 	dir := t.TempDir()
 	// Multi-profile doc: every section listed, default: marked, sorted by name.
-	cfg := writeFile(t, dir, "project.yaml",
-		"default: web\nprofiles:\n  web:\n    backend: docker\n  db:\n    backend: podman\n")
+	cfg := writeFile(t, dir, "project.nix",
+		"{ default = \"web\"; profiles = { web.backend = \"docker\"; db.backend = \"podman\"; }; }\n")
 	got := ListProfiles(cfg)
 	if len(got) != 2 || got[0].Name != "db" || got[1].Name != "web" {
 		t.Fatalf("ListProfiles = %+v, want [db web]", got)
@@ -33,7 +33,7 @@ func TestListProfiles(t *testing.T) {
 	}
 
 	// Flat file: its single profile, flagged as the (sole) default.
-	flat := writeFile(t, dir, "feat.yaml", "backend: docker\n")
+	flat := writeFile(t, dir, "feat.nix", "{ backend = \"docker\"; }\n")
 	if got := ListProfiles(flat); len(got) != 1 || got[0].Name != "feat" || !got[0].IsDefault {
 		t.Errorf("flat ListProfiles = %+v", got)
 	}
@@ -42,10 +42,10 @@ func TestListProfiles(t *testing.T) {
 	if got := ListProfiles(""); got != nil {
 		t.Errorf("empty path = %+v, want nil", got)
 	}
-	if got := ListProfiles(dir + "/nope.yaml"); got != nil {
+	if got := ListProfiles(dir + "/nope.nix"); got != nil {
 		t.Errorf("missing file = %+v, want nil", got)
 	}
-	bad := writeFile(t, dir, "bad.yaml", "bogusField: 1\n")
+	bad := writeFile(t, dir, "bad.nix", "{ bogusField = 1; }\n")
 	if got := ListProfiles(bad); got != nil {
 		t.Errorf("unparseable file = %+v, want nil", got)
 	}

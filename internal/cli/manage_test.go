@@ -223,8 +223,8 @@ func TestCleanEngineLessHost(t *testing.T) {
 func TestRmRuntimeErrorOnlyWarns(t *testing.T) {
 	project := newProject(t)
 	fakePodman(t)
-	cfg := filepath.Join(t.TempDir(), "p.yaml")
-	profile := "name: feat\nnetwork:\n  allowedDomains: [\"not a domain\"]\n"
+	cfg := filepath.Join(t.TempDir(), "p.nix")
+	profile := "{ name = \"feat\"; network.allowedDomains = [ \"not a domain\" ]; }\n"
 	if err := os.WriteFile(cfg, []byte(profile), 0o644); err != nil {
 		t.Fatal(err)
 	}

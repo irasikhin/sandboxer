@@ -133,10 +133,11 @@ The agent runs inside a podman/docker container built from the toolbox image
 (the agents baked in — see 'sandboxer agents'); each sandbox has its own
 isolated home, and network, proxy and credentials are wired per-config.
 
-Config: flags + SANDBOXER_* env, with an optional sandboxer.yaml for
-structured fields (srcs, extraMounts, env, setup, tools, image). A profile file
-can hold one profile or several under a profiles: map (pick a section with
-'create <name>').
+Config: flags + SANDBOXER_* env, plus sandboxer.nix for the structured fields
+(srcs, extraMounts, env, setup, tools, image — evaluated with a restricted nix
+eval; nix on the host is required). One profile per file, or several under a
+profiles attrset (pick a section with 'create <name>'); reuse between profiles
+is ordinary nix (let/functions).
 
 Tips:
   • 'sandboxer use <slug>' sets an active sandbox so you can omit the slug after.

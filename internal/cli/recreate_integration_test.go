@@ -26,8 +26,8 @@ func TestRecreate_Container_KeepsHome_RealEngine(t *testing.T) {
 
 	project := newProject(t)
 	t.Setenv("HOME", t.TempDir())
-	cfg := filepath.Join(t.TempDir(), "sbx.yaml")
-	if err := os.WriteFile(cfg, []byte("name: feat\nbackend: "+engine+"\n"), 0o644); err != nil {
+	cfg := filepath.Join(t.TempDir(), "sbx.nix")
+	if err := os.WriteFile(cfg, []byte("{ name = \"feat\"; backend = \""+engine+"\"; srcs = [ { src = \".\"; } ]; }\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 

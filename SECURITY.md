@@ -3,7 +3,7 @@
 ## Supported Versions
 
 sandboxer is pre-1.0; the CLI flags and on-disk layout still change between minor
-versions (the `sandboxer.yaml` schema is evolving — this line of releases
+versions (the `sandboxer.nix` schema is evolving — this line of releases
 removed several knobs; a config using a retired key fails with a migration hint).
 
 While pre-1.0, **only the latest `0.x` release** receives security fixes — there
@@ -94,12 +94,14 @@ important — where it stops.
   source (`srcs branch:` naming your existing checkout) is your live tree,
   mounted rw by explicit request — there is no isolation from it.
 
-- **`setup:` and the image hook run arbitrary code.** A profile's `setup:` is a
-  shell script run in the sandbox, and `sandboxer-image.nix` executes nix code
-  at image-build time. A committed `sandboxer.yaml` therefore carries
-  **executable content** — treat it as code. Do not `create`/`enter` an untrusted
-  repo's sandbox without reading its `sandboxer.yaml`/`sandboxer-image.nix`
-  first; the image hook runs on the host's build engine.
+- **The config is code.** `sandboxer.nix` is EVALUATED on the host — under a
+  restricted eval (no network access, imports/reads only inside the config's
+  own directory), so it cannot exfiltrate or fetch, but it is still a program.
+  Beyond that, `setup` is a shell script run in the sandbox and the image hook
+  (`image.hook`/`image.nix`) executes nix code at image-build time inside the
+  builder container. A committed `sandboxer.nix` therefore carries
+  **executable content** on three levels — treat it as code and read an
+  untrusted repo's config before `create`/`enter`.
 
 - **`extraMounts` are read-write by default.** An `extraMounts` entry grants the
   agent access to that host path — **rw unless you set `mode: ro`**. Scope them
