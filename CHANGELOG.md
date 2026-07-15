@@ -6,6 +6,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.34.0] — 2026-07-15
+
+### Added
+
+- rename the network block to egress with an enabled toggle (57db7ed)
+
+### Fixed
+
+- reach platform.claude.com by default so Claude Code connects (cd626d8)
+
+
 ## [0.33.1] — 2026-07-15
 
 ### Fixed
@@ -301,3 +312,4 @@ isolated, containerized dev sandbox, on a local Linux machine:
 [0.32.0]: https://github.com/irasikhin/sandboxer/compare/v0.31.0...v0.32.0
 [0.33.0]: https://github.com/irasikhin/sandboxer/compare/v0.32.0...v0.33.0
 [0.33.1]: https://github.com/irasikhin/sandboxer/compare/v0.33.0...v0.33.1
+[0.34.0]: https://github.com/irasikhin/sandboxer/compare/v0.33.1...v0.34.0
