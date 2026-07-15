@@ -119,7 +119,7 @@ is left behind. Use --cache to keep a nix-store volume for faster rebuilds.`,
 	}
 	fl := cmd.Flags()
 	fl.StringVar(&engineFlag, "engine", "", "container engine: docker | podman (default: auto-detect)")
-	fl.StringVarP(&configPath, "config", "f", "", "profile: a file, a directory of profiles, or a named profile (store: ~/.config/sandboxer/profiles)")
+	fl.StringVarP(&configPath, "config", "f", "", "profile file (default: the project sandboxer.yaml; pick a profiles: section by name)")
 	fl.StringVar(&nixImage, "nix-image", "", "builder image (default: pinned "+toolbox.NixImage+")")
 	fl.BoolVar(&cache, "cache", false, "keep a persistent nix-store volume for faster rebuilds")
 	fl.BoolVar(&keepBuilder, "keep-builder", false, "keep the nixos/nix builder image afterward")
@@ -135,9 +135,9 @@ is left behind. Use --cache to keep a nix-store volume for faster rebuilds.`,
 // backendRun seam's sibling.
 var toolboxBuild = toolbox.BuildImage
 
-// buildImageProfile resolves image build's optional profile — a named profile,
-// a profile file/directory (-f), or a section of a multi-profile file —
-// through the same chain enter/exec use. No argument and no -f mean no
+// buildImageProfile resolves image build's optional profile — a profile file
+// (-f) or a section of the project's multi-profile config — through the same
+// chain enter/exec use. No argument and no -f mean no
 // profile: the stock default image is built, deliberately NOT auto-discovering
 // sandboxer.yaml so a bare `sandboxer image build` keeps today's behavior.
 func buildImageProfile(configPath, pos string) (*config.Profile, error) {
@@ -149,8 +149,8 @@ func buildImageProfile(configPath, pos string) (*config.Profile, error) {
 		return nil, err
 	}
 	if file == "" {
-		return nil, fmt.Errorf("no profile %q (a *.yaml file, a named profile in %s, or a section of %s)",
-			pos, config.ProfilesDir(), config.ConfigPath())
+		return nil, fmt.Errorf("no profile %q (a *.yaml file, or a profiles: section of %s)",
+			pos, config.ConfigPath())
 	}
 	doc, err := config.LoadDocument(file)
 	if err != nil {

@@ -163,9 +163,6 @@ func TestSplitDash(t *testing.T) {
 
 func TestResolveProfileFile(t *testing.T) {
 	t.Setenv("SANDBOXER_IN_CONTAINER", "")
-	// Hermetic store: an empty dir until a case populates it.
-	store := t.TempDir()
-	t.Setenv("SANDBOXER_PROFILES", store)
 
 	must := func(label, wantFile, wantPos, gotFile, gotPos string, err error) {
 		t.Helper()
@@ -199,26 +196,10 @@ func TestResolveProfileFile(t *testing.T) {
 	f, p, err = resolveProfileFile("", ".", "slug")
 	must("non-yaml positional", "", "slug", f, p, err)
 
-	// A named profile from the global store, by positional and by -f NAME.
-	web := filepath.Join(store, "web.yaml")
-	if err := os.WriteFile(web, []byte("name: web\nbackend: docker\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	f, p, err = resolveProfileFile("", ".", "web")
-	must("store by positional", web, "", f, p, err)
-	f, p, err = resolveProfileFile("web", ".", "")
-	must("store by -f name", web, "", f, p, err)
-
-	// -f DIR selects by name; an unknown name errors with the listing.
-	envs := t.TempDir()
-	api := filepath.Join(envs, "api.yaml")
-	if err := os.WriteFile(api, []byte("name: api\nbackend: podman\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	f, p, err = resolveProfileFile(envs, ".", "api")
-	must("dir by name", api, "", f, p, err)
-	if _, _, err := resolveProfileFile(envs, ".", "nope"); err == nil {
-		t.Error("unknown profile in -f dir should error")
+	// -f DIR is refused: profiles live in one config file.
+	if _, _, err := resolveProfileFile(t.TempDir(), ".", "api"); err == nil ||
+		!strings.Contains(err.Error(), "one config file") {
+		t.Errorf("-f dir = %v, want the one-config-file refusal", err)
 	}
 }
 
@@ -275,9 +256,6 @@ func requireExec(t *testing.T, names ...string) {
 func newProject(t *testing.T) string {
 	t.Helper()
 	t.Setenv("SANDBOXER_IN_CONTAINER", "")
-	// Isolate the global profile store so a bare slug never resolves to a
-	// host-installed named profile.
-	t.Setenv("SANDBOXER_PROFILES", t.TempDir())
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "f.txt"), []byte("v1\n"), 0o644); err != nil {
 		t.Fatal(err)

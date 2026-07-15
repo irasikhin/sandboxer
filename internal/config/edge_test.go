@@ -46,13 +46,3 @@ func TestResolveRuntimeValidation(t *testing.T) {
 		t.Error("ResolveRuntime(https proxy + egress on) = nil error, want error")
 	}
 }
-
-func TestProfilesDirNoHome(t *testing.T) {
-	t.Setenv("SANDBOXER_PROFILES", "")
-	t.Setenv("XDG_CONFIG_HOME", "")
-	t.Setenv("HOME", "") // os.UserHomeDir errors → "" returned
-
-	if got := ProfilesDir(); got != "" {
-		t.Errorf("ProfilesDir() with no HOME = %q, want \"\"", got)
-	}
-}

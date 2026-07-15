@@ -19,13 +19,12 @@ func stubSessionOrphans(t *testing.T, orphans []string, err error) {
 	sessionOrphans = func(engine string) ([]string, error) { return orphans, err }
 }
 
-// doctorEnv gives doctor an engine and an isolated profile store/cwd. The
+// doctorEnv gives doctor an engine and an isolated cwd. The
 // engine enumeration is pinned to podman so a real docker on the host cannot
 // add extra session rows.
 func doctorEnv(t *testing.T) {
 	t.Helper()
 	t.Setenv("SANDBOXER_IN_CONTAINER", "")
-	t.Setenv("SANDBOXER_PROFILES", t.TempDir())
 	fakePodman(t)
 	stubInstalledEngines(t, []string{"podman"})
 	t.Chdir(t.TempDir())

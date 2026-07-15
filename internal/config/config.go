@@ -34,7 +34,7 @@ type Src struct {
 	// Src is the path to the repository's top-level directory ("." = the
 	// project itself). Relative paths resolve against the PROJECT ROOT
 	// (--src, default cwd) — one rule regardless of where the profile file
-	// lives (project root, -f path, or the named-profile store).
+	// lives (project root or an explicit -f path).
 	Src string `yaml:"src" json:"src"`
 	// Include are gitignore-syntax patterns (non-cone sparse-checkout:
 	// "/services/api/", "*.md", "!…") selecting what the sandbox sees. Empty
@@ -208,7 +208,7 @@ type Profile struct {
 
 // Load reads and parses a single flat YAML profile from disk. Multi-profile
 // documents (a `profiles:` map) are handled by LoadDocument; Load is the flat
-// path used by the named-profile store, where one file is one profile.
+// one-file-one-profile path.
 func Load(file string) (*Profile, error) {
 	data, err := os.ReadFile(file)
 	if err != nil {

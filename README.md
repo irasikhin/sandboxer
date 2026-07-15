@@ -86,11 +86,10 @@ sandboxer rm     feat                     # delete the sandbox and its session (
 ```
 
 A profile is optional (empty = the whole repo). To narrow the sandbox or add
-setup/tools/env, drop a `sandboxer.yaml` in the cwd (auto-discovered),
-pass one with `-f` (a file, a directory of profiles, or a
-[named profile](#named-profiles) from `~/.config/sandboxer/profiles/`), or refer
-to a stored profile by name; the sandbox slug then comes from the profile's
-`name:`.
+setup/tools/env, edit the `sandboxer.yaml` in the cwd (auto-discovered) or pass
+another file with `-f`; several profiles live in ONE file under a `profiles:`
+map and are picked by name (`create <name>`). The sandbox slug comes from the
+profile's `name:`.
 
 Commands group into three activities (also shown that way in `--help`): forming
 the **image** (`sandboxer image build|edit|rm`) and **config**
@@ -160,11 +159,10 @@ defaults; `pids` (a `--pids-limit`, bounding fork-bomb blast radius) is
 profile-only. Empty means uncapped.
 
 Structured fields (`srcs`, `extraMounts`, `env`, `setup`, `tools`, `image`, `limits`) live in an **optional**
-`sandboxer.yaml`. Point at it with `-f`/`--config`, which accepts a **file**, a
-**directory** of profiles, or the **name** of a profile in the store (see
-[Named profiles](#named-profiles)); with nothing given, a `sandboxer.yaml` in
-the cwd is auto-discovered. See `examples/config.yaml`,
-`examples/with-srcs.yaml` and `examples/profiles/`.
+`sandboxer.yaml`. With nothing given, the `sandboxer.yaml` in the cwd is
+auto-discovered; `-f`/`--config` points at another profile **file**. Several
+profiles live in one file under a `profiles:` map. See `examples/config.yaml`,
+`examples/with-srcs.yaml` and `examples/multi-profile.yaml`.
 
 > `sandboxer.yaml` and `sandboxer-image.nix` are meant to be **committed**
 > with your repo — don't gitignore them (`sandboxer doctor` warns when a
@@ -277,8 +275,8 @@ The contract is two-phase: `overlay` is read from a first call with base
 nixpkgs, then the function is called again with the overlay'd `pkgs` for
 `packages`/`files`/`env` — packages see the overlay, but the overlay cannot
 reference its own result. Full commented example:
-[examples/profiles/custom-image.yaml](./examples/profiles/custom-image.yaml) +
-[image.nix](./examples/profiles/image.nix).
+[examples/custom-image.yaml](./examples/custom-image.yaml) +
+[custom-image.nix](./examples/custom-image.nix).
 
 `llmAgentsRev`/`nixpkgsRev` move the image's flake-input pins — e.g. pick up
 newer agents without waiting for a sandboxer release. A full 40-hex commit
@@ -312,36 +310,10 @@ default: api               # sandboxer create   (no name → api)
 ```
 
 `sandboxer create <name>` selects the section by name (that name becomes the
-sandbox slug); a name that matches no section falls back to the store / a plain
-slug. With no name, `create` uses the `default:` (or sole) profile.
-
-### Named profiles
-
-Keep reusable profiles as files and select them by **name** instead of by path.
-A profile's name is its file's base name (`web.yaml` → `web`) unless the file
-sets an explicit `name:`, which wins. A name resolves project config → store:
-
-```bash
-sandboxer create ./feat.yaml          # an explicit file
-sandboxer create api  -f ./envs        # the profile named "api" inside a directory
-sandboxer create web                   # a named profile from the global store
-sandboxer profile list                 # list the store; `profile list -f ./envs` lists a dir
-```
-
-The global store is **`~/.config/sandboxer/profiles/`** (override with
-`$SANDBOXER_PROFILES`, or it follows `$XDG_CONFIG_HOME`). A bare positional that
-matches a stored profile is used as that profile (its `name:` becomes the slug);
-otherwise it stays a plain sandbox slug, so existing `create feat` usage is
-unchanged. `-f`/`--config` works the same on `create`, `enter`, `exec` and
-`show`.
-
-A stored profile is used **whole** — there is no config-level inheritance or
-merging between files. The effective precedence for a resolved setting is,
-high → low:
-
-```
-flags  >  profile  >  SANDBOXER_* env  >  built-in
-```
+sandbox slug); a name that matches no section stays a plain slug. With no
+name, `create` uses the `default:` (or sole) profile. An explicit file also
+works: `sandboxer create ./feat.yaml` or `-f other.yaml`; `sandboxer profile
+list` shows the file's sections.
 
 ## Egress allowlist (container backend)
 

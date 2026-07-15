@@ -8,7 +8,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -34,7 +33,7 @@ type commonFlags struct {
 func bindExisting(cmd *cobra.Command, f *commonFlags) {
 	fl := cmd.Flags()
 	fl.StringVar(&f.src, "src", "", "project root (default: cwd)")
-	fl.StringVarP(&f.config, "config", "f", "", "profile: a file, a directory of profiles, or a named profile (store: ~/.config/sandboxer/profiles)")
+	fl.StringVarP(&f.config, "config", "f", "", "profile file (default: the project sandboxer.yaml; pick a profiles: section by name)")
 	fl.StringVarP(&f.sandbox, "sandbox", "S", "", "sandbox slug")
 	fl.StringVar(&f.backend, "backend", "", "backend: docker | podman")
 	fl.StringVar(&f.domains, "allow-domains", "", "egress allowlist, csv (e.g. api.anthropic.com,github.com)")
@@ -48,13 +47,13 @@ type target struct {
 	json    []byte          // profile JSON when loaded from a file (for storing)
 }
 
-// resolveProfileFile selects the profile to load and returns it together with
-// the leftover positional and any resolution error. Precedence:
+// resolveProfileFile selects the profile file and returns it together with
+// the leftover positional and any resolution error. Profiles live in ONE
+// config file (several as its profiles: sections) — there is no directory
+// scan and no global store. Precedence:
 //
 //	-f/--config FILE   → that file (the positional is kept as a slug override)
-//	-f/--config DIR    → the profile the positional names inside DIR
-//	-f/--config NAME   → a named profile from the global store
-//	positional NAME    → a named profile: project config → store
+//	positional NAME    → the project config, when it has a section of that name
 //	positional *.yaml  → that file
 //	sandboxer.yaml     → auto-discovered under the project root (--src or cwd)
 //
@@ -63,37 +62,17 @@ type target struct {
 func resolveProfileFile(configPath, root, pos string) (string, string, error) {
 	if configPath != "" {
 		if isDir(configPath) {
-			file, err := selectFromDir(configPath, pos)
-			return file, "", err
-		}
-		// Not an existing file and not a *.yaml path → try the named store.
-		if !fileExists(configPath) && !isYAML(configPath) {
-			file, err := config.FindProfile(config.ProfilesDir(), configPath)
-			if err != nil {
-				return "", pos, err
-			}
-			if file != "" {
-				return file, pos, nil
-			}
+			return "", pos, fmt.Errorf("-f %s is a directory — profiles live in one config file; "+
+				"point -f at a *.yaml (several profiles go under its profiles: map)", configPath)
 		}
 		return configPath, pos, nil
 	}
 	// A bare positional first tries to name a profile in the project's
 	// sandboxer.yaml — a multi-profile section or a flat file whose single
-	// profile is named pos (project-local wins over the global store). This is
-	// what lets a re-`enter <slug>` re-read an edited project file instead of the
-	// frozen snapshot.
+	// profile is named pos. This is what lets a re-`enter <slug>` re-read an
+	// edited project file instead of the frozen snapshot.
 	if pos != "" && !isYAML(pos) && !inContainer() && config.FileHasProfile(config.ConfigPathIn(root), pos) {
 		return config.ConfigPathIn(root), pos, nil
-	}
-	if pos != "" && !isYAML(pos) {
-		file, err := config.FindProfile(config.ProfilesDir(), pos)
-		if err != nil {
-			return "", pos, err
-		}
-		if file != "" {
-			return file, "", nil
-		}
 	}
 	if pos != "" && isYAML(pos) && fileExists(pos) {
 		return pos, "", nil
@@ -128,40 +107,6 @@ func legacyConfigHint(w io.Writer, root string) {
 		fmt.Fprintf(w, "sandboxer: found legacy %s — move it to %s (it is no longer read here)\n",
 			legacy, config.ConfigPathIn(root))
 	}
-}
-
-// selectFromDir picks a profile by name from a directory of profiles. An empty
-// name is allowed only when the directory holds exactly one profile; otherwise
-// it errors with the available names.
-func selectFromDir(dir, name string) (string, error) {
-	refs := config.ListProfilesIn(dir)
-	if len(refs) == 0 {
-		return "", fmt.Errorf("no profiles (*.yaml) in %s", dir)
-	}
-	if name == "" {
-		if len(refs) == 1 {
-			return refs[0].Path, nil
-		}
-		return "", fmt.Errorf("name a profile in %s (have: %s)", dir, profileNames(refs))
-	}
-	file, err := config.FindProfile(dir, name)
-	if err != nil {
-		return "", err
-	}
-	if file == "" {
-		return "", fmt.Errorf("no profile %q in %s (have: %s)", name, dir, profileNames(refs))
-	}
-	return file, nil
-}
-
-// profileNames renders the sorted profile names for an error/listing message.
-func profileNames(refs []config.ProfileRef) string {
-	names := make([]string, len(refs))
-	for i, r := range refs {
-		names[i] = r.Name
-	}
-	sort.Strings(names)
-	return strings.Join(names, ", ")
 }
 
 // resolveTarget reproduces the bash resolve_target + base resolution: it picks

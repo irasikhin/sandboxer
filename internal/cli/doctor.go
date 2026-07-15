@@ -107,19 +107,6 @@ Run this after a fresh install or when something isn't working.`,
 					name, status, a.Bin, a.Image == nil || *a.Image)
 			}
 
-			// Profile store.
-			pd := config.ProfilesDir()
-			if pd != "" {
-				refs := config.ListProfilesIn(pd)
-				if len(refs) > 0 {
-					fmt.Fprintf(tw, "profile store %s\t✓\t%d profile(s)\n", pd, len(refs))
-					ok++
-				} else {
-					fmt.Fprintf(tw, "profile store %s\t-\tempty (drop .yaml files here for named profiles)\n", pd)
-					ok++
-				}
-			}
-
 			// Project config at the repo root.
 			cfgPath := config.ConfigPath()
 			switch {

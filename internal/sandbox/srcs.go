@@ -111,7 +111,7 @@ func (b *Base) resolveSrcs(slug string, specs []config.Src, w io.Writer) ([]Sour
 		}
 		if !filepath.IsAbs(path) {
 			// Relative srcs paths resolve against the PROJECT ROOT — one rule
-			// regardless of where the profile file lives (root, -f, store).
+			// regardless of where the profile file lives (root or -f).
 			path = filepath.Join(b.Src, path)
 		}
 		path = filepath.Clean(path)

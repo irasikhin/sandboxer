@@ -14,7 +14,6 @@ import (
 func isolateGlobals(t *testing.T) {
 	t.Helper()
 	t.Setenv("SANDBOXER_IN_CONTAINER", "")
-	t.Setenv("SANDBOXER_PROFILES", t.TempDir())
 }
 
 // TestConfigSetGetUnsetFlat: the end-to-end round trip on a scaffolded flat

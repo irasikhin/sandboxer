@@ -16,7 +16,6 @@ import (
 // opting out keeps the no-profile path.
 func TestRunAutoScaffold(t *testing.T) {
 	t.Setenv("SANDBOXER_IN_CONTAINER", "")
-	t.Setenv("SANDBOXER_PROFILES", t.TempDir())
 
 	project := t.TempDir()
 	gitInitProject(t, project)
@@ -161,7 +160,6 @@ func TestLegacyConfigHint(t *testing.T) {
 // default at the project root.
 func TestAutoScaffoldHintsLegacy(t *testing.T) {
 	t.Setenv("SANDBOXER_IN_CONTAINER", "")
-	t.Setenv("SANDBOXER_PROFILES", t.TempDir())
 	project := t.TempDir()
 	gitInitProject(t, project)
 	if err := os.WriteFile(filepath.Join(project, config.LegacyConfigFileName), []byte("name: old\n"), 0o644); err != nil {
@@ -306,7 +304,6 @@ func TestCleanNonexistent(t *testing.T) {
 // self-contained section.
 func TestRunMultiProfileSelect(t *testing.T) {
 	t.Setenv("SANDBOXER_IN_CONTAINER", "")
-	t.Setenv("SANDBOXER_PROFILES", t.TempDir()) // isolate the global store
 	project := t.TempDir()
 	gitInitProject(t, project)
 	t.Chdir(project)
@@ -360,7 +357,6 @@ func TestCompletion(t *testing.T) {
 
 func TestDoctor(t *testing.T) {
 	t.Setenv("SANDBOXER_IN_CONTAINER", "")
-	t.Setenv("SANDBOXER_PROFILES", t.TempDir())
 
 	code, out, _ := run("doctor")
 	if code != 0 {
@@ -377,19 +373,13 @@ func TestDoctor(t *testing.T) {
 
 // TestDoctorPopulated exercises the branches that need a populated environment:
 // an agent found via its auth env var (not a config dir), a non-empty profile
-// store, and a parseable config file in cwd.
+// and a parseable config file in cwd.
 func TestDoctorPopulated(t *testing.T) {
-	// given: empty HOME (no agent auth-config dirs match) but a creds env var set,
-	// a profile store holding one profile, and a valid config in cwd.
+	// given: empty HOME (no agent auth-config dirs match) but a creds env var
+	// set, and a valid config in cwd.
 	t.Setenv("SANDBOXER_IN_CONTAINER", "")
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("ANTHROPIC_API_KEY", "test-key") // claude → found via AuthEnv
-
-	pd := t.TempDir()
-	if err := os.WriteFile(filepath.Join(pd, "demo.yaml"), []byte("name: demo\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("SANDBOXER_PROFILES", pd)
 
 	cwd := t.TempDir()
 	t.Chdir(cwd)
@@ -404,9 +394,6 @@ func TestDoctorPopulated(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("doctor = %d", code)
 	}
-	if !strings.Contains(out, "profile(s)") {
-		t.Errorf("doctor output missing populated profile-store line:\n%s", out)
-	}
 	if !strings.Contains(out, "parses ok") {
 		t.Errorf("doctor output missing config-parses-ok line:\n%s", out)
 	}
@@ -416,7 +403,6 @@ func TestDoctorPopulated(t *testing.T) {
 // .sandboxer/config.yaml) is flagged as a legacy location to migrate.
 func TestDoctorLegacyConfig(t *testing.T) {
 	t.Setenv("SANDBOXER_IN_CONTAINER", "")
-	t.Setenv("SANDBOXER_PROFILES", t.TempDir())
 	t.Chdir(t.TempDir())
 	if err := os.WriteFile(config.LegacyConfigFileName, []byte("name: old\n"), 0o644); err != nil {
 		t.Fatal(err)
@@ -436,7 +422,6 @@ func TestDoctorLegacyConfig(t *testing.T) {
 func TestDoctorConfigParseError(t *testing.T) {
 	// given: a malformed config file in cwd
 	t.Setenv("SANDBOXER_IN_CONTAINER", "")
-	t.Setenv("SANDBOXER_PROFILES", t.TempDir())
 	t.Chdir(t.TempDir())
 	if err := os.WriteFile(config.ConfigPath(), []byte("name: [unterminated\n"), 0o644); err != nil {
 		t.Fatal(err)
@@ -461,7 +446,6 @@ func TestDoctorConfigParseError(t *testing.T) {
 // with an empty PATH so engine detection finds nothing.
 func TestDoctorNoEngine(t *testing.T) {
 	t.Setenv("SANDBOXER_IN_CONTAINER", "")
-	t.Setenv("SANDBOXER_PROFILES", t.TempDir())
 	t.Setenv("PATH", "") // no podman/docker discoverable
 
 	code, out, _ := run("doctor")

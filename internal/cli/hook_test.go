@@ -78,7 +78,6 @@ func TestHookDirenvOutsideProject(t *testing.T) {
 
 func TestHookDirenvEscapesSpecialPaths(t *testing.T) {
 	t.Setenv("SANDBOXER_IN_CONTAINER", "")
-	t.Setenv("SANDBOXER_PROFILES", t.TempDir())
 	// A project root containing a space and a single quote must survive eval.
 	parent := t.TempDir()
 	project := filepath.Join(parent, "my proj's dir")

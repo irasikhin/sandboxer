@@ -298,7 +298,7 @@ func TestBuildImageNoEngine(t *testing.T) {
 
 func TestBuildImageCommand(t *testing.T) {
 	requireExec(t, "sh")
-	newProject(t) // sets IN_CONTAINER off, isolates profile store
+	newProject(t) // sets IN_CONTAINER off
 	fakePodman(t) // podman on PATH, exits 0 for every subcommand
 
 	// With a no-op engine, build → load → (no retag) all succeed.

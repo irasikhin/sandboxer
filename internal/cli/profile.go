@@ -15,10 +15,11 @@ func newProfileCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "profile",
 		Short: "Select and list profiles",
-		Long: `Work with profiles — the named sections a sandbox is created from.
+		Long: `Work with profiles — the named sections a sandbox is created from
+(they all live in one config file, under its profiles: map).
 
   sandboxer profile use [slug]   select/show the active sandbox (alias of 'use')
-  sandboxer profile list         list profiles (project + global + store)
+  sandboxer profile list         list the config file's profiles
 
 The config file itself is managed by 'sandboxer config'
 (init/edit/validate/get/set/unset).`,
