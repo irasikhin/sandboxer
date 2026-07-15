@@ -150,17 +150,16 @@
                 navigate = true
           '';
 
-          # System tmux config baked into the image: every tmux window reuses
-          # the rc.sh launcher (so panes get the sandboxer prompt/aliases), and
-          # Ctrl-q detaches — the session keeps running for a later re-enter.
-          tmuxConf = pkgs.writeTextDir "etc/sandboxer/tmux.conf" ''
+          # System tmux config at /etc/tmux.conf — tmux reads it by default, so
+          # an OPT-IN `tmux` inside the sandbox is configured out of the box
+          # (sandboxer itself no longer starts or attaches any multiplexer):
+          # panes reuse the rc.sh launcher for the sandboxer prompt/aliases.
+          tmuxConf = pkgs.writeTextDir "etc/tmux.conf" ''
             set -g default-command "bash -c 'test -r /etc/sandboxer/rc.sh && exec bash --rcfile /etc/sandboxer/rc.sh -i || exec bash -i'"
             set -g default-terminal "tmux-256color"
             set -g history-limit 10000
             set -g mouse on
-            bind -n C-q detach-client
             set -g status-left '[sbx #{session_name}] '
-            set -g status-right 'Ctrl-q: detach'
           '';
         in
         {
@@ -195,8 +194,11 @@
                 delta
                 gnumake
                 unzip
-                # persistent sessions: tmux server + the terminfo it needs
+                # OPT-IN terminal multiplexers — sandboxer does not start or
+                # attach them; run tmux or zellij yourself for detachable
+                # panes — plus the terminfo they need
                 tmux
+                zellij
                 ncurses
               ])
               ++ agentPkgs
@@ -221,6 +223,9 @@
               Env = [
                 "PATH=/bin"
                 "SSL_CERT_FILE=${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt"
+                # UTF-8 by default: agent TUIs and tmux need a UTF-8 locale or
+                # glyphs degrade to '_' (glibc ships C.UTF-8 unconditionally).
+                "LANG=C.UTF-8"
               ]
               ++ userEnv;
             };

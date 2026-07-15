@@ -151,6 +151,7 @@ func TestRunArgvExact(t *testing.T) {
 		"--workdir", "/d", "--volume", "/d:/d:rw",
 		"--env", "SANDBOXER_IN_CONTAINER=1",
 		"--env", "SANDBOXER_SLUG=s", "--env", "SANDBOXER_SANDBOX_DIR=/d",
+		"--env", "LANG=C.UTF-8",
 		"--env", "HOME=/h", "--volume", "/h:/h:rw",
 		"--add-host=host.docker.internal:host-gateway",
 		"--add-host=host.containers.internal:host-gateway",

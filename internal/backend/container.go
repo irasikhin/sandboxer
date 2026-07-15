@@ -181,6 +181,11 @@ func commonArgs(o RunOpts, egNet, egProxyURL string) []string {
 		"--workdir", o.Dest, "--volume", o.Dest+":"+o.Dest+":rw",
 		"--env", "SANDBOXER_IN_CONTAINER=1",
 		"--env", "SANDBOXER_SLUG="+o.Slug, "--env", "SANDBOXER_SANDBOX_DIR="+o.Dest,
+		// A UTF-8 locale by default: the image is locale-less, and without one
+		// tmux downgrades every non-ASCII glyph to '_' (agent TUIs turn to
+		// underscores on reattach). The profile's env is appended later and
+		// the last --env occurrence wins, so a user LANG overrides this.
+		"--env", "LANG=C.UTF-8",
 	)
 	// $HOME is the sandbox-private agent home, bound at its own host path. It is
 	// isolated per sandbox (see sandbox.Base.HomeDir): the host's real home is
