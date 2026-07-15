@@ -20,7 +20,7 @@ buildGoModule {
 
   src = lib.cleanSource ./..;
 
-  vendorHash = "sha256-lQRNHkOq/SOSG4pdcT8muvdL+seMsuBWT7O+LegewmA=";
+  vendorHash = "sha256-komX1AmHt2NoF1x6xsNa2RFkfVzOXfYEMPhT0zwMxjw=";
 
   subPackages = [ "cmd/sandboxer" ];
 
