@@ -89,6 +89,12 @@ was extracted from:
   deleted). Teardown removes managed worktrees only and KEEPS branches (`recreate --full`
   deletes just the ones sandboxer minted — recorded per source). **git-only:** a non-git source is rejected
   with an init hint; non-git trees come in via `extraMounts`.
+  **Remote srcs** (`internal/worktree/remote.go`): a `src` that is a git URL
+  (`IsRemoteURL`: https/ssh/git/file scheme or scp-like `git@host:path`) is CLONED once into
+  `<stateDir>/_remotes/<name>-<hash>/` (detached HEAD so every branch is free for `worktree add`), then treated
+  as a normal local repo — `RepoRoot` = the cache. Clone-once: `resolveSrcs` clones if absent; `recreate`
+  re-fetches (`RefreshRemotes` → `worktree.Fetch`, ff-safe). `branch:` on a remote → `PrepareBranch` checks out
+  `origin/<branch>`. The cache is kept across teardown (shared, like a local repo), wiped by `clean`.
 - **Egress** (`internal/egress`): outbound traffic is restricted to an allowlist
   (`egress.allowedDomains` / `--allow-domains`) through a **squid** sidecar (the `sandboxer-proxy` image, built
   beside the toolbox image; `config.ProxyImage()`) running a generated `squid.conf` — the binary is never in the

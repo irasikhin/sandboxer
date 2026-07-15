@@ -36,10 +36,14 @@ type Mount struct {
 // each becomes its own host-side git worktree; only the selected files are
 // visible inside the container (git itself never is).
 type Src struct {
-	// Src is the path to the repository's top-level directory ("." = the
-	// project itself). Relative paths resolve against the PROJECT ROOT
-	// (--src, default cwd) — one rule regardless of where the profile file
-	// lives (project root or an explicit -f path).
+	// Src is the repository — either a local path to its top-level directory
+	// ("." = the project itself; relative paths resolve against the PROJECT
+	// ROOT, --src/default cwd, regardless of where the profile file lives), OR
+	// a git URL (https://, ssh://, git://, file://, or scp-like
+	// git@host:org/repo). A URL is cloned once into a host-side cache under the
+	// state dir and worktree'd from there exactly like a local repo; the clone
+	// uses the host's git credentials and never enters the container. Review and
+	// push its branch on the host (git -C <worktree> push origin feat/<slug>-sb).
 	Src string `json:"src"`
 	// Include narrows what the CONTAINER sees of this source to the listed
 	// directories — each a literal anchored repo-relative path ("/services/api",

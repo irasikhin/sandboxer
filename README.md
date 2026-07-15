@@ -39,20 +39,27 @@ is copied.
 - **Sandbox** — a set of sources materialized as git worktrees under one dir.
 - **slug** — a short sandbox name (`feat`, `bugfix-auth`, …), set at `create`.
 - **srcs** — the sources, always explicit: each entry is `src:` (path to a
-  repo root — relative to the project root, so other repos work too), a
-  REQUIRED `branch:` (the branch the worktree lives on — it also names the
-  worktree's directory; a branch already checked out elsewhere is adopted
-  as-is) and an optional `include:` (directory paths or patterns — only the
-  selected directories exist in the container). The scaffold seeds
+  repo root — relative to the project root, so other repos work too — **or a
+  git URL**), a REQUIRED `branch:` (the branch the worktree lives on — it also
+  names the worktree's directory; a branch already checked out elsewhere is
+  adopted as-is) and an optional `include:` (directory paths or patterns — only
+  the selected directories exist in the container). The scaffold seeds
   `srcs = [ { src = "."; branch = "feat/<name>"; } ]` — this repo, whole.
   Editing srcs applies on the next `enter`/`exec` — a running session sees the
   change live, no recreate.
+- **remote srcs** — a `src` that is a git URL (`https://`, `ssh://`, `git://`,
+  `file://`, or `git@host:org/repo`) is **cloned once** into a host-side cache
+  under the state dir and worktree'd from there, exactly like a local repo. The
+  clone uses your host git credentials and never enters the container;
+  `branch:` checks out that remote branch. `recreate` re-fetches; `clean` wipes
+  the cache.
 - **review** — on the HOST, per source repo: `git -C <repo> log <branch>`,
-  `git add`/`commit` in the worktree, then merge or cherry-pick.
+  `git add`/`commit` in the worktree, then merge or cherry-pick (for a remote,
+  `git -C <repo> push origin <branch>`).
 
-sandboxer is **git-only**: every `src` must be a git repo with at least one
-commit (`git init && git add -A && git commit -m init`). Non-git trees come in
-via `extraMounts`.
+sandboxer is **git-only**: every `src` must be a git repo (a local one needs at
+least one commit — `git init && git add -A && git commit -m init`). Non-git
+trees come in via `extraMounts`.
 
 Isolation backend — a **docker / podman** container built from a toolbox image
 with the agents baked in (claude, opencode, crush, aider, pi, gemini) plus an
@@ -257,15 +264,25 @@ profiles live in one file under a `profiles` attrset. See `examples/config.nix`,
 }
 ```
 
-Each `srcs` entry is a repo (`src` — `.` or a path to another repo's root)
-narrowed by `include` — **a list of directories** (`/src/proto`, `/shared/lib`;
-anchored at the repo root, trailing slash optional; omit for the whole repo —
-or an ant-style directory pattern: `/services/*/`, `**/proto/`, where a whole
-`**` segment matches any depth) — and pinned to a **required** `branch` —
-naming a branch whose worktree already exists (even your main checkout)
-**adopts** it instead of creating one. Editing
-`srcs` applies on the next `enter`/`exec` and is visible to a **running**
-session immediately. To bring in **non-git** trees, use `extraMounts`.
+Each `srcs` entry is a repo (`src` — `.`, a path to another repo's root, or a
+**git URL** that is cloned once into a host-side cache and re-fetched by
+`recreate`) narrowed by `include` — **a list of directories** (`/src/proto`,
+`/shared/lib`; anchored at the repo root, trailing slash optional; omit for the
+whole repo — or an ant-style directory pattern: `/services/*/`, `**/proto/`,
+where a whole `**` segment matches any depth) — and pinned to a **required**
+`branch` — for a local repo, naming a branch whose worktree already exists
+(even your main checkout) **adopts** it instead of creating one; for a remote,
+it checks out that branch from `origin`. Editing `srcs` applies on the next
+`enter`/`exec` and is visible to a **running** session immediately. To bring in
+**non-git** trees, use `extraMounts`.
+
+```nix
+srcs = [
+  { src = "."; branch = "feat/api"; include = [ "/services/api/" ]; }
+  { src = "https://github.com/org/proto"; branch = "main"; }   # remote → cloned
+  { src = "git@github.com:org/lib"; branch = "next"; }         # remote branch
+];
+```
 
 `include` narrows **what the container sees, and nothing else**: the host's
 worktree is always a complete checkout, so your IDE opens the branch and

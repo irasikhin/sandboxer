@@ -91,6 +91,10 @@ full reset.`,
 					return err
 				}
 			}
+			// Refresh remote sources from origin (recreate is the clone-once
+			// refresh point). Best-effort: a fetch failure keeps the cached copy
+			// and still rebuilds, so an offline recreate works.
+			_ = t.base.RefreshRemotes(t.slug, cmd.ErrOrStderr())
 			if err := t.base.MakeSandbox(t.slug, cmd.ErrOrStderr()); err != nil {
 				return err
 			}

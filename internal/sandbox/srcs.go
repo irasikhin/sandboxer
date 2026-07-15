@@ -34,6 +34,11 @@ type Source struct {
 	// first sync); recreate --full deletes only these — a branch that existed
 	// before the sandbox is never deleted.
 	AutoBranch bool `json:"autoBranch,omitempty"`
+	// Remote is the git URL this source was cloned from, when the srcs entry
+	// named a URL rather than a local path. Empty for a local source. RepoRoot
+	// then points at the host-side cache clone under _remotes/ (kept across
+	// teardown, wiped by clean).
+	Remote string `json:"remote,omitempty"`
 }
 
 // Name is the label this source is addressed by within its sandbox: the
@@ -117,6 +122,62 @@ func (b *Base) detachedDir(slug string) string {
 	return filepath.Join(b.worktreesRoot(slug), "_detached")
 }
 
+// remotesDir holds host-side clones of remote sources (srcs whose src is a git
+// URL). Each URL is cloned once into <name>-<hash>/ and reused as an ordinary
+// local repo — sandbox worktrees are cut off it exactly as for a local src.
+// Kept across a sandbox teardown (shared, like a local repo); `clean` wipes it
+// with the rest of the state dir.
+func (b *Base) remotesDir() string { return filepath.Join(b.Dir, "_remotes") }
+
+// ensureRemoteCache returns the host-side cache clone for a remote src URL,
+// cloning it on first use (clone-once: a present clone is reused as-is, so
+// enter/exec stay fast and offline — recreate is what re-fetches, see
+// RefreshRemotes). name is the derived repo basename for the worktree dir.
+func (b *Base) ensureRemoteCache(url string, w io.Writer) (cacheDir, name string, err error) {
+	name = worktree.RepoName(url)
+	cacheDir = filepath.Join(b.remotesDir(), name+"-"+shortPathHash(url))
+	if _, _, ok := worktree.Detect(cacheDir); ok {
+		return cacheDir, name, nil
+	}
+	if err := os.MkdirAll(b.remotesDir(), 0o755); err != nil {
+		return "", "", err
+	}
+	_ = os.RemoveAll(cacheDir) // clear any half-finished earlier clone
+	if err := worktree.Clone(url, cacheDir, w); err != nil {
+		_ = os.RemoveAll(cacheDir)
+		return "", "", err
+	}
+	return cacheDir, name, nil
+}
+
+// RefreshRemotes fetches every remote source's cache clone for slug (recreate's
+// clone-once refresh point). Best-effort per source so an offline or moved
+// remote does not block rebuilding the rest; the first hard error is returned
+// after attempting all. Sources are read from the stored profile.
+func (b *Base) RefreshRemotes(slug string, w io.Writer) error {
+	var firstErr error
+	seen := map[string]bool{}
+	for _, spec := range b.profileSrcs(slug) {
+		if !worktree.IsRemoteURL(spec.Src) || seen[spec.Src] {
+			continue
+		}
+		seen[spec.Src] = true
+		cacheDir := filepath.Join(b.remotesDir(), worktree.RepoName(spec.Src)+"-"+shortPathHash(spec.Src))
+		if _, _, ok := worktree.Detect(cacheDir); !ok {
+			continue // not cloned yet — resolveSrcs will clone it fresh
+		}
+		if err := worktree.FetchCache(cacheDir, w); err != nil {
+			if w != nil {
+				fmt.Fprintf(w, "sandboxer: refresh %s failed: %v (keeping the cached copy)\n", worktree.RepoName(spec.Src), err)
+			}
+			if firstErr == nil {
+				firstErr = err
+			}
+		}
+	}
+	return firstErr
+}
+
 // profileSrcs reads the srcs list from the sandbox's stored profile.json.
 // There is no implicit default — an absent profile or empty list is rejected
 // by resolveSrcs (the scaffolded config seeds an explicit src + branch).
@@ -189,6 +250,42 @@ func (b *Base) resolveSrcs(slug string, specs []config.Src, prev []Source, w io.
 		path := spec.Src
 		if path == "" {
 			return nil, errors.New("srcs entry with an empty src — every entry needs src: <path-to-repo>")
+		}
+		if worktree.IsRemoteURL(spec.Src) {
+			// Remote source: clone into the host-side cache (once), then treat the
+			// cache exactly like a local repo — a managed worktree under <slug>/.
+			cacheDir, _, err := b.ensureRemoteCache(spec.Src, w)
+			if err != nil {
+				return nil, fmt.Errorf("srcs entry %q: %w", spec.Src, err)
+			}
+			if seenRepo[cacheDir] {
+				return nil, fmt.Errorf("srcs entry %q: remote %s listed twice", spec.Src, spec.Src)
+			}
+			seenRepo[cacheDir] = true
+
+			// From here the cache clone IS the repo: branch is required and the
+			// worktree path is assigned by assignManagedPaths, exactly as for a
+			// local source. A remote can never be "already checked out
+			// elsewhere" — the cache is ours — so there is no adopt branch.
+			if spec.Branch == "" {
+				return nil, fmt.Errorf("srcs entry %q: branch is required — every source names its "+
+					"branch explicitly, e.g. { src = %q; branch = \"main\"; }", spec.Src, spec.Src)
+			}
+			// Check out origin/<branch> when the remote has it, so branch: names
+			// an UPSTREAM branch instead of forking a new one off the default.
+			worktree.PrepareBranch(cacheDir, spec.Branch)
+			src := Source{RepoRoot: cacheDir, Include: spec.Include, Remote: spec.Src,
+				Branch: spec.Branch, Managed: true}
+			if err := worktree.ValidBranch(cacheDir, src.Branch); err != nil {
+				return nil, fmt.Errorf("srcs entry %q: %w", spec.Src, err)
+			}
+			if p, ok := recorded[cacheDir]; ok && p.Branch == src.Branch {
+				src.AutoBranch = p.AutoBranch
+			} else {
+				src.AutoBranch = !worktree.BranchExists(cacheDir, src.Branch)
+			}
+			out = append(out, src)
+			continue
 		}
 		if !filepath.IsAbs(path) {
 			// Relative srcs paths resolve against the PROJECT ROOT — one rule
