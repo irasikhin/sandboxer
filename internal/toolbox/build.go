@@ -241,8 +241,12 @@ func builderArgv(o BuildOpts, ctxDir, outDir, cacheVol string) []string {
 // `#image` derivation from the mounted /src flake and copy the realized image
 // tarball to the bind-mounted /out. `--accept-flake-config` applies the
 // embedded flake's nixConfig (the llm-agents binary cache, restated there
-// because nix ignores an input's nixConfig) so no agent compiles from source;
-// `--no-write-lock-file` keeps the read-only /src untouched. A rev override
+// because nix ignores an input's nixConfig) so no agent compiles from source —
+// but that extra cache must never WEDGE a build: connect-timeout/
+// stalled-download-timeout fail an unreachable or stalling substituter fast
+// (nix's defaults hang for minutes on a geo-blocked mirror), and fallback
+// lets nix carry on via cache.nixos.org or a source build instead of
+// aborting. `--no-write-lock-file` keeps the read-only /src untouched. A rev override
 // becomes an --override-input flag only when it differs from the embedded pin
 // — when the effective rev IS the pin the script stays byte-identical to a
 // stock build, so nix's eval cache is shared. Revs are full 40-hex commits
@@ -263,7 +267,9 @@ func builderScript(refresh bool, nixpkgsRev, llmAgentsRev string) string {
 	// Build BOTH the toolbox image and the egress squid proxyImage in one nix
 	// invocation (shared eval), copying each realized tarball to /out.
 	nixBuild := "nix --extra-experimental-features 'nix-command flakes' " +
-		"--accept-flake-config build " + flags + "--no-write-lock-file --no-link --print-out-paths "
+		"--accept-flake-config " +
+		"--option connect-timeout 5 --option stalled-download-timeout 30 --option fallback true " +
+		"build " + flags + "--no-write-lock-file --no-link --print-out-paths "
 	return "set -e; " +
 		nixBuild + "path:/src#image > /out/storepath && " +
 		`cp -L "$(cat /out/storepath)" /out/image.tar.gz && ` +
