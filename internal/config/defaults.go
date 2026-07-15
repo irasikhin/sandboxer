@@ -58,8 +58,12 @@ const DefaultProxyImage = "sandboxer-proxy:latest"
 func ProxyImage() string { return envOr("SANDBOXER_PROXY_IMAGE", DefaultProxyImage) }
 
 // DefaultDomains is the egress allowlist used when none is configured: AI API
-// endpoints plus common package registries across ecosystems.
-const DefaultDomains = "api.anthropic.com,api.openai.com,api.deepseek.com," +
+// endpoints plus common package registries across ecosystems. The Anthropic set
+// covers the API plus the auth/config endpoints Claude Code v2.x reaches on
+// startup (platform.claude.com, console.anthropic.com) — omitting them leaves
+// the CLI unable to connect even though api.anthropic.com is allowed.
+const DefaultDomains = "api.anthropic.com,platform.claude.com,console.anthropic.com," +
+	"api.openai.com,api.deepseek.com," +
 	"generativelanguage.googleapis.com,openrouter.ai,registry.npmjs.org,pypi.org," +
 	"files.pythonhosted.org,repo.maven.apache.org,repo1.maven.org,central.sonatype.com," +
 	"plugins.gradle.org,services.gradle.org,crates.io,static.crates.io,index.crates.io," +
