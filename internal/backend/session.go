@@ -225,20 +225,6 @@ func ImageFresh(got, want string) bool {
 	return strings.TrimPrefix(got, "sha256:") == strings.TrimPrefix(want, "sha256:")
 }
 
-// sessionIdle reports whether no client is attached to the session's shared
-// in-container tmux server (`tmux -L sandboxer`). Best-effort BY DESIGN: it
-// only sees clients that attached through that tmux server — a raw
-// `podman exec` shell is invisible to it — so "idle" is an informed guess used
-// to choose between recreate and refuse, not a lock. Any error (no tmux server
-// started yet, engine hiccup) or an empty client list counts as idle.
-func sessionIdle(engine, name string) bool {
-	out, err := exec.Command(engine, "exec", name, "tmux", "-L", "sandboxer", "list-clients").Output()
-	if err != nil {
-		return true
-	}
-	return strings.TrimSpace(string(out)) == ""
-}
-
 // sessionAction is planSession's verdict on how to converge a session.
 type sessionAction int
 
@@ -246,25 +232,25 @@ const (
 	actCreate   sessionAction = iota // no container — create one
 	actStart                         // stopped container, fresh config — start it
 	actExec                          // running container, fresh config — use as-is
-	actRecreate                      // config changed and nobody attached — replace it
-	actRefuse                        // config changed but the session is busy — error out
+	actRecreate                      // config changed — replace it (announced)
 )
 
-// planSession is the pure session-lifecycle policy: given what exists (info),
-// what the caller wants (wantHash + wantImageID) and whether anyone is
-// attached (idle), it picks the one action that converges the session. Fresh
-// means the recorded config hash matches AND the container still runs the
-// image the engine would use today (ImageFresh — a rebuilt image under an
-// unchanged tag keeps the hash but flips the ID; either ID unknown skips that
-// half). Engine-free so the whole decision table is unit-testable:
+// planSession is the pure session-lifecycle policy: given what exists (info)
+// and what the caller wants (wantHash + wantImageID), it picks the one action
+// that converges the session. Fresh means the recorded config hash matches
+// AND the container still runs the image the engine would use today
+// (ImageFresh — a rebuilt image under an unchanged tag keeps the hash but
+// flips the ID; either ID unknown skips that half). A stale session is always
+// recreated (with a notice): sandboxer no longer tracks in-container clients
+// — multiplexing and long-running work are the user's own tmux/zellij
+// business. Engine-free so the decision table is unit-testable:
 //
-//	not found               → create
-//	stopped + fresh         → start
-//	stopped + stale         → recreate
-//	running + fresh         → exec
-//	running + stale + idle  → recreate
-//	running + stale + busy  → refuse
-func planSession(info SessionInfo, wantHash, wantImageID string, idle bool) sessionAction {
+//	not found        → create
+//	stopped + fresh  → start
+//	stopped + stale  → recreate
+//	running + fresh  → exec
+//	running + stale  → recreate
+func planSession(info SessionInfo, wantHash, wantImageID string) sessionAction {
 	fresh := info.Hash == wantHash && ImageFresh(info.ImageID, wantImageID)
 	switch {
 	case !info.Exists:
@@ -276,10 +262,8 @@ func planSession(info SessionInfo, wantHash, wantImageID string, idle bool) sess
 		return actRecreate
 	case fresh:
 		return actExec
-	case idle:
-		return actRecreate
 	default:
-		return actRefuse
+		return actRecreate
 	}
 }
 
@@ -317,27 +301,13 @@ func EnsureSession(o RunOpts) (string, error) {
 	if info.Exists {
 		wantImage = ImageID(o.Engine, o.Image)
 	}
-	fresh := info.Hash == hash && ImageFresh(info.ImageID, wantImage)
-	// Idleness only matters on the running+stale branch; skip the engine call
-	// otherwise.
-	idle := false
-	if info.Running && !fresh {
-		idle = sessionIdle(o.Engine, name)
-	}
 
-	switch action := planSession(info, hash, wantImage, idle); action {
+	switch action := planSession(info, hash, wantImage); action {
 	case actExec, actStart:
 		// Adoption health-check: a configuration-fresh container whose egress
 		// proxy died or vanished has no outbound path — treat it as stale and
-		// rebuild both together, under the same busy guard as any stale
-		// session: a running container with clients attached is never torn
-		// down silently (a stopped one cannot have clients, so actStart
-		// recreates without probing).
+		// rebuild both together (announced, like any recreate).
 		if needEgress && !reviveEgress(o.Engine, name, action) {
-			if action == actExec && !sessionIdle(o.Engine, name) {
-				return "", fmt.Errorf("session %s: its egress proxy is gone but other clients are attached — "+
-					"detach them first, or rerun with --ephemeral", name)
-			}
 			notice(o.Stderr, "recreating session: egress proxy is gone")
 			return recreateSession(o, name, hash)
 		}
@@ -348,9 +318,6 @@ func EnsureSession(o RunOpts) (string, error) {
 			return "", fmt.Errorf("start session %s: %w", name, err)
 		}
 		return name, nil
-	case actRefuse:
-		return "", fmt.Errorf("session %s is stale (%s) but other clients are attached — "+
-			"detach them first, or rerun with --ephemeral", name, staleReason(info, hash))
 	case actRecreate:
 		notice(o.Stderr, "recreating session: "+staleReason(info, hash))
 		return recreateSession(o, name, hash)

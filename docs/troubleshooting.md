@@ -73,7 +73,7 @@ over. A failed setup is **fatal by default**, so the `enter`/`exec` aborts.
 
 ## Persistent session won't reattach
 
-`enter` attaches to a persistent session container (tmux inside); a later `enter`
+`enter` shells into a persistent session container; a later `enter`
 reattaches (full semantics: README "Persistent sessions"). A session survives
 client disconnects but **not** a host/engine restart.
 

@@ -67,6 +67,7 @@ func TestCreateArgv(t *testing.T) {
 		"--workdir", "/d", "--volume", "/d:/d:rw",
 		"--env", "SANDBOXER_IN_CONTAINER=1",
 		"--env", "SANDBOXER_SLUG=s", "--env", "SANDBOXER_SANDBOX_DIR=/d",
+		"--env", "LANG=C.UTF-8",
 		"--env", "HOME=/d/.home", "--volume", "/d/.home:/d/.home:rw",
 		"--userns=keep-id",
 		"--add-host=host.docker.internal:host-gateway",
@@ -269,28 +270,28 @@ func TestPlanSession(t *testing.T) {
 		{false, true, false, true, actCreate},
 		{false, true, true, false, actCreate},
 		{false, true, true, true, actCreate},
-		// Stopped: start when fresh, recreate when stale (idleness irrelevant —
-		// nothing can be attached to a stopped container).
+		// Stopped: start when fresh, recreate when stale.
 		{true, false, false, false, actRecreate},
 		{true, false, false, true, actRecreate},
 		{true, false, true, false, actStart},
 		{true, false, true, true, actStart},
-		// Running: exec when fresh; stale recreates only when idle, else refuse.
-		{true, true, false, false, actRefuse},
+		// Running: exec when fresh; stale always recreates (sandboxer tracks
+		// no in-container clients — multiplexing is the user's own business).
+		{true, true, false, false, actRecreate},
 		{true, true, false, true, actRecreate},
 		{true, true, true, false, actExec},
 		{true, true, true, true, actExec},
 	}
 	for _, r := range rows {
 		info := SessionInfo{Exists: r.exists, Running: r.running, Hash: hash(r.fresh)}
-		if got := planSession(info, want, "", r.idle); got != r.action {
-			t.Errorf("planSession(exists=%v running=%v fresh=%v idle=%v) = %d, want %d",
-				r.exists, r.running, r.fresh, r.idle, got, r.action)
+		if got := planSession(info, want, ""); got != r.action {
+			t.Errorf("planSession(exists=%v running=%v fresh=%v) = %d, want %d",
+				r.exists, r.running, r.fresh, got, r.action)
 		}
 	}
 	// A missing hash label ("" — e.g. a container from an older version) is
 	// stale, never fresh.
-	if got := planSession(SessionInfo{Exists: true, Running: false}, want, "", false); got != actRecreate {
+	if got := planSession(SessionInfo{Exists: true, Running: false}, want, ""); got != actRecreate {
 		t.Errorf("missing hash label = %d, want actRecreate", got)
 	}
 }
@@ -305,30 +306,29 @@ func TestPlanSessionImageStaleness(t *testing.T) {
 	rows := []struct {
 		desc           string
 		got, wantImage string
-		running, idle  bool
+		running        bool
 		action         sessionAction
 	}{
-		{"running idle rebuilt", "old", "new", true, true, actRecreate},
-		{"running busy rebuilt", "old", "new", true, false, actRefuse},
-		{"stopped rebuilt", "old", "new", false, false, actRecreate},
-		{"container ID unknown", "", "new", true, false, actExec},
-		{"image absent locally", "old", "", true, false, actExec},
-		{"prefix-tolerant match", "sha256:abc", "abc", true, false, actExec},
+		{"running rebuilt", "old", "new", true, actRecreate},
+		{"stopped rebuilt", "old", "new", false, actRecreate},
+		{"container ID unknown", "", "new", true, actExec},
+		{"image absent locally", "old", "", true, actExec},
+		{"prefix-tolerant match", "sha256:abc", "abc", true, actExec},
 	}
 	for _, r := range rows {
 		info := SessionInfo{Exists: true, Running: r.running, Hash: want, ImageID: r.got}
-		if got := planSession(info, want, r.wantImage, r.idle); got != r.action {
+		if got := planSession(info, want, r.wantImage); got != r.action {
 			t.Errorf("%s: planSession = %d, want %d", r.desc, got, r.action)
 		}
 	}
 	// A stopped container with a matching hash and image simply starts.
 	info := SessionInfo{Exists: true, Hash: want, ImageID: "abc"}
-	if got := planSession(info, want, "sha256:abc", false); got != actStart {
+	if got := planSession(info, want, "sha256:abc"); got != actStart {
 		t.Errorf("stopped fresh-by-image = %d, want actStart", got)
 	}
 	// A stale hash dominates: the image matching cannot make a session fresh.
 	info = SessionInfo{Exists: true, Running: true, Hash: "h-stale", ImageID: "abc"}
-	if got := planSession(info, want, "abc", true); got != actRecreate {
+	if got := planSession(info, want, "abc"); got != actRecreate {
 		t.Errorf("stale hash with a fresh image = %d, want actRecreate", got)
 	}
 }
@@ -424,30 +424,6 @@ func TestInspectSession(t *testing.T) {
 	// One inspect call per InspectSession, reading state + hash label + image
 	// ID together.
 	want := `container inspect --format {{.State.Running}} {{index .Config.Labels "sandboxer.hash"}} {{.Image}} n`
-	if lines := engineLog(t, logPath); !hasLine(lines, want) {
-		t.Errorf("engine log missing %q:\n%s", want, strings.Join(lines, "\n"))
-	}
-}
-
-func TestSessionIdle(t *testing.T) {
-	requireExec(t, "sh")
-	engine, logPath := sessionEngine(t)
-
-	t.Setenv("SBX_EXEC_OUT", "")
-	if !sessionIdle(engine, "n") {
-		t.Error("empty client list should be idle")
-	}
-	t.Setenv("SBX_EXEC_OUT", "client0: /dev/pts/3 [80x24 xterm]")
-	if sessionIdle(engine, "n") {
-		t.Error("an attached tmux client should not be idle")
-	}
-	// Any error (no tmux server yet, engine hiccup) counts as idle by design.
-	t.Setenv("SBX_FAIL_ON", "exec")
-	if !sessionIdle(engine, "n") {
-		t.Error("a failing probe should fall back to idle")
-	}
-
-	want := "exec n tmux -L sandboxer list-clients"
 	if lines := engineLog(t, logPath); !hasLine(lines, want) {
 		t.Errorf("engine log missing %q:\n%s", want, strings.Join(lines, "\n"))
 	}
@@ -562,22 +538,18 @@ func TestEnsureSessionRecreateStale(t *testing.T) {
 		}
 	})
 
-	t.Run("running and idle", func(t *testing.T) {
+	t.Run("running", func(t *testing.T) {
 		engine, logPath := sessionEngine(t)
 		o := sessionOpts(engine)
 		name := SessionName("s", "/b")
 
 		t.Setenv("SBX_INSPECT_OUT", "true deadbeef")
-		t.Setenv("SBX_EXEC_OUT", "") // no tmux clients → idle
 		if got, err := EnsureSession(o); err != nil || got != name {
 			t.Fatalf("EnsureSession = (%q, %v), want (%q, nil)", got, err, name)
 		}
 		lines := engineLog(t, logPath)
-		if !hasLine(lines, "exec "+name+" tmux -L sandboxer list-clients") {
-			t.Errorf("idleness was not probed:\n%s", strings.Join(lines, "\n"))
-		}
 		if !hasLine(lines, "rm -f "+name) || findPrefixLine(lines, "run -d --init") == "" {
-			t.Errorf("idle stale session was not replaced:\n%s", strings.Join(lines, "\n"))
+			t.Errorf("running stale session was not replaced:\n%s", strings.Join(lines, "\n"))
 		}
 	})
 
@@ -589,23 +561,6 @@ func TestEnsureSessionRecreateStale(t *testing.T) {
 		t.Setenv("SBX_FAIL_ON", "rm")
 		if _, err := EnsureSession(o); err == nil || !strings.Contains(err.Error(), "remove stale session") {
 			t.Errorf("rm failure = %v, want a remove stale session error", err)
-		}
-	})
-
-	t.Run("running and busy refuses", func(t *testing.T) {
-		engine, logPath := sessionEngine(t)
-		o := sessionOpts(engine)
-
-		t.Setenv("SBX_INSPECT_OUT", "true deadbeef")
-		t.Setenv("SBX_EXEC_OUT", "client0: /dev/pts/3")
-		_, err := EnsureSession(o)
-		if err == nil || !strings.Contains(err.Error(), "profile changed") ||
-			!strings.Contains(err.Error(), "--ephemeral") {
-			t.Fatalf("busy stale session = %v, want a refusal pointing at --ephemeral", err)
-		}
-		lines := engineLog(t, logPath)
-		if findPrefixLine(lines, "rm -f") != "" || findPrefixLine(lines, "run -d") != "" {
-			t.Errorf("refusal must not touch the session:\n%s", strings.Join(lines, "\n"))
 		}
 	})
 }
@@ -637,25 +592,6 @@ func TestEnsureSessionImageRebuilt(t *testing.T) {
 		lines := engineLog(t, logPath)
 		if !hasLine(lines, "rm -f "+name) || findPrefixLine(lines, "run -d --init") == "" {
 			t.Errorf("image-stale session was not replaced:\n%s", strings.Join(lines, "\n"))
-		}
-	})
-
-	t.Run("running and busy refuses", func(t *testing.T) {
-		engine, logPath := sessionEngine(t)
-		o := sessionOpts(engine)
-		hash := ConfigHash(o, "", "")
-
-		t.Setenv("SBX_IMAGE_ID", "newimg")
-		t.Setenv("SBX_INSPECT_OUT", "true "+hash+" oldimg")
-		t.Setenv("SBX_EXEC_OUT", "client0: /dev/pts/3")
-		_, err := EnsureSession(o)
-		if err == nil || !strings.Contains(err.Error(), "image rebuilt") ||
-			!strings.Contains(err.Error(), "--ephemeral") {
-			t.Fatalf("busy image-stale session = %v, want a refusal pointing at --ephemeral", err)
-		}
-		lines := engineLog(t, logPath)
-		if findPrefixLine(lines, "rm -f") != "" || findPrefixLine(lines, "run -d") != "" {
-			t.Errorf("refusal must not touch the session:\n%s", strings.Join(lines, "\n"))
 		}
 	})
 
@@ -757,25 +693,6 @@ func TestEnsureSessionEgress(t *testing.T) {
 		lines := engineLog(t, logPath)
 		if !hasLine(lines, "rm -f "+name) || findPrefixLine(lines, "run -d --init") == "" {
 			t.Errorf("dead proxy should rebuild the session:\n%s", strings.Join(lines, "\n"))
-		}
-	})
-
-	t.Run("dead proxy with attached clients refuses", func(t *testing.T) {
-		engine, logPath := sessionEngine(t)
-		o, _, hash := egressOpts(t, engine)
-
-		t.Setenv("SBX_INSPECT_OUT", "true "+hash) // fresh container…
-		// …whose proxy is missing (SBX_PROXY_RUNNING unset) while a client is
-		// attached: same busy guard as the stale path — refuse, never rm -f.
-		t.Setenv("SBX_EXEC_OUT", "client0: /dev/pts/3")
-		_, err := EnsureSession(o)
-		if err == nil || !strings.Contains(err.Error(), "egress proxy is gone") ||
-			!strings.Contains(err.Error(), "--ephemeral") {
-			t.Fatalf("busy session with a dead proxy = %v, want a refusal pointing at --ephemeral", err)
-		}
-		lines := engineLog(t, logPath)
-		if findPrefixLine(lines, "rm -f") != "" || findPrefixLine(lines, "run -d") != "" {
-			t.Errorf("refusal must not touch the session:\n%s", strings.Join(lines, "\n"))
 		}
 	})
 

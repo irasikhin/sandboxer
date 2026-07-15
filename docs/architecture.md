@@ -61,7 +61,7 @@ Key invariants (`internal/sandbox`, `internal/worktree`):
   enter / exec ───► run the agent inside the container:
                     │   • bring up the egress allowlist sidecar (unless disabled)
                     │   • run the one-time `setup:` if its hash changed
-                    │   • attach (persistent tmux session) or one-shot
+                    │   • shell into the persistent session container, or one-shot
                     ▼
   review ─────────► per source, ON THE HOST: git -C <repo> log feat/<slug>-sb,
                     │   commit in the worktree, git diff / merge / cherry-pick
@@ -75,7 +75,8 @@ Key invariants (`internal/sandbox`, `internal/worktree`):
 
 Notes:
 
-- `enter` attaches to a **persistent session container** (tmux inside); `exec`
+- `enter` shells into a **persistent session container** (no managed
+  multiplexer — tmux/zellij ship in the image as opt-in tools); `exec`
   reuses a running session; `stop` parks it; `rm` removes it. Full semantics
   and escape hatches: README "Persistent sessions"; decisions:
   [sessions-design.md](./sessions-design.md).

@@ -123,14 +123,17 @@ branch you set via `srcs branch:`).
 
 ## Persistent sessions
 
-By default `enter` attaches to a **persistent session container** (tmux
-inside): **Ctrl-q detaches**, the session — and any agent running in it —
-keeps going, and a later `sandboxer enter feat` reattaches (`--session <name>`
-opens extra tmux sessions in the same container). `exec` reuses a running
-session; `stop` parks the container for a later resume; `rm` removes it along
-with the sandbox. `list`'s STATE column shows `running`/`stopped`/`-` per
-sandbox. When the profile changes or the toolbox image is rebuilt, the next
-`enter` recreates an idle session (and refuses while others are attached).
+By default `enter` opens a shell in a **persistent session container**:
+exiting the shell keeps the container running, and a later `sandboxer enter
+feat` drops back into it; a second terminal can enter the same container in
+parallel. sandboxer does **not** manage terminal multiplexing — run your own
+**tmux or zellij**, outside around `enter` or inside the sandbox (both ship in
+the toolbox image, configured and ready). `exec` reuses a running session;
+`stop` parks the container for a later resume; `rm` removes it along with the
+sandbox. `list`'s STATE column shows `running`/`stopped`/`-` per sandbox. When
+the profile changes or the toolbox image is rebuilt, the next `enter`
+recreates the session (announced — anything still running inside is gone, so
+finish or park long jobs first).
 
 Escape hatches back to one-shot containers: `--ephemeral` (enter/exec),
 `session: ephemeral` in the profile, or `SANDBOXER_SESSION=ephemeral` (the env

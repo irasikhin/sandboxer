@@ -28,11 +28,10 @@ func engineQuery(t *testing.T, engine string, args ...string) string {
 // TestSessionLifecycle_Container_EnterStopRm drives the persistent-session
 // lifecycle through the real CLI against a real engine WITH the egress
 // allowlist on: enter creates the session + its stably-named egress sidecar,
-// exec rides the running session (tmux probed detached — never an interactive
-// TTY), stop parks the container and proxy but keeps the networks, re-enter
-// resumes the same container with its state, and rm sweeps every engine
-// resource (container, proxy, networks). Needs the toolbox image (the sandbox +
-// its baked tmux) and the squid proxy image (the egress sidecar).
+// exec rides the running session, stop parks the container and proxy but
+// keeps the networks, re-enter resumes the same container with its state, and
+// rm sweeps every engine resource (container, proxy, networks). Needs the
+// toolbox image and the squid proxy image (the egress sidecar).
 func TestSessionLifecycle_Container_EnterStopRm(t *testing.T) {
 	itest.RequireLiveEgress(t) // egress-on session; the sidecar needs to reach the allowlisted host
 	engine := itest.Engine(t)
@@ -64,9 +63,9 @@ func TestSessionLifecycle_Container_EnterStopRm(t *testing.T) {
 	itest.CleanupContainer(t, engine, name+"-proxy")
 	itest.CleanupContainer(t, engine, name)
 
-	// 1. enter: converges the session container + egress sidecar. The tmux
-	// attach itself fails (the test has no TTY) so the exit code is non-zero —
-	// the converged engine state below is what this step asserts.
+	// 1. enter: converges the session container + egress sidecar. The
+	// interactive shell itself exits immediately (the test has no TTY) — the
+	// converged engine state below is what this step asserts.
 	_, _, errs := run("enter", "feat", "--src", project, "--config", cfg)
 	if info := backend.InspectSession(engine, name); !info.Exists || !info.Running {
 		t.Fatalf("after enter: session info = %+v, want exists+running\nstderr: %s", info, errs)
@@ -75,14 +74,11 @@ func TestSessionLifecycle_Container_EnterStopRm(t *testing.T) {
 		t.Fatalf("egress proxy running = %q, want true", got)
 	}
 
-	// 2. tmux probes via exec — detached new-session, then list-sessions.
-	if code, _, errs := run("exec", "feat", "--src", project, "--config", cfg, "--",
-		"tmux", "-L", "sandboxer", "new-session", "-d", "-s", "probe"); code != 0 {
-		t.Fatalf("tmux new-session = %d\n%s", code, errs)
-	}
+	// 2. the opt-in multiplexers ship in the image (sandboxer never starts
+	// them — the user does).
 	if code, out, errs := run("exec", "feat", "--src", project, "--config", cfg, "--",
-		"tmux", "-L", "sandboxer", "list-sessions"); code != 0 || !strings.Contains(out, "probe") {
-		t.Fatalf("tmux list-sessions = (%d, %q)\n%s", code, out, errs)
+		"sh", "-c", "command -v tmux && command -v zellij"); code != 0 {
+		t.Fatalf("tmux/zellij missing from the image = (%d, %q)\n%s", code, out, errs)
 	}
 	// A marker in the container's own fs proves exec rode the session (a
 	// one-shot fallback would get a fresh /tmp) and must survive stop/start.

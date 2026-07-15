@@ -103,41 +103,29 @@ func TestEnterPersistentByDefault(t *testing.T) {
 		t.Errorf("exec target = %q, want %q", c.execTo[0], name)
 	}
 	argv := c.exec[0]
-	if len(argv) != 3 || argv[0] != "bash" || argv[1] != "-c" || !strings.Contains(argv[2], "new-session -A -s main") {
+	if len(argv) != 3 || argv[0] != "bash" || argv[1] != "-c" || !strings.Contains(argv[2], "bash") {
 		t.Errorf("exec argv = %v", argv)
 	}
-	for _, want := range []string{name, "Ctrl-q", "sandboxer enter feat", "sandboxer: done in"} {
+	for _, want := range []string{name, "keeps the container running", "sandboxer enter feat", "sandboxer: done in"} {
 		if !strings.Contains(errs, want) {
 			t.Errorf("stderr missing %q:\n%s", want, errs)
 		}
 	}
 }
 
-// TestEnterSessionNameFlag: --session picks the tmux session to attach.
-func TestEnterSessionNameFlag(t *testing.T) {
+// TestEnterRunsPlainShell: a persistent enter execs the plain interactive
+// shell launcher — sandboxer starts no multiplexer (tmux/zellij are opt-in
+// tools inside the image).
+func TestEnterRunsPlainShell(t *testing.T) {
 	project := sessionProject(t)
 	c := stubSessionSeams(t, backend.SessionInfo{}, "h")
 
-	if code, _, errs := run("enter", "feat", "--src", project, "--session", "review"); code != 0 {
+	if code, _, errs := run("enter", "feat", "--src", project); code != 0 {
 		t.Fatalf("enter = %d, %s", code, errs)
 	}
-	if len(c.exec) != 1 || !strings.Contains(c.exec[0][2], "new-session -A -s review") {
-		t.Errorf("exec argv = %v", c.exec)
-	}
-}
-
-// TestEnterBadSessionName: the name is spliced into a bash script, so anything
-// outside the safe alphabet is rejected before any backend work.
-func TestEnterBadSessionName(t *testing.T) {
-	project := sessionProject(t)
-	c := stubSessionSeams(t, backend.SessionInfo{}, "h")
-
-	code, _, errs := run("enter", "feat", "--src", project, "--session", "bad name; rm -rf /")
-	if code != 1 || !strings.Contains(errs, "invalid --session name") {
-		t.Errorf("bad session name = (%d, %q)", code, errs)
-	}
-	if len(c.ensure)+len(c.exec)+len(c.run) != 0 {
-		t.Error("no backend call may happen on an invalid session name")
+	if len(c.exec) != 1 || strings.Contains(c.exec[0][2], "tmux") ||
+		!strings.Contains(c.exec[0][2], "bash") {
+		t.Errorf("exec argv = %v, want the plain rc shell launcher", c.exec)
 	}
 }
 
