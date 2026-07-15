@@ -357,14 +357,14 @@ func newExecCmd() *cobra.Command {
 // noEgress reports whether the egress allowlist is disabled via the environment.
 func noEgress() bool { return os.Getenv("SANDBOXER_NO_EGRESS") == "1" }
 
-// warnIgnoredRoutes notes that network.routes take no effect in direct mode
-// (egress off, or SANDBOXER_NO_EGRESS): routes are a property of the allowlist
-// squid sidecar, which is not in the path when the agent talks to network.proxy
-// directly. Best-effort advisory on the configLine path.
+// warnIgnoredRoutes notes that egress.routes take no effect in direct mode
+// (egress.enabled = false, or SANDBOXER_NO_EGRESS): routes are a property of the
+// allowlist squid sidecar, which is not in the path when the agent talks to
+// egress.proxy directly. Best-effort advisory on the configLine path.
 func warnIgnoredRoutes(w io.Writer, rt config.Runtime) {
 	if len(rt.Routes) > 0 && (!rt.Egress || noEgress()) {
-		fmt.Fprintln(w, "sandboxer: network.routes ignored — egress is off (routes need the allowlist sidecar; "+
-			"in direct mode the agent talks to network.proxy directly)")
+		fmt.Fprintln(w, "sandboxer: egress.routes ignored — egress is off (routes need the allowlist sidecar; "+
+			"in direct mode the agent talks to egress.proxy directly)")
 	}
 }
 

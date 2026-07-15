@@ -23,7 +23,7 @@ type Runtime struct {
 	AuthAgents []string // whose creds to bind in the container
 	Egress     bool
 	// Routes send specific domains through a dedicated upstream proxy (see
-	// Network.Routes). Applied only with Egress on; ignored in direct mode.
+	// Egress.Routes). Applied only with Egress on; ignored in direct mode.
 	Routes []Route
 	// Resource caps threaded into the container run (--memory/--cpus/--pids-limit).
 	// Mem/CPU resolve profile-over-env (limits: over SANDBOXER_MEM/SANDBOXER_CPU);
@@ -56,8 +56,8 @@ func ResolveRuntime(p *Profile, d Defaults, baseDomains string, f Overrides) (Ru
 		p = &Profile{}
 	}
 	rt := Runtime{
-		Proxy:   firstNonEmpty(p.Network.Proxy, d.Proxy),
-		NoProxy: firstNonEmpty(p.Network.NoProxy, d.NoProxy),
+		Proxy:   firstNonEmpty(p.Egress.Proxy, d.Proxy),
+		NoProxy: firstNonEmpty(p.Egress.NoProxy, d.NoProxy),
 		Egress:  p.EgressEnabled(),
 	}
 	if err := ValidateProxy(rt.Proxy, rt.Egress); err != nil {
@@ -69,7 +69,7 @@ func ResolveRuntime(p *Profile, d Defaults, baseDomains string, f Overrides) (Ru
 
 	domains := f.Domains
 	if domains == "" {
-		domains = strings.Join(p.Network.AllowedDomains, ",")
+		domains = strings.Join(p.Egress.AllowedDomains, ",")
 	}
 	if domains == "" {
 		domains = baseDomains
@@ -81,7 +81,7 @@ func ResolveRuntime(p *Profile, d Defaults, baseDomains string, f Overrides) (Ru
 
 	// Routes only take effect with the allowlist on; validate them there (they
 	// are otherwise ignored in direct mode, with a CLI warning).
-	rt.Routes = p.Network.Routes
+	rt.Routes = p.Egress.Routes
 	if rt.Egress {
 		if err := ValidateRoutes(rt.Domains, rt.Routes, rt.Egress); err != nil {
 			return Runtime{}, err
@@ -185,7 +185,7 @@ func ValidateProxy(proxyURL string, egress bool) error {
 	case "https":
 		if egress {
 			return fmt.Errorf("proxy %q uses https — with the egress allowlist on only an http:// proxy "+
-				"works (the sidecar chains over http); set egress: false to use it as a direct https proxy", proxyURL)
+				"works (the sidecar chains over http); set egress.enabled = false to use it as a direct https proxy", proxyURL)
 		}
 		return nil
 	default:
@@ -203,25 +203,25 @@ func ValidateRoutes(allowed []string, routes []Route, egress bool) error {
 	claimed := map[string]int{} // routed domain -> route index (catch a domain in two routes)
 	for i, r := range routes {
 		if len(r.Domains) == 0 {
-			return fmt.Errorf("network.routes[%d]: a route needs at least one domain", i)
+			return fmt.Errorf("egress.routes[%d]: a route needs at least one domain", i)
 		}
 		if r.Proxy == "" {
-			return fmt.Errorf("network.routes[%d]: a route needs a proxy", i)
+			return fmt.Errorf("egress.routes[%d]: a route needs a proxy", i)
 		}
 		if err := ValidateProxy(r.Proxy, egress); err != nil {
-			return fmt.Errorf("network.routes[%d]: %w", i, err)
+			return fmt.Errorf("egress.routes[%d]: %w", i, err)
 		}
 		for _, d := range r.Domains {
 			d = strings.TrimSpace(d)
 			if d == "" {
-				return fmt.Errorf("network.routes[%d]: empty domain", i)
+				return fmt.Errorf("egress.routes[%d]: empty domain", i)
 			}
 			if prev, ok := claimed[d]; ok {
-				return fmt.Errorf("network.routes: domain %q is in routes %d and %d — a domain can route to only one proxy", d, prev, i)
+				return fmt.Errorf("egress.routes: domain %q is in routes %d and %d — a domain can route to only one proxy", d, prev, i)
 			}
 			claimed[d] = i
 			if !domainCovered(d, allowed) {
-				return fmt.Errorf("network.routes[%d]: domain %q is not covered by network.allowedDomains — "+
+				return fmt.Errorf("egress.routes[%d]: domain %q is not covered by egress.allowedDomains — "+
 					"squid denies it before the route proxy; add it to allowedDomains", i, d)
 			}
 		}

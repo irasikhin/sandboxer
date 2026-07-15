@@ -22,7 +22,7 @@
   # Egress allowlist: the ONLY domains the sandbox may reach. Setting it
   # REPLACES the built-in default set wholesale; delete the attr to keep the
   # defaults (AI APIs + common package registries).
-  network = {
+  egress = {
     allowedDomains = [ "api.anthropic.com" "registry.npmjs.org" ];
   };
 }

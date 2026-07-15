@@ -50,28 +50,42 @@ type Src struct {
 	Branch string `json:"branch,omitempty"`
 }
 
-// Network holds the egress allowlist and the sandbox's proxy settings.
-type Network struct {
+// Egress holds the sandbox's outbound-traffic policy: whether sandboxer enforces
+// a domain allowlist (Enabled), the allowlist itself, and the proxy settings.
+// It is the whole "egress" attrset in the config.
+type Egress struct {
+	// Enabled toggles sandboxer's own egress control — the squid allowlist
+	// sidecar. Default true (nil == on): sandboxer enforces AllowedDomains (and
+	// Routes), and a Proxy, if set, is chained through the sidecar (http:// only).
+	// false is the escape hatch: NO sidecar, the agent talks to Proxy DIRECTLY
+	// (HTTP(S)_PROXY) and that proxy is trusted to police egress — AllowedDomains
+	// and Routes are then IGNORED (NoProxy applies instead). Because the allowlist
+	// is inert when disabled, the safe default is on; see the "Proxy handling"
+	// comment below and EgressEnabled. SANDBOXER_NO_EGRESS=1 is the operator
+	// kill-switch that forces it off regardless.
+	Enabled *bool `json:"enabled,omitempty"`
+	// AllowedDomains is the allowlist — the ONLY domains the sandbox may reach.
+	// Enforced when Enabled; ignored when disabled (the proxy is trusted instead).
 	AllowedDomains []string `json:"allowedDomains,omitempty"`
 	// Proxy is the single proxy URL the sandbox routes through (http://host:port,
-	// or https:// only with egress off). Empty means no proxy. The egress toggle
-	// decides whether it CHAINS through the allowlist sidecar (egress on) or the
-	// agent talks to it DIRECTLY (egress off). A localhost/127.0.0.1 host is
-	// rewritten to the host gateway at launch (see backend.ContainerProxyURL).
+	// or https:// only when Enabled is false). Empty means no proxy. Enabled
+	// decides whether it CHAINS through the allowlist sidecar (on) or the agent
+	// talks to it DIRECTLY (off). A localhost/127.0.0.1 host is rewritten to the
+	// host gateway at launch (see backend.ContainerProxyURL).
 	Proxy string `json:"proxy,omitempty"`
-	// NoProxy is the NO_PROXY list applied only in direct mode (egress off); it
-	// is ignored when traffic is chained through the allowlist sidecar.
+	// NoProxy is the NO_PROXY list applied only when Enabled is false; it is
+	// ignored when traffic is chained through the allowlist sidecar.
 	NoProxy string `json:"noProxy,omitempty"`
 	// Routes send specific destination domains through a dedicated upstream proxy
 	// (a squid cache_peer), overriding Proxy for just those domains — e.g. bypass
 	// a geo-block for one API while everything else stays direct or on the default
-	// proxy. Routes only apply with the egress allowlist on; they are ignored in
-	// direct mode (egress off), where the agent talks to Proxy directly.
+	// proxy. Routes only apply when Enabled; they are ignored when disabled, where
+	// the agent talks to Proxy directly.
 	Routes []Route `json:"routes,omitempty"`
 }
 
 // Route pins a set of destination domains to a dedicated upstream proxy. Every
-// routed domain must also be in Network.AllowedDomains (squid denies it before
+// routed domain must also be in Egress.AllowedDomains (squid denies it before
 // the peer otherwise), and a domain may appear in at most one route.
 type Route struct {
 	Domains []string `json:"domains,omitempty"`
@@ -90,16 +104,17 @@ type Limits struct {
 }
 
 // Proxy handling: a sandbox reaches the outside world through ONE proxy URL
-// (Network.Proxy, an `http://host:port` or `https://host:port`). There is no
-// separate "upstream" vs "corporate" mode — the egress allowlist toggle decides
-// the trust model:
+// (Egress.Proxy, an `http://host:port` or `https://host:port`). There is no
+// separate "upstream" vs "corporate" mode — Egress.Enabled decides the trust
+// model:
 //
-//   - egress ON (the default): the allowlist sidecar stays up and CHAINS allowed
-//     traffic through the proxy (squid cache_peer). sandboxer keeps enforcing
-//     the domain allowlist AND the traffic still leaves via the proxy. Only an
-//     http:// proxy works here (the sidecar cannot speak TLS to a parent yet).
-//   - egress OFF: the agent talks to the proxy DIRECTLY (HTTP(S)_PROXY env) and
-//     that proxy is trusted to police egress. http:// or https:// both work.
+//   - Enabled (the default): the allowlist sidecar stays up and CHAINS allowed
+//     traffic through the proxy (squid cache_peer). sandboxer keeps enforcing the
+//     domain allowlist AND the traffic still leaves via the proxy. Only an http://
+//     proxy works here (the sidecar cannot speak TLS to a parent yet).
+//   - Disabled (egress.enabled = false): the agent talks to the proxy DIRECTLY
+//     (HTTP(S)_PROXY env) and that proxy is trusted to police egress. http:// or
+//     https:// both work.
 //
 // A proxy whose host is localhost/127.0.0.1 is rewritten to the host gateway
 // (host.docker.internal) at container-launch time, so "a proxy on my host" works
@@ -182,14 +197,13 @@ func (p *Profile) resolveImageNix(dir string) {
 // worktree; git metadata never enters the container, so the container sees
 // exactly the files the include patterns select and nothing else.
 type Profile struct {
-	Name    string  `json:"name,omitempty"`
-	Backend string  `json:"backend,omitempty"`
-	Network Network `json:"network,omitempty"`
+	Name    string `json:"name,omitempty"`
+	Backend string `json:"backend,omitempty"`
+	Egress  Egress `json:"egress,omitempty"`
 	// Agents lists whose credentials to pass through to the sandbox (a sandbox is
 	// not bound to one agent — pick which agent to run per exec). Empty means every
 	// agent in the registry.
 	Agents []string `json:"agents,omitempty"`
-	Egress *bool    `json:"egress,omitempty"`
 	// Srcs are the sandbox's sources — repositories (whole, or narrowed by
 	// gitignore-style include patterns) exposed inside the container. ALWAYS
 	// explicit: an empty list is rejected at sandbox creation (the scaffolded
@@ -237,10 +251,11 @@ func decodeProfileJSON(data []byte) (*Profile, error) {
 // hint. The table grows as knobs are retired.
 var removedKeys = map[string]string{
 	"model":      "removed — set the agent's own env var instead, e.g. env: { ANTHROPIC_MODEL: opus }",
-	"proxy":      "moved under network: — use network.proxy",
-	"noProxy":    "moved under network: — use network.noProxy",
-	"agent":      "removed — a sandbox is not bound to one agent (choose per exec); use agents: for credential passthrough and network.routes to route an API domain through a proxy",
-	"agentProxy": "removed — route by destination instead: network.routes",
+	"proxy":      "moved under egress: — use egress.proxy",
+	"noProxy":    "moved under egress: — use egress.noProxy",
+	"network":    "renamed to egress — use egress.allowedDomains / egress.proxy / egress.noProxy / egress.routes (and egress.enabled = false to disable the allowlist)",
+	"agent":      "removed — a sandbox is not bound to one agent (choose per exec); use agents: for credential passthrough and egress.routes to route an API domain through a proxy",
+	"agentProxy": "removed — route by destination instead: egress.routes",
 	"roots":      "removed — sandboxes are git worktrees now (no copy mode); mount other trees with extraMounts",
 	"context":    "removed — a git-worktree sandbox already contains the repo's files (nothing is copied in)",
 	"deps":       "replaced by srcs — e.g. srcs = [ { src = \".\"; include = [ \"/some/dir/\" ]; } ] (src = path to a repo; include = gitignore-style patterns; empty include = the whole repo)",
@@ -263,6 +278,12 @@ func annotateRemovedKeys(err error) error {
 			hints = append(hints, fmt.Sprintf("  `%s` %s", key, hint))
 		}
 	}
+	// `egress` used to be a top-level bool; it is now the egress attrset, so an
+	// old `egress = false` trips a type error (bool into struct) rather than an
+	// unknown-field error. Give the same actionable migration hint.
+	if strings.Contains(msg, "Go struct field Profile.egress of type config.Egress") {
+		hints = append(hints, "  `egress` is now an attrset — set egress.enabled = false (was egress = false); omit it for the default allowlist (was egress = true)")
+	}
 	if len(hints) == 0 {
 		return err
 	}
@@ -276,10 +297,11 @@ func (p *Profile) JSON() ([]byte, error) {
 	return json.MarshalIndent(p, "", "  ")
 }
 
-// EgressEnabled reports whether the container egress allowlist should be forced.
-// Default true; an explicit `egress: false` in the profile disables it.
+// EgressEnabled reports whether the container egress allowlist sidecar should
+// run. Default true; an explicit `egress.enabled = false` disables it (the agent
+// talks to egress.proxy directly and that proxy polices egress).
 func (p *Profile) EgressEnabled() bool {
-	return p.Egress == nil || *p.Egress
+	return p.Egress.Enabled == nil || *p.Egress.Enabled
 }
 
 var sanitizeRe = regexp.MustCompile(`[^A-Za-z0-9_.-]+`)

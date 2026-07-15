@@ -143,16 +143,16 @@ func ExecArgv(o RunOpts, name string, cmdArgs []string) []string {
 // mode. Shared by the one-shot Run and the persistent-session paths so both
 // fail closed with the same guidance.
 var errEmptyAllowlist = errors.New("egress allowlist is enabled but no domains are allowed — " +
-	"set --allow-domains / network.allowedDomains, or disable egress " +
-	"(egress: false, or SANDBOXER_NO_EGRESS=1)")
+	"set --allow-domains / egress.allowedDomains, or disable the allowlist " +
+	"(egress.enabled = false, or SANDBOXER_NO_EGRESS=1)")
 
 // egressRequired reports whether o must run behind the egress allowlist
-// sidecar: enabled (egress: true, the default) and not killed by the operator
-// (NoEgress / SANDBOXER_NO_EGRESS). A configured proxy no longer disables the
-// allowlist — with egress on the proxy is CHAINED through the sidecar; only
-// egress: false drops to direct mode. The single policy predicate for Run and
-// the session lifecycle — they must never disagree, because the session
-// ConfigHash depends on it.
+// sidecar: enabled (egress.enabled = true, the default) and not killed by the
+// operator (NoEgress / SANDBOXER_NO_EGRESS). A configured proxy no longer
+// disables the allowlist — with the allowlist on the proxy is CHAINED through
+// the sidecar; only egress.enabled = false drops to direct mode. The single
+// policy predicate for Run and the session lifecycle — they must never disagree,
+// because the session ConfigHash depends on it.
 func egressRequired(o RunOpts) bool {
 	return !o.NoEgress && o.RT.Egress
 }
@@ -400,7 +400,7 @@ func createSession(o RunOpts, name, hash string) (string, error) {
 		e, err := egress.UpNamed(o.Engine, name, o.RT.Domains, ContainerProxyURL(o.RT.Proxy), containerRoutes(o.RT.Routes), o.BaseDir, o.Stderr)
 		if err != nil {
 			return "", fmt.Errorf("egress allowlist proxy failed to start: %w — "+
-				"refusing to run on an open network (disable with egress: false or SANDBOXER_NO_EGRESS=1)", err)
+				"refusing to run on an open network (disable with egress.enabled = false or SANDBOXER_NO_EGRESS=1)", err)
 		}
 		eg = e
 		egNet, egProxyURL = eg.Net(), eg.ProxyURL()

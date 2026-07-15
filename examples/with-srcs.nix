@@ -14,7 +14,7 @@
   # registry; narrow it to avoid passing creds you don't need.
   agents = [ "opencode" "claude" ];
 
-  network = {
+  egress = {
     allowedDomains = [
       "api.openai.com" "api.anthropic.com" "registry.npmjs.org" "pypi.org"
       "repo.maven.apache.org" "repo1.maven.org" "central.sonatype.com"

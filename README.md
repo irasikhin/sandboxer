@@ -173,7 +173,7 @@ profiles live in one file under a `profiles` attrset. See `examples/config.nix`,
 {
   name = "feature-x";
   backend = "docker";
-  network.allowedDomains = [ "api.anthropic.com" "registry.npmjs.org" "github.com" ];
+  egress.allowedDomains = [ "api.anthropic.com" "registry.npmjs.org" "github.com" ];
   srcs = [                  # the sources the sandbox sees (this repo, narrowed)
     { src = "."; include = [ "/src/lib/" "/shared/proto/" ]; }
   ];
@@ -215,7 +215,7 @@ variant, built on demand and content-addressed (see
 
 MCP servers need no sandboxer wiring: the sandbox contains your repo's files,
 so agent-level MCP config committed there (e.g. a `.mcp.json`) works as-is —
-just add the servers' domains to `network.allowedDomains`.
+just add the servers' domains to `egress.allowedDomains`.
 
 ### Editing the config
 
@@ -299,7 +299,7 @@ one-profile form above still works. See `examples/multi-profile.nix`.
 let
   api = {
     backend = "docker";
-    network.allowedDomains = [ "api.anthropic.com" "github.com" ];
+    egress.allowedDomains = [ "api.anthropic.com" "github.com" ];
     srcs = [ { src = "."; include = [ "/shared/proto/" ]; } ];
   };
 in {
@@ -320,29 +320,30 @@ list` shows the file's sections.
 ## Egress allowlist (container backend)
 
 The agent sits on an `--internal` network with no direct outbound; its only exit
-is an allowlist proxy that permits just the domains in `network.allowedDomains`
+is an allowlist proxy that permits just the domains in `egress.allowedDomains`
 (everything else → 403). The proxy is a minimal **squid** sidecar (the
 `sandboxer-proxy` image, built beside the toolbox image) running a generated
 `squid.conf` — the `sandboxer` binary is **not** in the network path, and is not
 baked into the toolbox image at all (it is a host tool). Disable with
-`egress: false` in the profile or `SANDBOXER_NO_EGRESS=1`.
+`egress.enabled = false` in the profile or `SANDBOXER_NO_EGRESS=1`.
 
-A single `network.proxy` URL routes outbound traffic; the egress toggle picks the
-mode. With egress **on** the allowlist stays enforced and the sidecar chains
-allowed traffic through the proxy (squid `cache_peer`, http:// only). With egress
-**off** the agent talks to the proxy directly (`HTTP(S)_PROXY`); `network.noProxy`
-is the direct-mode `NO_PROXY`. The env default is `SANDBOXER_PROXY`. A
+A single `egress.proxy` URL routes outbound traffic; `egress.enabled` picks the
+model. With the allowlist **on** (the default) it stays enforced and the sidecar
+chains allowed traffic through the proxy (squid `cache_peer`, http:// only). With
+`egress.enabled = false` (direct mode) the agent talks to the proxy directly
+(`HTTP(S)_PROXY`) and that proxy is trusted to police egress; `egress.noProxy` is
+the direct-mode `NO_PROXY`. The env default is `SANDBOXER_PROXY`. A
 `localhost`/`127.0.0.1` proxy is rewritten to the host gateway, so a proxy on your
 host works with the obvious URL.
 
-**Per-domain routes.** `network.routes` sends specific destination domains
-through their own upstream proxy, overriding `network.proxy` for just those
+**Per-domain routes.** `egress.routes` sends specific destination domains
+through their own upstream proxy, overriding `egress.proxy` for just those
 domains — e.g. reach a geo-blocked API through a bypass proxy while everything
 else stays direct (or on the default proxy):
 
 ```nix
 {
-  network = {
+  egress = {
     allowedDomains = [ "api.anthropic.com" "registry.npmjs.org" "github.com" ];
     proxy = "http://corp:3128";        # optional default parent for everything else
     routes = [
@@ -355,7 +356,7 @@ else stays direct (or on the default proxy):
 Each routed domain must also be in `allowedDomains` (squid denies it before the
 route peer otherwise), a domain may route to only one proxy, and a routed peer
 being down **fails closed** (503, never a leak). Routes need the allowlist on and
-are ignored in direct mode (`egress: false`). Editing routes/proxy/domains now
+are ignored in direct mode (`egress.enabled = false`). Editing routes/proxy/domains now
 recreates a running session automatically — the sidecar config is part of the
 session's freshness.
 

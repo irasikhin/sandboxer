@@ -68,7 +68,7 @@ func TestResolveRuntimeAuthAgents(t *testing.T) {
 
 func TestResolveRuntimeDomainsPrecedence(t *testing.T) {
 	// Flag CSV wins and is trimmed/split.
-	rt, err := ResolveRuntime(&Profile{Network: Network{AllowedDomains: []string{"p.com"}}},
+	rt, err := ResolveRuntime(&Profile{Egress: Egress{AllowedDomains: []string{"p.com"}}},
 		Defaults{}, "base.com", Overrides{Domains: "a.com, , b.com"})
 	if err != nil {
 		t.Fatal(err)

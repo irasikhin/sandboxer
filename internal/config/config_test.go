@@ -37,7 +37,7 @@ func TestSanitize(t *testing.T) {
 func TestResolveRuntimePrecedence(t *testing.T) {
 	p := &Profile{
 		Backend: "podman",
-		Network: Network{AllowedDomains: []string{"x.com", "y.com"}, Proxy: "http://p"},
+		Egress:  Egress{AllowedDomains: []string{"x.com", "y.com"}, Proxy: "http://p"},
 	}
 	d := Defaults{Backend: "docker"}
 
@@ -127,6 +127,22 @@ func TestAnnotateRemovedKeys(t *testing.T) {
 	}
 }
 
+// TestEgressBoolMigrationHint: `egress` used to be a top-level bool and is now
+// the egress attrset, so an old `egress = false` trips a type error (bool into
+// struct) rather than an unknown-field one. annotateRemovedKeys must still turn
+// it into the actionable egress.enabled migration hint.
+func TestEgressBoolMigrationHint(t *testing.T) {
+	dir := t.TempDir()
+	cfg := writeFile(t, dir, "old.nix", "{ name = \"x\"; egress = false; }\n")
+	_, err := LoadDocument(cfg)
+	if err == nil {
+		t.Fatal("a bool `egress = false` must be rejected now that egress is an attrset")
+	}
+	if !strings.Contains(err.Error(), "egress.enabled = false") {
+		t.Errorf("error %q missing the egress.enabled migration hint", err)
+	}
+}
+
 // TestValidateRoutes pins the per-domain route validation: a route needs a
 // domain and a proxy, every routed domain must be covered by the allowlist
 // (leading-dot suffix matching), an https parent is rejected under egress, and a
@@ -168,20 +184,21 @@ func TestValidateRoutes(t *testing.T) {
 	}
 }
 
-// TestResolveRuntimeRoutes: routes are validated (and rejected) only with egress
-// on; with egress off they are carried but not validated (ignored at run time).
+// TestResolveRuntimeRoutes: routes are validated (and rejected) only in the
+// allowlist mode; in direct mode they are carried but not validated (ignored at
+// run time).
 func TestResolveRuntimeRoutes(t *testing.T) {
-	bad := &Profile{Network: Network{
+	bad := &Profile{Egress: Egress{
 		AllowedDomains: []string{"github.com"},
 		Routes:         []Route{{Domains: []string{"evil.com"}, Proxy: "http://p:1"}},
 	}}
 	if _, err := ResolveRuntime(bad, Defaults{}, "", Overrides{}); err == nil {
-		t.Error("a route domain outside the allowlist must fail under egress on")
+		t.Error("a route domain outside the allowlist must fail with the allowlist on")
 	}
 	off := false
-	bad.Egress = &off
+	bad.Egress.Enabled = &off
 	if _, err := ResolveRuntime(bad, Defaults{}, "", Overrides{}); err != nil {
-		t.Errorf("routes must not be validated with egress off: %v", err)
+		t.Errorf("routes must not be validated with the allowlist off: %v", err)
 	}
 }
 
@@ -211,7 +228,7 @@ func TestValidateProxy(t *testing.T) {
 
 func TestResolveRuntimeProxy(t *testing.T) {
 	// A single proxy URL is carried into Runtime and keeps egress on (chained).
-	p := &Profile{Network: Network{Proxy: "http://host.docker.internal:3128"}}
+	p := &Profile{Egress: Egress{Proxy: "http://host.docker.internal:3128"}}
 	rt, err := ResolveRuntime(p, Defaults{}, "base.com", Overrides{})
 	if err != nil {
 		t.Fatal(err)
@@ -232,7 +249,7 @@ func TestResolveRuntimeProxy(t *testing.T) {
 		t.Errorf("env proxy default not applied: %q", rt2.Proxy)
 	}
 	// A profile proxy beats the env default.
-	rt3, err := ResolveRuntime(&Profile{Network: Network{Proxy: "http://prof:1"}}, Defaults{Proxy: "http://env:9999"}, "base.com", Overrides{})
+	rt3, err := ResolveRuntime(&Profile{Egress: Egress{Proxy: "http://prof:1"}}, Defaults{Proxy: "http://env:9999"}, "base.com", Overrides{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -241,20 +258,41 @@ func TestResolveRuntimeProxy(t *testing.T) {
 	}
 
 	// https + egress on is rejected at resolve time.
-	bad := &Profile{Network: Network{Proxy: "https://p:3128"}}
+	bad := &Profile{Egress: Egress{Proxy: "https://p:3128"}}
 	if _, err := ResolveRuntime(bad, Defaults{}, "base.com", Overrides{}); err == nil {
 		t.Error("ResolveRuntime should reject an https proxy with egress on")
 	}
 }
 
 func TestEgressDisabled(t *testing.T) {
-	no := false
-	p := &Profile{Egress: &no}
-	if p.EgressEnabled() {
-		t.Error("egress: false should disable")
+	off, on := false, true
+	if (&Profile{Egress: Egress{Enabled: &off}}).EgressEnabled() {
+		t.Error("egress.enabled = false should disable the allowlist")
 	}
 	if !(&Profile{}).EgressEnabled() {
-		t.Error("egress: default should be enabled")
+		t.Error("default (enabled unset) should enable the allowlist")
+	}
+	if !(&Profile{Egress: Egress{Enabled: &on}}).EgressEnabled() {
+		t.Error("egress.enabled = true should enable the allowlist")
+	}
+}
+
+func TestEgressDisabledSkipsProxyAndRouteValidation(t *testing.T) {
+	off := false
+	// egress.enabled = false: an https proxy and an off-allowlist route are both
+	// legal — the allowlist and its route peers are not in the path.
+	p := &Profile{Egress: Egress{
+		Enabled:        &off,
+		Proxy:          "https://corp:8080",
+		AllowedDomains: []string{"github.com"},
+		Routes:         []Route{{Domains: []string{"evil.com"}, Proxy: "https://p:1"}},
+	}}
+	rt, err := ResolveRuntime(p, Defaults{}, "base.com", Overrides{})
+	if err != nil {
+		t.Fatalf("direct mode should accept an https proxy and unvalidated routes: %v", err)
+	}
+	if rt.Egress {
+		t.Error("egress.enabled = false must resolve to Egress off")
 	}
 }
 
@@ -264,7 +302,7 @@ func TestLoadAndJSONRoundTrip(t *testing.T) {
 	nix := `{
   name = "feature-x";
   backend = "podman";
-  network.allowedDomains = [ "api.anthropic.com" "registry.npmjs.org" ];
+  egress.allowedDomains = [ "api.anthropic.com" "registry.npmjs.org" ];
   srcs = [
     { src = "."; include = [ "/src/lib/" ]; }
     { src = "../shared-lib"; branch = "feat/x"; }
@@ -285,8 +323,8 @@ func TestLoadAndJSONRoundTrip(t *testing.T) {
 	if p.Name != "feature-x" || p.Backend != "podman" {
 		t.Errorf("scalars wrong: %+v", p)
 	}
-	if len(p.Network.AllowedDomains) != 2 {
-		t.Errorf("domains: %v", p.Network.AllowedDomains)
+	if len(p.Egress.AllowedDomains) != 2 {
+		t.Errorf("domains: %v", p.Egress.AllowedDomains)
 	}
 	if len(p.Srcs) != 2 || p.Srcs[1].Branch != "feat/x" || p.Srcs[0].Include[0] != "/src/lib/" {
 		t.Errorf("srcs: %+v", p.Srcs)

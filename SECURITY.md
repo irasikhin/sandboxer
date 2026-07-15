@@ -76,10 +76,10 @@ important — where it stops.
   set. This reduces, but does not eliminate, the blast radius.
 
 - **Egress allowlist.** The agent runs on an `--internal` network whose sole exit
-  is a **squid** forward-proxy sidecar that permits only `network.allowedDomains`
+  is a **squid** forward-proxy sidecar that permits only `egress.allowedDomains`
   (everything else → 403). It **fails closed**: if the allowlist is required but
   the proxy cannot start (or no domains are allowed) the run is refused, never
-  silently opened. Disable deliberately with `egress: false` /
+  silently opened. Disable deliberately with `egress.enabled = false` /
   `SANDBOXER_NO_EGRESS=1`.
 
 ### Where it stops (know these before you trust it)
@@ -110,15 +110,16 @@ important — where it stops.
 - **The allowlist is domain-level, not a guarantee.** Even when active it is a
   best-effort guardrail: domain-fronting, abuse of an already-allowed domain
   (e.g. exfiltration through a permitted API or git host), and DNS tricks can
-  defeat it. `network.routes` and `network.proxy` change *where* allowed traffic
+  defeat it. `egress.routes` and `egress.proxy` change *where* allowed traffic
   goes, not *what* is allowed.
 
-  > **`egress: false` replaces the allowlist.** A `network.proxy` URL with
-  > `egress: false` makes sandboxer treat that proxy as the boundary: it does
-  > **not** start the allowlist sidecar, so egress is governed by your proxy's
-  > policy, not by `network.allowedDomains`. With egress **on** (the default) the
-  > proxy is chained *through* the allowlist, which keeps applying — don't run
-  > `egress: false` + proxy expecting the domain allowlist to also apply.
+  > **`egress.enabled = false` replaces the allowlist.** An `egress.proxy` URL
+  > with `egress.enabled = false` makes sandboxer treat that proxy as the
+  > boundary: it does **not** start the allowlist sidecar, so egress is governed
+  > by your proxy's policy, not by `egress.allowedDomains`. With the allowlist on
+  > (the default) the proxy is chained *through* the allowlist, which keeps
+  > applying — don't run `egress.enabled = false` + proxy expecting the domain
+  > allowlist to also apply.
 
 - **Not a multi-tenant boundary.** Assume an adversarial agent can reach anything
   the sandbox can reach (the allowed domains, the mounted paths). sandboxer

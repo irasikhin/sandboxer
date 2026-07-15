@@ -120,17 +120,23 @@ func starterProfile(name string, d config.Defaults) string {
     # { src = "../proto"; branch = "feat/proto-v2"; }  # adopt an existing branch/worktree
   ];
 
-  # Egress allowlist: the ONLY domains the sandbox may reach (everything else
-  # is blocked). Seeded with the effective defaults (SANDBOXER_DOMAINS or the
-  # built-in set — AI APIs + common package registries). Setting
-  # allowedDomains REPLACES that default set wholesale — re-list EVERY domain
-  # you need, or delete the attr to keep the full defaults.
-  network = {
+  # Egress: outbound-traffic policy. allowedDomains is the ONLY domains the
+  # sandbox may reach (everything else is blocked), seeded with the effective
+  # defaults (SANDBOXER_DOMAINS or the built-in set — AI APIs + common package
+  # registries). Setting allowedDomains REPLACES that default set wholesale —
+  # re-list EVERY domain you need, or delete the attr to keep the full defaults.
+  egress = {
+    # enabled = true (default) runs sandboxer's squid allowlist sidecar and
+    # enforces allowedDomains below. enabled = false is the escape hatch: NO
+    # sidecar — the agent goes straight through the proxy, which is then trusted
+    # to police egress (allowedDomains/routes are IGNORED). Off entirely at runtime:
+    # SANDBOXER_NO_EGRESS=1.
+    # enabled = false;
     allowedDomains = [ %s ];
     # proxy = "http://localhost:9999";       # ONE proxy URL; localhost is
     #                                        # rewritten to the host gateway
-    # noProxy = "localhost,127.0.0.1,.corp"; # direct mode only (egress = false)
-    # routes = [                             # per-domain upstream proxies
+    # noProxy = "localhost,127.0.0.1,.corp"; # enabled = false only
+    # routes = [                             # per-domain upstream proxies (allowlist on)
     #   { domains = [ "api.anthropic.com" ]; proxy = "http://bypass:8080"; }
     # ];
   };
@@ -158,9 +164,6 @@ func starterProfile(name string, d config.Defaults) string {
 
   # Resource caps (empty = uncapped): memory/cpus/pids.
   # limits = { memory = "4G"; cpus = "2"; pids = 512; };
-
-  # Turn the egress allowlist off entirely for this profile (default: on):
-  # egress = false;
 
   # Custom toolbox image (optional). Sandboxes then run a content-addressed
   # variant built on first use (cached after; the stock image is untouched).

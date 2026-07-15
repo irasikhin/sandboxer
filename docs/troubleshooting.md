@@ -42,17 +42,17 @@ Outbound traffic is **fail-closed** through the egress allowlist — any host no
 on the list gets a `403` from the proxy. A failed download, `git clone`, or
 package install almost always means the host isn't allowed.
 
-- Add the host to the profile's `network.allowedDomains`, or pass
+- Add the host to the profile's `egress.allowedDomains`, or pass
   `--allow-domains a.com,b.com` for the run.
 - Remember transitive hosts: a package install often needs the registry **and** a
   CDN/mirror (e.g. `registry.npmjs.org` plus its CDN).
 - The one-time `setup:` hook runs under the **same** allowlist — a network step
   in `setup:` needs its domains allowed too.
 - To rule egress out while debugging, disable it deliberately:
-  `SANDBOXER_NO_EGRESS=1` or `egress: false` in the profile. (With `egress: false`
-  a configured `proxy:` *replaces* the allowlist — then the proxy's own policy
-  decides what's reachable. With egress on, the proxy is chained through the
-  allowlist, which still applies.)
+  `SANDBOXER_NO_EGRESS=1` or `egress.enabled = false` in the profile. (In direct
+  mode a configured `proxy` *replaces* the allowlist — then the proxy's own policy
+  decides what's reachable. In the default allowlist mode, the proxy is chained
+  through the allowlist, which still applies.)
 - Proxy not taking effect after editing the config? A **persistent** session
   reuses its container, so proxy/egress changes only apply to a fresh one — run
   `sandboxer recreate`. The banner's `egress:` line shows what's actually in
@@ -92,12 +92,12 @@ client disconnects but **not** a host/engine restart.
 ## FAQ
 
 **What is an "upstream" / "parent" proxy?** Old terminology. There is no separate
-upstream vs corporate proxy mode anymore — there is one `proxy:` URL and the
-`egress:` toggle decides how it is used (on = chained through the allowlist
+upstream vs corporate proxy mode anymore — there is one `egress.proxy` URL and the
+`egress.enabled` toggle decides how it is used (on = chained through the allowlist
 sidecar, http:// only; off = the agent talks to it directly, http/https,
-`noProxy` applies). If you see `parent` in squid logs that is the same single
-`proxy:` — squid's internal name for the peer it forwards to. See "An agent can't
-reach a host" above for the behavior.
+`egress.noProxy` applies). If you see `parent` in squid logs that is the same single
+`egress.proxy` — squid's internal name for the peer it forwards to. See "An agent
+can't reach a host" above for the behavior.
 
 **Which platforms are supported?** Linux only. There is no macOS or Windows
 build — sandboxer relies on a Linux container engine (docker/podman) on the host.

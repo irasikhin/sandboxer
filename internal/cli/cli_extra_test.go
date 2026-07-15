@@ -303,7 +303,7 @@ func TestRunMultiProfileSelect(t *testing.T) {
       backend = "docker";
       session = "ephemeral";
       srcs = [ { src = "."; } ];
-      network.allowedDomains = [ "api.anthropic.com" ];
+      egress.allowedDomains = [ "api.anthropic.com" ];
     };
   };
   default = "web";

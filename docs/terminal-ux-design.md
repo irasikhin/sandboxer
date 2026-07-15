@@ -236,7 +236,7 @@ sandbox is recreated.
 **Gotchas (must document):**
 
 - *Egress* — `npm ci` et al. run under the allowlist, so their registries must
-  be in `network.allowedDomains`; fail-closed surfaces a missing domain rather
+  be in `egress.allowedDomains`; fail-closed surfaces a missing domain rather
   than silently succeeding on an open network. Correct, but a documentation
   must.
 - *Failure policy* — open question. Recommend **fail-by-default** for
@@ -283,7 +283,7 @@ domains folded into the allowlist. Removed because the git-worktree redesign
 config committed there (e.g. `.mcp.json`) travels in by itself, and the seeding
 was claude-only anyway — the same agent-specific-config category the `agent:`/
 `model:` cleanup already dropped. Egress domains for MCP servers are declared
-explicitly via `network.allowedDomains`.
+explicitly via `egress.allowedDomains`.
 
 ### The plugin model (unifying)
 

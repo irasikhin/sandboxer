@@ -162,7 +162,7 @@ func TestSelectNixReuse(t *testing.T) {
   api = {
     backend = "docker";
     session = "ephemeral";
-    network.allowedDomains = [ "a.com" ];
+    egress.allowedDomains = [ "a.com" ];
     env.TIER = "base";
   };
 in {
@@ -181,7 +181,7 @@ in {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(prod.Network.AllowedDomains) != 1 {
+	if len(prod.Egress.AllowedDomains) != 1 {
 		t.Errorf("api-prod should inherit api's domains via the base: %+v", prod)
 	}
 	if prod.Backend != "docker" || prod.Session != "ephemeral" {
@@ -224,7 +224,7 @@ func TestExampleMultiProfileParses(t *testing.T) {
 			t.Errorf("select %s: %v", name, err)
 			continue
 		}
-		if len(p.Network.AllowedDomains) == 0 {
+		if len(p.Egress.AllowedDomains) == 0 {
 			t.Errorf("%s should inherit the shared allowlist, got %+v", name, p)
 		}
 	}

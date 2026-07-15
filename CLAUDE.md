@@ -73,9 +73,10 @@ was extracted from:
   auto-named ones). **git-only:** a non-git source is rejected with an init hint; non-git trees come in via
   `extraMounts`.
 - **Egress** (`internal/egress`): outbound traffic is restricted to an allowlist
-  (`network.allowedDomains` / `--allow-domains`) through a **squid** sidecar (the `sandboxer-proxy` image, built
+  (`egress.allowedDomains` / `--allow-domains`) through a **squid** sidecar (the `sandboxer-proxy` image, built
   beside the toolbox image; `config.ProxyImage()`) running a generated `squid.conf` — the binary is never in the
-  network path. Disable with `SANDBOXER_NO_EGRESS=1`.
+  network path. The config block is `egress` (`egress.enabled` = false drops to a direct proxy; default on).
+  Disable with `SANDBOXER_NO_EGRESS=1`.
 - **Agent registry** (`internal/registry/registry.json`): the single-source catalog of agents — embedded in the
   binary AND consumed by the Nix flake (`llm-agents.nix`). Edit the JSON, never duplicate it.
 - **Toolbox image** (`internal/toolbox` + flake `dockerTools.buildLayeredImage`): the OCI image with the agents

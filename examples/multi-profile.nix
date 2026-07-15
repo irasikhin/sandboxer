@@ -18,7 +18,7 @@ let
   };
   api = {
     backend = "docker";
-    network = net;
+    egress = net;
     srcs = [ { src = "."; include = [ "/shared/proto/" ]; } ];
     env.NODE_ENV = "development";
   };
@@ -28,7 +28,7 @@ in
     # Frontend: container backend, sandbox narrowed to the shared UI lib.
     web = {
       backend = "podman";
-      network = net;
+      egress = net;
       srcs = [ { src = "."; include = [ "/shared/ui/" ]; } ];
       env.NODE_ENV = "development";
     };

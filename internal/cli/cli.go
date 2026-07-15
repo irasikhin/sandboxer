@@ -144,5 +144,5 @@ Tips:
   • Review and commit with plain git ON THE HOST: git log feat/<slug>-sb
     (each source repo gets its own worktree and branch).
   • Outbound traffic is restricted to an egress allowlist
-    (network.allowedDomains / --allow-domains; disable with SANDBOXER_NO_EGRESS=1).
+    (egress.allowedDomains / --allow-domains; disable with SANDBOXER_NO_EGRESS=1).
   • Each create/enter/exec prints the resolved backend/egress/profile it used.`

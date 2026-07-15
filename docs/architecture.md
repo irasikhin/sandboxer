@@ -141,20 +141,20 @@ sandboxer binary (nothing of sandboxer's is ever in the network path):
 
 - The agent sits on an `--internal` network with **no direct route out**; its
   only exit is the squid sidecar, which permits only the hosts in
-  `network.allowedDomains` / `--allow-domains` (and their subdomains) and denies
+  `egress.allowedDomains` / `--allow-domains` (and their subdomains) and denies
   everything else. It is **fail-closed**: if the allowlist is required but the
   proxy can't start (or no domains are allowed) the run is **refused**, never
-  opened. Disable deliberately with `egress: false` / `SANDBOXER_NO_EGRESS=1`.
-- **`network.proxy`** — a single upstream the sidecar chains all allowed traffic
+  opened. Disable deliberately with `egress.enabled = false` / `SANDBOXER_NO_EGRESS=1`.
+- **`egress.proxy`** — a single upstream the sidecar chains all allowed traffic
   through (squid `cache_peer`, http:// only). A `localhost` proxy is rewritten to
   the host gateway so a proxy on the host is reachable from the sidecar.
-- **`network.routes`** — per-domain overrides: each route sends its domains
+- **`egress.routes`** — per-domain overrides: each route sends its domains
   through a dedicated upstream (a named `cache_peer`), never direct, so a routed
   peer being down fails closed. Every routed domain must also be in
   `allowedDomains`. Deterministic squid config; its fingerprint is folded into the
   session's freshness hash, so editing domains/proxy/routes recreates the session.
 - With egress **off** the proxy **replaces** the allowlist — the agent talks to
-  `network.proxy` directly via `HTTP(S)_PROXY` (routes are ignored) and that proxy
+  `egress.proxy` directly via `HTTP(S)_PROXY` (routes are ignored) and that proxy
   is trusted to police egress (http:// or https://).
 
 ## Agent registry (single source)

@@ -108,7 +108,7 @@ func Run(o RunOpts) (int, error) {
 
 	var eg *egress.Egress
 	// Egress allowlist is required unless explicitly disabled (NoEgress /
-	// egress: false) or an upstream proxy is holding the boundary. When it is
+	// egress.enabled = false) or an upstream proxy is holding the boundary. When it is
 	// required we fail closed: we never silently fall back to an open bridge
 	// network, because that would drop the isolation the caller asked for.
 	if egressRequired(o) {
@@ -121,7 +121,7 @@ func Run(o RunOpts) (int, error) {
 		e, err := egress.Up(o.Engine, o.Slug, o.RT.Domains, ContainerProxyURL(o.RT.Proxy), containerRoutes(o.RT.Routes), o.BaseDir, o.Stderr)
 		if err != nil {
 			return 0, fmt.Errorf("egress allowlist proxy failed to start: %w — "+
-				"refusing to run on an open network (disable with egress: false or SANDBOXER_NO_EGRESS=1)", err)
+				"refusing to run on an open network (disable with egress.enabled = false or SANDBOXER_NO_EGRESS=1)", err)
 		}
 		eg = e
 	}
