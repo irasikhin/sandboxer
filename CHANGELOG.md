@@ -6,6 +6,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.31.0] — 2026-07-15
+
+### Added
+
+- name sandbox branches feat/<slug>-sb instead of sandbox/<slug> (6bc3f71)
+- relocate config to sandboxer.yaml + sandboxer-image.nix at repo root (556dfca)
+- srcs model — multi-repo sources, git never enters the container (102bc40)
+
+
 ## [0.30.0] — 2026-07-14
 
 ### Added
@@ -262,3 +271,4 @@ isolated, containerized dev sandbox, on a local Linux machine:
 [0.28.0]: https://github.com/irasikhin/sandboxer/compare/v0.27.0...v0.28.0
 [0.29.0]: https://github.com/irasikhin/sandboxer/compare/v0.28.0...v0.29.0
 [0.30.0]: https://github.com/irasikhin/sandboxer/compare/v0.29.0...v0.30.0
+[0.31.0]: https://github.com/irasikhin/sandboxer/compare/v0.30.0...v0.31.0
