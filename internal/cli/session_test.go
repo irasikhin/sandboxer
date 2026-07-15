@@ -170,7 +170,7 @@ func TestEnterEphemeralRouting(t *testing.T) {
 		fakePodman(t)
 		c := stubSessionSeams(t, backend.SessionInfo{}, "h")
 		cfg := filepath.Join(t.TempDir(), "p.yaml")
-		if err := os.WriteFile(cfg, []byte("name: feat\nsession: ephemeral\n"), 0o644); err != nil {
+		if err := os.WriteFile(cfg, []byte("name: feat\nsession: ephemeral\nsrcs: [{src: .}]\n"), 0o644); err != nil {
 			t.Fatal(err)
 		}
 		if code, _, errs := run("create", "--src", project, "--config", cfg); code != 0 {

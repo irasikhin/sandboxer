@@ -201,10 +201,10 @@ func (b *Base) SetDomains(domains string) error {
 }
 
 // MakeSandbox creates a sandbox's working tree: the <slug>/ dir populated with
-// one git worktree per configured source (see SyncSrcs; no srcs = the whole
-// project repo on branch feat/<slug>-sb). Progress is written to w. A source
-// that is not a git repository (or has no commit) is rejected — sandboxer is
-// git-only.
+// one git worktree per configured source (see SyncSrcs; srcs must be listed
+// explicitly — the scaffolded config seeds {src: .}). Progress is written to
+// w. A source that is not a git repository (or has no commit) is rejected —
+// sandboxer is git-only.
 func (b *Base) MakeSandbox(slug string, w io.Writer) error {
 	if err := b.EnsureHome(slug); err != nil {
 		return err

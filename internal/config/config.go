@@ -32,8 +32,9 @@ type Mount struct {
 // visible inside the container (git itself never is).
 type Src struct {
 	// Src is the path to the repository's top-level directory ("." = the
-	// project itself). Relative paths resolve against the config file's
-	// directory (like image.nix).
+	// project itself). Relative paths resolve against the PROJECT ROOT
+	// (--src, default cwd) — one rule regardless of where the profile file
+	// lives (project root, -f path, or the named-profile store).
 	Src string `yaml:"src" json:"src"`
 	// Include are gitignore-syntax patterns (non-cone sparse-checkout:
 	// "/services/api/", "*.md", "!…") selecting what the sandbox sees. Empty
@@ -163,27 +164,10 @@ func (p *Profile) resolveImageNix(dir string) {
 	p.Image.Nix = nix
 }
 
-// resolveSrcs makes each relative srcs path absolute against dir (the profile
-// file's directory), for the same reason as resolveImageNix: the stored
-// _meta/<slug>.profile.json snapshot must stay self-contained when read from
-// another working directory.
-func (p *Profile) resolveSrcs(dir string) {
-	for i, s := range p.Srcs {
-		if s.Src == "" || filepath.IsAbs(s.Src) {
-			continue
-		}
-		joined := filepath.Join(dir, s.Src)
-		if abs, err := filepath.Abs(joined); err == nil {
-			joined = abs
-		}
-		p.Srcs[i].Src = joined
-	}
-}
-
-// Profile is a sandbox configuration. All fields are optional; an empty profile
-// is valid (everything then comes from flags/env/defaults) — that yields a
-// whole-repo sandbox with zero config. Each srcs entry is backed by a host-side
-// git worktree; git metadata never enters the container, so the container sees
+// Profile is a sandbox configuration. Scalar fields are optional (they come
+// from flags/env/defaults), but srcs must be listed to create a sandbox —
+// there is no implicit source. Each srcs entry is backed by a host-side git
+// worktree; git metadata never enters the container, so the container sees
 // exactly the files the include patterns select and nothing else.
 type Profile struct {
 	Name    string  `yaml:"name,omitempty"        json:"name,omitempty"`
@@ -195,8 +179,9 @@ type Profile struct {
 	Agents []string `yaml:"agents,omitempty"      json:"agents,omitempty"`
 	Egress *bool    `yaml:"egress,omitempty"      json:"egress,omitempty"`
 	// Srcs are the sandbox's sources — repositories (whole, or narrowed by
-	// gitignore-style include patterns) exposed inside the container. Empty
-	// means the project repo, whole: [{src: "."}].
+	// gitignore-style include patterns) exposed inside the container. ALWAYS
+	// explicit: an empty list is rejected at sandbox creation (the scaffolded
+	// config seeds srcs: [{src: .}]); there is no implicit default.
 	Srcs        []Src             `yaml:"srcs,omitempty"        json:"srcs,omitempty"`
 	ExtraMounts []Mount           `yaml:"extraMounts,omitempty" json:"extraMounts,omitempty"`
 	Env         map[string]string `yaml:"env,omitempty"         json:"env,omitempty"`
@@ -234,7 +219,6 @@ func Load(file string) (*Profile, error) {
 		return nil, err
 	}
 	p.resolveImageNix(filepath.Dir(file))
-	p.resolveSrcs(filepath.Dir(file))
 	return p, nil
 }
 

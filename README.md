@@ -24,7 +24,8 @@ drives.
 
 A **sandbox** exposes **sources**: git repos checked out into per-sandbox
 worktrees (branch `feat/<slug>-sb`) under the state dir. Run sandboxer inside a
-repo and it just works — **zero config**: the whole repo is the one source. The
+repo and it just works — the scaffolded config pins `srcs: [{src: .}]`, the
+whole repo as the one source (always explicit, never implied). The
 container sees **only the files the sources select — git itself never enters
 it**: no `.git` mounts, no history, no hooks. The agent edits files; the edits
 land live in the host-side worktree, where you review and commit them with
@@ -33,12 +34,13 @@ is copied.
 
 - **Sandbox** — a set of sources materialized as git worktrees under one dir.
 - **slug** — a short sandbox name (`feat`, `bugfix-auth`, …), set at `create`.
-- **srcs (optional)** — the sources: each entry is `src:` (path to a repo root,
-  also other repos), an optional `include:` (gitignore-style patterns — only
-  matching files exist in the sandbox) and an optional `branch:` (adopt an
-  existing branch/worktree). Omit srcs to get `[{src: .}]` — this repo, whole.
-  Editing srcs applies on the next `enter`/`exec` — a running session sees the
-  change live, no recreate.
+- **srcs** — the sources, always explicit: each entry is `src:` (path to a
+  repo root — relative to the project root, so other repos work too), an
+  optional `include:` (gitignore-style patterns — only matching files exist in
+  the sandbox) and an optional `branch:` (adopt an existing branch/worktree).
+  The scaffold seeds `srcs: [{src: .}]` — this repo, whole. Editing srcs
+  applies on the next `enter`/`exec` — a running session sees the change live,
+  no recreate.
 - **review** — on the HOST, per source repo: `git -C <repo> log feat/<slug>-sb`,
   `git add`/`commit` in the worktree, then merge or cherry-pick.
 

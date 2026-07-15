@@ -31,3 +31,7 @@ image:
   # reuse the stamp, and only `sandboxer image build --refresh` re-resolves.
   # llmAgentsRev: latest             # newer agents without a sandboxer release
   # nixpkgsRev: 64c08a7ca051951c8eae34e3e3cb1e202fe36786   # or pin exactly
+
+# The sources the sandbox sees ({src: .} = the project repo, whole).
+srcs:
+  - src: .

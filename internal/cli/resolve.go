@@ -275,16 +275,14 @@ func configLine(rt config.Runtime, slug string, prof *config.Profile, backendSho
 	case rt.Proxy != "":
 		egress = "off → proxy (direct)"
 	}
-	profile, srcs := "none (defaults)", 1 // no srcs listed = the project repo
+	profile, srcs := "none (defaults)", 0
 	if prof != nil {
 		if prof.Name != "" {
 			profile = prof.Name
 		} else {
 			profile = "(unnamed)"
 		}
-		if len(prof.Srcs) > 0 {
-			srcs = len(prof.Srcs)
-		}
+		srcs = len(prof.Srcs)
 	}
 	return fmt.Sprintf("sandboxer: %s — backend=%s egress=%s profile=%s srcs=%d",
 		slug, backendShown, egress, profile, srcs)

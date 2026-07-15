@@ -37,7 +37,7 @@ func TestCreateFromProfileDir(t *testing.T) {
 	project := newProject(t)
 	envs := t.TempDir()
 	if err := os.WriteFile(filepath.Join(envs, "api.yaml"),
-		[]byte("name: api\nbackend: docker\n"), 0o644); err != nil {
+		[]byte("name: api\nbackend: docker\nsrcs: [{src: .}]\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if code, out, errs := run("create", "api", "-f", envs, "--src", project); code != 0 || !strings.Contains(out, "api") {

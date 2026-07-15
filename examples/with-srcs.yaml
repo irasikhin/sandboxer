@@ -30,10 +30,11 @@ network:
 # decides the mode — see examples/config.yaml and README "Egress allowlist
 # (container backend)".
 
-# Srcs: the repos (and slices of them) the sandbox sees. src is a path to a
-# repo root, include narrows it with gitignore-style patterns (omit include for
-# the whole repo; branch: adopts an existing branch/worktree). Omit srcs
-# entirely for [{src: .}] — this repo, whole.
+# Srcs: the repos (and slices of them) the sandbox sees — ALWAYS explicit,
+# there is no implicit default. src is a path to a repo root (relative paths
+# resolve against the project root), include narrows it with gitignore-style
+# patterns (omit include for the whole repo; branch: adopts an existing
+# branch/worktree).
 srcs:
   - src: .
     include:

@@ -68,9 +68,9 @@ func (b *Base) writeSrcs(slug string, srcs []Source) error {
 // with the rest of the state dir.
 func (b *Base) detachedDir() string { return filepath.Join(b.Dir, "_detached") }
 
-// profileSrcs reads the srcs list from the sandbox's stored profile.json; an
-// absent profile or empty list means the zero-config default: the project
-// repo, whole.
+// profileSrcs reads the srcs list from the sandbox's stored profile.json.
+// There is no implicit default — an absent profile or empty list is rejected
+// by resolveSrcs (the scaffolded config seeds an explicit srcs: [{src: .}]).
 func (b *Base) profileSrcs(slug string) []config.Src {
 	data, err := os.ReadFile(b.ProfileJSONPath(slug))
 	if err != nil {
@@ -90,11 +90,16 @@ func (b *Base) profileSrcs(slug string) []config.Src {
 // commit, no repo twice), branches decided (explicit branch: adopts an
 // existing worktree when one exists; otherwise the managed feat/<slug>-sb),
 // and managed worktrees named under <slug>/ (repo basename, deduped by a
-// short path hash on collision). Entry order is preserved.
+// short path hash on collision). Entry order is preserved. An empty list is
+// an error, never an implicit "current directory": what a sandbox exposes is
+// always spelled out in the config.
 func (b *Base) resolveSrcs(slug string, specs []config.Src, w io.Writer) ([]Source, error) {
-	zeroConfig := len(specs) == 0
-	if zeroConfig {
-		specs = []config.Src{{Src: b.Src}}
+	if len(specs) == 0 {
+		return nil, fmt.Errorf("srcs is empty — a sandbox needs at least one source; add to %s, e.g.:\n"+
+			"  srcs:\n"+
+			"    - src: .               # this repo\n"+
+			"    - src: ../other-repo   # any git repo\n"+
+			"(edit it with: sandboxer config edit)", config.ConfigFileName)
 	}
 	seenRepo := map[string]bool{}
 	seenName := map[string]bool{}
@@ -105,8 +110,8 @@ func (b *Base) resolveSrcs(slug string, specs []config.Src, w io.Writer) ([]Sour
 			return nil, errors.New("srcs entry with an empty src — every entry needs src: <path-to-repo>")
 		}
 		if !filepath.IsAbs(path) {
-			// Snapshots written by LoadDocument are already absolute; this is a
-			// fallback for hand-written profile.json files.
+			// Relative srcs paths resolve against the PROJECT ROOT — one rule
+			// regardless of where the profile file lives (root, -f, store).
 			path = filepath.Join(b.Src, path)
 		}
 		path = filepath.Clean(path)
@@ -115,14 +120,9 @@ func (b *Base) resolveSrcs(slug string, specs []config.Src, w io.Writer) ([]Sour
 		}
 		top, _, ok := worktree.Detect(path)
 		if !ok {
-			if zeroConfig {
-				return nil, fmt.Errorf("srcs is empty, so the current directory is the only source — "+
-					"but %s is not a git repo with a commit; either list your repos in %s:\n"+
-					"  srcs: [{src: ./path-to-repo}]\n"+
-					"or make this directory one: git init && git add -A && git commit -m init", b.Src, config.ConfigFileName)
-			}
 			return nil, fmt.Errorf("srcs entry %q: not a git repository with a commit — "+
-				"run git init && git commit in it first (non-git trees come in via extraMounts)", spec.Src)
+				"point src at a repo (sandboxer config edit), or git init && git commit it "+
+				"(non-git trees come in via extraMounts)", spec.Src)
 		}
 		if path != top {
 			return nil, fmt.Errorf("srcs entry %q: must point at the repository root (%s)", spec.Src, top)

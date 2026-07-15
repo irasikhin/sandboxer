@@ -300,17 +300,24 @@ func TestParseEnvFile(t *testing.T) {
 	}
 }
 
-// TestMakeSandboxRejectsNonGit: sandboxer is git-only — MakeSandbox on a project
-// that is not a git repo errors with the init guidance rather than falling
-// back to a copy-mode workspace.
+// TestMakeSandboxRejectsNonGit: no profile means no srcs — MakeSandbox refuses
+// with the explicit srcs-is-empty guidance (there is no implicit current-dir
+// default); an explicit non-git src gets the git-only rejection.
 func TestMakeSandboxRejectsNonGit(t *testing.T) {
 	b, err := ResolveBase(t.TempDir()) // a bare temp dir is not a git repo
 	if err != nil {
 		t.Fatal(err)
 	}
 	err = b.MakeSandbox("feat", io.Discard)
-	if err == nil || !strings.Contains(err.Error(), "srcs is empty") || !strings.Contains(err.Error(), "git repo") {
-		t.Errorf("MakeSandbox on a non-git project = %v, want the srcs-is-empty explanation", err)
+	if err == nil || !strings.Contains(err.Error(), "srcs is empty") {
+		t.Errorf("MakeSandbox without srcs = %v, want the srcs-is-empty explanation", err)
+	}
+	if err := b.WriteProfileJSON("feat", []byte(`{"srcs":[{"src":"."}]}`)); err != nil {
+		t.Fatal(err)
+	}
+	err = b.MakeSandbox("feat", io.Discard)
+	if err == nil || !strings.Contains(err.Error(), "not a git repository") {
+		t.Errorf("MakeSandbox on a non-git src = %v, want the git-only rejection", err)
 	}
 	if _, err := os.Stat(b.SandboxDir("feat")); !os.IsNotExist(err) {
 		t.Error("no sandbox dir should be created for a rejected non-git project")

@@ -47,24 +47,27 @@ func gitRepoWithCommit(t *testing.T) string {
 	return repo
 }
 
-func TestMakeSandboxZeroConfigFull(t *testing.T) {
+func TestMakeSandboxDotSrcFull(t *testing.T) {
 	repo := gitRepoWithCommit(t)
 	b, err := ResolveBase(repo)
 	if err != nil {
 		t.Fatalf("ResolveBase: %v", err)
 	}
 
-	// when: a sandbox is made with no profile → the project repo, whole
+	// when: a sandbox is made from the scaffold-style explicit {src: "."}
+	if err := b.WriteProfileJSON("wt", []byte(`{"srcs":[{"src":"."}]}`)); err != nil {
+		t.Fatal(err)
+	}
 	if err := b.MakeSandbox("wt", io.Discard); err != nil {
 		t.Fatalf("MakeSandbox: %v", err)
 	}
 	srcs := b.Srcs("wt")
 	if len(srcs) != 1 {
-		t.Fatalf("srcs = %+v, want one zero-config source", srcs)
+		t.Fatalf("srcs = %+v, want one source", srcs)
 	}
 	s := srcs[0]
 	if !s.Managed || !s.AutoBranch || s.Branch != "feat/wt-sb" || s.RepoRoot != repo {
-		t.Errorf("zero-config source wrong: %+v", s)
+		t.Errorf("dot source wrong: %+v", s)
 	}
 	// then: the worktree lives UNDER <slug>/ (the sandbox dir is not itself a
 	// worktree), with every file present and clean, on the sandbox branch.
@@ -246,6 +249,7 @@ func TestResolveSrcsErrors(t *testing.T) {
 		{"subdir", `{"srcs":[{"src":"./serviceA"}]}`, "repository root"},
 		{"dup", fmt.Sprintf(`{"srcs":[{"src":"."},{"src":%q}]}`, repo), "listed twice"},
 		{"empty", `{"srcs":[{"src":""}]}`, "empty src"},
+		{"no-srcs", `{}`, "srcs is empty"},
 	}
 	for _, c := range cases {
 		if err := b.WriteProfileJSON("bad", []byte(c.pj)); err != nil {
@@ -262,6 +266,9 @@ func TestRemoveStateKeepsBranchesFullDropsAuto(t *testing.T) {
 	repo := gitRepoWithCommit(t)
 	b, err := ResolveBase(repo)
 	if err != nil {
+		t.Fatal(err)
+	}
+	if err := b.WriteProfileJSON("gone", []byte(`{"srcs":[{"src":"."}]}`)); err != nil {
 		t.Fatal(err)
 	}
 	if err := b.MakeSandbox("gone", io.Discard); err != nil {

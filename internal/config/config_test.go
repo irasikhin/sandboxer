@@ -287,10 +287,10 @@ srcs:
 	if len(p.Srcs) != 2 || p.Srcs[1].Branch != "feat/x" || p.Srcs[0].Include[0] != "/src/lib/" {
 		t.Errorf("srcs: %+v", p.Srcs)
 	}
-	// Relative src paths are resolved against the file's directory (like
-	// image.nix), so the stored snapshot stays self-contained.
-	if p.Srcs[0].Src != dir || filepath.IsAbs(p.Srcs[1].Src) == false {
-		t.Errorf("srcs not resolved absolute: %+v", p.Srcs)
+	// Relative src paths stay relative in the snapshot: they resolve against
+	// the PROJECT ROOT at sandbox-sync time, not against the profile file.
+	if p.Srcs[0].Src != "." || p.Srcs[1].Src != "../shared-lib" {
+		t.Errorf("srcs should stay relative: %+v", p.Srcs)
 	}
 	// JSON serialization uses camelCase keys the container and sandbox read.
 	b, err := p.JSON()

@@ -8,6 +8,12 @@
 # Sandbox name (slug). Drives the worktree branch feat/<name>-sb.
 name: feature-x
 
+# The sources the sandbox sees — always explicit ({src: .} = this repo, whole;
+# relative paths resolve against the project root). See with-srcs.yaml for
+# include patterns, extra repos and branch adoption.
+srcs:
+  - src: .
+
 # Isolation backend — a podman or docker container built from the toolbox image
 # (works with any agent). Leave empty to auto-detect (docker, then podman).
 backend: podman

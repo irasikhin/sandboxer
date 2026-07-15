@@ -60,8 +60,9 @@ was extracted from:
 - **Sandbox backing = srcs** (`internal/worktree`, `internal/sandbox/srcs.go`): a sandbox exposes SOURCES —
   `srcs: [{src, include, branch}]` — each a git worktree at `<stateDir>/<slug>/<repo>/` on branch
   `feat/<slug>-sb` (or the entry's `branch:`, which ADOPTS an existing worktree of that branch, incl. the main
-  checkout), narrowed by gitignore-style `include` patterns via **non-cone** `sparse-checkout`. Zero-config:
-  empty profile → `[{src: .}]`. **Git never enters the container**: no git-dir mounts, no `GIT_CONFIG_*` — the
+  checkout), narrowed by gitignore-style `include` patterns via **non-cone** `sparse-checkout`. srcs is ALWAYS
+  explicit — an empty list is rejected; the scaffolded config seeds `srcs: [{src: .}]`. Relative src paths
+  resolve against the PROJECT ROOT (not the profile file's dir). **Git never enters the container**: no git-dir mounts, no `GIT_CONFIG_*` — the
   container gets one stable rw mount of `<slug>/` (plus adopted paths), so the sparse worktree contents ARE the
   wall and srcs edits are picked up by every enter/exec (a LIVE session sees them immediately); commits happen
   on the host. Resolved sources are recorded at `_meta/<slug>.srcs.json`; dropped sources move to `_detached/`

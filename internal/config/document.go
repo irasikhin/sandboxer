@@ -66,7 +66,6 @@ func LoadDocumentBytes(data []byte, file string) (*Document, error) {
 			return nil, err
 		}
 		p.resolveImageNix(dir)
-		p.resolveSrcs(dir)
 		name := ProfileName(file, p)
 		p.Name = name
 		return &Document{
@@ -81,11 +80,12 @@ func LoadDocumentBytes(data []byte, file string) (*Document, error) {
 	if err := dec.Decode(&d); err != nil {
 		return nil, annotateRemovedKeys(err)
 	}
-	// Resolve relative image.nix and srcs paths against the file's directory in
-	// every section, so the snapshot written to _meta is self-contained.
+	// Resolve relative image.nix paths against the file's directory in every
+	// section, so the snapshot written to _meta is self-contained. (srcs paths
+	// deliberately stay relative: they resolve against the PROJECT ROOT at
+	// sandbox-sync time, so a store/-f profile's "src: ." means the project.)
 	for name, p := range d.Profiles {
 		p.resolveImageNix(dir)
-		p.resolveSrcs(dir)
 		d.Profiles[name] = p
 	}
 	d.multi = true

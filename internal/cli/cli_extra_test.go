@@ -184,7 +184,7 @@ func TestConfigLine(t *testing.T) {
 	// Defaults, no profile: egress on with a domain count, profile=none.
 	rt := config.Runtime{Backend: "docker", Egress: true, Domains: []string{"a.com", "b.com"}}
 	line := configLine(rt, "feat", nil, "docker")
-	for _, want := range []string{"feat —", "backend=docker", "egress=on (2 domains)", "profile=none", "srcs=1"} {
+	for _, want := range []string{"feat —", "backend=docker", "egress=on (2 domains)", "profile=none", "srcs=0"} {
 		if !strings.Contains(line, want) {
 			t.Errorf("configLine missing %q in %q", want, line)
 		}
@@ -313,9 +313,11 @@ func TestRunMultiProfileSelect(t *testing.T) {
 	body := `profiles:
   web:
     backend: podman
+    srcs: [{src: .}]
   api:
     backend: docker
     session: ephemeral
+    srcs: [{src: .}]
     network:
       allowedDomains: [api.anthropic.com]
 default: web
@@ -479,7 +481,7 @@ func TestRunAutoDiscoversProfile(t *testing.T) {
 	// A docker profile in the project config must be picked up without --config;
 	// otherwise the default (podman) backend would be used and the banner would
 	// not say docker.
-	if err := os.WriteFile(config.ConfigPath(), []byte("name: disco\nbackend: docker\n"), 0o644); err != nil {
+	if err := os.WriteFile(config.ConfigPath(), []byte("name: disco\nbackend: docker\nsrcs: [{src: .}]\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	code, _, errs := run("create")
