@@ -25,13 +25,13 @@ func TestResolveSpecEmpty(t *testing.T) {
 	}
 }
 
-// TestResolveSpecMerge: tools-pack attrs and image.extraPkgs are unioned,
+// TestResolveSpecMerge: tools-pack attrs and image.packages are unioned,
 // deduplicated and sorted, so the attr order in the profile never changes the
 // content address.
 func TestResolveSpecMerge(t *testing.T) {
 	s, err := ResolveSpec(&config.Profile{
 		Tools: []string{"go"},
-		Image: config.ImageSpec{ExtraPkgs: []string{"ripgrep", "go", "python3Packages.requests"}},
+		Image: config.ImageSpec{Packages: []string{"ripgrep", "go", "python3Packages.requests"}},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -46,22 +46,22 @@ func TestResolveSpecMerge(t *testing.T) {
 	}
 }
 
-// TestResolveSpecNixFile: the user nix hook is hashed into the spec, a content
+// TestResolveSpecOverlayFile: the user nix hook is hashed into the spec, a content
 // change flips both the hash and the tag, and a missing file is a fail-closed
 // error before any container work.
-func TestResolveSpecNixFile(t *testing.T) {
+func TestResolveSpecOverlayFile(t *testing.T) {
 	dir := t.TempDir()
 	f := filepath.Join(dir, "image.nix")
 	if err := os.WriteFile(f, []byte("{ pkgs }: { packages = [ pkgs.hello ]; }\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	prof := &config.Profile{Image: config.ImageSpec{Nix: f}}
+	prof := &config.Profile{Image: config.ImageSpec{Overlay: f}}
 	s1, err := ResolveSpec(prof)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if s1.NixFile != f || !regexp.MustCompile(`^[0-9a-f]{64}$`).MatchString(s1.NixSHA) {
-		t.Errorf("spec = %+v, want NixFile %q with a 64-hex NixSHA", s1, f)
+	if s1.OverlayFile != f || !regexp.MustCompile(`^[0-9a-f]{64}$`).MatchString(s1.OverlaySHA) {
+		t.Errorf("spec = %+v, want OverlayFile %q with a 64-hex OverlaySHA", s1, f)
 	}
 
 	if err := os.WriteFile(f, []byte("{ pkgs }: { }\n"), 0o644); err != nil {
@@ -71,13 +71,13 @@ func TestResolveSpecNixFile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if s2.NixSHA == s1.NixSHA || s2.Tag() == s1.Tag() {
-		t.Error("changing the hook file's content must change NixSHA and the tag")
+	if s2.OverlaySHA == s1.OverlaySHA || s2.Tag() == s1.Tag() {
+		t.Error("changing the hook file's content must change OverlaySHA and the tag")
 	}
 
-	_, err = ResolveSpec(&config.Profile{Image: config.ImageSpec{Nix: filepath.Join(dir, "missing.nix")}})
-	if err == nil || !strings.Contains(err.Error(), "image.nix") {
-		t.Errorf("missing image.nix = %v, want a fail-closed error naming image.nix", err)
+	_, err = ResolveSpec(&config.Profile{Image: config.ImageSpec{Overlay: filepath.Join(dir, "missing.nix")}})
+	if err == nil || !strings.Contains(err.Error(), "image.overlay") {
+		t.Errorf("missing overlay file = %v, want a fail-closed error naming image.overlay", err)
 	}
 }
 
@@ -96,7 +96,7 @@ func TestSpecTag(t *testing.T) {
 	if a.Tag() == (Spec{Attrs: []string{"go"}}).Tag() {
 		t.Error("different attr sets must produce different tags")
 	}
-	if a.Tag() == (Spec{Attrs: []string{"go", "ripgrep"}, NixSHA: "deadbeef"}).Tag() {
+	if a.Tag() == (Spec{Attrs: []string{"go", "ripgrep"}, OverlaySHA: "deadbeef"}).Tag() {
 		t.Error("a user nix hash must change the tag")
 	}
 	// NUL-joined attrs: adjacent names never collide by concatenation, so a
@@ -138,10 +138,10 @@ func TestSpecTagPanicsOnLatest(t *testing.T) {
 	}
 }
 
-// TestFlakeUserContract guards the embedded flake's user-hook wiring: the
-// unconditional ./user.nix import, the two-phase overlay re-import, the
-// fail-closed unknown-key validation, and the packages/files/env plumbing into
-// the image.
+// TestFlakeUserContract guards the embedded flake's customization wiring: the
+// unconditional plain-overlay import (applied BEFORE attr resolution, so
+// image.packages may name overlay attrs) and the files.json/env.json data
+// plumbing into the image.
 func TestFlakeUserContract(t *testing.T) {
 	data, err := assets.ReadFile("assets/flake.nix")
 	if err != nil {
@@ -149,16 +149,15 @@ func TestFlakeUserContract(t *testing.T) {
 	}
 	s := string(data)
 	for _, want := range []string{
-		"import ./user.nix",
-		"overlays = [",
-		`throw "sandboxer: image.nix returned unknown keys`,
-		"userPkgs",
+		"overlays = [ (import ./overlay.nix) ]",
+		`builtins.fromJSON (builtins.readFile ./files.json)`,
+		`builtins.fromJSON (builtins.readFile ./env.json)`,
 		"userFiles",
 		"userEnv",
 		"writeTextDir",
 	} {
 		if !strings.Contains(s, want) {
-			t.Errorf("embedded flake.nix missing %q — user image contract not wired", want)
+			t.Errorf("embedded flake.nix missing %q — image customization contract not wired", want)
 		}
 	}
 }

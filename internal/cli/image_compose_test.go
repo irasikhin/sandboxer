@@ -259,7 +259,7 @@ func TestComposePrintRunImageVariant(t *testing.T) {
 	fakePodman(t)
 	t.Setenv("SANDBOXER_SESSION", "")
 	cfg := filepath.Join(t.TempDir(), "p.nix")
-	if err := os.WriteFile(cfg, []byte("{ name = \"feat\"; srcs = [ { src = \".\"; } ]; image.extraPkgs = [ \"ripgrep\" ]; }\n"), 0o644); err != nil {
+	if err := os.WriteFile(cfg, []byte("{ name = \"feat\"; srcs = [ { src = \".\"; } ]; image.packages = [ \"ripgrep\" ]; }\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if code, _, errs := run("create", "--src", project, "--config", cfg); code != 0 {
@@ -309,7 +309,7 @@ func TestBuildImageCommand(t *testing.T) {
 	// With a profile (-f): the profile's content-addressed variant tag is
 	// built instead of the stock default (the progress banner names it).
 	cfg := filepath.Join(t.TempDir(), "img.nix")
-	if err := os.WriteFile(cfg, []byte("{ name = \"feat\"; srcs = [ { src = \".\"; } ]; image.extraPkgs = [ \"ripgrep\" ]; }\n"), 0o644); err != nil {
+	if err := os.WriteFile(cfg, []byte("{ name = \"feat\"; srcs = [ { src = \".\"; } ]; image.packages = [ \"ripgrep\" ]; }\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	code, _, errs := run("image", "build", "--engine", "podman", "-f", cfg)
@@ -337,14 +337,14 @@ func TestBuildImageCommand(t *testing.T) {
 		t.Errorf("build-image bogus profile = (%d, %q)", code, errs)
 	}
 
-	// A profile whose image.nix is missing fails spec resolution fast.
+	// A profile whose image.overlay file is missing fails spec resolution fast.
 	noNix := filepath.Join(t.TempDir(), "no-nix.nix")
-	if err := os.WriteFile(noNix, []byte("{ name = \"feat\"; image.nix = \"missing.nix\"; }\n"), 0o644); err != nil {
+	if err := os.WriteFile(noNix, []byte("{ name = \"feat\"; image.overlay = \"missing.nix\"; }\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if code, _, errs := run("image", "build", "--engine", "podman", "-f", noNix); code != 1 ||
-		!strings.Contains(errs, "image.nix") {
-		t.Errorf("build-image missing image.nix = (%d, %q)", code, errs)
+		!strings.Contains(errs, "image.overlay") {
+		t.Errorf("build-image missing image.overlay = (%d, %q)", code, errs)
 	}
 
 	// A malformed profile file fails the document load.

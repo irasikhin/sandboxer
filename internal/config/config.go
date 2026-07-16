@@ -120,23 +120,30 @@ type Limits struct {
 // (host.docker.internal) at container-launch time, so "a proxy on my host" works
 // with the obvious URL — see backend.ContainerProxyURL.
 
-// ImageSpec customizes the toolbox image a profile's sandbox runs in: extra
-// nixpkgs packages, a user nix file hooked into the image build, and overrides
-// for the pinned flake-input revisions. An empty spec means the stock image.
+// ImageSpec customizes the toolbox image a profile's sandbox runs in. Every
+// key is flat data — nothing needs pkgs at config time; the one thing that
+// does (an overlay) lives in its own file. An empty spec means the stock
+// image.
 type ImageSpec struct {
-	// ExtraPkgs are nixpkgs attribute names baked into the image (dotted
-	// attribute paths like nodePackages.pnpm are allowed).
-	ExtraPkgs []string `json:"extraPkgs,omitempty"`
-	// Nix is a user nix file imported by the image build. It may be written
-	// relative to the profile file; LoadDocument resolves it to an absolute
-	// path so the stored _meta/<slug>.profile.json snapshot stays
-	// self-contained.
-	Nix string `json:"nix,omitempty"`
-	// Hook is the same image customization INLINE: the nix source of a
-	// { pkgs }: { packages, files, env, overlay } function, carried as a
-	// string (a nix multiline string in the config), so the whole config
-	// stays one file. Mutually exclusive with Nix.
-	Hook string `json:"hook,omitempty"`
+	// Packages are nixpkgs attribute names baked into the image (dotted
+	// attribute paths like nodePackages.pnpm are allowed). They resolve
+	// against the OVERLAID package set, so an attr defined by Overlay is
+	// listed here like any other.
+	Packages []string `json:"packages,omitempty"`
+	// Files are text files baked into the image at absolute paths —
+	// /etc/sandboxer/rc.d/*.sh shell drop-ins, /etc/containers/registries.conf
+	// mirrors, and so on. Static text only: a file whose CONTENT needs pkgs
+	// (store paths) is an overlay attr via writeTextDir, listed in Packages.
+	Files map[string]string `json:"files,omitempty"`
+	// Env is appended to the image's OCI env (static values; the profile's
+	// own env still overrides at run time).
+	Env map[string]string `json:"env,omitempty"`
+	// Overlay is a file containing a PLAIN nixpkgs overlay —
+	// final: prev: { … } — for anything that needs pkgs at build time
+	// (patched or computed packages). It may be written relative to the
+	// profile file; LoadDocument resolves it to an absolute path so the
+	// stored _meta/<slug>.profile.json snapshot stays self-contained.
+	Overlay string `json:"overlay,omitempty"`
 	// LLMAgentsRev / NixpkgsRev override the embedded flake-input pins: empty
 	// keeps the embedded pin, "latest" resolves the remote head once at build
 	// time, and a full 40-hex commit hash pins exactly (see ValidateImageSpec).
@@ -147,8 +154,8 @@ type ImageSpec struct {
 // Empty reports whether the spec requests no customization, i.e. the sandbox
 // runs the stock toolbox image.
 func (s ImageSpec) Empty() bool {
-	return len(s.ExtraPkgs) == 0 && s.Nix == "" && s.Hook == "" &&
-		s.LLMAgentsRev == "" && s.NixpkgsRev == ""
+	return len(s.Packages) == 0 && len(s.Files) == 0 && len(s.Env) == 0 &&
+		s.Overlay == "" && s.LLMAgentsRev == "" && s.NixpkgsRev == ""
 }
 
 var imageRevRe = regexp.MustCompile(`^[0-9a-f]{40}$`)
@@ -160,8 +167,10 @@ var imageRevRe = regexp.MustCompile(`^[0-9a-f]{40}$`)
 // tags, and nix treats a non-40-hex rev in a github: flakeref as a ref needing
 // a GitHub API resolve — a network dependency a pin must not have.
 func ValidateImageSpec(s ImageSpec) error {
-	if s.Nix != "" && s.Hook != "" {
-		return fmt.Errorf("image.nix and image.hook are mutually exclusive — inline the hook OR point at a file")
+	for path := range s.Files {
+		if !filepath.IsAbs(path) {
+			return fmt.Errorf("image.files key %q must be an absolute in-image path", path)
+		}
 	}
 	for _, r := range []struct{ field, rev string }{
 		{"image.llmAgentsRev", s.LLMAgentsRev},
@@ -175,20 +184,20 @@ func ValidateImageSpec(s ImageSpec) error {
 	return nil
 }
 
-// resolveImageNix makes a relative Image.Nix absolute against dir (the profile
-// file's directory), so the path survives being snapshotted to _meta and read
-// from another working directory. Absolute paths pass through; an empty field
-// is a no-op.
+// resolveImageNix makes a relative Image.Overlay absolute against dir (the
+// profile file's directory), so the path survives being snapshotted to _meta
+// and read from another working directory. Absolute paths pass through; an
+// empty field is a no-op.
 func (p *Profile) resolveImageNix(dir string) {
-	nix := p.Image.Nix
-	if nix == "" || filepath.IsAbs(nix) {
+	ov := p.Image.Overlay
+	if ov == "" || filepath.IsAbs(ov) {
 		return
 	}
-	nix = filepath.Join(dir, nix)
-	if abs, err := filepath.Abs(nix); err == nil {
-		nix = abs
+	ov = filepath.Join(dir, ov)
+	if abs, err := filepath.Abs(ov); err == nil {
+		ov = abs
 	}
-	p.Image.Nix = nix
+	p.Image.Overlay = ov
 }
 
 // Profile is a sandbox configuration. Scalar fields are optional (they come
@@ -255,6 +264,9 @@ var removedKeys = map[string]string{
 	"roots":      "removed — sandboxes are git worktrees now (no copy mode); mount other trees with extraMounts",
 	"context":    "removed — a git-worktree sandbox already contains the repo's files (nothing is copied in)",
 	"agents":     "removed — no credentials are passed through anymore; log in or export API keys INSIDE the sandbox (its $HOME persists)",
+	"extraPkgs":  "renamed — image.packages (same nixpkgs attr names; overlay-defined attrs may be listed too)",
+	"hook":       "removed — put static customization in image.{packages,files,env}; anything needing pkgs is a plain nixpkgs overlay file: image.overlay = \"./overlay.nix\"",
+	"nix":        "replaced by image.overlay — a file with a PLAIN nixpkgs overlay (final: prev: { … }); expose computed packages/files as overlay attrs and list them in image.packages",
 	"deps":       "replaced by srcs — e.g. srcs = [ { src = \".\"; include = [ \"/some/dir/\" ]; } ] (src = path to a repo; include = gitignore-style patterns; empty include = the whole repo)",
 	"defaults":   "removed — profiles are self-contained; share between them with ordinary nix (let base = { ... }; in { profiles.web = base // { ... }; })",
 }

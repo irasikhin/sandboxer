@@ -210,9 +210,9 @@ rebuilding the image: drop `*.sh` files in `/etc/sandboxer/rc.d/` (image
 plugins) or write `~/.config/sandboxer/rc` (per-sandbox `$HOME`).
 
 > ⚠️ The config itself **evaluates on your host** (restricted: no network, no
-> reads outside its directory), and `setup` / the image hook run **arbitrary
-> code** — setup inside the sandbox under its egress allowlist, the hook
-> inside the throwaway image-builder container with full network. That is the
+> reads outside its directory), and `setup` / the image `overlay` run
+> **arbitrary code** — setup inside the sandbox under its egress allowlist,
+> the overlay inside the throwaway image-builder container with full network. That is the
 > intended trust level for *your own* configs; treat a third-party
 > sandboxer.nix like a shell script someone sent you — read it first.
 
@@ -236,56 +236,49 @@ new sources live.
 
 ### Custom toolbox image (`image:`)
 
-A profile can customize the toolbox image itself — extra packages, files, env,
-even a nixpkgs overlay — without forking the image (the build itself still
-runs inside a builder container; host nix only evaluates the config). The hook
-lives INLINE in the config:
+A profile can customize the toolbox image itself — without forking it (the
+build runs inside a builder container; host nix only evaluates the config).
+Everything is **flat data** in `image`; the one thing that needs `pkgs` at
+build time (an overlay) is a separate file:
 
 ```nix
 {
   image = {
-    extraPkgs = [ "gh" "python3Packages.requests" ];  # extra nixpkgs attrs baked in
-    hook = ''
-      { pkgs }: {
-        # packages = [ pkgs.httpie ];
-        # files."/etc/sandboxer/rc.d/10-custom.sh" = "alias hi=hello";
-        # env = { SANDBOX_FLAVOR = "custom"; };
-        # overlay = final: prev: { };
-      }
-    '';
-    # nix = "./my-hook.nix";     # or a separate file instead of inlining
-    # llmAgentsRev = "latest";   # input pin override: latest | full commit hash
-    # nixpkgsRev = "<commit>";   # empty = the pin embedded in the binary
+    packages = [ "gh" "python3Packages.requests" ];  # nixpkgs attr names baked in
+    files."/etc/sandboxer/rc.d/10-aliases.sh" = "alias mci='mvn clean install'";
+    env.SANDBOX_FLAVOR = "custom";                    # static image OCI env
+    # overlay = "./overlay.nix";  # a PLAIN nixpkgs overlay, for computed pkgs
+    # llmAgentsRev = "latest";    # input pin override: latest | full commit hash
+    # nixpkgsRev = "<commit>";    # empty = the pin embedded in the binary
   };
 }
 ```
 
+- **`packages`** — nixpkgs attribute names (dotted paths like
+  `python3Packages.requests` allowed). They resolve against the overlaid
+  package set, so an attr your overlay defines is listed here like any other.
+- **`files`** — static text at absolute in-image paths (shell drop-ins under
+  `/etc/sandboxer/rc.d/*.sh` are sourced by every interactive shell).
+- **`env`** — static additions to the image's OCI env (the profile's own
+  top-level `env` still overrides at run time).
+- **`overlay`** — a file with a **plain nixpkgs overlay**, `final: prev: { … }`,
+  for anything that needs `pkgs` at build time (patched or computed packages).
+  Expose those as overlay attrs and name them in `packages`:
+
+  ```nix
+  # overlay.nix
+  final: prev: {
+    greet = prev.writeShellScriptBin "greet" "echo hi";
+  }
+  ```
+
 The customization is **content-addressed**: the sandbox runs
 `sandboxer-toolbox:var-<12hex>` — hashed over the effective input pins, the
-package set (`tools` packs + `extraPkgs`) and the hook's content —
-auto-built on first use and shared by identical profiles; the stock
-`sandboxer-toolbox:latest` is untouched. Any change (a package, the hook's
-content, a pin) is a new tag, and an idle persistent session recreates itself
-on the next `enter`.
-
-`image.nix` is a function `{ pkgs }: { … }` returning any of four keys —
-unknown keys abort the build, so a typo never silently drops a customization:
-
-```nix
-{ pkgs }:
-{
-  overlay = final: prev: { };     # nixpkgs overlay, applied first
-  packages = [ pkgs.httpie ];     # store paths to bake in (pkgs has the overlay applied)
-  files."/etc/motd" = "hello\n";  # text files at absolute paths
-  env.MY_FLAG = "1";              # OCI env (overrides a same-named default)
-}
-```
-
-The contract is two-phase: `overlay` is read from a first call with base
-nixpkgs, then the function is called again with the overlay'd `pkgs` for
-`packages`/`files`/`env` — packages see the overlay, but the overlay cannot
-reference its own result. Full commented example:
-[examples/custom-image.nix](./examples/custom-image.nix).
+package set (`tools` packs + `packages`), `files`, `env` and the overlay's
+content — auto-built on first use and shared by identical profiles; the stock
+`sandboxer-toolbox:latest` is untouched. Any change is a new tag, and an idle
+persistent session recreates itself on the next `enter`. Full commented
+example: [examples/custom-image.nix](./examples/custom-image.nix).
 
 `llmAgentsRev`/`nixpkgsRev` move the image's flake-input pins — e.g. pick up
 newer agents without waiting for a sandboxer release. A full 40-hex commit

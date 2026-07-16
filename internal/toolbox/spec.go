@@ -22,16 +22,17 @@ type Spec struct {
 	// and deduplicated. Dotted attribute paths (python3Packages.requests) are
 	// allowed.
 	Attrs []string
-	// NixFile is the path to the profile's user nix hook file ("" = none).
-	// After any profile load config guarantees it is absolute, so the spec
-	// stays valid from any working directory.
-	NixFile string
-	// NixInline is the hook's nix source carried inline (image.hook — the
-	// single-file form); mutually exclusive with NixFile.
-	NixInline string
-	// NixSHA is the sha256 hex of NixFile's content ("" when NixFile is "") —
-	// the file's contribution to the content-addressed tag.
-	NixSHA string
+	// OverlayFile is the path to the profile's nixpkgs-overlay file ("" =
+	// none). After any profile load config guarantees it is absolute, so the
+	// spec stays valid from any working directory.
+	OverlayFile string
+	// OverlaySHA is the sha256 hex of OverlayFile's content ("" when unset) —
+	// the overlay's contribution to the content-addressed tag.
+	OverlaySHA string
+	// Files/Env are the profile's static image customization (image.files /
+	// image.env), rendered into the build context and folded into the tag.
+	Files map[string]string
+	Env   map[string]string
 	// LLMAgentsRev / NixpkgsRev override the embedded flake-input pins; ""
 	// keeps the embedded pin. A literal "latest" must be resolved to a commit
 	// before the spec is tagged or built (see effectiveRev).
@@ -56,7 +57,7 @@ func ResolveSpec(p *config.Profile) (Spec, error) {
 	for _, a := range attrs {
 		seen[a] = true
 	}
-	for _, a := range p.Image.ExtraPkgs {
+	for _, a := range p.Image.Packages {
 		if !seen[a] {
 			seen[a] = true
 			attrs = append(attrs, a)
@@ -68,22 +69,19 @@ func ResolveSpec(p *config.Profile) (Spec, error) {
 	}
 	s := Spec{
 		Attrs:        attrs,
-		NixFile:      p.Image.Nix,
-		NixInline:    p.Image.Hook,
+		OverlayFile:  p.Image.Overlay,
+		Files:        p.Image.Files,
+		Env:          p.Image.Env,
 		LLMAgentsRev: p.Image.LLMAgentsRev,
 		NixpkgsRev:   p.Image.NixpkgsRev,
 	}
-	switch {
-	case s.NixInline != "":
-		sum := sha256.Sum256([]byte(s.NixInline))
-		s.NixSHA = hex.EncodeToString(sum[:])
-	case s.NixFile != "":
-		data, err := os.ReadFile(s.NixFile)
+	if s.OverlayFile != "" {
+		data, err := os.ReadFile(s.OverlayFile)
 		if err != nil {
-			return Spec{}, fmt.Errorf("image.nix: %w — fix the profile's image.nix path (or inline the hook as image.hook)", err)
+			return Spec{}, fmt.Errorf("image.overlay: %w — fix the profile's image.overlay path", err)
 		}
 		sum := sha256.Sum256(data)
-		s.NixSHA = hex.EncodeToString(sum[:])
+		s.OverlaySHA = hex.EncodeToString(sum[:])
 	}
 	return s, nil
 }
@@ -91,32 +89,53 @@ func ResolveSpec(p *config.Profile) (Spec, error) {
 // Empty reports whether the spec requests no customization — the sandbox runs
 // the stock default image.
 func (s Spec) Empty() bool {
-	return len(s.Attrs) == 0 && s.NixFile == "" && s.LLMAgentsRev == "" && s.NixpkgsRev == ""
+	return len(s.Attrs) == 0 && s.OverlayFile == "" && len(s.Files) == 0 &&
+		len(s.Env) == 0 && s.LLMAgentsRev == "" && s.NixpkgsRev == ""
 }
 
 // Tag returns the image reference for the spec: the default image when empty,
 // otherwise a content-addressed "sandboxer-toolbox:var-<12 hex>" over every
-// content input (effective input revs, baked attrs, the user nix file's hash),
-// so identical customizations share one cached image and any change — a
-// package, the nix hook's content, a pin bump — yields a new tag.
+// content input (effective input revs, baked attrs, files, env, the overlay
+// file's hash), so identical customizations share one cached image and any
+// change — a package, a file's text, the overlay's content, a pin bump —
+// yields a new tag.
 func (s Spec) Tag() string {
 	if s.Empty() {
 		return config.DefaultImage
 	}
 	embNixpkgs, embLLMAgents := EmbeddedRevs()
-	nixSHA := s.NixSHA
-	if nixSHA == "" {
-		nixSHA = "-"
+	overlaySHA := s.OverlaySHA
+	if overlaySHA == "" {
+		overlaySHA = "-"
 	}
-	// Attrs are NUL-joined so adjacent names can never collide by
+	// Every list is NUL-joined so adjacent values can never collide by
 	// concatenation (["go,rg"] vs ["go","rg"]) — the session ConfigHash
-	// convention.
-	sum := sha256.Sum256([]byte("v1\x00" +
+	// convention; maps are serialized in sorted key order.
+	sum := sha256.Sum256([]byte("v2\x00" +
 		"nixpkgs=" + effectiveRev("nixpkgs", s.NixpkgsRev, embNixpkgs) + "\x00" +
 		"llm-agents=" + effectiveRev("llm-agents", s.LLMAgentsRev, embLLMAgents) + "\x00" +
 		"attrs=" + strings.Join(s.Attrs, "\x00") + "\x00" +
-		"nix=" + nixSHA))
+		"files=" + joinSortedKV(s.Files) + "\x00" +
+		"env=" + joinSortedKV(s.Env) + "\x00" +
+		"overlay=" + overlaySHA))
 	return "sandboxer-toolbox:var-" + hex.EncodeToString(sum[:])[:12]
+}
+
+// joinSortedKV serializes a string map deterministically for hashing.
+func joinSortedKV(m map[string]string) string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	var b strings.Builder
+	for _, k := range keys {
+		b.WriteString(k)
+		b.WriteByte(0)
+		b.WriteString(m[k])
+		b.WriteByte(0)
+	}
+	return b.String()
 }
 
 // effectiveRev is the input rev a build of the spec would actually use: the

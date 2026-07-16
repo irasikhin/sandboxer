@@ -14,7 +14,7 @@ can never be committed. The repo carries only two sandboxer-owned files:
 
 ```
 <project-root>/
-└── sandboxer.nix         # the whole config, image hook inline (auto-discovered;
+└── sandboxer.nix         # the whole config, image customization included (auto-discovered;
                           #   committed; evaluated via host nix, restricted eval)
 
 $XDG_STATE_HOME/sandboxer/<project-id>/     # runtime state, outside the repo
@@ -114,7 +114,7 @@ image is built **without nix on the host** (`internal/toolbox`):
 Per-profile customization is **content-addressed**. A profile's `image:` section
 (extra packages, a user `nix:` hook, input-pin overrides) produces a variant
 tagged `sandboxer-toolbox:var-<12-hex>`, hashed over the effective input pins,
-the package set (`tools` packs + `extraPkgs`) and the nix file's content
+the package set (`tools` packs + `image.packages`), files, env and the overlay's content
 (`internal/toolbox/spec.go`). Any change — a package, the hook's bytes, a pin —
 is a new tag; identical profiles share one variant; the stock `:latest` is
 untouched. `create`/`enter`/`exec` auto-build a missing image (stock or

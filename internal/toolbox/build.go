@@ -11,6 +11,7 @@ package toolbox
 
 import (
 	"embed"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -171,15 +172,15 @@ func BuildImage(o BuildOpts) error {
 	return nil
 }
 
-// stubUserNix is the user.nix written when the profile has no nix hook: the
-// flake's import is unconditional, so the stub keeps a stock build identical
-// to one before the hook existed (no customization in either phase).
-const stubUserNix = "{ pkgs }: { }\n"
+// stubOverlay is the overlay.nix written when the profile has none: the
+// flake's import is unconditional, and a no-op overlay keeps a stock build
+// identical to one without any customization.
+const stubOverlay = "final: prev: { }\n"
 
 // writeContext populates the flake build context: the embedded flake.nix, the
-// generated agents.nix/tools.nix lists, the user.nix image hook, and a copy of
-// the running sandboxer binary (so the flake can inject it as ./sandboxer
-// without rebuilding from source).
+// generated agents.nix/tools.nix lists, the profile's overlay.nix (a plain
+// nixpkgs overlay; no-op stub when unset) and its files.json/env.json static
+// customization.
 func writeContext(ctxDir string, spec Spec) error {
 	flake, err := assets.ReadFile("assets/flake.nix")
 	if err != nil {
@@ -198,20 +199,27 @@ func writeContext(ctxDir string, spec Spec) error {
 	if err := os.WriteFile(filepath.Join(ctxDir, "tools.nix"), []byte(renderNixList(spec.Attrs)), 0o644); err != nil {
 		return err
 	}
-	// user.nix is the profile's image hook — copied verbatim when set, the
-	// no-op stub otherwise — so the flake imports it unconditionally.
-	userNix := filepath.Join(ctxDir, "user.nix")
-	switch {
-	case spec.NixInline != "":
-		if err := os.WriteFile(userNix, []byte(spec.NixInline), 0o644); err != nil {
+	// overlay.nix is the profile's plain nixpkgs overlay — copied verbatim
+	// when set, the no-op stub otherwise — so the flake imports it
+	// unconditionally.
+	overlayNix := filepath.Join(ctxDir, "overlay.nix")
+	if spec.OverlayFile != "" {
+		if err := copyFile(spec.OverlayFile, overlayNix); err != nil {
+			return fmt.Errorf("copy image.overlay: %w", err)
+		}
+	} else if err := os.WriteFile(overlayNix, []byte(stubOverlay), 0o644); err != nil {
+		return err
+	}
+	// files.json / env.json carry the profile's static customization as JSON
+	// (trivially escaped on both sides; the flake reads them with
+	// builtins.fromJSON). Always written so the flake's import is
+	// unconditional.
+	for name, m := range map[string]map[string]string{"files.json": spec.Files, "env.json": spec.Env} {
+		data, err := json.Marshal(orEmpty(m))
+		if err != nil {
 			return err
 		}
-	case spec.NixFile != "":
-		if err := copyFile(spec.NixFile, userNix); err != nil {
-			return fmt.Errorf("copy image.nix: %w", err)
-		}
-	default:
-		if err := os.WriteFile(userNix, []byte(stubUserNix), 0o644); err != nil {
+		if err := os.WriteFile(filepath.Join(ctxDir, name), data, 0o644); err != nil {
 			return err
 		}
 	}
@@ -275,6 +283,14 @@ func builderScript(refresh bool, nixpkgsRev, llmAgentsRev string) string {
 		`cp -L "$(cat /out/storepath)" /out/image.tar.gz && ` +
 		nixBuild + "path:/src#proxyImage > /out/proxypath && " +
 		`cp -L "$(cat /out/proxypath)" /out/proxy.tar.gz`
+}
+
+// orEmpty keeps the rendered JSON an object ({} not null) for a nil map.
+func orEmpty(m map[string]string) map[string]string {
+	if m == nil {
+		return map[string]string{}
+	}
+	return m
 }
 
 // loadArgv is the engine `load` argv (engine binary supplied by the caller).

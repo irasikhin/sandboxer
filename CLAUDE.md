@@ -35,8 +35,10 @@ was extracted from:
   `nix-instantiate --eval --strict --json` under restrict-eval (`config.EvalConfig`; nix on the host is a
   HARD requirement of the CLI — image builds still run in a container). Scalars resolve flag →
   `SANDBOXER_*` env → default; structured fields (srcs/extraMounts/env/image) come from the config — one
-  profile or several under a `profiles` attrset, reuse via ordinary nix (let//). The image hook lives
-  INLINE as `image.hook` (string) or via `image.nix` path. Strict decode: JSON `DisallowUnknownFields` +
+  profile or several under a `profiles` attrset, reuse via ordinary nix (let//). Image customization is
+  FLAT data — `image.{packages,files,env}` + `image.overlay` (a file with a PLAIN nixpkgs overlay
+  `final: prev: {…}`, rendered to the build ctx as overlay.nix; files/env go as files.json/env.json).
+  Strict decode: JSON `DisallowUnknownFields` +
   removedKeys hints. Only `config init|edit|validate` exist — no get/set/unset (no comment-preserving nix
   editing from Go). See `internal/config`.
 - **User-facing error = `silentErr{err}`** in `internal/cli/cli.go` (kpass uses `UserError{Msg}`): it marks
@@ -55,7 +57,7 @@ was extracted from:
   `PersistentPreRunE` in `cli.go` is a belt-and-suspenders **deny-all** (every command refuses when
   `SANDBOXER_IN_CONTAINER` is set, injected per-run by `commonArgs`).
 - **Config vs data split** (`internal/config`, `internal/sandbox`): the committed config is ONE file at
-  the repo root — `sandboxer.nix` (image hook inline).
+  the repo root — `sandboxer.nix` (image customization included; overlay is a separate .nix file).
   ALL runtime state lives OUTSIDE the repo under `config.StateDir(project)` =
   `$XDG_STATE_HOME/sandboxer/<project-id>` (`<project-id>` = basename + short hash of the abs path) — the
   `_meta`/`_logs`/`_home/<slug>`/`<slug>` dirs, so credentials/scratch can never be committed. `sandboxer clean`

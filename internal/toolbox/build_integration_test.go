@@ -39,7 +39,7 @@ func TestBuildImageUserNixContract(t *testing.T) {
 	if err := os.WriteFile(nixFile, []byte(hook), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	spec, err := toolbox.ResolveSpec(&config.Profile{Image: config.ImageSpec{Nix: nixFile}})
+	spec, err := toolbox.ResolveSpec(&config.Profile{Image: config.ImageSpec{Overlay: nixFile}})
 	if err != nil {
 		t.Fatalf("ResolveSpec: %v", err)
 	}

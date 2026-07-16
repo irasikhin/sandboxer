@@ -35,9 +35,9 @@ func TestResolveImage(t *testing.T) {
 		t.Errorf("resolved attrs = %v, want [go]", spec.Attrs)
 	}
 
-	// image.extraPkgs alone selects a variant too, and the reference is the
+	// image.packages alone selects a variant too, and the reference is the
 	// spec's own content address (the backend rebuilds from the same spec).
-	img2, spec2, err := resolveImage(&config.Profile{Image: config.ImageSpec{ExtraPkgs: []string{"ripgrep"}}}, "", io.Discard)
+	img2, spec2, err := resolveImage(&config.Profile{Image: config.ImageSpec{Packages: []string{"ripgrep"}}}, "", io.Discard)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -49,7 +49,7 @@ func TestResolveImage(t *testing.T) {
 		t.Error("unknown tool pack must error")
 	}
 	if _, _, err := resolveImage(&config.Profile{
-		Image: config.ImageSpec{Nix: filepath.Join(t.TempDir(), "missing.nix")},
+		Image: config.ImageSpec{Overlay: filepath.Join(t.TempDir(), "missing.nix")},
 	}, "", io.Discard); err == nil {
 		t.Error("missing image.nix must error")
 	}

@@ -115,7 +115,7 @@ func TestWriteContext(t *testing.T) {
 	if err := writeContext(dir, Spec{Attrs: []string{"nodejs", "go"}}); err != nil {
 		t.Fatalf("writeContext: %v", err)
 	}
-	for _, f := range []string{"flake.nix", "agents.nix", "tools.nix", "user.nix"} {
+	for _, f := range []string{"flake.nix", "agents.nix", "tools.nix", "overlay.nix", "files.json", "env.json"} {
 		if _, err := os.Stat(filepath.Join(dir, f)); err != nil {
 			t.Errorf("missing %s in context: %v", f, err)
 		}
@@ -133,31 +133,55 @@ func TestWriteContext(t *testing.T) {
 	if !strings.Contains(string(tools), `"go"`) || !strings.Contains(string(tools), `"nodejs"`) {
 		t.Errorf("tools.nix should list the tool attrs, got:\n%s", tools)
 	}
-	// No NixFile → user.nix is the no-op stub (the flake import is unconditional).
-	if got := readFile(t, filepath.Join(dir, "user.nix")); got != stubUserNix {
-		t.Errorf("user.nix stub = %q, want %q", got, stubUserNix)
+	// No OverlayFile → overlay.nix is the no-op stub (the flake import is
+	// unconditional).
+	if got := readFile(t, filepath.Join(dir, "overlay.nix")); got != stubOverlay {
+		t.Errorf("overlay.nix stub = %q, want %q", got, stubOverlay)
 	}
 }
 
-// TestWriteContextUserNix: a spec with a user nix hook copies the file
-// verbatim into the context; a missing hook file fails the context assembly.
+// TestWriteContextOverlayAndData: a spec's overlay file is copied verbatim
+// into the context, files/env render as JSON, and a missing overlay file
+// fails the context assembly.
 func TestWriteContextUserNix(t *testing.T) {
-	src := filepath.Join(t.TempDir(), "image.nix")
-	body := "{ pkgs }: { packages = [ pkgs.hello ]; }\n"
+	src := filepath.Join(t.TempDir(), "overlay.nix")
+	body := "final: prev: { greet = prev.hello; }\n"
 	if err := os.WriteFile(src, []byte(body), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	dir := t.TempDir()
-	if err := writeContext(dir, Spec{NixFile: src}); err != nil {
+	spec := Spec{
+		OverlayFile: src,
+		Files:       map[string]string{"/etc/x.conf": "line\n"},
+		Env:         map[string]string{"FOO": "bar"},
+	}
+	if err := writeContext(dir, spec); err != nil {
 		t.Fatalf("writeContext: %v", err)
 	}
-	if got := readFile(t, filepath.Join(dir, "user.nix")); got != body {
-		t.Errorf("user.nix = %q, want the hook file copied verbatim", got)
+	if got := readFile(t, filepath.Join(dir, "overlay.nix")); got != body {
+		t.Errorf("overlay.nix = %q, want the overlay file copied verbatim", got)
+	}
+	if got := readFile(t, filepath.Join(dir, "files.json")); got != `{"/etc/x.conf":"line\n"}` {
+		t.Errorf("files.json = %q", got)
+	}
+	if got := readFile(t, filepath.Join(dir, "env.json")); got != `{"FOO":"bar"}` {
+		t.Errorf("env.json = %q", got)
+	}
+	// No customization → the no-op overlay stub and empty JSON objects.
+	plain := t.TempDir()
+	if err := writeContext(plain, Spec{}); err != nil {
+		t.Fatal(err)
+	}
+	if got := readFile(t, filepath.Join(plain, "overlay.nix")); got != stubOverlay {
+		t.Errorf("stub overlay = %q", got)
+	}
+	if got := readFile(t, filepath.Join(plain, "files.json")); got != "{}" {
+		t.Errorf("empty files.json = %q", got)
 	}
 
-	err := writeContext(t.TempDir(), Spec{NixFile: filepath.Join(t.TempDir(), "missing.nix")})
-	if err == nil || !strings.Contains(err.Error(), "image.nix") {
-		t.Errorf("missing hook file should fail context assembly, got %v", err)
+	err := writeContext(t.TempDir(), Spec{OverlayFile: filepath.Join(t.TempDir(), "missing.nix")})
+	if err == nil || !strings.Contains(err.Error(), "image.overlay") {
+		t.Errorf("missing overlay file should fail context assembly, got %v", err)
 	}
 }
 

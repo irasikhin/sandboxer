@@ -14,8 +14,8 @@ func TestImageSpecEmpty(t *testing.T) {
 		want bool
 	}{
 		{"zero", ImageSpec{}, true},
-		{"extraPkgs", ImageSpec{ExtraPkgs: []string{"ripgrep"}}, false},
-		{"nix", ImageSpec{Nix: "/abs/image.nix"}, false},
+		{"packages", ImageSpec{Packages: []string{"ripgrep"}}, false},
+		{"nix", ImageSpec{Overlay: "/abs/image.nix"}, false},
 		{"llmAgentsRev", ImageSpec{LLMAgentsRev: "latest"}, false},
 		{"nixpkgsRev", ImageSpec{NixpkgsRev: "abcdef0"}, false},
 	}
@@ -33,7 +33,7 @@ func TestValidateImageSpec(t *testing.T) {
 		ok   bool
 	}{
 		{"empty spec", ImageSpec{}, true},
-		{"both empty revs", ImageSpec{ExtraPkgs: []string{"ripgrep"}, Nix: "/x.nix"}, true},
+		{"both empty revs", ImageSpec{Packages: []string{"ripgrep"}, Overlay: "/x.nix"}, true},
 		{"latest llm-agents", ImageSpec{LLMAgentsRev: "latest"}, true},
 		{"latest nixpkgs", ImageSpec{NixpkgsRev: "latest"}, true},
 		{"40-char hex", ImageSpec{LLMAgentsRev: strings.Repeat("a1", 20)}, true},
@@ -70,8 +70,8 @@ func TestImageStrictDecode(t *testing.T) {
 	// Nested image keys are accepted in the flat form...
 	good := writeFile(t, dir, "good.nix", `{
   image = {
-    extraPkgs = [ "ripgrep" "nodePackages.pnpm" ];
-    nix = "image.nix";
+    packages = [ "ripgrep" "nodePackages.pnpm" ];
+    overlay = "overlay.nix";
     llmAgentsRev = "latest";
     nixpkgsRev = "abcdef0";
   };
@@ -81,15 +81,15 @@ func TestImageStrictDecode(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !slices.Equal(p.Image.ExtraPkgs, []string{"ripgrep", "nodePackages.pnpm"}) {
-		t.Errorf("ExtraPkgs = %v", p.Image.ExtraPkgs)
+	if !slices.Equal(p.Image.Packages, []string{"ripgrep", "nodePackages.pnpm"}) {
+		t.Errorf("Packages = %v", p.Image.Packages)
 	}
 	if p.Image.LLMAgentsRev != "latest" || p.Image.NixpkgsRev != "abcdef0" {
 		t.Errorf("revs = %+v", p.Image)
 	}
 
 	// ...and inside a profiles section.
-	multi := writeFile(t, dir, "multi.nix", "{ profiles.x.image.extraPkgs = [ \"jq\" ]; }\n")
+	multi := writeFile(t, dir, "multi.nix", "{ profiles.x.image.packages = [ \"jq\" ]; }\n")
 	d, err := LoadDocument(multi)
 	if err != nil {
 		t.Fatal(err)
@@ -98,8 +98,8 @@ func TestImageStrictDecode(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !slices.Equal(x.Image.ExtraPkgs, []string{"jq"}) {
-		t.Errorf("multi ExtraPkgs = %v", x.Image.ExtraPkgs)
+	if !slices.Equal(x.Image.Packages, []string{"jq"}) {
+		t.Errorf("multi Packages = %v", x.Image.Packages)
 	}
 
 	// A typo inside image is rejected by the strict decoder in both forms.
@@ -128,13 +128,13 @@ func TestImageNixPathResolution(t *testing.T) {
 		{"absolute passthrough", "/abs/image.nix", "/abs/image.nix"},
 	}
 	for _, c := range cases {
-		f := writeFile(t, dir, Sanitize(c.name)+".nix", "{ image.nix = \""+c.nix+"\"; }\n")
+		f := writeFile(t, dir, Sanitize(c.name)+".nix", "{ image.overlay = \""+c.nix+"\"; }\n")
 		sel, err := loadFlat(t, f)
 		if err != nil {
 			t.Fatalf("%s: load: %v", c.name, err)
 		}
-		if sel.Image.Nix != c.want {
-			t.Errorf("%s: Nix = %q, want %q", c.name, sel.Image.Nix, c.want)
+		if sel.Image.Overlay != c.want {
+			t.Errorf("%s: Nix = %q, want %q", c.name, sel.Image.Overlay, c.want)
 		}
 	}
 
@@ -144,8 +144,8 @@ func TestImageNixPathResolution(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if p.Image.Nix != "" {
-		t.Errorf("empty Nix should stay empty, got %q", p.Image.Nix)
+	if p.Image.Overlay != "" {
+		t.Errorf("empty Nix should stay empty, got %q", p.Image.Overlay)
 	}
 }
 
@@ -155,8 +155,8 @@ func TestImageNixPathResolutionMulti(t *testing.T) {
 	dir := t.TempDir()
 	body := `{
   profiles = {
-    web = { backend = "podman"; image.nix = "web.nix"; };
-    api = { backend = "docker"; image.nix = "base.nix"; };
+    web = { backend = "podman"; image.overlay = "web.nix"; };
+    api = { backend = "docker"; image.overlay = "base.nix"; };
   };
 }
 `
@@ -169,15 +169,15 @@ func TestImageNixPathResolutionMulti(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := filepath.Join(dir, "web.nix"); web.Image.Nix != want {
-		t.Errorf("web Nix = %q, want %q", web.Image.Nix, want)
+	if want := filepath.Join(dir, "web.nix"); web.Image.Overlay != want {
+		t.Errorf("web Nix = %q, want %q", web.Image.Overlay, want)
 	}
 	api, err := d.Select("api")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := filepath.Join(dir, "base.nix"); api.Image.Nix != want {
-		t.Errorf("api Nix = %q, want %q", api.Image.Nix, want)
+	if want := filepath.Join(dir, "base.nix"); api.Image.Overlay != want {
+		t.Errorf("api Nix = %q, want %q", api.Image.Overlay, want)
 	}
 }
 

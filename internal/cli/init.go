@@ -163,20 +163,14 @@ func starterProfile(name string, d config.Defaults) string {
 
   # Custom toolbox image (optional). Sandboxes then run a content-addressed
   # variant built on first use (cached after; the stock image is untouched).
+  # Everything here is flat data; anything needing pkgs at build time goes
+  # into a PLAIN nixpkgs overlay file (see examples/custom-image.nix).
   # image = {
-  #   extraPkgs = [ "gh" "python3Packages.requests" ];  # nixpkgs attrs baked in
-  #   # llmAgentsRev = "latest";   # flake-input pin overrides
-  #   # nixpkgsRev = "<full 40-hex commit>";
-  #   # The image hook INLINE — a { pkgs }: { packages, files, env, overlay }
-  #   # function (fail-closed: unknown keys abort the build):
-  #   hook = ''
-  #     { pkgs }: {
-  #       # packages = [ pkgs.httpie ];
-  #       # files."/etc/sandboxer/rc.d/10-custom.sh" = "alias hi=hello";
-  #       # env = { SANDBOX_FLAVOR = "custom"; };
-  #       # overlay = final: prev: { };
-  #     }
-  #   '';
+  #   packages = [ "gh" "python3Packages.requests" ];   # nixpkgs attr names
+  #   files."/etc/sandboxer/rc.d/10-aliases.sh" = "alias mci='mvn clean install'";
+  #   env = { SANDBOX_FLAVOR = "custom"; };
+  #   overlay = "./overlay.nix";                        # final: prev: { ... }
+  #   # llmAgentsRev = "latest"; nixpkgsRev = "<full 40-hex commit>";
   # };
 }
 `, name, d.Backend, domains)
