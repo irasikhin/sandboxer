@@ -69,15 +69,19 @@ was extracted from:
   `srcs: [{src, branch, include}]` — each a git worktree at `<sandboxesRoot>/<slug>/<repo>/<branch>/`
   (grouped by repo, dir NAMED AFTER the branch; root relocatable per profile via `worktreesDir`). `branch:` is
   REQUIRED — no default naming, a missing branch is an error (the error hints the recorded branch); a branch
-  already checked out elsewhere (incl. the main checkout) is ADOPTED. Trees are narrowed by gitignore-style
+  already checked out elsewhere (incl. the main checkout) is ADOPTED — except a set-aside `_detached/` checkout
+  (re-attached to its managed path instead) or a stale registration whose dir was hand-deleted (pruned, checked
+  out fresh — `rm -rf ./sandboxes` self-heals on the next enter; `_meta/<slug>.gen` flips the session hash so
+  the pre-deletion session container is rebuilt, not reused with dead mounts). Trees are narrowed by gitignore-style
   `include` patterns via **non-cone** `sparse-checkout`. srcs is ALWAYS explicit — an empty list is rejected;
   the scaffolded config seeds `srcs = [{src = "."; branch = "feat/<name>";}]`. Relative src paths
   resolve against the PROJECT ROOT (not the profile file's dir). **Git never enters the container**: no git-dir mounts, no `GIT_CONFIG_*` — the
   container gets one stable rw mount of `<slug>/` (plus adopted paths), so the sparse worktree contents ARE the
   wall and srcs edits are picked up by every enter/exec (a LIVE session sees them immediately); commits happen
-  on the host. Resolved sources are recorded at `_meta/<slug>.srcs.json`; dropped sources move to `_detached/`
-  (data-safe; a worktree in detached-HEAD state is left in place, and a non-worktree dir with content is
-  renamed aside, never deleted). Teardown removes managed worktrees only and KEEPS branches (`recreate --full`
+  on the host. Resolved sources are recorded at `_meta/<slug>.srcs.json`; a dropped source's worktree is
+  REMOVED when clean (branch kept) and moved to `_detached/` only when it holds uncommitted work (a worktree in
+  detached-HEAD state is left in place, and a non-worktree dir with content is renamed aside, never
+  deleted). Teardown removes managed worktrees only and KEEPS branches (`recreate --full`
   deletes just the ones sandboxer minted — recorded per source). **git-only:** a non-git source is rejected
   with an init hint; non-git trees come in via `extraMounts`.
 - **Egress** (`internal/egress`): outbound traffic is restricted to an allowlist

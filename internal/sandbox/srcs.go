@@ -231,12 +231,16 @@ func (b *Base) resolveSrcs(slug string, specs []config.Src, prev []Source, w io.
 			src.AutoBranch = !worktree.BranchExists(top, src.Branch)
 		}
 		if wt, ok := worktree.FindWorktree(top, src.Branch); ok &&
-			!strings.HasPrefix(wt, b.SandboxDir(slug)+string(filepath.Separator)) {
+			!strings.HasPrefix(wt, b.SandboxDir(slug)+string(filepath.Separator)) &&
+			!isSetAside(wt) && dirExists(wt) {
 			// The branch is already checked out somewhere OUTSIDE this sandbox
 			// (your own worktree, or the repo's main checkout): adopt that
 			// checkout as-is — git allows only one worktree per branch. This
 			// sandbox's own managed worktree is not "somewhere": it stays
-			// managed, or a re-sync would adopt it and drop its include.
+			// managed, or a re-sync would adopt it and drop its include. Nor is
+			// a checkout set aside under _detached/ or one whose directory is
+			// gone (a stale registration): those stay managed too —
+			// materializeSrc re-attaches the one and prunes the other.
 			src.Path = wt
 			src.AutoBranch = false
 			if len(spec.Include) > 0 && w != nil {
@@ -312,6 +316,15 @@ func (b *Base) SyncSrcs(slug string, w io.Writer) ([]Source, error) {
 	if err != nil {
 		return nil, err
 	}
+	if !dirExists(dest) {
+		// The sandbox dir is being created from nothing — first sync, or the
+		// tree was deleted by hand / relocated by worktreesDir. Bump its
+		// generation so a session container created against the OLD directory
+		// (whose bind mounts now show a deleted tree) reads as stale.
+		if err := b.bumpGen(slug); err != nil {
+			return nil, err
+		}
+	}
 	if err := os.MkdirAll(dest, 0o755); err != nil {
 		return nil, err
 	}
@@ -364,12 +377,73 @@ func (b *Base) SyncSrcs(slug string, w io.Writer) ([]Source, error) {
 			if _, err := worktree.SyncSparse(s.Path, s.Include, w); err != nil {
 				return nil, err
 			}
-		} else if err := worktree.Ensure(s.RepoRoot, s.Path, s.Branch, s.Include, w); err != nil {
+		} else if err := b.materializeSrc(s, w); err != nil {
 			return nil, err
 		}
 		warnEmptySelection(s, w)
 	}
 	return srcs, b.writeSrcs(slug, srcs)
+}
+
+// materializeSrc creates the managed worktree for s — or recovers it, when
+// git still holds the branch to an earlier checkout. Two recoveries, both
+// prompted by git's one-worktree-per-branch rule (a plain `worktree add`
+// would refuse with "already used by worktree"):
+//   - the branch's worktree sits under a _detached/ root (set aside when the
+//     source was dropped or its branch changed, wanted again now): move it
+//     back to the managed path — uncommitted work returns with it;
+//   - the registered directory no longer exists (removed by hand, not via
+//     git): prune the stale registration and check out fresh.
+func (b *Base) materializeSrc(s Source, w io.Writer) error {
+	if wt, ok := worktree.FindWorktree(s.RepoRoot, s.Branch); ok {
+		switch {
+		case !dirExists(wt):
+			_ = worktree.Prune(s.RepoRoot)
+		case isSetAside(wt):
+			return b.reattachSrc(wt, s, w)
+		}
+	}
+	return worktree.Ensure(s.RepoRoot, s.Path, s.Branch, s.Include, w)
+}
+
+// reattachSrc moves a set-aside worktree back to its managed path and
+// re-applies the include patterns — the reverse of detachSrc, keeping any
+// uncommitted work. The sandbox must never depend on a _detached/ location:
+// that is exactly what `clean --detached` destroys.
+func (b *Base) reattachSrc(from string, s Source, w io.Writer) error {
+	if err := os.MkdirAll(filepath.Dir(s.Path), 0o755); err != nil {
+		return err
+	}
+	if err := worktree.Move(s.RepoRoot, from, s.Path); err != nil {
+		return fmt.Errorf("re-attach set-aside worktree %s: %w", filepath.Base(s.RepoRoot), err)
+	}
+	_ = os.Remove(filepath.Dir(from)) // tidy the _detached/ dir when now empty
+	if w != nil {
+		fmt.Fprintf(w, "sandboxer: srcs %s: worktree re-attached from %s (branch %s, work intact)\n",
+			filepath.Base(s.RepoRoot), from, s.Branch)
+	}
+	_, err := worktree.SyncSparse(s.Path, s.Include, w)
+	return err
+}
+
+// isSetAside reports whether path lies under a _detached/ directory — a
+// worktree sandboxer moved aside when its source was dropped or its branch
+// changed. The test is by path component, not against this project's own
+// detached roots: the set-aside copy may live under an older version's root
+// or another project's, and every one of them is a `clean --detached` target
+// — a source must never be adopted from there.
+func isSetAside(path string) bool {
+	for _, seg := range strings.Split(filepath.Clean(path), string(filepath.Separator)) {
+		if seg == "_detached" {
+			return true
+		}
+	}
+	return false
+}
+
+func dirExists(p string) bool {
+	fi, err := os.Stat(p)
+	return err == nil && fi.IsDir()
 }
 
 // warnEmptySelection notes when a narrowed source materialized no files — a
@@ -391,12 +465,15 @@ func warnEmptySelection(s Source, w io.Writer) {
 		"(gitignore syntax; a directory is \"/dir/\")\n", filepath.Base(s.RepoRoot))
 }
 
-// detachSrc moves a managed worktree out of the mounted <slug>/ tree into
-// _detached/, keeping its branch and any uncommitted work intact. The move is
-// mandatory — a tree that cannot be set aside would stay visible in the
-// container, silently keeping access open. A directory git no longer
-// recognizes as a worktree is set aside the same way (its contents may be
-// real work behind a broken linkage); only a missing or empty one is removed.
+// detachSrc takes a managed worktree out of the mounted <slug>/ tree when its
+// source was dropped (or its branch changed). Removing it from the tree is
+// mandatory — a tree that stays would remain visible in the container,
+// silently keeping access open. What happens to it depends on what it holds:
+// a CLEAN worktree is removed outright (its commits live on the branch, which
+// is always kept — nothing is lost), one with uncommitted work moves to
+// _detached/ with the work intact. A directory git no longer recognizes as a
+// worktree is set aside the same way (its contents may be real work behind a
+// broken linkage); only a missing or empty one is removed.
 func (b *Base) detachSrc(slug string, s Source, w io.Writer) error {
 	defer removeEmptyParents(s.Path, b.SandboxDir(slug))
 	name := filepath.Base(s.RepoRoot) // display name: the repo, not the branch leaf
@@ -424,6 +501,16 @@ func (b *Base) detachSrc(slug string, s Source, w io.Writer) error {
 		}
 		return nil
 	}
+	if !worktree.HasWork(s.Path) {
+		if err := worktree.Remove(s.RepoRoot, s.Path); err != nil {
+			return fmt.Errorf("remove dropped source %s: %w", name, err)
+		}
+		if w != nil {
+			fmt.Fprintf(w, "sandboxer: source %s dropped — clean worktree removed (branch %s kept)\n",
+				name, s.Branch)
+		}
+		return nil
+	}
 	target, err := b.detachTarget(slug, s)
 	if err != nil {
 		return err
@@ -432,7 +519,7 @@ func (b *Base) detachSrc(slug string, s Source, w io.Writer) error {
 		return fmt.Errorf("set dropped source %s aside: %w", name, err)
 	}
 	if w != nil {
-		fmt.Fprintf(w, "sandboxer: source %s dropped — its worktree moved to %s (branch %s kept)\n",
+		fmt.Fprintf(w, "sandboxer: source %s dropped — uncommitted work moved to %s (branch %s kept)\n",
 			name, target, s.Branch)
 	}
 	return nil

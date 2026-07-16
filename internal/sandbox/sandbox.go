@@ -24,6 +24,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/irasikhin/sandboxer/internal/config"
@@ -164,6 +165,31 @@ func (b *Base) HomeDir(slug string) string { return filepath.Join(b.homeRoot(), 
 // call on every enter/exec, including for sandboxes created before this existed.
 func (b *Base) EnsureHome(slug string) error {
 	return os.MkdirAll(b.HomeDir(slug), 0o700)
+}
+
+// Gen returns the sandbox directory's generation: a counter bumped by SyncSrcs
+// every time the dir has to be created from nothing ("" until the first bump —
+// a sandbox created by an older version and never recreated). The CLI passes
+// it to the backend (RunOpts.DestGen), where it becomes a container env var
+// and thereby part of the session ConfigHash — so a hand-deleted-and-recreated
+// sandbox tree invalidates the session container that still bind-mounts the
+// deleted directory.
+func (b *Base) Gen(slug string) string {
+	data, err := os.ReadFile(b.genPath(slug))
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(data))
+}
+
+// bumpGen advances the sandbox directory's generation (absent reads as 0).
+func (b *Base) bumpGen(slug string) error {
+	n, _ := strconv.Atoi(b.Gen(slug)) // "" or garbage reads as 0
+	return os.WriteFile(b.genPath(slug), []byte(strconv.Itoa(n+1)+"\n"), 0o644)
+}
+
+func (b *Base) genPath(slug string) string {
+	return filepath.Join(b.metaDir(), slug+".gen")
 }
 
 // ProfileJSONPath, MetaFilePath locate per-sandbox metadata files.
@@ -357,6 +383,7 @@ func (b *Base) RemoveState(slug string, keepHome bool) {
 		b.ProfileJSONPath(slug),
 		b.SrcsMetaPath(slug),
 		b.setupStampPath(slug),
+		b.genPath(slug),
 	}
 	if !keepHome {
 		paths = append(paths, b.HomeDir(slug))

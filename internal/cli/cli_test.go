@@ -359,7 +359,12 @@ func TestCleanDetachedFlag(t *testing.T) {
 	if code, _, errs := run("create", "feat", "--src", project); code != 0 {
 		t.Fatalf("create: %d %s", code, errs)
 	}
-	// A branch change on re-create sets the old worktree aside under _detached/.
+	// A branch change on re-create sets the old worktree aside under _detached/
+	// (dirtied first — a clean worktree would just be removed).
+	wip := filepath.Join(sandboxDir(project, "feat", filepath.Base(project), "feat", "feat"), "wip.txt")
+	if err := os.WriteFile(wip, []byte("precious"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	cfg := filepath.Join(project, "sandboxer.nix")
 	data, err := os.ReadFile(cfg)
 	if err != nil {

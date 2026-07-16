@@ -133,7 +133,8 @@ image, ready to use).`,
 			}
 			announceFreshState(cmd, fresh, t.base.Src)
 			dest := t.base.SandboxDir(t.slug)
-			if !fileExists(dest) {
+			createdDest := !fileExists(dest)
+			if createdDest {
 				fmt.Fprintf(cmd.ErrOrStderr(), "sandbox %q does not exist — creating\n", t.slug)
 				if t.json != nil {
 					if err := t.base.WriteProfileJSON(t.slug, t.json); err != nil {
@@ -200,6 +201,7 @@ image, ready to use).`,
 				Engine: engine, Image: image, Spec: spec, Dest: dest, Slug: t.slug,
 				SrcMounts: sandbox.SrcMounts(t.base.Srcs(t.slug)),
 				HomeDir:   t.base.HomeDir(t.slug),
+				DestGen:   t.base.Gen(t.slug),
 				RT:        rt, Profile: t.profile,
 				ProfileJSONPath: t.base.ProfileJSONPath(t.slug),
 				Mem:             rt.Mem, CPU: rt.CPU, Pids: rt.Pids,
@@ -215,8 +217,12 @@ image, ready to use).`,
 				// (profile changed or image rebuilt), refuse to tear it down
 				// by default — fall back to a one-shot container instead, so
 				// the running session (and any agent/tmux inside) stays alive.
-				// --recreate forces the old behaviour.
-				forceRecreate := f.recreate
+				// --recreate forces the old behaviour. A dest this enter had to
+				// (re)create is the exception: a session from before the
+				// deletion bind-mounts the OLD directory — whatever runs inside
+				// sees a deleted tree, so converging (recreating) it loses
+				// nothing and is the only way the fresh worktrees get mounted.
+				forceRecreate := f.recreate || createdDest
 				if !forceRecreate {
 					if info := backendInspectSession(engine, name); info.Running {
 						if info.Hash != backendWantHash(o) {
@@ -334,6 +340,7 @@ func newExecCmd() *cobra.Command {
 				Engine: engine, Image: image, Spec: spec, Dest: dest, Slug: t.slug,
 				SrcMounts: sandbox.SrcMounts(t.base.Srcs(t.slug)),
 				HomeDir:   t.base.HomeDir(t.slug),
+				DestGen:   t.base.Gen(t.slug),
 				RT:        rt, Profile: t.profile,
 				ProfileJSONPath: t.base.ProfileJSONPath(t.slug),
 				Mem:             rt.Mem, CPU: rt.CPU, Pids: rt.Pids,
@@ -474,6 +481,7 @@ func runSetup(t *target, rt config.Runtime, engine string, noSetup bool, errOut 
 		Dest: t.base.SandboxDir(t.slug), Slug: t.slug,
 		SrcMounts:       sandbox.SrcMounts(t.base.Srcs(t.slug)),
 		HomeDir:         t.base.HomeDir(t.slug),
+		DestGen:         t.base.Gen(t.slug),
 		RT:              rt,
 		Profile:         t.profile,
 		ProfileJSONPath: t.base.ProfileJSONPath(t.slug),

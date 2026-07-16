@@ -229,6 +229,19 @@ func CurrentBranch(dest string) string {
 	return b
 }
 
+// HasWork reports whether the worktree holds anything its branch does not:
+// tracked modifications, staged changes or untracked files (`git status
+// --porcelain`; gitignored files do not count — the same "is it clean" test
+// git's own `worktree remove` applies). Errors read as "has work": when the
+// state cannot be read the caller must preserve, never destroy.
+func HasWork(dest string) bool {
+	out, err := run(dest, "status", "--porcelain")
+	if err != nil {
+		return true
+	}
+	return strings.TrimSpace(out) != ""
+}
+
 // Move relocates a worktree's working directory (git worktree move), keeping
 // its checkout, branch and any uncommitted changes intact. Used to set a
 // dropped source aside under _detached/ instead of destroying its work.

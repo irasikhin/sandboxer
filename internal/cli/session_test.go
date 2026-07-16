@@ -215,6 +215,34 @@ func TestEnterEnsureFailure(t *testing.T) {
 	}
 }
 
+// TestEnterRecreatedDirForcesConverge: when enter had to (re)create the
+// sandbox dir (`rm -rf ./sandboxes` by hand), a running-but-stale session is
+// NOT protected into the one-shot fallback — its bind mounts hold the deleted
+// tree, so enter converges it via EnsureSession (which recreates on the
+// generation-flipped hash).
+func TestEnterRecreatedDirForcesConverge(t *testing.T) {
+	project := sessionProject(t)
+	if err := os.RemoveAll(filepath.Join(project, "sandboxes")); err != nil {
+		t.Fatal(err)
+	}
+	c := stubSessionSeams(t, backend.SessionInfo{Exists: true, Running: true, Hash: "old"}, "new")
+
+	code, _, errs := run("enter", "feat", "--src", project)
+	if code != 0 {
+		t.Fatalf("enter = %d, %s", code, errs)
+	}
+	if !strings.Contains(errs, "does not exist — creating") {
+		t.Errorf("enter did not recreate the hand-deleted sandbox:\n%s", errs)
+	}
+	if len(c.ensure) != 1 || len(c.exec) != 1 || len(c.run) != 0 {
+		t.Fatalf("calls: ensure=%d exec=%d run=%d, want 1/1/0 (converge, not one-shot)",
+			len(c.ensure), len(c.exec), len(c.run))
+	}
+	if g := c.ensure[0].DestGen; g == "" {
+		t.Error("EnsureSession opts carry no DestGen — a recreated dir must flip the session hash")
+	}
+}
+
 // TestExecRoutesToFreshSession: a running session whose recorded hash matches
 // the wanted one serves the command via ExecSession.
 func TestExecRoutesToFreshSession(t *testing.T) {

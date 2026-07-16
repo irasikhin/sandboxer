@@ -122,8 +122,13 @@ and metadata) lives under the XDG state dir
 the repo. Secrets and scratch data can never be committed. `sandboxer clean`
 wipes both for the project (the config stays; a user-chosen worktrees dir is
 never removed wholesale — only the sandbox dirs in it); a dropped source's
-worktree is set aside under `_detached/` rather than destroyed — sweep those
-alone with `sandboxer clean --detached --force` once reviewed.
+worktree is removed when clean (its commits live on the branch, which is
+kept), and set aside under `_detached/` only when it holds uncommitted work —
+sweep those with `sandboxer clean --detached --force` once reviewed, or name
+the branch in `srcs` again and the worktree is re-attached, work intact.
+Deleting `./sandboxes/` by hand is fine too: the next `enter` prunes the stale
+git registrations, checks the branches out fresh and rebuilds the session
+container (uncommitted work is the only thing an `rm -rf` forfeits).
 
 ## How changes flow
 

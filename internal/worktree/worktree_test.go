@@ -239,6 +239,37 @@ func TestMove(t *testing.T) {
 	}
 }
 
+// TestHasWork: clean = removable; an untracked file, a tracked modification or
+// an unreadable state all read as "has work" (preserve, never destroy).
+func TestHasWork(t *testing.T) {
+	repo := gitRepo(t)
+	dest := filepath.Join(t.TempDir(), "wt")
+	if err := Ensure(repo, dest, "feat/hw", nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	if HasWork(dest) {
+		t.Error("fresh worktree reads as having work, want clean")
+	}
+	if err := os.WriteFile(filepath.Join(dest, "wip.txt"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if !HasWork(dest) {
+		t.Error("untracked file not seen as work")
+	}
+	if err := os.Remove(filepath.Join(dest, "wip.txt")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dest, "CLAUDE.md"), []byte("edited"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if !HasWork(dest) {
+		t.Error("tracked modification not seen as work")
+	}
+	if !HasWork(t.TempDir()) {
+		t.Error("a non-repo dir must read as having work (unknown = preserve)")
+	}
+}
+
 func TestEnsureReusesBranch(t *testing.T) {
 	repo := gitRepo(t)
 	dest := filepath.Join(t.TempDir(), "wt")

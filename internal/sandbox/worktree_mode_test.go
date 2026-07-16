@@ -654,6 +654,8 @@ func TestCleanDetached(t *testing.T) {
 		t.Fatal(err)
 	}
 	// given: a branch change set the first worktree aside under _detached/
+	// (dirtied first — a clean worktree would just be removed)
+	writeFile(t, filepath.Join(b.Srcs("cd")[0].Path, "wip.txt"), "precious")
 	if err := b.WriteProfileJSON("cd", []byte(`{"srcs":[{"src":".","branch":"feat/cd2"}]}`)); err != nil {
 		t.Fatal(err)
 	}
@@ -705,5 +707,221 @@ func TestSyncSrcsRejectsPreSrcsLayout(t *testing.T) {
 	}
 	if _, err := b.SyncSrcs("old", io.Discard); err == nil || !strings.Contains(err.Error(), "recreate") {
 		t.Errorf("SyncSrcs on pre-srcs layout = %v, want a recreate hint", err)
+	}
+}
+
+// TestSyncSrcsDropCleanRemoves: dropping a source whose worktree is CLEAN
+// removes the worktree outright — its commits live on the branch, which is
+// kept — so _detached/ only ever collects real uncommitted work.
+func TestSyncSrcsDropCleanRemoves(t *testing.T) {
+	repo := gitRepoWithCommit(t)
+	other := gitRepoWithCommit(t)
+	b, err := ResolveBase(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pj := fmt.Sprintf(`{"srcs":[{"src":".","branch":"feat/dc"},{"src":%q,"branch":"feat/dc2"}]}`, other)
+	if err := b.WriteProfileJSON("dc", []byte(pj)); err != nil {
+		t.Fatal(err)
+	}
+	if err := b.MakeSandbox("dc", io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	dropped := b.Srcs("dc")[1]
+
+	// when: the clean second source is dropped from srcs
+	if err := b.WriteProfileJSON("dc", []byte(`{"srcs":[{"src":".","branch":"feat/dc"}]}`)); err != nil {
+		t.Fatal(err)
+	}
+	var progress strings.Builder
+	if _, err := b.SyncSrcs("dc", &progress); err != nil {
+		t.Fatal(err)
+	}
+	// then: the worktree is gone — from <slug>/ AND from _detached/ — with a
+	// notice, its admin entry pruned, and the branch kept.
+	if _, err := os.Stat(dropped.Path); !os.IsNotExist(err) {
+		t.Errorf("dropped clean worktree still present (err=%v)", err)
+	}
+	if _, err := os.Stat(b.detachedDir("dc")); !os.IsNotExist(err) {
+		t.Errorf("clean worktree was set aside, want removed (err=%v)", err)
+	}
+	if !strings.Contains(progress.String(), "clean worktree removed") {
+		t.Errorf("expected a clean-removal notice, got %q", progress.String())
+	}
+	if strings.Contains(runGit(t, other, "worktree", "list"), dropped.Path) {
+		t.Error("dropped worktree's admin entry survived, want pruned")
+	}
+	if !strings.Contains(runGit(t, other, "branch", "--list", "feat/dc2"), "feat/dc2") {
+		t.Error("branch feat/dc2 deleted by the drop, want kept")
+	}
+}
+
+// TestSyncSrcsReattachSetAside: naming a branch whose worktree sits under
+// _detached/ moves it BACK to the managed path (uncommitted work intact)
+// instead of adopting the set-aside location — a sandbox must never depend on
+// a directory that `clean --detached` destroys.
+func TestSyncSrcsReattachSetAside(t *testing.T) {
+	repo := gitRepoWithCommit(t)
+	b, err := ResolveBase(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := b.WriteProfileJSON("ra", []byte(`{"srcs":[{"src":".","branch":"feat/ra","include":["/serviceA/"]}]}`)); err != nil {
+		t.Fatal(err)
+	}
+	if err := b.MakeSandbox("ra", io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	first := b.Srcs("ra")[0]
+	writeFile(t, filepath.Join(first.Path, "wip.txt"), "precious")
+
+	// given: a branch change set the dirty worktree aside under _detached/
+	if err := b.WriteProfileJSON("ra", []byte(`{"srcs":[{"src":".","branch":"feat/ra2"}]}`)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := b.SyncSrcs("ra", io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	if moved, err := filepath.Glob(filepath.Join(b.detachedDir("ra"), "ra-*", "wip.txt")); err != nil || len(moved) != 1 {
+		t.Fatalf("precondition: work not set aside under _detached: %v (err=%v)", moved, err)
+	}
+
+	// when: the config names feat/ra again
+	if err := b.WriteProfileJSON("ra", []byte(`{"srcs":[{"src":".","branch":"feat/ra","include":["/serviceA/"]}]}`)); err != nil {
+		t.Fatal(err)
+	}
+	var progress strings.Builder
+	srcs, err := b.SyncSrcs("ra", &progress)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// then: the worktree is back at its managed path, work intact, include
+	// re-applied, nothing adopted and nothing left under _detached/.
+	want := filepath.Join(b.SandboxDir("ra"), filepath.Base(repo), "feat", "ra")
+	if len(srcs) != 1 || !srcs[0].Managed || srcs[0].Path != want {
+		t.Fatalf("re-attached source = %+v, want managed at %q", srcs, want)
+	}
+	if _, err := os.Stat(filepath.Join(want, "wip.txt")); err != nil {
+		t.Errorf("uncommitted work did not return with the worktree: %v", err)
+	}
+	if !strings.Contains(progress.String(), "re-attached") {
+		t.Errorf("expected a re-attach notice, got %q", progress.String())
+	}
+	if _, err := os.Stat(b.detachedDir("ra")); !os.IsNotExist(err) {
+		t.Errorf("_detached survived the re-attach (err=%v)", err)
+	}
+	if m := SrcMounts(srcs); len(m) != 0 {
+		t.Errorf("SrcMounts = %v, want none (the source is managed again)", m)
+	}
+}
+
+// TestSyncSrcsRecoversFromHandDeletedRoot: `rm -rf ./sandboxes` by hand must
+// never wedge the project — the next sync prunes the stale worktree
+// registrations and checks the branches out fresh (commits live on the
+// branches; deleting the tree by hand forfeits only uncommitted work).
+func TestSyncSrcsRecoversFromHandDeletedRoot(t *testing.T) {
+	repo := gitRepoWithCommit(t)
+	b, err := ResolveBase(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := b.WriteProfileJSON("hd", []byte(`{"srcs":[{"src":".","branch":"feat/hd"}]}`)); err != nil {
+		t.Fatal(err)
+	}
+	if err := b.MakeSandbox("hd", io.Discard); err != nil {
+		t.Fatal(err)
+	}
+
+	// when: the whole worktrees root is deleted by hand, then the sandbox is
+	// made again (what enter does when the dir is gone)
+	if err := os.RemoveAll(SandboxesRoot(repo)); err != nil {
+		t.Fatal(err)
+	}
+	if err := b.MakeSandbox("hd", io.Discard); err != nil {
+		t.Fatalf("MakeSandbox after rm -rf sandboxes: %v", err)
+	}
+	// then: a fresh managed worktree on the same branch, no stale registration
+	s := b.Srcs("hd")[0]
+	if !s.Managed || s.Branch != "feat/hd" || !worktree.IsWorktree(s.Path) {
+		t.Fatalf("recovered source wrong: %+v", s)
+	}
+	if br := strings.TrimSpace(runGit(t, s.Path, "rev-parse", "--abbrev-ref", "HEAD")); br != "feat/hd" {
+		t.Errorf("recovered worktree on %q, want feat/hd", br)
+	}
+}
+
+// TestGenBumpsOnDirCreation: the sandbox-dir generation advances exactly when
+// the dir is created from nothing — first sync, or after a hand `rm -rf` —
+// and never on an ordinary re-sync.
+func TestGenBumpsOnDirCreation(t *testing.T) {
+	repo := gitRepoWithCommit(t)
+	b, err := ResolveBase(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if g := b.Gen("g"); g != "" {
+		t.Fatalf("Gen before any sync = %q, want empty", g)
+	}
+	if err := b.WriteProfileJSON("g", []byte(`{"srcs":[{"src":".","branch":"feat/g"}]}`)); err != nil {
+		t.Fatal(err)
+	}
+	if err := b.MakeSandbox("g", io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	if g := b.Gen("g"); g != "1" {
+		t.Fatalf("Gen after first sync = %q, want 1", g)
+	}
+	if _, err := b.SyncSrcs("g", io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	if g := b.Gen("g"); g != "1" {
+		t.Errorf("Gen after a plain re-sync = %q, want still 1", g)
+	}
+	if err := os.RemoveAll(SandboxesRoot(repo)); err != nil {
+		t.Fatal(err)
+	}
+	if err := b.MakeSandbox("g", io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	if g := b.Gen("g"); g != "2" {
+		t.Errorf("Gen after rm -rf + resync = %q, want 2", g)
+	}
+	// rm wipes the counter with the rest of the sandbox state
+	b.RemoveState("g", false)
+	if g := b.Gen("g"); g != "" {
+		t.Errorf("Gen after RemoveState = %q, want empty", g)
+	}
+}
+
+// TestSrcsStaleForeignRegistration: a branch git still registers to a checkout
+// that was deleted by hand SOMEWHERE ELSE (another project's sandboxes, an old
+// worktree) is not adopted — the stale registration is pruned and a managed
+// worktree checked out fresh.
+func TestSrcsStaleForeignRegistration(t *testing.T) {
+	repo := gitRepoWithCommit(t)
+	elsewhere := filepath.Join(t.TempDir(), "gone")
+	runGit(t, repo, "worktree", "add", "-b", "feat/fr", elsewhere)
+	if err := os.RemoveAll(elsewhere); err != nil {
+		t.Fatal(err)
+	}
+
+	project := t.TempDir()
+	b, err := ResolveBase(project)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pj := fmt.Sprintf(`{"srcs":[{"src":%q,"branch":"feat/fr"}]}`, repo)
+	if err := b.WriteProfileJSON("fr", []byte(pj)); err != nil {
+		t.Fatal(err)
+	}
+	if err := b.MakeSandbox("fr", io.Discard); err != nil {
+		t.Fatalf("MakeSandbox with a stale foreign registration: %v", err)
+	}
+	s := b.Srcs("fr")[0]
+	if !s.Managed || !strings.HasPrefix(s.Path, b.SandboxDir("fr")+string(filepath.Separator)) {
+		t.Fatalf("source = %+v, want managed under the sandbox dir (never the stale path)", s)
+	}
+	if br := strings.TrimSpace(runGit(t, s.Path, "rev-parse", "--abbrev-ref", "HEAD")); br != "feat/fr" {
+		t.Errorf("worktree on %q, want feat/fr", br)
 	}
 }

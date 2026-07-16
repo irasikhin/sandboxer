@@ -76,10 +76,18 @@ type RunOpts struct {
 	// they live under Dest, whose single stable mount is a live window (a srcs
 	// edit shows up in a running session without recreating it). Sorted by the
 	// caller: the order is part of the ConfigHash contract.
-	SrcMounts       []string
-	Slug            string
-	BaseDir         string // host state dir (config.StateDir); names/labels the persistent session (zero value fine for one-shot runs)
-	HomeDir         string // sandbox-private agent home, mounted as $HOME (isolated per sandbox)
+	SrcMounts []string
+	Slug      string
+	BaseDir   string // host state dir (config.StateDir); names/labels the persistent session (zero value fine for one-shot runs)
+	HomeDir   string // sandbox-private agent home, mounted as $HOME (isolated per sandbox)
+	// DestGen is the sandbox directory's generation (sandbox.Base.Gen) — bumped
+	// whenever the dir at Dest had to be created from nothing. It travels as a
+	// container env var, which folds it into the session ConfigHash: a session
+	// created before a hand-deleted-and-recreated tree still bind-mounts the
+	// DELETED directory, and the generation flip is what makes it read as stale
+	// instead of silently reused. "" (a pre-gen sandbox) adds no flag, keeping
+	// existing sessions' hashes unchanged.
+	DestGen         string
 	RT              config.Runtime
 	Profile         *config.Profile
 	ProfileJSONPath string // mounted ro at /run/sandboxer/profile.json if present
@@ -187,6 +195,11 @@ func commonArgs(o RunOpts, egNet, egProxyURL string) []string {
 		// the last --env occurrence wins, so a user LANG overrides this.
 		"--env", "LANG=C.UTF-8",
 	)
+	// The sandbox dir's generation (see RunOpts.DestGen): flag only when set,
+	// so a pre-gen sandbox keeps its argv — and session hash — byte-identical.
+	if o.DestGen != "" {
+		args = append(args, "--env", "SANDBOXER_SANDBOX_GEN="+o.DestGen)
+	}
 	// $HOME is the sandbox-private agent home, bound at its own host path. It is
 	// isolated per sandbox (see sandbox.Base.HomeDir): the host's real home is
 	// never mounted, so no host config leaks in and the agent's atomic config

@@ -23,8 +23,11 @@ tree:
 ├── <slug>/               # one per sandbox (relocatable: profile worktreesDir)
 │   └── <repo>/<branch>/  #   grouped by repo, dir named after the branch,
 │                         #   e.g. miko-java/feat/BDP-5291/
-└── _detached/            # dropped sources, set aside (never destroyed
-                          #   automatically; sweep: sandboxer clean --detached --force)
+└── _detached/            # dropped sources with UNCOMMITTED work, set aside
+                          #   (clean ones are just removed — the branch stays;
+                          #   sweep: sandboxer clean --detached --force, or
+                          #   re-attached automatically when srcs names the
+                          #   branch again)
 
 $XDG_STATE_HOME/sandboxer/<project-id>/     # runtime state, outside the repo
 ├── _meta/
@@ -33,7 +36,9 @@ $XDG_STATE_HOME/sandboxer/<project-id>/     # runtime state, outside the repo
 │   ├── agents.list       # registered sandbox slugs, one per line
 │   ├── <slug>.profile.json  # resolved profile snapshot
 │   ├── <slug>.meta          # per-sandbox run metadata
-│   └── <slug>.setup         # setup-script hash stamp (re-run gate)
+│   ├── <slug>.setup         # setup-script hash stamp (re-run gate)
+│   └── <slug>.gen           # sandbox-dir generation (bumped when the dir is
+│                            #   created from nothing; folds into the session hash)
 ├── _logs/                # rotating per-sandbox logs (<slug>.json, .err, …)
 └── _home/
     └── <slug>/           # private $HOME mounted into the container,
@@ -47,13 +52,19 @@ Key invariants (`internal/sandbox`, `internal/worktree`):
   explicitly (no default naming; a missing `branch:` is an error) and the
   worktree's directory is named after it — narrowed by gitignore-style
   `include` patterns via non-cone `git sparse-checkout`. Editing `branch:` is
-  the one way to move a sandbox's worktree; the old one is set aside under
-  `_detached/`. The container mounts `<slug>/` (and any
-  adopted worktrees) — **never git metadata** — so the sparse contents ARE the
-  access boundary; work returns as ordinary branches committed on the host.
-  The resolved list is recorded at `_meta/<slug>.srcs.json`; every enter/exec
-  re-syncs it (a live session sees srcs edits immediately), and a dropped
-  source's worktree is set aside under `_detached/`, never destroyed.
+  the one way to move a sandbox's worktree. The container mounts `<slug>/`
+  (and any adopted worktrees) — **never git metadata** — so the sparse
+  contents ARE the access boundary; work returns as ordinary branches
+  committed on the host. The resolved list is recorded at
+  `_meta/<slug>.srcs.json`; every enter/exec re-syncs it (a live session sees
+  srcs edits immediately). A dropped source's worktree is removed when CLEAN
+  (branch kept) and set aside under `_detached/` when it holds uncommitted
+  work — naming that branch in `srcs` again re-attaches it (moved back, work
+  intact; a set-aside checkout is never adopted in place). A registration
+  whose directory was deleted by hand is pruned and the branch checked out
+  fresh — `rm -rf ./sandboxes` self-heals on the next enter (the sandbox-dir
+  generation `_meta/<slug>.gen` flips the session hash, so the pre-deletion
+  session container is rebuilt instead of reused with dead mounts).
   sandboxer is **git-only**: a non-git source (or one with no commit) is
   rejected with an init hint.
 - **`_home/<slug>` lives outside `<slug>/`** deliberately, so the agent's `$HOME`
