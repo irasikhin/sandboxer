@@ -6,6 +6,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.40.0] — 2026-07-16
+
+### Added
+
+- print sandbox worktree paths with `sandboxer path` (ccdded0)
+
+
 ## [0.39.0] — 2026-07-16
 
 ### Added
@@ -366,3 +373,4 @@ isolated, containerized dev sandbox, on a local Linux machine:
 [0.37.0]: https://github.com/irasikhin/sandboxer/compare/v0.36.0...v0.37.0
 [0.38.0]: https://github.com/irasikhin/sandboxer/compare/v0.37.0...v0.38.0
 [0.39.0]: https://github.com/irasikhin/sandboxer/compare/v0.38.0...v0.39.0
+[0.40.0]: https://github.com/irasikhin/sandboxer/compare/v0.39.0...v0.40.0
