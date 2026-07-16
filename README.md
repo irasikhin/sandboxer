@@ -318,6 +318,34 @@ builder container at build time, and stamped into the per-user pins cache
 (`~/.cache/sandboxer/image-pins.json`). `enter`/`exec` reuse the stamp and
 never re-resolve; only `sandboxer image build --refresh` moves it.
 
+### Nested containers (`nestedContainers`)
+
+The toolbox image ships a **rootless podman**, so a sandbox can build and run
+containers of its own. It is **off by default**, because switching it on costs
+isolation — turn it on per profile:
+
+```nix
+{
+  nestedContainers = true;   # the sandbox may run its own rootless podman
+}
+```
+
+No engine socket is ever mounted (this is not docker-in-docker): the sandbox
+gets its own podman, and its pulls ride the sandbox's `HTTP(S)_PROXY` through
+the **egress allowlist** like any other traffic — allow the registry's domains
+or the pull is refused.
+
+The cost is real: podman re-execs itself into a user namespace, and the engine's
+default seccomp profile denies that to an unprivileged container, so the opt-in
+runs the sandbox with **`seccomp=unconfined` and `/proc` unmasked** (plus
+`/dev/net/tun` and `/dev/fuse`). It does *not* hand over privilege — no
+`--privileged`, no `--cap-add`, `--cap-drop=ALL` and `no-new-privileges` stay —
+but the syscall filter is gone. See [SECURITY.md](./SECURITY.md).
+
+Because there is no subordinate uid range inside, the nested podman maps a
+single uid; the image's `storage.conf` sets `ignore_chown_errors` so ordinary
+images still unpack.
+
 ### Multiple profiles in one file
 
 Instead of one profile per file, a `sandboxer.nix` can hold many under a

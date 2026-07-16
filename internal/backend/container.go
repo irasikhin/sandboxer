@@ -208,6 +208,7 @@ func commonArgs(o RunOpts, egNet, egProxyURL string) []string {
 	if o.Engine == "podman" {
 		args = append(args, "--userns=keep-id")
 	}
+	args = append(args, nestedContainerArgs(o.Profile)...)
 	// Map both engines' host-gateway alias so a single hostname reaches a
 	// host-running service (e.g. a user's own proxy) from inside the container,
 	// regardless of engine: podman provides host.containers.internal and Docker
@@ -253,6 +254,41 @@ func commonArgs(o RunOpts, egNet, egProxyURL string) []string {
 	}
 	args = append(args, extraMountsAndEnv(o.Profile)...)
 	return args
+}
+
+// nestedContainerArgs relaxes exactly what a ROOTLESS podman inside the sandbox
+// needs, and nothing more. It is empty unless the profile set nestedContainers,
+// so every other profile's argv — and therefore every existing session's
+// ConfigHash — stays byte-identical to before this knob existed.
+//
+// The image has shipped podman for a while; what stopped it was the OUTER
+// container's own sandboxing:
+//
+//   - seccomp: the engine's default profile denies clone(CLONE_NEWUSER) to a
+//     process without CAP_SYS_ADMIN, and podman re-execs itself into a user
+//     namespace ("cannot clone: Operation not permitted").
+//   - masked /proc: the engine overmounts paths under /proc, after which the
+//     kernel refuses the fresh procfs the nested container mounts
+//     ("crun: mount `proc` to `proc`: Operation not permitted").
+//   - /dev/net/tun: pasta, podman's rootless network backend, opens it.
+//   - /dev/fuse: fuse-overlayfs, the nested podman's storage driver (see the
+//     image's storage.conf), mounts layers through it.
+//
+// What it deliberately does NOT do: --privileged, --cap-add, or relaxing
+// no-new-privileges. Capabilities stay dropped, which leaves the nested podman
+// without a subordinate uid range — single-uid mapping, which the image's
+// ignore_chown_errors is there to absorb. The trade is real and documented in
+// SECURITY.md: a sandbox with nestedContainers has no syscall filter.
+func nestedContainerArgs(p *config.Profile) []string {
+	if p == nil || !p.NestedContainers {
+		return nil
+	}
+	return []string{
+		"--security-opt", "seccomp=unconfined",
+		"--security-opt", "systempaths=unconfined",
+		"--device", "/dev/net/tun",
+		"--device", "/dev/fuse",
+	}
 }
 
 // containerUserArgs is the `--user` flag for the sandbox container. By default

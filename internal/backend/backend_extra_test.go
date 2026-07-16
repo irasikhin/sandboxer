@@ -292,6 +292,60 @@ func TestContainerRunEgressNoDomains(t *testing.T) {
 	}
 }
 
+// TestNestedContainerArgs pins the opt-in nested-podman relaxations. The off
+// case matters as much as the on case: a profile that does not ask must produce
+// argv byte-identical to before the knob existed, or every live session's
+// ConfigHash moves and they all get recreated.
+func TestNestedContainerArgs(t *testing.T) {
+	opts := func(p *config.Profile) RunOpts {
+		return RunOpts{Engine: "docker", Image: "img:1", Dest: "/d", Slug: "s", Profile: p}
+	}
+
+	t.Run("nil profile stays off", func(t *testing.T) {
+		if got := nestedContainerArgs(nil); got != nil {
+			t.Errorf("nil profile = %v, want nil", got)
+		}
+	})
+	t.Run("profile that did not ask stays off", func(t *testing.T) {
+		if got := nestedContainerArgs(&config.Profile{}); got != nil {
+			t.Errorf("unset = %v, want nil", got)
+		}
+	})
+	t.Run("off keeps argv byte-identical", func(t *testing.T) {
+		base, _ := RunArgv(opts(nil))
+		off, _ := RunArgv(opts(&config.Profile{}))
+		if !slices.Equal(base, off) {
+			t.Errorf("argv moved with the knob off:\nbase = %v\n off = %v", base, off)
+		}
+	})
+	t.Run("on adds exactly what rootless podman needs", func(t *testing.T) {
+		argv, _ := RunArgv(opts(&config.Profile{NestedContainers: true}))
+		s := strings.Join(argv, " ")
+		for _, want := range []string{
+			"--security-opt seccomp=unconfined",     // clone(CLONE_NEWUSER)
+			"--security-opt systempaths=unconfined", // the nested procfs mount
+			"--device /dev/net/tun",                 // pasta
+			"--device /dev/fuse",                    // fuse-overlayfs
+		} {
+			if !strings.Contains(s, want) {
+				t.Errorf("argv missing %q: %v", want, argv)
+			}
+		}
+		// The opt-in buys a user namespace, NOT privilege: the rest of the
+		// posture has to survive it.
+		for _, keep := range []string{"--cap-drop=ALL", "no-new-privileges"} {
+			if !strings.Contains(s, keep) {
+				t.Errorf("opt-in dropped %q from the posture: %v", keep, argv)
+			}
+		}
+		for _, never := range []string{"--privileged", "--cap-add"} {
+			if strings.Contains(s, never) {
+				t.Errorf("opt-in must never reach for %q: %v", never, argv)
+			}
+		}
+	})
+}
+
 // TestContainerUser pins the --user behaviour: default = host uid:gid; the
 // SANDBOXER_CONTAINER_USER escape hatch (macOS) overrides it, and an explicit
 // empty value omits --user. The override must actually reach the argv.

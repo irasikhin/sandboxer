@@ -34,6 +34,36 @@ func TestProfileSetupDecodes(t *testing.T) {
 	}
 }
 
+// TestProfileNestedContainersDecodes checks the `nestedContainers` opt-in
+// round-trips, and — the part that matters — that it stays false when absent:
+// the knob trades away the sandbox's syscall filter, so it may only ever be on
+// because a profile said so.
+func TestProfileNestedContainersDecodes(t *testing.T) {
+	p, err := decodeProfileJSON([]byte(`{"name":"web","nestedContainers":true}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !p.NestedContainers {
+		t.Error("nestedContainers = false, want true")
+	}
+
+	j, err := p.JSON()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := string(j); !strings.Contains(got, `"nestedContainers"`) {
+		t.Errorf("JSON missing nestedContainers field: %s", got)
+	}
+
+	empty, err := decodeProfileJSON([]byte(`{"name":"web"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if empty.NestedContainers {
+		t.Error("nestedContainers must default to false when absent")
+	}
+}
+
 // TestProfileToolsDecode checks the `tools` list field decodes.
 func TestProfileToolsDecode(t *testing.T) {
 	p, err := decodeProfileJSON([]byte(`{"name":"web","tools":["node","go"]}`))

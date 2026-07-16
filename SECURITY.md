@@ -73,7 +73,9 @@ important — where it stops.
 - **Unprivileged container + resource caps.** The backend runs the agent
   `--user` (non-root), `--cap-drop=ALL`, `--security-opt no-new-privileges`, and
   applies the profile's `limits:` (`--memory` / `--cpus` / `--pids-limit`) when
-  set. This reduces, but does not eliminate, the blast radius.
+  set. This reduces, but does not eliminate, the blast radius. A profile that
+  sets `nestedContainers = true` keeps all of the above but gives up the syscall
+  filter — see below.
 
 - **Egress allowlist.** The agent runs on an `--internal` network whose sole exit
   is a **squid** forward-proxy sidecar that permits only `egress.allowedDomains`
@@ -83,6 +85,19 @@ important — where it stops.
   `SANDBOXER_NO_EGRESS=1`.
 
 ### Where it stops (know these before you trust it)
+
+- **`nestedContainers = true` turns off the sandbox's syscall filter.** The
+  toolbox image ships a rootless podman, but a container cannot create the user
+  namespace podman re-execs into while the engine's default seccomp profile is
+  active — that profile denies `clone(CLONE_NEWUSER)` to anything without
+  `CAP_SYS_ADMIN`. Opting in therefore passes `seccomp=unconfined` and
+  `systempaths=unconfined` (the latter unmasks `/proc`, which the nested
+  container's own `procfs` mount needs), plus `/dev/net/tun` and `/dev/fuse`.
+  What it does **not** do is hand over privilege: no `--privileged`, no
+  `--cap-add`, and `no-new-privileges` stays on, so the nested podman gets no
+  subordinate uid range and runs single-uid. Net effect: an escape no longer has
+  to get past a syscall allowlist. Leave it off unless the sandbox actually
+  builds or runs containers.
 
 - **The worktree's `.git` pointer file is writable.** Git metadata is not
   mounted (the whole hooks/config/object-store attack surface of earlier

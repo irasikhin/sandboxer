@@ -237,6 +237,13 @@ type Profile struct {
 	// Image customizes the toolbox image variant this profile's sandbox runs
 	// in; an empty spec keeps the stock image. See ImageSpec.
 	Image ImageSpec `json:"image,omitempty"`
+	// NestedContainers lets the sandbox run its own ROOTLESS podman (the image
+	// ships one). It is opt-in because it costs isolation: creating a user
+	// namespace needs the engine's seccomp filter off and /proc unmasked, so a
+	// profile that does not ask for it keeps the stock posture. Capabilities
+	// stay dropped and no-new-privileges stays on either way — see
+	// backend.nestedContainerArgs and SECURITY.md.
+	NestedContainers bool `json:"nestedContainers,omitempty"`
 	// Session selects how enter/exec use the container: "persistent" (the
 	// default) keeps one detached session container running across invocations,
 	// "ephemeral" starts a fresh one-shot container per command.
