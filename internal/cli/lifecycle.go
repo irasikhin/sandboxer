@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -33,7 +34,7 @@ func newCreateCmd() *cobra.Command {
 	var f commonFlags
 	cmd := &cobra.Command{
 		Use:   "create [slug|profile|file.yaml]",
-		Short: "Create a sandbox (a git worktree on branch feat/<slug>-sb)",
+		Short: "Create a sandbox (a git worktree on branch feat/<slug>)",
 		Example: `  # named sandbox (sources = the profile's srcs; the scaffold seeds {src: .})
   sandboxer create feat
 
@@ -167,6 +168,20 @@ image, ready to use).`,
 			persistent := rt.Session == config.SessionPersistent
 			errOut := cmd.ErrOrStderr()
 			fmt.Fprintln(errOut, configLine(rt, t.slug, t.profile, backendLabel(rt)))
+			// Show what the sandbox actually exposes — one line per source repo,
+			// with its branch and where the worktree lives.
+			for _, s := range t.base.Srcs(t.slug) {
+				mark := ""
+				if !s.Managed {
+					mark = ", adopted"
+				}
+				scope := ""
+				if len(s.Include) > 0 {
+					scope = " [" + strings.Join(s.Include, " ") + "]"
+				}
+				fmt.Fprintf(errOut, "sandboxer: src %s → %s%s (%s%s)\n",
+					filepath.Base(s.RepoRoot), s.Branch, scope, s.Path, mark)
+			}
 			warnIgnoredRoutes(errOut, rt)
 			engine, err := backend.ResolveEngine(rt.Backend, config.LoadDefaults())
 			if err != nil {

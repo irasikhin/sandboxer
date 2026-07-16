@@ -106,7 +106,10 @@ func TestEnterPersistentByDefault(t *testing.T) {
 	if len(argv) != 3 || argv[0] != "bash" || argv[1] != "-c" || !strings.Contains(argv[2], "bash") {
 		t.Errorf("exec argv = %v", argv)
 	}
-	for _, want := range []string{name, "keeps the container running", "sandboxer enter feat", "sandboxer: done in"} {
+	for _, want := range []string{
+		name, "keeps the container running", "sandboxer enter feat", "sandboxer: done in",
+		"sandboxer: src ", "feat/feat", // the connected-repos lines: repo → branch (path)
+	} {
 		if !strings.Contains(errs, want) {
 			t.Errorf("stderr missing %q:\n%s", want, errs)
 		}
