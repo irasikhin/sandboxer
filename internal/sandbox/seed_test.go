@@ -95,8 +95,9 @@ func TestSeedHomeNeverOverwrites(t *testing.T) {
 	}
 }
 
-// TestSeedHomeUnreadableSkips: a host config that cannot be read warns and is
-// skipped — never a failed enter, never a half-seeded path left behind.
+// TestSeedHomeUnreadableSkips: a host file that cannot be read warns and is
+// skipped — never a failed enter, never a torn file or staging leftover, and
+// one bad file must not strand its readable siblings.
 func TestSeedHomeUnreadableSkips(t *testing.T) {
 	if os.Getuid() == 0 {
 		t.Skip("root reads anything — the permission trap needs an unprivileged user")
@@ -104,6 +105,7 @@ func TestSeedHomeUnreadableSkips(t *testing.T) {
 	host := t.TempDir()
 	t.Setenv("HOME", host)
 	writeFile(t, filepath.Join(host, ".gemini", "oauth_creds.json"), "secret")
+	writeFile(t, filepath.Join(host, ".gemini", "settings.json"), "{}")
 	if err := os.Chmod(filepath.Join(host, ".gemini", "oauth_creds.json"), 0o000); err != nil {
 		t.Fatal(err)
 	}
@@ -120,11 +122,147 @@ func TestSeedHomeUnreadableSkips(t *testing.T) {
 		t.Errorf("no skip warning for an unreadable config: %q", progress.String())
 	}
 	home := b.HomeDir("s")
-	if _, err := os.Stat(filepath.Join(home, ".gemini")); !os.IsNotExist(err) {
-		t.Errorf("half-seeded .gemini left behind (err=%v)", err)
+	if _, err := os.Stat(filepath.Join(home, ".gemini", "settings.json")); err != nil {
+		t.Errorf("readable sibling not seeded: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(home, ".gemini.seedtmp")); !os.IsNotExist(err) {
-		t.Errorf("staging dir left behind (err=%v)", err)
+	if _, err := os.Stat(filepath.Join(home, ".gemini", "oauth_creds.json")); !os.IsNotExist(err) {
+		t.Errorf("unreadable file materialized somehow (err=%v)", err)
+	}
+	if _, err := os.Stat(filepath.Join(home, ".gemini", "oauth_creds.json.seedtmp")); !os.IsNotExist(err) {
+		t.Errorf("staging file left behind (err=%v)", err)
+	}
+}
+
+// TestSeedHomeMergesIntoExistingHome pins the fix for the first-release trap:
+// a sandbox that already RAN an agent has ~/.claude (created on first launch,
+// no credentials inside), and the seed must still deliver the missing files —
+// per-file merge, not a whole-dir "exists, skip".
+func TestSeedHomeMergesIntoExistingHome(t *testing.T) {
+	plantHostConfigs(t)
+	b, err := ResolveBase(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := b.EnsureHome("s"); err != nil {
+		t.Fatal(err)
+	}
+	home := b.HomeDir("s")
+	// the sandbox's own prior agent run: .claude exists, has its own state,
+	// but no credentials
+	writeFile(t, filepath.Join(home, ".claude", "statsig", "cache"), "sandbox-local")
+	writeFile(t, filepath.Join(home, ".claude", "settings.json"), `{"sandbox":true}`)
+
+	var progress strings.Builder
+	b.SeedHome("s", &progress)
+
+	// missing files arrived…
+	if data, err := os.ReadFile(filepath.Join(home, ".claude", ".credentials.json")); err != nil || string(data) != "token" {
+		t.Fatalf("credentials not merged into the existing .claude: %q err=%v", data, err)
+	}
+	if _, err := os.Stat(filepath.Join(home, ".claude.json")); err != nil {
+		t.Errorf(".claude.json not seeded: %v", err)
+	}
+	// …the sandbox's own files stayed exactly as they were…
+	if data, _ := os.ReadFile(filepath.Join(home, ".claude", "settings.json")); string(data) != `{"sandbox":true}` {
+		t.Errorf("existing settings.json overwritten: %q", data)
+	}
+	if _, err := os.Stat(filepath.Join(home, ".claude", "statsig", "cache")); err != nil {
+		t.Errorf("sandbox-local file lost in merge: %v", err)
+	}
+	// …and the notice reports what was added
+	if !strings.Contains(progress.String(), "claude: host ~/.claude seeded") {
+		t.Errorf("no merge notice, got %q", progress.String())
+	}
+}
+
+// TestSeedHomeShadowedSubtree: where the sandbox home holds a FILE at a path
+// the host has as a DIRECTORY (or an own symlink), the sandbox's version wins
+// and the host subtree stays out — merge adds, it never reshapes.
+func TestSeedHomeShadowedSubtree(t *testing.T) {
+	host := t.TempDir()
+	t.Setenv("HOME", host)
+	writeFile(t, filepath.Join(host, ".gemini", "commands", "deploy.toml"), "host")
+	writeFile(t, filepath.Join(host, ".gemini", "GEMINI.md"), "host-memory")
+	b, err := ResolveBase(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := b.EnsureHome("s"); err != nil {
+		t.Fatal(err)
+	}
+	home := b.HomeDir("s")
+	// the sandbox made "commands" a FILE and GEMINI.md a symlink of its own
+	writeFile(t, filepath.Join(home, ".gemini", "commands"), "sandbox-file")
+	if err := os.Symlink("elsewhere", filepath.Join(home, ".gemini", "GEMINI.md")); err != nil {
+		t.Fatal(err)
+	}
+
+	b.SeedHome("s", nil)
+
+	if data, _ := os.ReadFile(filepath.Join(home, ".gemini", "commands")); string(data) != "sandbox-file" {
+		t.Errorf("sandbox file shadowing a host dir was replaced: %q", data)
+	}
+	if target, err := os.Readlink(filepath.Join(home, ".gemini", "GEMINI.md")); err != nil || target != "elsewhere" {
+		t.Errorf("sandbox symlink overwritten by seed: %q err=%v", target, err)
+	}
+}
+
+// TestSeedMergeErrorPaths: failures to materialize one entry warn and never
+// abort the rest — a read-only sandbox dir and a stale .seedtmp in the way
+// are reported, nothing torn is left behind.
+func TestSeedMergeErrorPaths(t *testing.T) {
+	if os.Getuid() == 0 {
+		t.Skip("root writes anywhere — the permission traps need an unprivileged user")
+	}
+	host := t.TempDir()
+	t.Setenv("HOME", host)
+	writeFile(t, filepath.Join(host, ".gemini", "sub", "creds.json"), "x")
+	writeFile(t, filepath.Join(host, ".aider.conf.yml"), "cfg")
+	b, err := ResolveBase(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := b.EnsureHome("s"); err != nil {
+		t.Fatal(err)
+	}
+	home := b.HomeDir("s")
+	// a stale .seedtmp DIRECTORY sits where the file copy stages
+	if err := os.MkdirAll(filepath.Join(home, ".aider.conf.yml.seedtmp", "junk"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// and the sandbox's .gemini is read-only, so sub/ cannot be created
+	if err := os.MkdirAll(filepath.Join(home, ".gemini"), 0o500); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(filepath.Join(home, ".gemini"), 0o700) })
+
+	var progress strings.Builder
+	b.SeedHome("s", &progress)
+	if !strings.Contains(progress.String(), "skipped") {
+		t.Errorf("no warning for failed seeds: %q", progress.String())
+	}
+	if _, err := os.Stat(filepath.Join(home, ".aider.conf.yml")); !os.IsNotExist(err) {
+		t.Errorf(".aider.conf.yml materialized despite a blocked staging path (err=%v)", err)
+	}
+	if _, err := os.Stat(filepath.Join(home, ".gemini", "sub")); !os.IsNotExist(err) {
+		t.Errorf("sub/ materialized inside a read-only dir (err=%v)", err)
+	}
+}
+
+// TestSeedHomeNoHostHome: an unresolvable host home is a quiet no-op.
+func TestSeedHomeNoHostHome(t *testing.T) {
+	b, err := ResolveBase(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := b.EnsureHome("s"); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HOME", "")
+	var progress strings.Builder
+	b.SeedHome("s", &progress)
+	if progress.Len() != 0 {
+		t.Errorf("seed without a host home printed %q, want silence", progress.String())
 	}
 }
 

@@ -92,8 +92,9 @@ was extracted from:
 - **Agent registry** (`internal/registry/registry.json`): the single-source catalog of agents — embedded in the
   binary AND consumed by the Nix flake (`llm-agents.nix`). Edit the JSON, never duplicate it. Each agent's
   `seed` entries name its host-home config paths (with skip lists for transcripts/caches): a profile with
-  `hostConfigs = true` (scaffold default) COPIES those into the sandbox home once — never a mount, never
-  written back, never overwriting an in-sandbox login (`sandbox.SeedHome`).
+  `hostConfigs = true` (scaffold default) COPIES those into the sandbox home as a per-file merge (missing
+  files added on every create/enter/exec; existing files never overwritten) — never a mount, never written
+  back, an in-sandbox login/logout/edit always wins (`sandbox.SeedHome`).
 - **Toolbox image** (`internal/toolbox` + flake `dockerTools.buildLayeredImage`): the OCI image with the agents
   baked in; built via `nix run .#build-image`.
 - **Integration tests** (`internal/itest`, `//go:build integration`): drive a real engine and skip cleanly when

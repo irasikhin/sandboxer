@@ -250,10 +250,12 @@ type Profile struct {
 	// agents start already authenticated instead of demanding a login per
 	// sandbox. Always a COPY into the per-sandbox home (never a mount: the
 	// sandbox cannot touch the host's real config, and parallel sandboxes
-	// cannot race), applied on create/enter/exec only for paths the sandbox
-	// home does not have yet — an in-sandbox login/logout is never
-	// overwritten. Opt-in because it hands the sandbox live credentials; the
-	// scaffolded config enables it. See sandbox.SeedHome and SECURITY.md.
+	// cannot race), applied on create/enter/exec as a per-FILE merge: files
+	// the sandbox home lacks are added (so new host skills or a later host
+	// login flow into existing sandboxes too), files it has are never
+	// overwritten — an in-sandbox login/logout/edit always wins. Opt-in
+	// because it hands the sandbox live credentials; the scaffolded config
+	// enables it. See sandbox.SeedHome and SECURITY.md.
 	HostConfigs bool `json:"hostConfigs,omitempty"`
 	// Session selects how enter/exec use the container: "persistent" (the
 	// default) keeps one detached session container running across invocations,

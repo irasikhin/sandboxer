@@ -6,6 +6,26 @@ import (
 	"testing"
 )
 
+// TestConfigLocations pins the path helpers discovery and the egress sidecar
+// rely on: the per-root config path, the legacy migration-hint location, and
+// the proxy-image reference with its env override.
+func TestConfigLocations(t *testing.T) {
+	if got, want := ConfigPathIn("/proj"), filepath.Join("/proj", ConfigFileName); got != want {
+		t.Errorf("ConfigPathIn = %q, want %q", got, want)
+	}
+	if got, want := LegacyConfigDirPath(), filepath.Join(LegacyStateDirName, "config.yaml"); got != want {
+		t.Errorf("LegacyConfigDirPath = %q, want %q", got, want)
+	}
+	t.Setenv("SANDBOXER_PROXY_IMAGE", "")
+	if got := ProxyImage(); got != DefaultProxyImage {
+		t.Errorf("ProxyImage = %q, want the default %q", got, DefaultProxyImage)
+	}
+	t.Setenv("SANDBOXER_PROXY_IMAGE", "my-proxy:1")
+	if got := ProxyImage(); got != "my-proxy:1" {
+		t.Errorf("ProxyImage override = %q, want my-proxy:1", got)
+	}
+}
+
 // TestStateDir pins the resolution order: SANDBOXER_STATE override, then
 // $XDG_STATE_HOME, then ~/.local/state — and "" when no home can be found.
 func TestStateDir(t *testing.T) {
