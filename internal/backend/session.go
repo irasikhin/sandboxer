@@ -344,6 +344,9 @@ func reviveEgress(engine, name string, action sessionAction) bool {
 // pre-cleans; the no-egress path Downs leftovers), after the container — which
 // may still be attached to the old network — is gone.
 func recreateSession(o RunOpts, name, hash string) (string, error) {
+	// Announced: on a wedged engine `rm -f` can take a long time, and silence
+	// here reads as a hang.
+	notice(o.Stderr, "removing the old session container…")
 	if err := exec.Command(o.Engine, "rm", "-f", name).Run(); err != nil {
 		return "", fmt.Errorf("remove stale session %s: %w", name, err)
 	}
@@ -364,6 +367,7 @@ func createSession(o RunOpts, name, hash string) (string, error) {
 		if err := ensureProxyImage(o); err != nil {
 			return "", err
 		}
+		notice(o.Stderr, "starting the egress sidecar…")
 		e, err := egress.UpNamed(o.Engine, name, o.RT.Domains, ContainerProxyURL(o.RT.Proxy), containerRoutes(o.RT.Routes), o.BaseDir, o.Stderr)
 		if err != nil {
 			return "", fmt.Errorf("egress allowlist proxy failed to start: %w — "+
@@ -376,6 +380,7 @@ func createSession(o RunOpts, name, hash string) (string, error) {
 		// session (idempotent no-op when there are none).
 		egress.Lookup(o.Engine, name).Down()
 	}
+	notice(o.Stderr, "creating the session container…")
 	cmd := exec.Command(o.Engine, createArgv(o, egNet, egProxyURL, name, hash)...)
 	cmd.Stdout = io.Discard // `run -d` prints the new container id
 	cmd.Stderr = o.Stderr
