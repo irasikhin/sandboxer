@@ -5,18 +5,20 @@
 # `sandboxer create feat.nix`). This file is a standalone sample of the flat
 # single-profile form — copy it to ./sandboxer.nix to use it.
 {
-  # Sandbox name (slug). Drives the worktree branch feat/<name>.
+  # Sandbox name (slug). Names the sandbox dir ../<project>-sandboxes/<name>/.
   name = "feature-x";
 
   # Isolation backend — a podman or docker container built from the toolbox
   # image (works with any agent).
   backend = "podman";
 
-  # The sources the sandbox sees — always explicit ({ src = "."; } = this
-  # repo, whole; relative paths resolve against the project root). See
-  # with-srcs.nix for include patterns, extra repos and branch adoption.
+  # The sources the sandbox sees — always explicit (src = "." is this repo,
+  # whole; relative paths resolve against the project root). branch is
+  # REQUIRED: it names the worktree's branch and its on-disk directory
+  # (../<project>-sandboxes/<name>/<branch>). See with-srcs.nix for include
+  # patterns, extra repos and branch adoption.
   srcs = [
-    { src = "."; }
+    { src = "."; branch = "devops/feature-x"; }
   ];
 
   # Egress allowlist: the ONLY domains the sandbox may reach. Setting it

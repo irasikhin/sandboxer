@@ -1,7 +1,8 @@
 // Package worktree backs a sandbox source with a host-side git worktree.
 //
 // Each source repository is checked out into a per-sandbox worktree on its own
-// branch (feat/<slug> by default), optionally narrowed to a subset of files
+// branch (named explicitly per source — there is no default), optionally
+// narrowed to a subset of files
 // via non-cone sparse-checkout with gitignore-syntax include patterns. The
 // worktree is the containment boundary: only its (sparse) contents are mounted
 // into the container — git metadata never is — so work accumulates in the
@@ -25,15 +26,18 @@ import (
 	"strings"
 )
 
-// BranchPrefix names the branch a sandbox's worktree is checked out on:
-// feat/<slug>. An EXISTING feat/<slug> branch of yours is deliberately
-// reused — checked out into the managed worktree, or adopted where it is
-// already checked out; recreate --full only ever deletes branches sandboxer
-// itself created (recorded per source at first sync).
-const BranchPrefix = "feat/"
-
-// Branch is the branch name for a sandbox slug.
-func Branch(slug string) string { return BranchPrefix + slug }
+// ValidBranch rejects a malformed git branch name via `git check-ref-format
+// --branch`. The branch also names the worktree's directory under the sandbox,
+// so a bad name is refused before any path is derived from it. An EXISTING
+// branch is deliberately reused — checked out into the managed worktree, or
+// adopted where it is already checked out; recreate --full only ever deletes
+// branches sandboxer itself created (recorded per source at first sync).
+func ValidBranch(repoToplevel, name string) error {
+	if _, err := run(repoToplevel, "check-ref-format", "--branch", name); err != nil {
+		return fmt.Errorf("invalid branch name %q: %w", name, err)
+	}
+	return nil
+}
 
 // BranchExists reports whether the repo already has a local branch by that
 // name — the callers use it to record which branches sandboxer MINTED (only

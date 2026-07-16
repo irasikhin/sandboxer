@@ -23,9 +23,11 @@ drives.
 ## How it works
 
 A **sandbox** exposes **sources**: git repos checked out into per-sandbox
-worktrees (branch `feat/<slug>`) under the state dir. Run sandboxer inside a
-repo and it just works — the scaffolded config pins `srcs: [{src: .}]`, the
-whole repo as the one source (always explicit, never implied). The
+worktrees right beside the project — `../<project>-sandboxes/<slug>/<branch>`,
+each worktree directory named after its branch, so your sandboxes are ordinary
+folders you can browse. Run sandboxer inside a repo and it just works — the
+scaffolded config pins the whole repo as the one source, on an explicit
+branch (always explicit, never implied). The
 container sees **only the files the sources select — git itself never enters
 it**: no `.git` mounts, no history, no hooks. The agent edits files; the edits
 land live in the host-side worktree, where you review and commit them with
@@ -35,13 +37,15 @@ is copied.
 - **Sandbox** — a set of sources materialized as git worktrees under one dir.
 - **slug** — a short sandbox name (`feat`, `bugfix-auth`, …), set at `create`.
 - **srcs** — the sources, always explicit: each entry is `src:` (path to a
-  repo root — relative to the project root, so other repos work too), an
-  optional `include:` (gitignore-style patterns — only matching files exist in
-  the sandbox) and an optional `branch:` (adopt an existing branch/worktree).
-  The scaffold seeds `srcs: [{src: .}]` — this repo, whole. Editing srcs
-  applies on the next `enter`/`exec` — a running session sees the change live,
-  no recreate.
-- **review** — on the HOST, per source repo: `git -C <repo> log feat/<slug>`,
+  repo root — relative to the project root, so other repos work too), a
+  REQUIRED `branch:` (the branch the worktree lives on — it also names the
+  worktree's directory; a branch already checked out elsewhere is adopted
+  as-is) and an optional `include:` (gitignore-style patterns — only matching
+  files exist in the sandbox). The scaffold seeds
+  `srcs = [ { src = "."; branch = "feat/<name>"; } ]` — this repo, whole.
+  Editing srcs applies on the next `enter`/`exec` — a running session sees the
+  change live, no recreate.
+- **review** — on the HOST, per source repo: `git -C <repo> log <branch>`,
   `git add`/`commit` in the worktree, then merge or cherry-pick.
 
 sandboxer is **git-only**: every `src` must be a git repo with at least one
@@ -108,23 +112,25 @@ and **entering/working** in the sandbox
 The committed config is ONE file at your repo root — `sandboxer.nix`,
 image-customization hook included — checked in as-is. It is a nix attrset,
 evaluated by the **host nix** under a restricted eval (no network, no reads
-outside its directory); nix on the host is a hard requirement. All runtime
-state (per-sandbox working copies, the private agent homes, logs and metadata)
-lives **outside** the repo under the XDG state dir
-(`$XDG_STATE_HOME/sandboxer/<project>`, default `~/.local/state/...`), so secrets
-and scratch data can never be committed by accident. `sandboxer clean` wipes that
-state for the project; the config stays.
+outside its directory); nix on the host is a hard requirement. The sandbox worktrees live
+**beside** the project (`../<project>-sandboxes/`) where you can browse them;
+the rest of the runtime state (the private agent homes, logs and metadata)
+lives under the XDG state dir (`$XDG_STATE_HOME/sandboxer/<project>`, default
+`~/.local/state/...`). Both are outside the repo, so secrets and scratch data
+can never be committed by accident. `sandboxer clean` wipes both for the
+project; the config stays.
 
 ## How changes flow
 
 Changes flow through git — on the host. Each source is a **git worktree** on
-branch `feat/<slug>`; the container's edits appear there live (bind mount),
-and **you** commit/review them with plain git (`git -C <worktree> add/commit`,
-`git log`/`git diff`/`git merge feat/<slug>`). The container itself has no
-git access at all: no object store, no hooks, no history. There is no copy-in
-and no push-back. Teardown (`rm`, `recreate`) keeps the branches;
-`recreate --full` deletes the auto-named ones for a fresh start (never a
-branch you set via `srcs branch:`).
+the branch you configured (`srcs branch:`); the container's edits appear
+there live (bind mount), and **you** commit/review them with plain git
+(`git -C <worktree> add/commit`, `git log`/`git diff`/`git merge <branch>`).
+The container itself has no git access at all: no object store, no hooks, no
+history. There is no copy-in and no push-back. Teardown (`rm`, `recreate`)
+keeps the branches; `recreate --full` also deletes the branches sandboxer
+itself created, for a fresh start (never one that existed before the
+sandbox).
 
 ## Persistent sessions
 

@@ -15,7 +15,7 @@ import (
 // the three classes of state recreate must treat differently.
 func seedRecreateState(t *testing.T, project string) (junk, cred, stamp string) {
 	t.Helper()
-	junk = stateDir(project, "feat", "junk.txt")
+	junk = sandboxDir(project, "feat", "junk.txt")
 	cred = stateDir(project, "_home", "feat", "cred.json")
 	stamp = stateDir(project, "_meta", "feat.setup")
 	for _, p := range []string{junk, cred, stamp} {
@@ -36,7 +36,7 @@ func seedRecreateState(t *testing.T, project string) (junk, cred, stamp string) 
 func TestRecreateKeepsAgentHome(t *testing.T) {
 	project := sessionProject(t)
 	t.Setenv("SANDBOXER_ENGINE", "docker")
-	dest := stateDir(project, "feat")
+	dest := sandboxDir(project, "feat")
 	calls, dirExisted := stubRemoveSession(t, dest, nil)
 	junk, cred, stamp := seedRecreateState(t, project)
 
@@ -73,7 +73,7 @@ func TestRecreateKeepsAgentHome(t *testing.T) {
 // restored afterwards.
 func TestRecreateFullWipesHome(t *testing.T) {
 	project := sessionProject(t)
-	dest := stateDir(project, "feat")
+	dest := sandboxDir(project, "feat")
 	stubRemoveSession(t, dest, nil)
 	if code, _, errs := run("use", "feat", "--src", project); code != 0 {
 		t.Fatalf("use: %s", errs)
@@ -103,7 +103,7 @@ func TestRecreateFullWipesHome(t *testing.T) {
 // block the rebuild — one warning line, exit 0.
 func TestRecreateSessionFailureOnlyWarns(t *testing.T) {
 	project := sessionProject(t)
-	dest := stateDir(project, "feat")
+	dest := sandboxDir(project, "feat")
 	stubRemoveSession(t, dest, errors.New("engine on fire"))
 	junk, _, _ := seedRecreateState(t, project)
 

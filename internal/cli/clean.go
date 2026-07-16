@@ -24,9 +24,10 @@ func newCleanCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "clean [src]",
 		Short: "Remove all runtime data for the project (keeps the committed config)",
-		Long: `Remove the project's entire runtime state — every sandbox, agent home, log and
-metadata file under the state directory (outside the repo). The committed config
-(sandboxer.nix) is left untouched.
+		Long: `Remove the project's entire runtime state — the sandbox worktrees beside the
+project (<project>-sandboxes/) and every agent home, log and metadata file
+under the state directory. The committed config (sandboxer.nix) is left
+untouched.
 
 Requires --force to protect against accidental deletion; use 'sandboxer rm <slug>'
 to remove a single sandbox instead.`,
@@ -76,12 +77,18 @@ to remove a single sandbox instead.`,
 			if err := os.RemoveAll(dir); err != nil {
 				return err
 			}
+			// The worktrees live beside the project, separate from the state dir.
+			sbRoot := sandbox.SandboxesRoot(abs)
+			if err := os.RemoveAll(sbRoot); err != nil {
+				return err
+			}
 			// The wiped sandbox dirs held git worktrees; prune their now-dangling
 			// admin entries from every source repo. Branches are kept — they live
 			// in the repos, not the state dir; delete any by hand.
 			for r := range repos {
 				_ = worktree.Prune(r)
 			}
+			fmt.Fprintf(cmd.OutOrStdout(), "removed: %s\n", sbRoot)
 			fmt.Fprintf(cmd.OutOrStdout(), "removed: %s\n", dir)
 			return nil
 		},

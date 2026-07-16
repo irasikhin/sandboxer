@@ -121,9 +121,8 @@ func TestPathHelpers(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	pid := filepath.Base(b.Dir)
 	cases := []struct{ got, suffix string }{
-		{b.SandboxDir("s"), filepath.Join(pid, "s")},
+		{b.SandboxDir("s"), filepath.Join(filepath.Base(b.Src)+"-sandboxes", "s")},
 		{b.ProfileJSONPath("s"), filepath.Join("_meta", "s.profile.json")},
 		{b.MetaFilePath("s"), filepath.Join("_meta", "s.meta")},
 		{b.LogPath("s", "json"), filepath.Join("_logs", "s.json")},

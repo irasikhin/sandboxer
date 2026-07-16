@@ -19,7 +19,7 @@ let
   api = {
     backend = "docker";
     egress = net;
-    srcs = [ { src = "."; include = [ "/shared/proto/" ]; } ];
+    srcs = [ { src = "."; branch = "devops/api"; include = [ "/shared/proto/" ]; } ];
     env.NODE_ENV = "development";
   };
 in
@@ -29,7 +29,7 @@ in
     web = {
       backend = "podman";
       egress = net;
-      srcs = [ { src = "."; include = [ "/shared/ui/" ]; } ];
+      srcs = [ { src = "."; branch = "devops/web"; include = [ "/shared/ui/" ]; } ];
       env.NODE_ENV = "development";
     };
 

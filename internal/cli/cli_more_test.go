@@ -43,7 +43,7 @@ func TestRunEnterAutoCreate(t *testing.T) {
 	if code, _, errs := run("enter", "fresh", "--src", project, "--backend", "podman"); code != 0 {
 		t.Fatalf("enter auto-create = %d, %s", code, errs)
 	}
-	if _, err := os.Stat(stateDir(project, "fresh")); err != nil {
+	if _, err := os.Stat(sandboxDir(project, "fresh")); err != nil {
 		t.Errorf("enter did not create the sandbox: %v", err)
 	}
 }

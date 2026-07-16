@@ -43,10 +43,11 @@ type Src struct {
 	// "/services/api/", "*.md", "!…") selecting what the sandbox sees. Empty
 	// or ["**"] means the whole repo.
 	Include []string `json:"include,omitempty"`
-	// Branch checks the source out on a named branch instead of the managed
-	// feat/<slug> one. An existing worktree of that branch (including the
-	// repo's main checkout) is adopted as-is; a missing branch is created off
-	// HEAD.
+	// Branch names the branch the source is checked out on. It is REQUIRED —
+	// there is no default naming — and it also names the worktree's directory
+	// (…-sandboxes/<slug>/<branch>). An existing worktree of that branch
+	// (including the repo's main checkout) is adopted as-is; a missing branch
+	// is created off HEAD.
 	Branch string `json:"branch,omitempty"`
 }
 

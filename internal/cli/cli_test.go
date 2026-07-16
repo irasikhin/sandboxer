@@ -321,7 +321,7 @@ func TestRunLifecycle(t *testing.T) {
 	if code, out, errs := run("create", "feat", "--src", project); code != 0 || !strings.Contains(out, "created") {
 		t.Fatalf("create = (%d, %q, %q)", code, out, errs)
 	}
-	dest := stateDir(project, "feat")
+	dest := sandboxDir(project, "feat")
 	if fi, err := os.Stat(dest); err != nil || !fi.IsDir() {
 		t.Errorf("sandbox dir not created: %v", err)
 	}

@@ -12,7 +12,7 @@
 {
   name = "custom-image";
   backend = "podman";
-  srcs = [ { src = "."; } ];
+  srcs = [ { src = "."; branch = "feat/custom-image"; } ];
 
   image = {
     # nixpkgs attr names baked into the image (dotted paths allowed). Attrs

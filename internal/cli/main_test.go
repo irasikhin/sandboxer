@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/irasikhin/sandboxer/internal/config"
+	"github.com/irasikhin/sandboxer/internal/sandbox"
 )
 
 // stateDir returns the runtime-state directory for a project root, as tests
@@ -13,6 +14,13 @@ import (
 // at the project root, where the committed config lives).
 func stateDir(project string, parts ...string) string {
 	return filepath.Join(append([]string{config.StateDir(project)}, parts...)...)
+}
+
+// sandboxDir returns the sandbox worktree directory for a project root — the
+// worktrees live BESIDE the project (<project>-sandboxes/), not in the state
+// dir.
+func sandboxDir(project string, parts ...string) string {
+	return filepath.Join(append([]string{sandbox.SandboxesRoot(project)}, parts...)...)
 }
 
 // TestMain isolates runtime state into a throwaway directory so the cli suite

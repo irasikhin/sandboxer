@@ -1,16 +1,18 @@
 // Package sandbox owns the on-disk runtime state for a project: the base
-// metadata (run.env), per-sandbox directories and logs. This state lives under
-// config.StateDir (an XDG state dir outside the repo), kept separate from the
-// committed config (sandboxer.nix) so runtime data —
-// including agent homes that may hold login tokens — never lands in git.
+// metadata (run.env), per-sandbox directories and logs. Internal state lives
+// under config.StateDir (an XDG state dir outside the repo), kept separate
+// from the committed config (sandboxer.nix) so runtime data — including agent
+// homes that may hold login tokens — never lands in git. The worktrees
+// themselves live BESIDE the project in <project>-sandboxes/ (see
+// SandboxesRoot), so the user finds them without digging through XDG paths.
 //
 // A sandbox is a set of SOURCES (see srcs.go): per-repo git worktrees under
-// <slug>/, each on its own branch and optionally narrowed by gitignore-style
-// include patterns via non-cone sparse-checkout. The container mounts the
-// <slug>/ dir (plus any adopted worktrees) and NEVER the git metadata — the
-// sparse worktree contents are the access boundary, and commits happen on the
-// host. A source that is not a git repository (or has no commit) is rejected —
-// there is no copy-mode fallback.
+// <slug>/, each named by its (explicitly configured) branch and optionally
+// narrowed by gitignore-style include patterns via non-cone sparse-checkout.
+// The container mounts the <slug>/ dir (plus any adopted worktrees) and NEVER
+// the git metadata — the sparse worktree contents are the access boundary,
+// and commits happen on the host. A source that is not a git repository (or
+// has no commit) is rejected — there is no copy-mode fallback.
 package sandbox
 
 import (
@@ -104,8 +106,25 @@ func (b *Base) metaDir() string  { return filepath.Join(b.Dir, "_meta") }
 func (b *Base) logsDir() string  { return filepath.Join(b.Dir, "_logs") }
 func (b *Base) homeRoot() string { return filepath.Join(b.Dir, "_home") }
 
-// SandboxDir is the directory for a sandbox.
-func (b *Base) SandboxDir(slug string) string { return filepath.Join(b.Dir, slug) }
+// SandboxesRoot is where a project's sandbox worktrees live: a sibling of the
+// project root named <project>-sandboxes. Deliberately OUTSIDE both the repo
+// (nothing can be committed) and the XDG state dir (no hashed path to dig
+// through): the user browses their sandboxes' branches as ordinary
+// directories right next to the project.
+func SandboxesRoot(src string) string {
+	return filepath.Join(filepath.Dir(src), filepath.Base(src)+"-sandboxes")
+}
+
+// SandboxesRoot locates the project's sandbox worktree root (see the
+// package-level SandboxesRoot).
+func (b *Base) SandboxesRoot() string { return SandboxesRoot(b.Src) }
+
+// SandboxDir is the directory for a sandbox: <project>-sandboxes/<slug>. The
+// managed worktrees inside are named by their branch (see srcs.go), so the
+// on-disk path spells out sandbox and branch: …-sandboxes/<slug>/<branch>.
+func (b *Base) SandboxDir(slug string) string {
+	return filepath.Join(b.SandboxesRoot(), slug)
+}
 
 // HomeDir is the sandbox's private agent home, mounted as $HOME in the
 // container. It is isolated per sandbox so an agent authenticates inside its own
@@ -202,9 +221,9 @@ func (b *Base) SetDomains(domains string) error {
 
 // MakeSandbox creates a sandbox's working tree: the <slug>/ dir populated with
 // one git worktree per configured source (see SyncSrcs; srcs must be listed
-// explicitly — the scaffolded config seeds {src: .}). Progress is written to
-// w. A source that is not a git repository (or has no commit) is rejected —
-// sandboxer is git-only.
+// explicitly, each naming its branch — the scaffolded config seeds both).
+// Progress is written to w. A source that is not a git repository (or has no
+// commit) is rejected — sandboxer is git-only.
 func (b *Base) MakeSandbox(slug string, w io.Writer) error {
 	if err := b.EnsureHome(slug); err != nil {
 		return err
@@ -320,6 +339,9 @@ func (b *Base) RemoveState(slug string, keepHome bool) {
 	for _, p := range paths {
 		_ = os.RemoveAll(p)
 	}
+	// Tidy the sandboxes root when this was its last sandbox (os.Remove
+	// refuses a non-empty dir, which is exactly the wanted behavior).
+	_ = os.Remove(b.SandboxesRoot())
 	// Remove rotating logs (<slug>.json, <slug>.err, …).
 	if entries, err := os.ReadDir(b.logsDir()); err == nil {
 		for _, e := range entries {
@@ -342,21 +364,15 @@ func (b *Base) Remove(slug string) error {
 	return nil
 }
 
-// RemoveSandboxBranches force-deletes the sandbox's AUTO-NAMED git branches
-// (feat/<slug>) in every source repo that got one. Normal teardown keeps
-// branches so work survives; a full reset (recreate --full) calls this for a
-// clean slate. Branches the user named explicitly (srcs branch:) are never
-// deleted — they are the user's, not sandboxer's. srcs is the source list
-// captured BEFORE the teardown (RemoveState deletes the recorded meta, and
-// git refuses to delete a branch still checked out in a worktree).
+// RemoveSandboxBranches force-deletes the git branches sandboxer itself
+// MINTED for the sandbox (the branch did not exist at first sync; recorded
+// per source). Normal teardown keeps branches so work survives; a full reset
+// (recreate --full) calls this for a clean slate. A branch that existed
+// before the sandbox is never deleted — it is the user's, not sandboxer's.
+// srcs is the source list captured BEFORE the teardown (RemoveState deletes
+// the recorded meta, and git refuses to delete a branch still checked out in
+// a worktree).
 func (b *Base) RemoveSandboxBranches(slug string, srcs []Source) {
-	if len(srcs) == 0 {
-		// Pre-srcs-model fallback: the project repo's auto branch.
-		if top, _, ok := worktree.Detect(b.Src); ok {
-			_ = worktree.DeleteBranch(top, worktree.Branch(slug))
-		}
-		return
-	}
 	for _, s := range srcs {
 		if s.AutoBranch {
 			_ = worktree.DeleteBranch(s.RepoRoot, s.Branch)

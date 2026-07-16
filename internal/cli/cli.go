@@ -123,7 +123,8 @@ func register(factory func() *cobra.Command) {
 const rootLong = `sandboxer — config-driven isolated sandboxes for coding agents.
 
 A sandbox exposes SOURCES: git repos checked out into per-sandbox worktrees
-(branch feat/<slug>) under the state dir, outside the repo. The container
+under ../<project>-sandboxes/<slug>/<branch> — every source names its branch
+explicitly, and its directory is named after the branch. The container
 sees ONLY the files the srcs select — git metadata never enters it — so the
 agent edits files while your working tree, branches and git stay untouched;
 you review and commit the result with plain git on the host. srcs entries can
@@ -143,8 +144,8 @@ is ordinary nix (let/functions).
 
 Tips:
   • 'sandboxer use <slug>' sets an active sandbox so you can omit the slug after.
-  • Review and commit with plain git ON THE HOST: git log feat/<slug>
-    (each source repo gets its own worktree and branch).
+  • Review and commit with plain git ON THE HOST: git log <branch>
+    (each source repo gets its own worktree, on the branch you configured).
   • Outbound traffic is restricted to an egress allowlist
     (egress.allowedDomains / --allow-domains; disable with SANDBOXER_NO_EGRESS=1).
   • Each create/enter/exec prints the resolved backend/egress/profile it used.`

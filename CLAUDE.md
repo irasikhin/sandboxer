@@ -58,22 +58,26 @@ was extracted from:
   `SANDBOXER_IN_CONTAINER` is set, injected per-run by `commonArgs`).
 - **Config vs data split** (`internal/config`, `internal/sandbox`): the committed config is ONE file at
   the repo root — `sandboxer.nix` (image customization included; overlay is a separate .nix file).
-  ALL runtime state lives OUTSIDE the repo under `config.StateDir(project)` =
-  `$XDG_STATE_HOME/sandboxer/<project-id>` (`<project-id>` = basename + short hash of the abs path) — the
-  `_meta`/`_logs`/`_home/<slug>`/`<slug>` dirs, so credentials/scratch can never be committed. `sandboxer clean`
-  wipes that state (config stays).
+  The sandbox WORKTREES live BESIDE the project at `sandbox.SandboxesRoot(project)` =
+  `../<project>-sandboxes/` (browsable; `_detached/` included); the rest of the runtime state lives under
+  `config.StateDir(project)` = `$XDG_STATE_HOME/sandboxer/<project-id>` (`<project-id>` = basename + short
+  hash of the abs path) — the `_meta`/`_logs`/`_home/<slug>` dirs. Both are outside the repo, so
+  credentials/scratch can never be committed. `sandboxer clean` wipes both (config stays).
 - **Sandbox backing = srcs** (`internal/worktree`, `internal/sandbox/srcs.go`): a sandbox exposes SOURCES —
-  `srcs: [{src, include, branch}]` — each a git worktree at `<stateDir>/<slug>/<repo>/` on branch
-  `feat/<slug>` (or the entry's `branch:`, which ADOPTS an existing worktree of that branch, incl. the main
-  checkout), narrowed by gitignore-style `include` patterns via **non-cone** `sparse-checkout`. srcs is ALWAYS
-  explicit — an empty list is rejected; the scaffolded config seeds `srcs: [{src: .}]`. Relative src paths
+  `srcs: [{src, branch, include}]` — each a git worktree at `<sandboxesRoot>/<slug>/<branch>/` (the dir is
+  NAMED AFTER the branch; two srcs sharing a branch name split into `<branch>/<repo>`). `branch:` is
+  REQUIRED — no default naming, a missing branch is an error (the error hints the recorded branch); a branch
+  already checked out elsewhere (incl. the main checkout) is ADOPTED. Trees are narrowed by gitignore-style
+  `include` patterns via **non-cone** `sparse-checkout`. srcs is ALWAYS explicit — an empty list is rejected;
+  the scaffolded config seeds `srcs = [{src = "."; branch = "feat/<name>";}]`. Relative src paths
   resolve against the PROJECT ROOT (not the profile file's dir). **Git never enters the container**: no git-dir mounts, no `GIT_CONFIG_*` — the
   container gets one stable rw mount of `<slug>/` (plus adopted paths), so the sparse worktree contents ARE the
   wall and srcs edits are picked up by every enter/exec (a LIVE session sees them immediately); commits happen
   on the host. Resolved sources are recorded at `_meta/<slug>.srcs.json`; dropped sources move to `_detached/`
-  (data-safe). Teardown removes managed worktrees only and KEEPS branches (`recreate --full` deletes just the
-  auto-named ones). **git-only:** a non-git source is rejected with an init hint; non-git trees come in via
-  `extraMounts`.
+  (data-safe; a worktree in detached-HEAD state is left in place, and a non-worktree dir with content is
+  renamed aside, never deleted). Teardown removes managed worktrees only and KEEPS branches (`recreate --full`
+  deletes just the ones sandboxer minted — recorded per source). **git-only:** a non-git source is rejected
+  with an init hint; non-git trees come in via `extraMounts`.
 - **Egress** (`internal/egress`): outbound traffic is restricted to an allowlist
   (`egress.allowedDomains` / `--allow-domains`) through a **squid** sidecar (the `sandboxer-proxy` image, built
   beside the toolbox image; `config.ProxyImage()`) running a generated `squid.conf` — the binary is never in the

@@ -54,8 +54,8 @@ func TestMakeSandboxDotSrcFull(t *testing.T) {
 		t.Fatalf("ResolveBase: %v", err)
 	}
 
-	// when: a sandbox is made from the scaffold-style explicit {src: "."}
-	if err := b.WriteProfileJSON("wt", []byte(`{"srcs":[{"src":"."}]}`)); err != nil {
+	// when: a sandbox is made from the scaffold-style explicit {src, branch}
+	if err := b.WriteProfileJSON("wt", []byte(`{"srcs":[{"src":".","branch":"feat/wt"}]}`)); err != nil {
 		t.Fatal(err)
 	}
 	if err := b.MakeSandbox("wt", io.Discard); err != nil {
@@ -69,10 +69,10 @@ func TestMakeSandboxDotSrcFull(t *testing.T) {
 	if !s.Managed || !s.AutoBranch || s.Branch != "feat/wt" || s.RepoRoot != repo {
 		t.Errorf("dot source wrong: %+v", s)
 	}
-	// then: the worktree lives UNDER <slug>/ (the sandbox dir is not itself a
-	// worktree), with every file present and clean, on the sandbox branch.
-	if s.Path == b.SandboxDir("wt") || filepath.Dir(s.Path) != b.SandboxDir("wt") {
-		t.Fatalf("worktree path %q not nested under %q", s.Path, b.SandboxDir("wt"))
+	// then: the worktree lives UNDER <slug>/, at a path spelling out the
+	// branch (…-sandboxes/wt/feat/wt), with every file present and clean.
+	if s.Path != filepath.Join(b.SandboxDir("wt"), "feat", "wt") {
+		t.Fatalf("worktree path %q, want %q", s.Path, filepath.Join(b.SandboxDir("wt"), "feat", "wt"))
 	}
 	if worktree.IsWorktree(b.SandboxDir("wt")) {
 		t.Error("sandbox dir itself must not be a worktree")
@@ -102,7 +102,7 @@ func TestMakeSandboxSparseInclude(t *testing.T) {
 	}
 
 	// given: a stored profile narrowing to serviceA via a gitignore pattern
-	if err := b.WriteProfileJSON("narrow", []byte(`{"srcs":[{"src":".","include":["/serviceA/"]}]}`)); err != nil {
+	if err := b.WriteProfileJSON("narrow", []byte(`{"srcs":[{"src":".","branch":"feat/narrow","include":["/serviceA/"]}]}`)); err != nil {
 		t.Fatal(err)
 	}
 
@@ -138,7 +138,7 @@ func TestSyncSrcsLiveRefresh(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := b.WriteProfileJSON("live", []byte(`{"srcs":[{"src":".","include":["/serviceA/"]}]}`)); err != nil {
+	if err := b.WriteProfileJSON("live", []byte(`{"srcs":[{"src":".","branch":"feat/live","include":["/serviceA/"]}]}`)); err != nil {
 		t.Fatal(err)
 	}
 	if err := b.MakeSandbox("live", io.Discard); err != nil {
@@ -147,7 +147,7 @@ func TestSyncSrcsLiveRefresh(t *testing.T) {
 	first := b.Srcs("live")[0]
 
 	// when: the profile widens the include and adds a second repo
-	pj := fmt.Sprintf(`{"srcs":[{"src":"."},{"src":%q}]}`, other)
+	pj := fmt.Sprintf(`{"srcs":[{"src":".","branch":"feat/live"},{"src":%q,"branch":"feat/live-other"}]}`, other)
 	if err := b.WriteProfileJSON("live", []byte(pj)); err != nil {
 		t.Fatal(err)
 	}
@@ -169,13 +169,13 @@ func TestSyncSrcsLiveRefresh(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(srcs[1].Path, "CLAUDE.md")); err != nil {
 		t.Errorf("second source not materialized: %v", err)
 	}
-	if filepath.Dir(srcs[1].Path) != b.SandboxDir("live") {
-		t.Errorf("second source %q not under the sandbox dir", srcs[1].Path)
+	if srcs[1].Path != filepath.Join(b.SandboxDir("live"), "feat", "live-other") {
+		t.Errorf("second source %q not at its branch-named path", srcs[1].Path)
 	}
 
 	// when: the second repo is dropped again, with uncommitted work inside
 	writeFile(t, filepath.Join(srcs[1].Path, "wip.txt"), "precious")
-	if err := b.WriteProfileJSON("live", []byte(`{"srcs":[{"src":"."}]}`)); err != nil {
+	if err := b.WriteProfileJSON("live", []byte(`{"srcs":[{"src":".","branch":"feat/live"}]}`)); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := b.SyncSrcs("live", io.Discard); err != nil {
@@ -244,12 +244,15 @@ func TestResolveSrcsErrors(t *testing.T) {
 	cases := []struct {
 		name, pj, errPart string
 	}{
-		{"non-git", fmt.Sprintf(`{"srcs":[{"src":%q}]}`, nonGit), "not a git repository"},
-		{"missing", `{"srcs":[{"src":"./no-such-dir"}]}`, "no such directory"},
-		{"subdir", `{"srcs":[{"src":"./serviceA"}]}`, "repository root"},
-		{"dup", fmt.Sprintf(`{"srcs":[{"src":"."},{"src":%q}]}`, repo), "listed twice"},
+		{"non-git", fmt.Sprintf(`{"srcs":[{"src":%q,"branch":"feat/bad"}]}`, nonGit), "not a git repository"},
+		{"missing", `{"srcs":[{"src":"./no-such-dir","branch":"feat/bad"}]}`, "no such directory"},
+		{"subdir", `{"srcs":[{"src":"./serviceA","branch":"feat/bad"}]}`, "repository root"},
+		{"dup", fmt.Sprintf(`{"srcs":[{"src":".","branch":"feat/bad"},{"src":%q,"branch":"feat/bad2"}]}`, repo), "listed twice"},
 		{"empty", `{"srcs":[{"src":""}]}`, "empty src"},
 		{"no-srcs", `{}`, "srcs is empty"},
+		{"no-branch", `{"srcs":[{"src":"."}]}`, "branch is required"},
+		{"bad-branch", `{"srcs":[{"src":".","branch":"-bad..name"}]}`, "invalid branch name"},
+		{"nesting", fmt.Sprintf(`{"srcs":[{"src":".","branch":"feat/nest"},{"src":%q,"branch":"feat/nest/sub"}]}`, gitRepoWithCommit(t)), "nest on disk"},
 	}
 	for _, c := range cases {
 		if err := b.WriteProfileJSON("bad", []byte(c.pj)); err != nil {
@@ -268,7 +271,7 @@ func TestRemoveStateKeepsBranchesFullDropsAuto(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := b.WriteProfileJSON("gone", []byte(`{"srcs":[{"src":"."}]}`)); err != nil {
+	if err := b.WriteProfileJSON("gone", []byte(`{"srcs":[{"src":".","branch":"feat/gone"}]}`)); err != nil {
 		t.Fatal(err)
 	}
 	if err := b.MakeSandbox("gone", io.Discard); err != nil {
@@ -304,7 +307,7 @@ func TestSyncSrcsWarnsEmptyInclude(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := b.WriteProfileJSON("typo", []byte(`{"srcs":[{"src":".","include":["/no-such-dir/"]}]}`)); err != nil {
+	if err := b.WriteProfileJSON("typo", []byte(`{"srcs":[{"src":".","branch":"feat/typo","include":["/no-such-dir/"]}]}`)); err != nil {
 		t.Fatal(err)
 	}
 	var progress strings.Builder
@@ -316,7 +319,7 @@ func TestSyncSrcsWarnsEmptyInclude(t *testing.T) {
 	}
 }
 
-// TestReusePreexistingBranch: a feat/<slug> branch that already exists is
+// TestReusePreexistingBranch: a configured branch that already exists is
 // REUSED (checked out into the managed worktree), and because sandboxer did
 // not mint it, a full reset keeps it.
 func TestReusePreexistingBranch(t *testing.T) {
@@ -326,7 +329,7 @@ func TestReusePreexistingBranch(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := b.WriteProfileJSON("mine", []byte(`{"srcs":[{"src":"."}]}`)); err != nil {
+	if err := b.WriteProfileJSON("mine", []byte(`{"srcs":[{"src":".","branch":"feat/mine"}]}`)); err != nil {
 		t.Fatal(err)
 	}
 	if err := b.MakeSandbox("mine", io.Discard); err != nil {
@@ -350,11 +353,11 @@ func TestReusePreexistingBranch(t *testing.T) {
 	}
 }
 
-// TestDefaultBranchAdoptsExistingCheckout: when feat/<slug> is already checked
-// out outside the sandbox (here: the repo's main checkout), the default-branch
+// TestBranchAdoptsExistingCheckout: when the configured branch is already
+// checked out outside the sandbox (here: the repo's main checkout), the
 // source ADOPTS that checkout instead of failing git's one-worktree-per-branch
 // rule — and never marks the branch deletable.
-func TestDefaultBranchAdoptsExistingCheckout(t *testing.T) {
+func TestBranchAdoptsExistingCheckout(t *testing.T) {
 	repo := gitRepoWithCommit(t)
 	runGit(t, repo, "checkout", "-qb", "feat/adopted")
 	project := t.TempDir()
@@ -362,7 +365,7 @@ func TestDefaultBranchAdoptsExistingCheckout(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	pj := fmt.Sprintf(`{"srcs":[{"src":%q}]}`, repo)
+	pj := fmt.Sprintf(`{"srcs":[{"src":%q,"branch":"feat/adopted"}]}`, repo)
 	if err := b.WriteProfileJSON("adopted", []byte(pj)); err != nil {
 		t.Fatal(err)
 	}
@@ -375,53 +378,103 @@ func TestDefaultBranchAdoptsExistingCheckout(t *testing.T) {
 	}
 }
 
-// TestSyncSrcsKeepsRecordedBranchAfterDefaultRename: the branch is chosen at
-// first sync and sticky thereafter — when the recorded branch differs from
-// what today's default naming would compute (e.g. the feat/<slug>-sb →
-// feat/<slug> rename), a re-sync keeps the recorded branch and the worktree
-// in place instead of setting the agent's work aside and minting a fresh
-// checkout.
-func TestSyncSrcsKeepsRecordedBranchAfterDefaultRename(t *testing.T) {
+// TestSyncSrcsBranchChangeSetsAside: changing an entry's branch: is the one
+// deliberate way to switch — the old worktree is set aside under _detached/
+// (uncommitted work intact) and a fresh one appears at the path named after
+// the NEW branch.
+func TestSyncSrcsBranchChangeSetsAside(t *testing.T) {
 	repo := gitRepoWithCommit(t)
 	b, err := ResolveBase(repo)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := b.WriteProfileJSON("ren", []byte(`{"srcs":[{"src":"."}]}`)); err != nil {
+	if err := b.WriteProfileJSON("ren", []byte(`{"srcs":[{"src":".","branch":"feat/ren"}]}`)); err != nil {
 		t.Fatal(err)
 	}
 	if err := b.MakeSandbox("ren", io.Discard); err != nil {
 		t.Fatal(err)
 	}
 	s := b.Srcs("ren")[0]
-
-	// given: the sandbox predates a rename of the default naming scheme — its
-	// worktree sits on feat/ren-old and the meta records that branch.
-	runGit(t, s.Path, "checkout", "-qb", "feat/ren-old")
-	s.Branch = "feat/ren-old"
-	if err := b.writeSrcs("ren", []Source{s}); err != nil {
-		t.Fatal(err)
-	}
 	writeFile(t, filepath.Join(s.Path, "wip.txt"), "precious")
 
-	// when: a re-sync would compute today's default (feat/ren)
+	// when: the config names a different branch
+	if err := b.WriteProfileJSON("ren", []byte(`{"srcs":[{"src":".","branch":"devops/ren2"}]}`)); err != nil {
+		t.Fatal(err)
+	}
 	srcs, err := b.SyncSrcs("ren", io.Discard)
 	if err != nil {
 		t.Fatal(err)
 	}
-	// then: the recorded branch wins — same path, same branch, work intact,
-	// nothing set aside.
-	if len(srcs) != 1 || srcs[0].Path != s.Path || srcs[0].Branch != "feat/ren-old" {
-		t.Fatalf("recorded branch not sticky: %+v", srcs)
+	// then: a fresh worktree at the branch-named path, on the new branch
+	want := filepath.Join(b.SandboxDir("ren"), "devops", "ren2")
+	if len(srcs) != 1 || srcs[0].Path != want || srcs[0].Branch != "devops/ren2" {
+		t.Fatalf("srcs after branch change = %+v, want path %q", srcs, want)
 	}
-	if br := strings.TrimSpace(runGit(t, s.Path, "rev-parse", "--abbrev-ref", "HEAD")); br != "feat/ren-old" {
-		t.Errorf("worktree switched to %q, want feat/ren-old", br)
+	if br := strings.TrimSpace(runGit(t, want, "rev-parse", "--abbrev-ref", "HEAD")); br != "devops/ren2" {
+		t.Errorf("worktree on %q, want devops/ren2", br)
 	}
-	if _, err := os.Stat(filepath.Join(s.Path, "wip.txt")); err != nil {
-		t.Errorf("uncommitted work lost: %v", err)
+	// and: the old worktree was set aside with its uncommitted work
+	moved, err := filepath.Glob(filepath.Join(b.detachedDir(), "ren-*", "wip.txt"))
+	if err != nil || len(moved) != 1 {
+		t.Errorf("old worktree's work not preserved under _detached: %v (err=%v)", moved, err)
 	}
-	if _, err := os.Stat(b.detachedDir()); !os.IsNotExist(err) {
-		t.Errorf("worktree was set aside under _detached (err=%v)", err)
+	// and: the old branch's now-empty intermediate dir was tidied away
+	if _, err := os.Stat(filepath.Join(b.SandboxDir("ren"), "feat")); !os.IsNotExist(err) {
+		t.Errorf("empty intermediate dir of the old branch survived (err=%v)", err)
+	}
+}
+
+// TestMissingBranchHintNamesRecorded: an entry that loses its branch: errors,
+// and the error names the branch the sandbox's worktree is recorded on.
+func TestMissingBranchHintNamesRecorded(t *testing.T) {
+	repo := gitRepoWithCommit(t)
+	b, err := ResolveBase(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := b.WriteProfileJSON("hint", []byte(`{"srcs":[{"src":".","branch":"devops/thing"}]}`)); err != nil {
+		t.Fatal(err)
+	}
+	if err := b.MakeSandbox("hint", io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	if err := b.WriteProfileJSON("hint", []byte(`{"srcs":[{"src":"."}]}`)); err != nil {
+		t.Fatal(err)
+	}
+	_, err = b.SyncSrcs("hint", io.Discard)
+	if err == nil || !strings.Contains(err.Error(), "branch is required") ||
+		!strings.Contains(err.Error(), "devops/thing") {
+		t.Errorf("SyncSrcs = %v, want a branch-required error naming devops/thing", err)
+	}
+}
+
+// TestSameBranchTwoReposSplitsByRepo: two sources on the SAME branch name
+// cannot share one path — each gets <branch>/<repo> instead.
+func TestSameBranchTwoReposSplitsByRepo(t *testing.T) {
+	repo := gitRepoWithCommit(t)
+	other := gitRepoWithCommit(t)
+	b, err := ResolveBase(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pj := fmt.Sprintf(`{"srcs":[{"src":".","branch":"devops/x"},{"src":%q,"branch":"devops/x"}]}`, other)
+	if err := b.WriteProfileJSON("two", []byte(pj)); err != nil {
+		t.Fatal(err)
+	}
+	if err := b.MakeSandbox("two", io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	srcs := b.Srcs("two")
+	base := filepath.Join(b.SandboxDir("two"), "devops", "x")
+	if len(srcs) != 2 ||
+		srcs[0].Path != filepath.Join(base, filepath.Base(repo)) ||
+		srcs[1].Path != filepath.Join(base, filepath.Base(other)) {
+		t.Fatalf("same-branch paths = %+v, want them split under %q by repo", srcs, base)
+	}
+	for _, s := range srcs {
+		if _, err := os.Stat(filepath.Join(s.Path, "CLAUDE.md")); err != nil {
+			t.Errorf("worktree %s not materialized: %v", s.Path, err)
+		}
 	}
 }
 
@@ -434,7 +487,7 @@ func TestSyncSrcsKeepsWorktreeOnDetachedHead(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := b.WriteProfileJSON("det", []byte(`{"srcs":[{"src":"."}]}`)); err != nil {
+	if err := b.WriteProfileJSON("det", []byte(`{"srcs":[{"src":".","branch":"feat/det"}]}`)); err != nil {
 		t.Fatal(err)
 	}
 	if err := b.MakeSandbox("det", io.Discard); err != nil {
@@ -473,7 +526,7 @@ func TestDetachSetsAsideNonWorktreeDir(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	pj := fmt.Sprintf(`{"srcs":[{"src":"."},{"src":%q}]}`, other)
+	pj := fmt.Sprintf(`{"srcs":[{"src":".","branch":"feat/brk"},{"src":%q,"branch":"feat/brk2"}]}`, other)
 	if err := b.WriteProfileJSON("brk", []byte(pj)); err != nil {
 		t.Fatal(err)
 	}
@@ -489,7 +542,7 @@ func TestDetachSetsAsideNonWorktreeDir(t *testing.T) {
 	writeFile(t, filepath.Join(dropped.Path, "wip.txt"), "precious")
 
 	// when: that source is dropped from srcs
-	if err := b.WriteProfileJSON("brk", []byte(`{"srcs":[{"src":"."}]}`)); err != nil {
+	if err := b.WriteProfileJSON("brk", []byte(`{"srcs":[{"src":".","branch":"feat/brk"}]}`)); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := b.SyncSrcs("brk", io.Discard); err != nil {

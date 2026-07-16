@@ -46,7 +46,7 @@ func TestSessionLifecycle_Container_EnterStopRm(t *testing.T) {
 	project := newProject(t)
 	t.Setenv("HOME", t.TempDir()) // no host creds bound into the container
 	cfg := filepath.Join(t.TempDir(), "sbx.nix")
-	body := "{ name = \"feat\"; backend = \"" + engine + "\"; srcs = [ { src = \".\"; } ]; " +
+	body := "{ name = \"feat\"; backend = \"" + engine + "\"; srcs = [ { src = \".\"; branch = \"feat/x\"; } ]; " +
 		"egress.allowedDomains = [ \"example.com\" ]; }\n"
 	if err := os.WriteFile(cfg, []byte(body), 0o644); err != nil {
 		t.Fatal(err)

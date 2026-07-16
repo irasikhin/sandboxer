@@ -17,8 +17,12 @@ can never be committed. The repo carries only two sandboxer-owned files:
 └── sandboxer.nix         # the whole config, image customization included (auto-discovered;
                           #   committed; evaluated via host nix, restricted eval)
 
+../<project>-sandboxes/                     # the worktrees, BESIDE the project
+├── <slug>/               # one per sandbox: worktrees at <branch> paths
+│   └── <branch>/         #   e.g. devops/branch1/ — dir named after the branch
+└── _detached/            # dropped sources, set aside (never destroyed)
+
 $XDG_STATE_HOME/sandboxer/<project-id>/     # runtime state, outside the repo
-├── <slug>/               # one per sandbox: a git worktree on branch feat/<slug>
 ├── _meta/
 │   ├── run.env           # SRC / DOMAINS for this base
 │   ├── current           # the active sandbox slug (sandboxer use)
@@ -35,12 +39,12 @@ $XDG_STATE_HOME/sandboxer/<project-id>/     # runtime state, outside the repo
 Key invariants (`internal/sandbox`, `internal/worktree`):
 
 - **`<slug>/` holds one git worktree per source** (`srcs` entry): each source
-  repo checked out at `<slug>/<repo>/` on branch `feat/<slug>` (or the
-  entry's `branch:`), narrowed by its gitignore-style `include` patterns via
-  non-cone `git sparse-checkout`. The branch is decided at FIRST sync and
-  sticky thereafter (recorded in the meta) — a later change of the default
-  naming scheme never sets an existing sandbox's worktree aside; an explicit
-  `branch:` is the one way to switch. The container mounts `<slug>/` (and any
+  repo checked out at `<slug>/<branch>/` — every entry names its branch
+  explicitly (no default naming; a missing `branch:` is an error) and the
+  worktree's directory is named after it — narrowed by gitignore-style
+  `include` patterns via non-cone `git sparse-checkout`. Editing `branch:` is
+  the one way to move a sandbox's worktree; the old one is set aside under
+  `_detached/`. The container mounts `<slug>/` (and any
   adopted worktrees) — **never git metadata** — so the sparse contents ARE the
   access boundary; work returns as ordinary branches committed on the host.
   The resolved list is recorded at `_meta/<slug>.srcs.json`; every enter/exec
@@ -57,7 +61,7 @@ Key invariants (`internal/sandbox`, `internal/worktree`):
 ```
   init ──────────►  scaffold sandboxer.nix   [optional]
                     │
-  create <slug> ──► per srcs entry: git worktree at <slug>/<repo>/ (sparse to
+  create <slug> ──► per srcs entry: git worktree at <slug>/<branch>/ (sparse to
                     │   include patterns); mkdir _home/<slug>; snapshot
                     │   profile.json + srcs.json; register slug
                     ▼
@@ -66,14 +70,14 @@ Key invariants (`internal/sandbox`, `internal/worktree`):
                     │   • run the one-time `setup:` if its hash changed
                     │   • shell into the persistent session container, or one-shot
                     ▼
-  review ─────────► per source, ON THE HOST: git -C <repo> log feat/<slug>,
+  review ─────────► per source, ON THE HOST: git -C <repo> log <branch>,
                     │   commit in the worktree, git diff / merge / cherry-pick
   stop ───────────► park the persistent session container (enter resumes it)
                     │
   rm ─────────────► git worktree remove + prune (managed sources only), delete
                     │   _home/<slug>, meta, logs, session container — KEEPS the
                     │   branches; adopted worktrees are never touched
-  recreate --full ► also delete the AUTO-NAMED branches, for a clean slate
+  recreate --full ► also delete the branches sandboxer minted, for a clean slate
 ```
 
 Notes:

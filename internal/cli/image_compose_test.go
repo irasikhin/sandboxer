@@ -259,7 +259,7 @@ func TestComposePrintRunImageVariant(t *testing.T) {
 	fakePodman(t)
 	t.Setenv("SANDBOXER_SESSION", "")
 	cfg := filepath.Join(t.TempDir(), "p.nix")
-	if err := os.WriteFile(cfg, []byte("{ name = \"feat\"; srcs = [ { src = \".\"; } ]; image.packages = [ \"ripgrep\" ]; }\n"), 0o644); err != nil {
+	if err := os.WriteFile(cfg, []byte("{ name = \"feat\"; srcs = [ { src = \".\"; branch = \"feat/x\"; } ]; image.packages = [ \"ripgrep\" ]; }\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if code, _, errs := run("create", "--src", project, "--config", cfg); code != 0 {
@@ -309,7 +309,7 @@ func TestBuildImageCommand(t *testing.T) {
 	// With a profile (-f): the profile's content-addressed variant tag is
 	// built instead of the stock default (the progress banner names it).
 	cfg := filepath.Join(t.TempDir(), "img.nix")
-	if err := os.WriteFile(cfg, []byte("{ name = \"feat\"; srcs = [ { src = \".\"; } ]; image.packages = [ \"ripgrep\" ]; }\n"), 0o644); err != nil {
+	if err := os.WriteFile(cfg, []byte("{ name = \"feat\"; srcs = [ { src = \".\"; branch = \"feat/x\"; } ]; image.packages = [ \"ripgrep\" ]; }\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	code, _, errs := run("image", "build", "--engine", "podman", "-f", cfg)

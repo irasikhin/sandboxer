@@ -34,7 +34,7 @@ func TestRmRemovesSessionBeforeFiles(t *testing.T) {
 	// Pin the engine so the resolved seam value does not depend on whether the
 	// host happens to have docker on PATH (fakePodman only fakes podman).
 	t.Setenv("SANDBOXER_ENGINE", "docker")
-	dest := stateDir(project, "feat")
+	dest := sandboxDir(project, "feat")
 	calls, dirExisted := stubRemoveSession(t, dest, nil)
 
 	code, out, errs := run("rm", "feat", "--src", project)
@@ -57,7 +57,7 @@ func TestRmRemovesSessionBeforeFiles(t *testing.T) {
 // the file removal — one warning line, exit 0.
 func TestRmSessionFailureOnlyWarns(t *testing.T) {
 	project := sessionProject(t)
-	dest := stateDir(project, "feat")
+	dest := sandboxDir(project, "feat")
 	stubRemoveSession(t, dest, errors.New("engine on fire"))
 
 	code, out, errs := run("rm", "feat", "--src", project)
@@ -79,7 +79,7 @@ func TestRmEngineLessHost(t *testing.T) {
 	if code, _, errs := run("create", "feat", "--src", project); code != 0 {
 		t.Fatalf("create: %d %s", code, errs)
 	}
-	dest := stateDir(project, "feat")
+	dest := sandboxDir(project, "feat")
 	calls, _ := stubRemoveSession(t, dest, nil)
 	t.Setenv("PATH", "") // no podman/docker discoverable
 	t.Setenv("SANDBOXER_ENGINE", "")
@@ -233,7 +233,7 @@ func TestRmRuntimeErrorOnlyWarns(t *testing.T) {
 	if code, _, _ := run("create", "--src", project, "--config", cfg); code != 1 {
 		t.Fatalf("create with a broken profile should fail resolving the runtime")
 	}
-	dest := stateDir(project, "feat")
+	dest := sandboxDir(project, "feat")
 	calls, _ := stubRemoveSession(t, dest, nil)
 
 	code, out, errs := run("rm", "feat", "--src", project)

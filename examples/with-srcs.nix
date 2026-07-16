@@ -4,7 +4,7 @@
 # A sandbox exposes SOURCES: each srcs entry is a git repo checked out into a
 # host-side worktree; ONLY the files its gitignore-style include patterns
 # select are visible inside the container — git itself never is. Work returns
-# as an ordinary branch (feat/<name>) you review and commit on the HOST;
+# as an ordinary branch (the one you configured) you review and commit on the HOST;
 # there is no copy-in and no push-back.
 {
   name = "integ";
@@ -19,15 +19,17 @@
 
   # Srcs: the repos (and slices of them) the sandbox sees — ALWAYS explicit,
   # there is no implicit default. src is a path to a repo root (relative paths
-  # resolve against the project root), include narrows it with gitignore-style
-  # patterns (omit include for the whole repo; branch adopts an existing
-  # branch/worktree).
+  # resolve against the project root); branch is REQUIRED — it names the
+  # worktree's branch AND its directory (../<project>-sandboxes/<name>/<branch>);
+  # include narrows the tree with gitignore-style patterns (omit it for the
+  # whole repo). A branch already checked out somewhere is adopted as-is.
   srcs = [
     {
       src = ".";
+      branch = "devops/integ";
       include = [ "/src/proto/" "/shared/lib/" ];
     }
-    # { src = "../other-repo"; }                       # a second repo, whole
+    # { src = "../other-repo"; branch = "devops/integ"; }  # a second repo, whole
     # { src = "../protolib"; branch = "feat/proto-v2"; } # adopt an existing branch/worktree
   ];
 

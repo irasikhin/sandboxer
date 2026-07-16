@@ -92,7 +92,7 @@ func TestEnsureFull(t *testing.T) {
 	dest := filepath.Join(t.TempDir(), "wt")
 
 	// when: a full worktree (no includes)
-	if err := Ensure(repo, dest, Branch("feat"), nil, nil); err != nil {
+	if err := Ensure(repo, dest, "feat/feat", nil, nil); err != nil {
 		t.Fatalf("Ensure: %v", err)
 	}
 
@@ -122,7 +122,7 @@ func TestEnsureSparse(t *testing.T) {
 	dest := filepath.Join(t.TempDir(), "wt")
 
 	// when: a worktree narrowed by a gitignore-style pattern
-	if err := Ensure(repo, dest, Branch("narrow"), []string{"/serviceA/"}, nil); err != nil {
+	if err := Ensure(repo, dest, "feat/narrow", []string{"/serviceA/"}, nil); err != nil {
 		t.Fatalf("Ensure sparse: %v", err)
 	}
 
@@ -148,7 +148,7 @@ func TestEnsureSparse(t *testing.T) {
 func TestEnsureDoubleStarIsFull(t *testing.T) {
 	repo := gitRepo(t)
 	dest := filepath.Join(t.TempDir(), "wt")
-	if err := Ensure(repo, dest, Branch("all"), []string{"**"}, nil); err != nil {
+	if err := Ensure(repo, dest, "feat/all", []string{"**"}, nil); err != nil {
 		t.Fatalf("Ensure: %v", err)
 	}
 	for _, p := range []string{"serviceA", "serviceB", "docs", "CLAUDE.md"} {
@@ -166,7 +166,7 @@ func TestEnsureDoubleStarIsFull(t *testing.T) {
 func TestSyncSparse(t *testing.T) {
 	repo := gitRepo(t)
 	dest := filepath.Join(t.TempDir(), "wt")
-	if err := Ensure(repo, dest, Branch("sync"), []string{"/serviceA/"}, nil); err != nil {
+	if err := Ensure(repo, dest, "feat/sync", []string{"/serviceA/"}, nil); err != nil {
 		t.Fatalf("Ensure: %v", err)
 	}
 
@@ -202,17 +202,17 @@ func TestFindWorktree(t *testing.T) {
 		t.Errorf("FindWorktree(main) = (%q, %v), want the main checkout", p, ok)
 	}
 	dest := filepath.Join(t.TempDir(), "wt")
-	if err := Ensure(repo, dest, Branch("found"), nil, nil); err != nil {
+	if err := Ensure(repo, dest, "feat/found", nil, nil); err != nil {
 		t.Fatal(err)
 	}
-	if p, ok := FindWorktree(repo, Branch("found")); !ok || p != dest {
+	if p, ok := FindWorktree(repo, "feat/found"); !ok || p != dest {
 		t.Errorf("FindWorktree(added) = (%q, %v), want %q", p, ok, dest)
 	}
 	if _, ok := FindWorktree(repo, "no/such-branch"); ok {
 		t.Error("FindWorktree(missing) = ok, want false")
 	}
-	if CurrentBranch(dest) != Branch("found") {
-		t.Errorf("CurrentBranch = %q, want %q", CurrentBranch(dest), Branch("found"))
+	if CurrentBranch(dest) != "feat/found" {
+		t.Errorf("CurrentBranch = %q, want %q", CurrentBranch(dest), "feat/found")
 	}
 }
 
@@ -221,7 +221,7 @@ func TestFindWorktree(t *testing.T) {
 func TestMove(t *testing.T) {
 	repo := gitRepo(t)
 	from := filepath.Join(t.TempDir(), "wt")
-	if err := Ensure(repo, from, Branch("mv"), nil, nil); err != nil {
+	if err := Ensure(repo, from, "feat/mv", nil, nil); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(from, "wip.txt"), []byte("x"), 0o644); err != nil {
@@ -242,7 +242,7 @@ func TestMove(t *testing.T) {
 func TestEnsureReusesBranch(t *testing.T) {
 	repo := gitRepo(t)
 	dest := filepath.Join(t.TempDir(), "wt")
-	branch := Branch("reuse")
+	branch := "feat/reuse"
 
 	// given: a worktree with a commit made inside it
 	if err := Ensure(repo, dest, branch, nil, nil); err != nil {
@@ -274,7 +274,7 @@ func TestEnsureReusesBranch(t *testing.T) {
 func TestRemoveAndDeleteBranch(t *testing.T) {
 	repo := gitRepo(t)
 	dest := filepath.Join(t.TempDir(), "wt")
-	branch := Branch("gone")
+	branch := "feat/gone"
 	if err := Ensure(repo, dest, branch, nil, nil); err != nil {
 		t.Fatalf("Ensure: %v", err)
 	}
@@ -304,7 +304,7 @@ func TestEnsureReportsProgress(t *testing.T) {
 
 	// when: a full worktree with a progress writer
 	var full strings.Builder
-	if err := Ensure(repo, filepath.Join(t.TempDir(), "wt"), Branch("f"), nil, &full); err != nil {
+	if err := Ensure(repo, filepath.Join(t.TempDir(), "wt"), "feat/f", nil, &full); err != nil {
 		t.Fatalf("Ensure: %v", err)
 	}
 	if got := full.String(); !strings.Contains(got, "full repo") || !strings.Contains(got, "feat/f") {
@@ -313,7 +313,7 @@ func TestEnsureReportsProgress(t *testing.T) {
 
 	// when: a sparse worktree with a progress writer → scope names the dirs
 	var sparse strings.Builder
-	if err := Ensure(repo, filepath.Join(t.TempDir(), "wt"), Branch("s"), []string{"/serviceA/"}, &sparse); err != nil {
+	if err := Ensure(repo, filepath.Join(t.TempDir(), "wt"), "feat/s", []string{"/serviceA/"}, &sparse); err != nil {
 		t.Fatalf("Ensure sparse: %v", err)
 	}
 	if got := sparse.String(); !strings.Contains(got, "serviceA") {
@@ -324,12 +324,12 @@ func TestEnsureReportsProgress(t *testing.T) {
 func TestEnsureErrorCarriesGitStderr(t *testing.T) {
 	repo := gitRepo(t)
 	dest := filepath.Join(t.TempDir(), "wt")
-	if err := Ensure(repo, dest, Branch("dup"), nil, nil); err != nil {
+	if err := Ensure(repo, dest, "feat/dup", nil, nil); err != nil {
 		t.Fatalf("first Ensure: %v", err)
 	}
 
 	// when: a second Ensure onto the same dest → git fails, error is wrapped
-	err := Ensure(repo, dest, Branch("dup"), nil, nil)
+	err := Ensure(repo, dest, "feat/dup", nil, nil)
 	if err == nil {
 		t.Fatal("second Ensure onto existing dest = nil, want error")
 	}
@@ -364,7 +364,7 @@ func TestRemoveNonWorktreeAndPrune(t *testing.T) {
 func TestDeleteMissingBranchErrors(t *testing.T) {
 	repo := gitRepo(t)
 	// when: deleting a branch that does not exist → error surfaced
-	if err := DeleteBranch(repo, Branch("nope")); err == nil {
+	if err := DeleteBranch(repo, "feat/nope"); err == nil {
 		t.Error("DeleteBranch(missing) = nil, want error")
 	}
 }

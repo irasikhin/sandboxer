@@ -39,8 +39,9 @@ func TestPathPrintsSourceWorktree(t *testing.T) {
 	if !filepath.IsAbs(got) {
 		t.Errorf("path = %q, want an absolute path", got)
 	}
-	// The single source is the project repo itself, materialized under <slug>/.
-	want := filepath.Join(stateDir(project, "feat"), filepath.Base(project))
+	// The single source is the project repo itself, materialized under <slug>/
+	// at the path named after its branch (the scaffold seeds feat/<name>).
+	want := filepath.Join(sandboxDir(project, "feat"), "feat", "feat")
 	if got != want {
 		t.Errorf("path = %q, want %q", got, want)
 	}
@@ -55,7 +56,7 @@ func TestPathPrintsSourceWorktree(t *testing.T) {
 func createSandbox(t *testing.T, project, slug string) {
 	t.Helper()
 	cfg := filepath.Join(t.TempDir(), slug+".nix")
-	if err := os.WriteFile(cfg, []byte("{ name = \""+slug+"\"; srcs = [ { src = \".\"; } ]; }\n"), 0o644); err != nil {
+	if err := os.WriteFile(cfg, []byte("{ name = \""+slug+"\"; srcs = [ { src = \".\"; branch = \"feat/"+slug+"\"; } ]; }\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if code, _, errs := run("create", "--src", project, "--config", cfg); code != 0 {
@@ -75,7 +76,7 @@ func TestPathActiveSandbox(t *testing.T) {
 	}
 
 	lines := pathLines(t, "--src", project)
-	if len(lines) != 1 || !strings.Contains(lines[0], filepath.Join("other", filepath.Base(project))) {
+	if len(lines) != 1 || !strings.Contains(lines[0], filepath.Join("other", "feat", "other")) {
 		t.Errorf("path (active) = %v, want the 'other' sandbox worktree", lines)
 	}
 }
@@ -92,7 +93,7 @@ func TestPathDir(t *testing.T) {
 	if len(lines) != 1 {
 		t.Fatalf("path --dir lines = %d, want 1: %v", len(lines), lines)
 	}
-	if want := stateDir(project, "feat"); lines[0] != want {
+	if want := sandboxDir(project, "feat"); lines[0] != want {
 		t.Errorf("path --dir = %q, want %q", lines[0], want)
 	}
 	// The worktree path sits under the mount root, not the other way round.
@@ -122,7 +123,7 @@ func TestPathNoSlug(t *testing.T) {
 func TestSourcesIncludeScope(t *testing.T) {
 	project := newProject(t)
 	cfg := filepath.Join(t.TempDir(), "narrow.nix")
-	body := "{ name = \"narrow\"; srcs = [ { src = \".\"; include = [ \"/f.txt\" ]; } ]; }\n"
+	body := "{ name = \"narrow\"; srcs = [ { src = \".\"; branch = \"feat/narrow\"; include = [ \"/f.txt\" ]; } ]; }\n"
 	if err := os.WriteFile(cfg, []byte(body), 0o644); err != nil {
 		t.Fatal(err)
 	}

@@ -32,9 +32,9 @@ func init() {
 func newCreateCmd() *cobra.Command {
 	var f commonFlags
 	cmd := &cobra.Command{
-		Use:   "create [slug|profile|file.yaml]",
-		Short: "Create a sandbox (a git worktree on branch feat/<slug>)",
-		Example: `  # named sandbox (sources = the profile's srcs; the scaffold seeds {src: .})
+		Use:   "create [slug|profile|file.nix]",
+		Short: "Create a sandbox (a git worktree per source, on the branch you configured)",
+		Example: `  # named sandbox (sources = the profile's srcs; every entry names its branch)
   sandboxer create feat
 
   # from a profile file — slug comes from the profile's name:

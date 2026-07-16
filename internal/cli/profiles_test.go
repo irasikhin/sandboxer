@@ -15,13 +15,13 @@ func TestCreateFromProfileFile(t *testing.T) {
 	project := newProject(t)
 	env := filepath.Join(t.TempDir(), "api.nix")
 	if err := os.WriteFile(env,
-		[]byte("{ name = \"api\"; backend = \"docker\"; srcs = [ { src = \".\"; } ]; }\n"), 0o644); err != nil {
+		[]byte("{ name = \"api\"; backend = \"docker\"; srcs = [ { src = \".\"; branch = \"feat/x\"; } ]; }\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if code, out, errs := run("create", "-f", env, "--src", project); code != 0 || !strings.Contains(out, "api") {
 		t.Fatalf("create -f file = (%d, %q, %q)", code, out, errs)
 	}
-	if _, err := os.Stat(stateDir(project, "api")); err != nil {
+	if _, err := os.Stat(sandboxDir(project, "api")); err != nil {
 		t.Errorf("sandbox dir for -f profile not created: %v", err)
 	}
 	// A directory is refused with the one-config guidance.

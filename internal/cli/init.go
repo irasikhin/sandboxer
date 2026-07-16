@@ -101,23 +101,24 @@ func starterProfile(name string, d config.Defaults) string {
 # Reuse between profiles is ordinary nix:
 #   let base = { backend = "docker"; }; in { profiles.api = base // { ... }; }
 {
-  # Sandbox name (slug); drives the worktree branch feat/<name>.
-  name = %q;
+  # Sandbox name (slug); names the sandbox dir ../<project>-sandboxes/<name>/.
+  name = %[1]q;
 
   # Isolation backend: docker | podman.
-  backend = %q;
+  backend = %[2]q;
 
   # The sources the sandbox sees — ALWAYS explicit, there is no implicit
-  # default. Each entry becomes a git worktree on the host (branch
-  # feat/<name> unless branch names one), and ONLY the selected files are
-  # visible inside the container (git itself never is; review/commit on the
-  # host). include uses gitignore-style patterns; srcs edits apply on the
-  # next enter/exec — even a running session sees them live.
+  # default. Each entry becomes a git worktree on the host, checked out on
+  # the branch YOU name — branch is REQUIRED and also names the worktree's
+  # directory (../<project>-sandboxes/<name>/<branch>). ONLY the selected
+  # files are visible inside the container (git itself never is; review and
+  # commit on the host). include uses gitignore-style patterns; srcs edits
+  # apply on the next enter/exec — even a running session sees them live.
   srcs = [
-    { src = "."; }                        # this repo, whole
-    # { src = "."; include = [ "/services/api/" "*.md" ]; }
-    # { src = "../shared-lib"; }          # another repo, whole
-    # { src = "../proto"; branch = "feat/proto-v2"; }  # adopt an existing branch/worktree
+    { src = "."; branch = "feat/%[1]s"; } # this repo, whole — rename the branch your way
+    # { src = "."; branch = "devops/thing"; include = [ "/services/api/" "*.md" ]; }
+    # { src = "../shared-lib"; branch = "devops/thing"; }   # another repo, whole
+    # { src = "../proto"; branch = "feat/proto-v2"; }       # adopt an existing branch/worktree
   ];
 
   # Egress: outbound-traffic policy. allowedDomains is the ONLY domains the
@@ -132,7 +133,7 @@ func starterProfile(name string, d config.Defaults) string {
     # to police egress (allowedDomains/routes are IGNORED). Off entirely at runtime:
     # SANDBOXER_NO_EGRESS=1.
     # enabled = false;
-    allowedDomains = [ %s ];
+    allowedDomains = [ %[3]s ];
     # proxy = "http://localhost:9999";       # ONE proxy URL; localhost is
     #                                        # rewritten to the host gateway
     # noProxy = "localhost,127.0.0.1,.corp"; # enabled = false only

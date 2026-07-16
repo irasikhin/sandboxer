@@ -31,8 +31,8 @@ type Source struct {
 	// touched by teardown — it is only mounted.
 	Managed bool `json:"managed"`
 	// AutoBranch marks a branch sandboxer MINTED itself (it did not exist at
-	// first sync); recreate --full deletes only these — a pre-existing
-	// feat/<slug> of yours, or any branch: you named, is never deleted.
+	// first sync); recreate --full deletes only these — a branch that existed
+	// before the sandbox is never deleted.
 	AutoBranch bool `json:"autoBranch,omitempty"`
 }
 
@@ -65,13 +65,14 @@ func (b *Base) writeSrcs(slug string, srcs []Source) error {
 
 // detachedDir holds worktrees of sources that were dropped from a sandbox's
 // srcs — moved aside (uncommitted work intact) instead of destroyed, and out
-// of the mounted <slug>/ tree so the container loses access. `clean` wipes it
-// with the rest of the state dir.
-func (b *Base) detachedDir() string { return filepath.Join(b.Dir, "_detached") }
+// of the mounted <slug>/ tree so the container loses access. It lives under
+// the sandboxes root (same filesystem as the worktrees, so setting one aside
+// is always a rename); `clean` wipes it with the rest.
+func (b *Base) detachedDir() string { return filepath.Join(b.SandboxesRoot(), "_detached") }
 
 // profileSrcs reads the srcs list from the sandbox's stored profile.json.
 // There is no implicit default — an absent profile or empty list is rejected
-// by resolveSrcs (the scaffolded config seeds an explicit srcs: [{src: .}]).
+// by resolveSrcs (the scaffolded config seeds an explicit src + branch).
 func (b *Base) profileSrcs(slug string) []config.Src {
 	data, err := os.ReadFile(b.ProfileJSONPath(slug))
 	if err != nil {
@@ -88,24 +89,23 @@ func (b *Base) profileSrcs(slug string) []config.Src {
 
 // resolveSrcs maps the configured srcs entries onto resolved Sources for slug:
 // paths are validated (must exist, be a repo toplevel with at least one
-// commit, no repo twice), branches decided (explicit branch: adopts an
-// existing worktree when one exists; otherwise the managed feat/<slug>),
-// and managed worktrees named under <slug>/ (repo basename, deduped by a
-// short path hash on collision). Entry order is preserved. An empty list is
-// an error, never an implicit "current directory": what a sandbox exposes is
-// always spelled out in the config.
+// commit, no repo twice), every entry names its branch EXPLICITLY (an entry
+// without branch: is an error — there is no default naming), and managed
+// worktrees are placed under <slug>/ named by their branch (see
+// assignManagedPaths). Entry order is preserved. An empty list is an error,
+// never an implicit "current directory": what a sandbox exposes is always
+// spelled out in the config.
 //
-// prev is the recorded source list from earlier syncs: a source's branch is
-// decided ONCE, at first sync, and sticky from then on — a repo already
-// recorded keeps its recorded branch (and minted-vs-reused verdict), so a
-// change of the default naming scheme can never set an existing sandbox's
-// worktree aside. An explicit branch: is the one way to switch.
+// prev is the recorded source list from earlier syncs: it carries each
+// branch's minted-vs-reused verdict forward and names the recorded branch in
+// the missing-branch error hint.
 func (b *Base) resolveSrcs(slug string, specs []config.Src, prev []Source, w io.Writer) ([]Source, error) {
 	if len(specs) == 0 {
 		return nil, fmt.Errorf("srcs is empty — a sandbox needs at least one source; add to %s, e.g.:\n"+
-			"  srcs:\n"+
-			"    - src: .               # this repo\n"+
-			"    - src: ../other-repo   # any git repo\n"+
+			"  srcs = [\n"+
+			"    { src = \".\"; branch = \"devops/my-change\"; }   # this repo\n"+
+			"    { src = \"../other-repo\"; branch = \"devops/my-change\"; }\n"+
+			"  ];\n"+
 			"(edit it with: sandboxer config edit)", config.ConfigFileName)
 	}
 	recorded := map[string]Source{} // repo toplevel -> the source as last synced
@@ -115,7 +115,6 @@ func (b *Base) resolveSrcs(slug string, specs []config.Src, prev []Source, w io.
 		}
 	}
 	seenRepo := map[string]bool{}
-	seenName := map[string]bool{}
 	out := make([]Source, 0, len(specs))
 	for _, spec := range specs {
 		path := spec.Src
@@ -148,21 +147,25 @@ func (b *Base) resolveSrcs(slug string, specs []config.Src, prev []Source, w io.
 		src := Source{RepoRoot: top, Include: spec.Include}
 		src.Branch = spec.Branch
 		if src.Branch == "" {
+			hint := ""
 			if p, ok := recorded[top]; ok {
-				// Already synced once: the recorded branch is authoritative,
-				// whatever the CURRENT default naming would compute.
-				src.Branch, src.AutoBranch = p.Branch, p.AutoBranch
-			} else {
-				src.Branch = worktree.Branch(slug)
-				// Only a branch sandboxer mints itself may be deleted by a
-				// full reset; a pre-existing feat/<slug> of yours is reused,
-				// not owned.
-				src.AutoBranch = !worktree.BranchExists(top, src.Branch)
+				hint = fmt.Sprintf(" (this sandbox's recorded worktree is on %q)", p.Branch)
 			}
-		} else if p, ok := recorded[top]; ok && p.Branch == src.Branch {
-			// Same branch, now spelled explicitly: the minted verdict travels
-			// with the branch (it exists either way after the first sync).
+			return nil, fmt.Errorf("srcs entry %q: branch is required — every source names its "+
+				"branch explicitly, e.g. { src = %q; branch = \"devops/my-change\"; }%s",
+				spec.Src, spec.Src, hint)
+		}
+		if err := worktree.ValidBranch(top, src.Branch); err != nil {
+			return nil, fmt.Errorf("srcs entry %q: %w", spec.Src, err)
+		}
+		if p, ok := recorded[top]; ok && p.Branch == src.Branch {
+			// The minted-vs-reused verdict was decided at first sync and
+			// travels with the branch (it exists either way afterwards).
 			src.AutoBranch = p.AutoBranch
+		} else {
+			// Only a branch sandboxer mints itself may be deleted by a full
+			// reset; a branch that already existed is reused, not owned.
+			src.AutoBranch = !worktree.BranchExists(top, src.Branch)
 		}
 		if wt, ok := worktree.FindWorktree(top, src.Branch); ok &&
 			!strings.HasPrefix(wt, b.SandboxDir(slug)+string(filepath.Separator)) {
@@ -182,15 +185,64 @@ func (b *Base) resolveSrcs(slug string, specs []config.Src, prev []Source, w io.
 			continue
 		}
 		src.Managed = true
-		name := filepath.Base(top)
-		if seenName[name] {
-			name = name + "-" + shortPathHash(top)
-		}
-		seenName[name] = true
-		src.Path = filepath.Join(b.SandboxDir(slug), name)
 		out = append(out, src)
 	}
+	if err := assignManagedPaths(b.SandboxDir(slug), out); err != nil {
+		return nil, err
+	}
 	return out, nil
+}
+
+// assignManagedPaths places each managed source's worktree under root, named
+// by its branch — path = <root>/<branch>, branch slashes becoming directories
+// — so the on-disk layout spells out sandbox and branch (…/mybox/devops/x).
+// Sources on the SAME branch name (different repos) each get <branch>/<repo>
+// instead (one path cannot be both a checkout and a parent), deduped by a
+// short path hash when the repos share a basename too. Branch names that nest
+// across sources (one a path prefix of another) cannot coexist on disk and
+// are rejected.
+func assignManagedPaths(root string, srcs []Source) error {
+	uses := map[string]int{}
+	for _, s := range srcs {
+		if s.Managed {
+			uses[s.Branch]++
+		}
+	}
+	seenName := map[string]bool{}
+	sep := string(filepath.Separator)
+	for i := range srcs {
+		if !srcs[i].Managed {
+			continue
+		}
+		rel := filepath.FromSlash(srcs[i].Branch)
+		if uses[srcs[i].Branch] > 1 {
+			name := filepath.Base(srcs[i].RepoRoot)
+			if seenName[srcs[i].Branch+"\x00"+name] {
+				name = name + "-" + shortPathHash(srcs[i].RepoRoot)
+			}
+			seenName[srcs[i].Branch+"\x00"+name] = true
+			rel = filepath.Join(rel, name)
+		}
+		p := filepath.Join(root, rel)
+		// ValidBranch already rejects ".."-style names; this is the belt that
+		// guarantees no branch-derived path ever leaves the sandbox dir.
+		if !strings.HasPrefix(p, root+sep) {
+			return fmt.Errorf("srcs branch %q escapes the sandbox directory", srcs[i].Branch)
+		}
+		srcs[i].Path = p
+	}
+	for i := range srcs {
+		for j := range srcs {
+			if i == j || !srcs[i].Managed || !srcs[j].Managed {
+				continue
+			}
+			if strings.HasPrefix(srcs[j].Path, srcs[i].Path+sep) {
+				return fmt.Errorf("srcs branches %q and %q nest on disk — one worktree would sit "+
+					"inside the other; rename one", srcs[i].Branch, srcs[j].Branch)
+			}
+		}
+	}
+	return nil
 }
 
 // shortPathHash disambiguates two source repos that share a base name.
@@ -200,14 +252,14 @@ func shortPathHash(p string) string {
 }
 
 // SyncSrcs converges the sandbox's on-disk sources onto the stored profile:
-// it (re-)resolves srcs (each source's branch is decided at first sync and
-// sticky from then on — see resolveSrcs), creates missing managed worktrees,
-// re-syncs their sparse patterns, sets aside managed worktrees whose source
-// was dropped (or whose branch: changed) under _detached/, and records the
-// result in _meta/<slug>.srcs.json. It runs on create and on every
-// enter/exec, so editing srcs opens access without recreating anything: the
-// container's one stable mount is the <slug>/ dir this function populates,
-// and a live session sees the change immediately.
+// it (re-)resolves srcs (every source names its branch explicitly — see
+// resolveSrcs), creates missing managed worktrees, re-syncs their sparse
+// patterns, sets aside managed worktrees whose source was dropped (or whose
+// branch: changed) under _detached/, and records the result in
+// _meta/<slug>.srcs.json. It runs on create and on every enter/exec, so
+// editing srcs opens access without recreating anything: the container's one
+// stable mount is the <slug>/ dir this function populates, and a live session
+// sees the change immediately.
 func (b *Base) SyncSrcs(slug string, w io.Writer) ([]Source, error) {
 	dest := b.SandboxDir(slug)
 	if worktree.IsWorktree(dest) {
@@ -302,6 +354,7 @@ func warnEmptySelection(s Source, w io.Writer) {
 // recognizes as a worktree is set aside the same way (its contents may be
 // real work behind a broken linkage); only a missing or empty one is removed.
 func (b *Base) detachSrc(slug string, s Source, w io.Writer) error {
+	defer removeEmptyParents(s.Path, b.SandboxDir(slug))
 	if !worktree.IsWorktree(s.Path) {
 		entries, err := os.ReadDir(s.Path)
 		switch {
@@ -338,6 +391,18 @@ func (b *Base) detachSrc(slug string, s Source, w io.Writer) error {
 			filepath.Base(s.Path), target, s.Branch)
 	}
 	return nil
+}
+
+// removeEmptyParents removes the now-empty directories between path's parent
+// and root (exclusive) — the intermediates a branch-named worktree
+// (devops/branch1 → devops/) leaves behind when it moves out. os.Remove
+// refuses a non-empty dir, so the walk stops at the first one still in use.
+func removeEmptyParents(path, root string) {
+	for dir := filepath.Dir(path); strings.HasPrefix(dir, root+string(filepath.Separator)); dir = filepath.Dir(dir) {
+		if os.Remove(dir) != nil {
+			return
+		}
+	}
 }
 
 // detachTarget picks a fresh destination under _detached/ for slug's dropped

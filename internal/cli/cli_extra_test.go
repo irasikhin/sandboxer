@@ -298,11 +298,11 @@ func TestRunMultiProfileSelect(t *testing.T) {
 	t.Chdir(project)
 	body := `{
   profiles = {
-    web = { backend = "podman"; srcs = [ { src = "."; } ]; };
+    web = { backend = "podman"; srcs = [ { src = "."; branch = "feat/x"; } ]; };
     api = {
       backend = "docker";
       session = "ephemeral";
-      srcs = [ { src = "."; } ];
+      srcs = [ { src = "."; branch = "feat/x"; } ];
       egress.allowedDomains = [ "api.anthropic.com" ];
     };
   };
@@ -455,7 +455,7 @@ func TestRunAutoDiscoversProfile(t *testing.T) {
 	// A docker profile in the project config must be picked up without --config;
 	// otherwise the default (podman) backend would be used and the banner would
 	// not say docker.
-	if err := os.WriteFile(config.ConfigPath(), []byte("{ name = \"disco\"; backend = \"docker\"; srcs = [ { src = \".\"; } ]; }\n"), 0o644); err != nil {
+	if err := os.WriteFile(config.ConfigPath(), []byte("{ name = \"disco\"; backend = \"docker\"; srcs = [ { src = \".\"; branch = \"feat/x\"; } ]; }\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	code, _, errs := run("create")
