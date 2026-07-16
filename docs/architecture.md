@@ -7,17 +7,19 @@ the [README](../README.md); for the trust model see [SECURITY.md](../SECURITY.md
 
 ## On-disk layout
 
-The **committed** config lives at the project root; all **runtime state**
-lives OUTSIDE the repo under an XDG state dir
-(`$XDG_STATE_HOME/sandboxer/<project-id>`), so working copies and login tokens
-can never be committed. The repo carries only two sandboxer-owned files:
+The **committed** config lives at the project root; the worktrees live in the
+project's `./sandboxes/` (auto-git-ignored, so working copies can never be
+committed; relocatable via the profile's `worktreesDir`), and the rest of the
+runtime state lives OUTSIDE the repo under an XDG state dir
+(`$XDG_STATE_HOME/sandboxer/<project-id>`), keeping login tokens out of the
+tree:
 
 ```
 <project-root>/
 └── sandboxer.nix         # the whole config, image customization included (auto-discovered;
                           #   committed; evaluated via host nix, restricted eval)
 
-../<project>-sandboxes/                     # the worktrees, BESIDE the project
+<project-root>/sandboxes/                   # the worktrees (auto-git-ignored)
 ├── <slug>/               # one per sandbox (relocatable: profile worktreesDir)
 │   └── <repo>/<branch>/  #   grouped by repo, dir named after the branch,
 │                         #   e.g. miko-java/feat/BDP-5291/

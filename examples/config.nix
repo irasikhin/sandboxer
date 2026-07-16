@@ -5,7 +5,7 @@
 # `sandboxer create feat.nix`). This file is a standalone sample of the flat
 # single-profile form — copy it to ./sandboxer.nix to use it.
 {
-  # Sandbox name (slug). Names the sandbox dir ../<project>-sandboxes/<name>/.
+  # Sandbox name (slug). Names the sandbox dir ./sandboxes/<name>/.
   name = "feature-x";
 
   # Isolation backend — a podman or docker container built from the toolbox
@@ -15,9 +15,9 @@
   # The sources the sandbox sees — always explicit (src = "." is this repo,
   # whole; relative paths resolve against the project root). branch is
   # REQUIRED: it names the worktree's branch and its on-disk directory
-  # (../<project>-sandboxes/<name>/<repo>/<branch>; relocate the root with
-  # worktreesDir). See with-srcs.nix for include patterns, extra repos and
-  # branch adoption.
+  # (./sandboxes/<name>/<repo>/<branch>, auto-git-ignored; relocate the root
+  # with worktreesDir). See with-srcs.nix for include patterns, extra repos
+  # and branch adoption.
   srcs = [
     { src = "."; branch = "devops/feature-x"; }
   ];

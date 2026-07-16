@@ -3,8 +3,9 @@
 // under config.StateDir (an XDG state dir outside the repo), kept separate
 // from the committed config (sandboxer.nix) so runtime data — including agent
 // homes that may hold login tokens — never lands in git. The worktrees
-// themselves live BESIDE the project in <project>-sandboxes/ (see
-// SandboxesRoot), so the user finds them without digging through XDG paths.
+// themselves live in the project's ./sandboxes (see SandboxesRoot;
+// auto-git-ignored, relocatable via the profile's worktreesDir), so the user
+// finds them without digging through XDG paths.
 //
 // A sandbox is a set of SOURCES (see srcs.go): per-repo git worktrees under
 // <slug>/, each named by its (explicitly configured) branch and optionally
@@ -106,20 +107,26 @@ func (b *Base) metaDir() string  { return filepath.Join(b.Dir, "_meta") }
 func (b *Base) logsDir() string  { return filepath.Join(b.Dir, "_logs") }
 func (b *Base) homeRoot() string { return filepath.Join(b.Dir, "_home") }
 
-// SandboxesRoot is the DEFAULT location for a project's sandbox worktrees: a
-// sibling of the project root named <project>-sandboxes. Deliberately OUTSIDE
-// both the repo (nothing can be committed) and the XDG state dir (no hashed
-// path to dig through): the user browses their sandboxes as ordinary
-// directories right next to the project. A profile's worktreesDir overrides
-// it per sandbox (see worktreesRoot).
+// SandboxesRoot is the DEFAULT location for a project's sandbox worktrees:
+// ./sandboxes inside the project, right next to sandboxer.nix. The dir is
+// auto-added to the project's .gitignore (see ensureIgnored) so working
+// copies can never land in a commit. A profile's worktreesDir overrides it
+// per sandbox (see worktreesRoot).
 func SandboxesRoot(src string) string {
+	return filepath.Join(src, "sandboxes")
+}
+
+// legacySiblingRoot is the pre-v0.45 default worktree location
+// (../<project>-sandboxes, beside the project) — sandboxer-owned by naming,
+// still swept by clean so upgrades leave no orphans behind.
+func legacySiblingRoot(src string) string {
 	return filepath.Join(filepath.Dir(src), filepath.Base(src)+"-sandboxes")
 }
 
 // worktreesRoot resolves where slug's worktrees live: the stored profile's
 // worktreesDir (absolute, ~-prefixed, or relative to the project root), or
-// the default sibling SandboxesRoot. Reading the STORED snapshot keeps every
-// command's view of the sandbox location consistent between syncs.
+// the default in-project SandboxesRoot. Reading the STORED snapshot keeps
+// every command's view of the sandbox location consistent between syncs.
 func (b *Base) worktreesRoot(slug string) string {
 	dir := b.profileWorktreesDir(slug)
 	if dir == "" {
@@ -139,7 +146,7 @@ func (b *Base) worktreesRoot(slug string) string {
 // SandboxDir is the directory for a sandbox: <worktreesRoot>/<slug>. The
 // managed worktrees inside are grouped by repo and named by their branch
 // (see srcs.go), so the on-disk path spells everything out:
-// …-sandboxes/<slug>/<repo>/<branch>.
+// sandboxes/<slug>/<repo>/<branch>.
 func (b *Base) SandboxDir(slug string) string {
 	return filepath.Join(b.worktreesRoot(slug), slug)
 }
@@ -371,12 +378,13 @@ func (b *Base) RemoveState(slug string, keepHome bool) {
 	}
 }
 
-// CleanWorktrees removes every sandbox worktree for the project. The default
-// sibling root is sandboxer-owned and removed wholesale; a user-chosen
-// worktreesDir may hold other things, so only the per-sandbox dirs and
-// _detached/ under it are removed (the root itself is tidied only when
-// empty). Must run BEFORE the state dir is wiped — the per-sandbox roots are
-// resolved from the stored profile snapshots. Returns the paths removed.
+// CleanWorktrees removes every sandbox worktree for the project. No root is
+// ever removed wholesale — the default ./sandboxes lives inside the project
+// and a worktreesDir may point anywhere — so only the per-sandbox dirs and
+// _detached/ under each root go (the root itself is tidied when empty); the
+// one exception is the sandboxer-owned legacy sibling ../<project>-sandboxes.
+// Must run BEFORE the state dir is wiped — the per-sandbox roots are resolved
+// from the stored profile snapshots. Returns the paths removed.
 func (b *Base) CleanWorktrees() []string {
 	var removed []string
 	rm := func(p string) {
@@ -387,23 +395,17 @@ func (b *Base) CleanWorktrees() []string {
 			removed = append(removed, p)
 		}
 	}
-	def := SandboxesRoot(b.Src)
-	custom := map[string]bool{}
+	roots := map[string]bool{SandboxesRoot(b.Src): true}
 	for _, slug := range b.Agents() {
 		root := b.worktreesRoot(slug)
-		if root == def {
-			continue // covered by the wholesale default-root removal below
-		}
-		if !custom[root] {
-			custom[root] = true
-		}
+		roots[root] = true
 		rm(filepath.Join(root, slug))
 	}
-	for root := range custom {
+	for root := range roots {
 		rm(filepath.Join(root, "_detached"))
-		_ = os.Remove(root) // empty-only tidy; never wholesale on a user dir
+		_ = os.Remove(root) // empty-only tidy; never wholesale on a shared dir
 	}
-	rm(def)
+	rm(legacySiblingRoot(b.Src))
 	return removed
 }
 

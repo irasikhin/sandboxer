@@ -25,10 +25,11 @@ func newCleanCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "clean [src]",
 		Short: "Remove all runtime data for the project (keeps the committed config)",
-		Long: `Remove the project's entire runtime state — the sandbox worktrees beside the
-project (<project>-sandboxes/) and every agent home, log and metadata file
-under the state directory. The committed config (sandboxer.nix) is left
-untouched.
+		Long: `Remove the project's entire runtime state — the sandbox worktrees (the
+project's ./sandboxes by default, or wherever worktreesDir points; only the
+per-sandbox dirs are removed, never a whole user directory) and every agent
+home, log and metadata file under the state directory. The committed config
+(sandboxer.nix) is left untouched.
 
 --detached limits the sweep to _detached/ — the sources set aside when a
 srcs entry was dropped or its branch changed. Live sandboxes stay; branches
@@ -95,8 +96,9 @@ to remove a single sandbox instead.`,
 					}
 				}
 				wtRemoved = b.CleanWorktrees()
-			} else if p := sandbox.SandboxesRoot(abs); fileExists(p) {
-				// No readable state — still sweep the sandboxer-owned default root.
+			} else if p := filepath.Join(filepath.Dir(abs), filepath.Base(abs)+"-sandboxes"); fileExists(p) {
+				// No readable state — the in-project ./sandboxes may hold user
+				// files, so only the sandboxer-owned legacy sibling root goes.
 				if os.RemoveAll(p) == nil {
 					wtRemoved = append(wtRemoved, p)
 				}

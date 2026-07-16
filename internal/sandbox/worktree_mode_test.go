@@ -93,6 +93,21 @@ func TestMakeSandboxDotSrcFull(t *testing.T) {
 	if m := SrcMounts(srcs); len(m) != 0 {
 		t.Errorf("SrcMounts = %v, want none (managed lives under <slug>/)", m)
 	}
+	// and: the in-project ./sandboxes root was git-ignored, exactly once even
+	// after a re-sync.
+	if _, err := b.SyncSrcs("wt", io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	gi, err := os.ReadFile(filepath.Join(repo, ".gitignore"))
+	if err != nil {
+		t.Fatalf("no .gitignore written for the in-project root: %v", err)
+	}
+	if got := strings.Count(string(gi), "/sandboxes/"); got != 1 {
+		t.Errorf(".gitignore has %d /sandboxes/ entries, want exactly 1:\n%s", got, gi)
+	}
+	if st := runGit(t, repo, "status", "--porcelain", "--ignored=no", "--", "sandboxes"); strings.TrimSpace(st) != "" {
+		t.Errorf("sandboxes/ visible in the project's git status:\n%s", st)
+	}
 }
 
 func TestMakeSandboxSparseInclude(t *testing.T) {
@@ -587,8 +602,13 @@ func TestWorktreesDirOverride(t *testing.T) {
 	if _, err := os.Stat(SandboxesRoot(b.Src)); !os.IsNotExist(err) {
 		t.Errorf("default root created despite worktreesDir (err=%v)", err)
 	}
+	// An out-of-project root needs no .gitignore entry.
+	if _, err := os.Stat(filepath.Join(repo, ".gitignore")); !os.IsNotExist(err) {
+		t.Errorf(".gitignore written for an out-of-project root (err=%v)", err)
+	}
 
-	// A relative worktreesDir resolves against the PROJECT ROOT.
+	// A relative worktreesDir resolves against the PROJECT ROOT, and an
+	// in-project override is git-ignored like the default.
 	if err := b.WriteProfileJSON("wd2", []byte(`{"worktreesDir":"./sb","srcs":[{"src":".","branch":"feat/wd2"}]}`)); err != nil {
 		t.Fatal(err)
 	}
@@ -597,6 +617,9 @@ func TestWorktreesDirOverride(t *testing.T) {
 	}
 	if got, want := b.Srcs("wd2")[0].Path, filepath.Join(repo, "sb", "wd2", filepath.Base(repo), "feat", "wd2"); got != want {
 		t.Fatalf("relative worktreesDir path %q, want %q", got, want)
+	}
+	if gi, err := os.ReadFile(filepath.Join(repo, ".gitignore")); err != nil || !strings.Contains(string(gi), "/sb/") {
+		t.Errorf(".gitignore misses the in-project override (/sb/): %q err=%v", gi, err)
 	}
 
 	// The project-wide sweep removes the per-sandbox dirs under each custom

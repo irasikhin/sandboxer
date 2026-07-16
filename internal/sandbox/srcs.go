@@ -270,6 +270,9 @@ func (b *Base) SyncSrcs(slug string, w io.Writer) ([]Source, error) {
 	if err := os.MkdirAll(dest, 0o755); err != nil {
 		return nil, err
 	}
+	if err := b.ensureIgnored(b.worktreesRoot(slug), w); err != nil {
+		return nil, err
+	}
 
 	// Set aside previously managed worktrees that no longer correspond to a
 	// resolved source (dropped from srcs, renamed, or switched branch).
@@ -435,13 +438,51 @@ func (b *Base) CleanDetached() ([]string, error) {
 	return removed, nil
 }
 
+// ensureIgnored makes sure a worktrees root that lives INSIDE the project is
+// git-ignored there, so sandbox working copies can never land in a commit —
+// the repo-hygiene invariant behind the old outside-the-repo default. The
+// entry is appended to the project's .gitignore (created if absent) once;
+// a root outside the project needs nothing.
+func (b *Base) ensureIgnored(root string, w io.Writer) error {
+	rel, err := filepath.Rel(b.Src, root)
+	if err != nil {
+		rel = ".." // no relative form (another volume) — treat as outside
+	}
+	if rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return nil // outside the project (or the project itself) — nothing to ignore
+	}
+	entry := "/" + filepath.ToSlash(rel) + "/"
+	gi := filepath.Join(b.Src, ".gitignore")
+	data, _ := os.ReadFile(gi) // absent reads as empty — created below
+	for _, line := range strings.Split(string(data), "\n") {
+		switch strings.TrimSpace(line) {
+		case entry, strings.TrimSuffix(entry, "/"), strings.TrimPrefix(entry, "/"),
+			strings.Trim(entry, "/"):
+			return nil // already covered
+		}
+	}
+	out := string(data)
+	if out != "" && !strings.HasSuffix(out, "\n") {
+		out += "\n"
+	}
+	out += entry + "\n"
+	if err := os.WriteFile(gi, []byte(out), 0o644); err != nil {
+		return fmt.Errorf("git-ignore the worktrees dir: %w", err)
+	}
+	if w != nil {
+		fmt.Fprintf(w, "sandboxer: added %s to %s (worktrees must never be committed)\n", entry, gi)
+	}
+	return nil
+}
+
 // detachedRoots enumerates every _detached/ location the project may have
-// accumulated: the default sibling root, each sandbox's configured
-// worktreesDir, and the legacy state-dir one.
+// accumulated: the default in-project root, each sandbox's configured
+// worktreesDir, the legacy sibling root, and the legacy state-dir one.
 func (b *Base) detachedRoots() []string {
 	seen := map[string]bool{}
 	roots := []string{
 		filepath.Join(SandboxesRoot(b.Src), "_detached"),
+		filepath.Join(legacySiblingRoot(b.Src), "_detached"),
 		filepath.Join(b.Dir, "_detached"),
 	}
 	for _, r := range roots {

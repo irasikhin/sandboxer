@@ -101,7 +101,7 @@ func starterProfile(name string, d config.Defaults) string {
 # Reuse between profiles is ordinary nix:
 #   let base = { backend = "docker"; }; in { profiles.api = base // { ... }; }
 {
-  # Sandbox name (slug); names the sandbox dir ../<project>-sandboxes/<name>/.
+  # Sandbox name (slug); names the sandbox dir ./sandboxes/<name>/.
   name = %[1]q;
 
   # Isolation backend: docker | podman.
@@ -110,7 +110,7 @@ func starterProfile(name string, d config.Defaults) string {
   # The sources the sandbox sees — ALWAYS explicit, there is no implicit
   # default. Each entry becomes a git worktree on the host, checked out on
   # the branch YOU name — branch is REQUIRED and also names the worktree's
-  # directory (../<project>-sandboxes/<name>/<repo>/<branch>). ONLY the
+  # directory (./sandboxes/<name>/<repo>/<branch>). ONLY the
   # selected files are visible inside the container (git itself never is;
   # review and commit on the host). include uses gitignore-style patterns;
   # srcs edits apply on the next enter/exec — even a running session sees
@@ -144,8 +144,8 @@ func starterProfile(name string, d config.Defaults) string {
   };
 
   # Where the worktrees live (absolute, ~, or relative to the project root);
-  # default: ../<project>-sandboxes/ beside the project. Set BEFORE creating
-  # the sandbox — changing it later sets existing worktrees aside.
+  # default: ./sandboxes inside the project, auto-added to .gitignore. Set
+  # BEFORE creating the sandbox — changing it later sets worktrees aside.
   # worktreesDir = "~/sandboxes";
 
   # Session mode for enter/exec: "persistent" (default) | "ephemeral".

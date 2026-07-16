@@ -58,8 +58,10 @@ was extracted from:
   `SANDBOXER_IN_CONTAINER` is set, injected per-run by `commonArgs`).
 - **Config vs data split** (`internal/config`, `internal/sandbox`): the committed config is ONE file at
   the repo root — `sandboxer.nix` (image customization included; overlay is a separate .nix file).
-  The sandbox WORKTREES live BESIDE the project at `sandbox.SandboxesRoot(project)` =
-  `../<project>-sandboxes/` (browsable; `_detached/` included); the rest of the runtime state lives under
+  The sandbox WORKTREES live IN the project at `sandbox.SandboxesRoot(project)` = `./sandboxes/`
+  (auto-added to the project .gitignore; `_detached/` included; relocatable per profile via
+  `worktreesDir` — abs/~/project-relative; in-project overrides are git-ignored too; clean never
+  removes a root wholesale, only the sandbox dirs); the rest of the runtime state lives under
   `config.StateDir(project)` = `$XDG_STATE_HOME/sandboxer/<project-id>` (`<project-id>` = basename + short
   hash of the abs path) — the `_meta`/`_logs`/`_home/<slug>` dirs. Both are outside the repo, so
   credentials/scratch can never be committed. `sandboxer clean` wipes both (config stays).

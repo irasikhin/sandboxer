@@ -45,7 +45,7 @@ type Src struct {
 	Include []string `json:"include,omitempty"`
 	// Branch names the branch the source is checked out on. It is REQUIRED —
 	// there is no default naming — and it also names the worktree's directory
-	// (…-sandboxes/<slug>/<repo>/<branch>). An existing worktree of that
+	// (sandboxes/<slug>/<repo>/<branch>). An existing worktree of that
 	// branch (including the repo's main checkout) is adopted as-is; a missing
 	// branch is created off HEAD.
 	Branch string `json:"branch,omitempty"`
@@ -217,7 +217,8 @@ type Profile struct {
 	Srcs []Src `json:"srcs,omitempty"`
 	// WorktreesDir overrides where this sandbox's worktrees live. Absolute,
 	// ~-prefixed, or relative to the PROJECT ROOT; empty = the default
-	// ../<project>-sandboxes/ beside the project. The sandbox occupies
+	// ./sandboxes inside the project (auto-added to the project's
+	// .gitignore, as is any in-project override). The sandbox occupies
 	// <worktreesDir>/<name>/<repo>/<branch>. Set it before creating the
 	// sandbox — changing it later sets the existing worktrees aside under the
 	// old location's _detached/ and checks out fresh ones at the new place.

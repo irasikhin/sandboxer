@@ -23,10 +23,11 @@ drives.
 ## How it works
 
 A **sandbox** exposes **sources**: git repos checked out into per-sandbox
-worktrees right beside the project — `../<project>-sandboxes/<slug>/<repo>/<branch>`,
+worktrees right in the project — `./sandboxes/<slug>/<repo>/<branch>`,
 grouped by repo with each worktree directory named after its branch, so your
-sandboxes are ordinary folders you can browse (relocate them with the
-profile's `worktreesDir`). Run sandboxer inside a repo and it just works — the
+sandboxes are ordinary folders you can browse. The dir is auto-added to the
+project's `.gitignore` (worktrees never land in a commit); relocate it with
+the profile's `worktreesDir` (absolute, `~`, or project-relative). Run sandboxer inside a repo and it just works — the
 scaffolded config pins the whole repo as the one source, on an explicit
 branch (always explicit, never implied). The
 container sees **only the files the sources select — git itself never enters
@@ -113,15 +114,16 @@ and **entering/working** in the sandbox
 The committed config is ONE file at your repo root — `sandboxer.nix`,
 image-customization hook included — checked in as-is. It is a nix attrset,
 evaluated by the **host nix** under a restricted eval (no network, no reads
-outside its directory); nix on the host is a hard requirement. The sandbox worktrees live
-**beside** the project (`../<project>-sandboxes/`) where you can browse them;
-the rest of the runtime state (the private agent homes, logs and metadata)
-lives under the XDG state dir (`$XDG_STATE_HOME/sandboxer/<project>`, default
-`~/.local/state/...`). Both are outside the repo, so secrets and scratch data
-can never be committed by accident. `sandboxer clean` wipes both for the
-project (the config stays); a dropped source's worktree is set aside under
-`_detached/` rather than destroyed — sweep those alone with
-`sandboxer clean --detached --force` once reviewed.
+outside its directory); nix on the host is a hard requirement. The sandbox worktrees live in the
+project's `./sandboxes/` (auto-git-ignored; relocatable via the profile's
+`worktreesDir`); the rest of the runtime state (the private agent homes, logs
+and metadata) lives under the XDG state dir
+(`$XDG_STATE_HOME/sandboxer/<project>`, default `~/.local/state/...`), outside
+the repo. Secrets and scratch data can never be committed. `sandboxer clean`
+wipes both for the project (the config stays; a user-chosen worktrees dir is
+never removed wholesale — only the sandbox dirs in it); a dropped source's
+worktree is set aside under `_detached/` rather than destroyed — sweep those
+alone with `sandboxer clean --detached --force` once reviewed.
 
 ## How changes flow
 
