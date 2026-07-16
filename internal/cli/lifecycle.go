@@ -154,6 +154,9 @@ image, ready to use).`,
 					return err
 				}
 			}
+			// Re-resolve after the snapshot landed: a profile worktreesDir is
+			// only visible once profile.json is stored.
+			dest = t.base.SandboxDir(t.slug)
 			rt, rtErr := t.runtime(f)
 			if rtErr != nil {
 				return rtErr
@@ -273,6 +276,8 @@ func newExecCmd() *cobra.Command {
 			if _, err := t.base.SyncSrcs(t.slug, cmd.ErrOrStderr()); err != nil {
 				return err
 			}
+			// Re-resolve after the snapshot landed (worktreesDir may have changed).
+			dest = t.base.SandboxDir(t.slug)
 			rt, rtErr := t.runtime(f)
 			if rtErr != nil {
 				return rtErr

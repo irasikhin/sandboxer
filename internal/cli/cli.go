@@ -123,8 +123,9 @@ func register(factory func() *cobra.Command) {
 const rootLong = `sandboxer — config-driven isolated sandboxes for coding agents.
 
 A sandbox exposes SOURCES: git repos checked out into per-sandbox worktrees
-under ../<project>-sandboxes/<slug>/<branch> — every source names its branch
-explicitly, and its directory is named after the branch. The container
+under ../<project>-sandboxes/<slug>/<repo>/<branch> (relocatable via the
+profile's worktreesDir) — every source names its branch explicitly, and its
+directory is named after it. The container
 sees ONLY the files the srcs select — git metadata never enters it — so the
 agent edits files while your working tree, branches and git stay untouched;
 you review and commit the result with plain git on the host. srcs entries can

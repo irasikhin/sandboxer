@@ -23,9 +23,10 @@ drives.
 ## How it works
 
 A **sandbox** exposes **sources**: git repos checked out into per-sandbox
-worktrees right beside the project — `../<project>-sandboxes/<slug>/<branch>`,
-each worktree directory named after its branch, so your sandboxes are ordinary
-folders you can browse. Run sandboxer inside a repo and it just works — the
+worktrees right beside the project — `../<project>-sandboxes/<slug>/<repo>/<branch>`,
+grouped by repo with each worktree directory named after its branch, so your
+sandboxes are ordinary folders you can browse (relocate them with the
+profile's `worktreesDir`). Run sandboxer inside a repo and it just works — the
 scaffolded config pins the whole repo as the one source, on an explicit
 branch (always explicit, never implied). The
 container sees **only the files the sources select — git itself never enters

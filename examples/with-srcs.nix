@@ -20,7 +20,7 @@
   # Srcs: the repos (and slices of them) the sandbox sees — ALWAYS explicit,
   # there is no implicit default. src is a path to a repo root (relative paths
   # resolve against the project root); branch is REQUIRED — it names the
-  # worktree's branch AND its directory (../<project>-sandboxes/<name>/<branch>);
+  # worktree's branch AND its directory (../<project>-sandboxes/<name>/<repo>/<branch>);
   # include narrows the tree with gitignore-style patterns (omit it for the
   # whole repo). A branch already checked out somewhere is adopted as-is.
   srcs = [

@@ -69,10 +69,11 @@ func TestMakeSandboxDotSrcFull(t *testing.T) {
 	if !s.Managed || !s.AutoBranch || s.Branch != "feat/wt" || s.RepoRoot != repo {
 		t.Errorf("dot source wrong: %+v", s)
 	}
-	// then: the worktree lives UNDER <slug>/, at a path spelling out the
-	// branch (…-sandboxes/wt/feat/wt), with every file present and clean.
-	if s.Path != filepath.Join(b.SandboxDir("wt"), "feat", "wt") {
-		t.Fatalf("worktree path %q, want %q", s.Path, filepath.Join(b.SandboxDir("wt"), "feat", "wt"))
+	// then: the worktree lives UNDER <slug>/, grouped by repo and named by
+	// branch (…-sandboxes/wt/<repo>/feat/wt), every file present and clean.
+	want := filepath.Join(b.SandboxDir("wt"), filepath.Base(repo), "feat", "wt")
+	if s.Path != want {
+		t.Fatalf("worktree path %q, want %q", s.Path, want)
 	}
 	if worktree.IsWorktree(b.SandboxDir("wt")) {
 		t.Error("sandbox dir itself must not be a worktree")
@@ -169,8 +170,8 @@ func TestSyncSrcsLiveRefresh(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(srcs[1].Path, "CLAUDE.md")); err != nil {
 		t.Errorf("second source not materialized: %v", err)
 	}
-	if srcs[1].Path != filepath.Join(b.SandboxDir("live"), "feat", "live-other") {
-		t.Errorf("second source %q not at its branch-named path", srcs[1].Path)
+	if srcs[1].Path != filepath.Join(b.SandboxDir("live"), filepath.Base(other), "feat", "live-other") {
+		t.Errorf("second source %q not at its repo/branch path", srcs[1].Path)
 	}
 
 	// when: the second repo is dropped again, with uncommitted work inside
@@ -186,7 +187,7 @@ func TestSyncSrcsLiveRefresh(t *testing.T) {
 	if _, err := os.Stat(srcs[1].Path); !os.IsNotExist(err) {
 		t.Errorf("dropped source still under the sandbox dir (err=%v)", err)
 	}
-	moved, err := filepath.Glob(filepath.Join(b.detachedDir(), "live-*", "wip.txt"))
+	moved, err := filepath.Glob(filepath.Join(b.detachedDir("live"), "live-*", "wip.txt"))
 	if err != nil || len(moved) != 1 {
 		t.Errorf("dropped source's work not preserved under _detached: %v (err=%v)", moved, err)
 	}
@@ -252,7 +253,6 @@ func TestResolveSrcsErrors(t *testing.T) {
 		{"no-srcs", `{}`, "srcs is empty"},
 		{"no-branch", `{"srcs":[{"src":"."}]}`, "branch is required"},
 		{"bad-branch", `{"srcs":[{"src":".","branch":"-bad..name"}]}`, "invalid branch name"},
-		{"nesting", fmt.Sprintf(`{"srcs":[{"src":".","branch":"feat/nest"},{"src":%q,"branch":"feat/nest/sub"}]}`, gitRepoWithCommit(t)), "nest on disk"},
 	}
 	for _, c := range cases {
 		if err := b.WriteProfileJSON("bad", []byte(c.pj)); err != nil {
@@ -405,8 +405,8 @@ func TestSyncSrcsBranchChangeSetsAside(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// then: a fresh worktree at the branch-named path, on the new branch
-	want := filepath.Join(b.SandboxDir("ren"), "devops", "ren2")
+	// then: a fresh worktree at the repo/branch path, on the new branch
+	want := filepath.Join(b.SandboxDir("ren"), filepath.Base(repo), "devops", "ren2")
 	if len(srcs) != 1 || srcs[0].Path != want || srcs[0].Branch != "devops/ren2" {
 		t.Fatalf("srcs after branch change = %+v, want path %q", srcs, want)
 	}
@@ -414,12 +414,12 @@ func TestSyncSrcsBranchChangeSetsAside(t *testing.T) {
 		t.Errorf("worktree on %q, want devops/ren2", br)
 	}
 	// and: the old worktree was set aside with its uncommitted work
-	moved, err := filepath.Glob(filepath.Join(b.detachedDir(), "ren-*", "wip.txt"))
+	moved, err := filepath.Glob(filepath.Join(b.detachedDir("ren"), "ren-*", "wip.txt"))
 	if err != nil || len(moved) != 1 {
 		t.Errorf("old worktree's work not preserved under _detached: %v (err=%v)", moved, err)
 	}
-	// and: the old branch's now-empty intermediate dir was tidied away
-	if _, err := os.Stat(filepath.Join(b.SandboxDir("ren"), "feat")); !os.IsNotExist(err) {
+	// and: the old branch's now-empty intermediate dirs were tidied away
+	if _, err := os.Stat(filepath.Join(b.SandboxDir("ren"), filepath.Base(repo), "feat")); !os.IsNotExist(err) {
 		t.Errorf("empty intermediate dir of the old branch survived (err=%v)", err)
 	}
 }
@@ -448,9 +448,9 @@ func TestMissingBranchHintNamesRecorded(t *testing.T) {
 	}
 }
 
-// TestSameBranchTwoReposSplitsByRepo: two sources on the SAME branch name
-// cannot share one path — each gets <branch>/<repo> instead.
-func TestSameBranchTwoReposSplitsByRepo(t *testing.T) {
+// TestSameBranchTwoRepos: two sources on the SAME branch name live naturally
+// under their own repo dirs — <repo>/<branch> each.
+func TestSameBranchTwoRepos(t *testing.T) {
 	repo := gitRepoWithCommit(t)
 	other := gitRepoWithCommit(t)
 	b, err := ResolveBase(repo)
@@ -465,11 +465,10 @@ func TestSameBranchTwoReposSplitsByRepo(t *testing.T) {
 		t.Fatal(err)
 	}
 	srcs := b.Srcs("two")
-	base := filepath.Join(b.SandboxDir("two"), "devops", "x")
 	if len(srcs) != 2 ||
-		srcs[0].Path != filepath.Join(base, filepath.Base(repo)) ||
-		srcs[1].Path != filepath.Join(base, filepath.Base(other)) {
-		t.Fatalf("same-branch paths = %+v, want them split under %q by repo", srcs, base)
+		srcs[0].Path != filepath.Join(b.SandboxDir("two"), filepath.Base(repo), "devops", "x") ||
+		srcs[1].Path != filepath.Join(b.SandboxDir("two"), filepath.Base(other), "devops", "x") {
+		t.Fatalf("same-branch paths = %+v, want <repo>/devops/x each", srcs)
 	}
 	for _, s := range srcs {
 		if _, err := os.Stat(filepath.Join(s.Path, "CLAUDE.md")); err != nil {
@@ -508,7 +507,7 @@ func TestSyncSrcsKeepsWorktreeOnDetachedHead(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(s.Path, "wip.txt")); err != nil {
 		t.Errorf("uncommitted work lost: %v", err)
 	}
-	if _, err := os.Stat(b.detachedDir()); !os.IsNotExist(err) {
+	if _, err := os.Stat(b.detachedDir("det")); !os.IsNotExist(err) {
 		t.Errorf("detached-HEAD worktree was set aside (err=%v)", err)
 	}
 	if !strings.Contains(progress.String(), "not on a branch") {
@@ -552,9 +551,67 @@ func TestDetachSetsAsideNonWorktreeDir(t *testing.T) {
 	if _, err := os.Stat(dropped.Path); !os.IsNotExist(err) {
 		t.Errorf("dropped dir still under the sandbox dir (err=%v)", err)
 	}
-	moved, err := filepath.Glob(filepath.Join(b.detachedDir(), "brk-*", "wip.txt"))
+	moved, err := filepath.Glob(filepath.Join(b.detachedDir("brk"), "brk-*", "wip.txt"))
 	if err != nil || len(moved) != 1 {
 		t.Errorf("dropped dir's work not preserved under _detached: %v (err=%v)", moved, err)
+	}
+}
+
+// TestWorktreesDirOverride: a profile worktreesDir relocates the sandbox —
+// absolute or relative to the project root — and the project-wide worktree
+// sweep honors it without ever removing a user-chosen root wholesale.
+func TestWorktreesDirOverride(t *testing.T) {
+	repo := gitRepoWithCommit(t)
+	b, err := ResolveBase(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	custom := t.TempDir()
+	pj := fmt.Sprintf(`{"worktreesDir":%q,"srcs":[{"src":".","branch":"feat/wd"}]}`, custom)
+	if err := b.WriteProfileJSON("wd", []byte(pj)); err != nil {
+		t.Fatal(err)
+	}
+	if err := b.MakeSandbox("wd", io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := b.SandboxDir("wd"), filepath.Join(custom, "wd"); got != want {
+		t.Fatalf("SandboxDir = %q, want %q", got, want)
+	}
+	s := b.Srcs("wd")[0]
+	if want := filepath.Join(custom, "wd", filepath.Base(repo), "feat", "wd"); s.Path != want {
+		t.Fatalf("worktree path %q, want %q", s.Path, want)
+	}
+	if _, err := os.Stat(filepath.Join(s.Path, "CLAUDE.md")); err != nil {
+		t.Errorf("worktree not materialized at the custom root: %v", err)
+	}
+	if _, err := os.Stat(SandboxesRoot(b.Src)); !os.IsNotExist(err) {
+		t.Errorf("default root created despite worktreesDir (err=%v)", err)
+	}
+
+	// A relative worktreesDir resolves against the PROJECT ROOT.
+	if err := b.WriteProfileJSON("wd2", []byte(`{"worktreesDir":"./sb","srcs":[{"src":".","branch":"feat/wd2"}]}`)); err != nil {
+		t.Fatal(err)
+	}
+	if err := b.MakeSandbox("wd2", io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := b.Srcs("wd2")[0].Path, filepath.Join(repo, "sb", "wd2", filepath.Base(repo), "feat", "wd2"); got != want {
+		t.Fatalf("relative worktreesDir path %q, want %q", got, want)
+	}
+
+	// The project-wide sweep removes the per-sandbox dirs under each custom
+	// root — never a user-chosen root wholesale (the project itself survives
+	// worktreesDir = "./sb").
+	if removed := b.CleanWorktrees(); len(removed) == 0 {
+		t.Fatal("CleanWorktrees removed nothing")
+	}
+	for _, p := range []string{filepath.Join(custom, "wd"), filepath.Join(repo, "sb", "wd2")} {
+		if _, err := os.Stat(p); !os.IsNotExist(err) {
+			t.Errorf("sandbox dir %q survived CleanWorktrees (err=%v)", p, err)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(repo, "CLAUDE.md")); err != nil {
+		t.Errorf("project files must survive a sweep with worktreesDir inside the repo: %v", err)
 	}
 }
 
@@ -580,7 +637,7 @@ func TestCleanDetached(t *testing.T) {
 	if _, err := b.SyncSrcs("cd", io.Discard); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := os.Stat(b.detachedDir()); err != nil {
+	if _, err := os.Stat(b.detachedDir("cd")); err != nil {
 		t.Fatalf("no _detached to clean: %v", err)
 	}
 
@@ -588,7 +645,7 @@ func TestCleanDetached(t *testing.T) {
 	if err != nil || len(removed) == 0 {
 		t.Fatalf("CleanDetached = (%v, %v)", removed, err)
 	}
-	if _, err := os.Stat(b.detachedDir()); !os.IsNotExist(err) {
+	if _, err := os.Stat(b.detachedDir("cd")); !os.IsNotExist(err) {
 		t.Errorf("_detached survived the sweep (err=%v)", err)
 	}
 	// the live sandbox and both branches are untouched

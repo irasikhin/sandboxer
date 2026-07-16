@@ -81,9 +81,11 @@ to remove a single sandbox instead.`,
 			// every installed engine, since per-profile backends may have created
 			// sessions on either; best-effort — the state dir must go even with
 			// no engine installed.
-			// Collect every source repo the sandboxes span BEFORE the wipe, so
-			// their then-dangling worktree admin entries can be pruned after it.
+			// Collect every source repo the sandboxes span AND remove the
+			// worktrees BEFORE the state dir goes: the per-sandbox worktree
+			// roots and the repos come from the stored snapshots/meta.
 			repos := map[string]bool{}
+			var wtRemoved []string
 			if b, oerr := sandbox.OpenBase(abs); oerr == nil && b != nil {
 				for _, slug := range b.Agents() {
 					for _, s := range b.Srcs(slug) {
@@ -91,6 +93,12 @@ to remove a single sandbox instead.`,
 							repos[s.RepoRoot] = true
 						}
 					}
+				}
+				wtRemoved = b.CleanWorktrees()
+			} else if p := sandbox.SandboxesRoot(abs); fileExists(p) {
+				// No readable state — still sweep the sandboxer-owned default root.
+				if os.RemoveAll(p) == nil {
+					wtRemoved = append(wtRemoved, p)
 				}
 			}
 			if top, _, ok := worktree.Detect(abs); ok {
@@ -109,18 +117,15 @@ to remove a single sandbox instead.`,
 			if err := os.RemoveAll(dir); err != nil {
 				return err
 			}
-			// The worktrees live beside the project, separate from the state dir.
-			sbRoot := sandbox.SandboxesRoot(abs)
-			if err := os.RemoveAll(sbRoot); err != nil {
-				return err
-			}
 			// The wiped sandbox dirs held git worktrees; prune their now-dangling
 			// admin entries from every source repo. Branches are kept — they live
 			// in the repos, not the state dir; delete any by hand.
 			for r := range repos {
 				_ = worktree.Prune(r)
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "removed: %s\n", sbRoot)
+			for _, p := range wtRemoved {
+				fmt.Fprintf(cmd.OutOrStdout(), "removed: %s\n", p)
+			}
 			fmt.Fprintf(cmd.OutOrStdout(), "removed: %s\n", dir)
 			return nil
 		},

@@ -388,7 +388,7 @@ func TestCleanDetachedFlag(t *testing.T) {
 		t.Errorf("_detached survived clean --detached (err=%v)", err)
 	}
 	// The live sandbox worktree is untouched.
-	if _, err := os.Stat(sandboxDir(project, "feat", "devops", "feat2")); err != nil {
+	if _, err := os.Stat(sandboxDir(project, "feat", filepath.Base(project), "devops", "feat2")); err != nil {
 		t.Errorf("live worktree touched by clean --detached: %v", err)
 	}
 	// A second sweep finds nothing and says so.

@@ -18,8 +18,9 @@ can never be committed. The repo carries only two sandboxer-owned files:
                           #   committed; evaluated via host nix, restricted eval)
 
 ../<project>-sandboxes/                     # the worktrees, BESIDE the project
-├── <slug>/               # one per sandbox: worktrees at <branch> paths
-│   └── <branch>/         #   e.g. devops/branch1/ — dir named after the branch
+├── <slug>/               # one per sandbox (relocatable: profile worktreesDir)
+│   └── <repo>/<branch>/  #   grouped by repo, dir named after the branch,
+│                         #   e.g. miko-java/feat/BDP-5291/
 └── _detached/            # dropped sources, set aside (never destroyed
                           #   automatically; sweep: sandboxer clean --detached --force)
 
@@ -40,7 +41,7 @@ $XDG_STATE_HOME/sandboxer/<project-id>/     # runtime state, outside the repo
 Key invariants (`internal/sandbox`, `internal/worktree`):
 
 - **`<slug>/` holds one git worktree per source** (`srcs` entry): each source
-  repo checked out at `<slug>/<branch>/` — every entry names its branch
+  repo checked out at `<slug>/<repo>/<branch>/` — every entry names its branch
   explicitly (no default naming; a missing `branch:` is an error) and the
   worktree's directory is named after it — narrowed by gitignore-style
   `include` patterns via non-cone `git sparse-checkout`. Editing `branch:` is
@@ -62,7 +63,7 @@ Key invariants (`internal/sandbox`, `internal/worktree`):
 ```
   init ──────────►  scaffold sandboxer.nix   [optional]
                     │
-  create <slug> ──► per srcs entry: git worktree at <slug>/<branch>/ (sparse to
+  create <slug> ──► per srcs entry: git worktree at <slug>/<repo>/<branch>/ (sparse to
                     │   include patterns); mkdir _home/<slug>; snapshot
                     │   profile.json + srcs.json; register slug
                     ▼

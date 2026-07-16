@@ -45,9 +45,9 @@ type Src struct {
 	Include []string `json:"include,omitempty"`
 	// Branch names the branch the source is checked out on. It is REQUIRED —
 	// there is no default naming — and it also names the worktree's directory
-	// (…-sandboxes/<slug>/<branch>). An existing worktree of that branch
-	// (including the repo's main checkout) is adopted as-is; a missing branch
-	// is created off HEAD.
+	// (…-sandboxes/<slug>/<repo>/<branch>). An existing worktree of that
+	// branch (including the repo's main checkout) is adopted as-is; a missing
+	// branch is created off HEAD.
 	Branch string `json:"branch,omitempty"`
 }
 
@@ -213,10 +213,17 @@ type Profile struct {
 	// Srcs are the sandbox's sources — repositories (whole, or narrowed by
 	// gitignore-style include patterns) exposed inside the container. ALWAYS
 	// explicit: an empty list is rejected at sandbox creation (the scaffolded
-	// config seeds srcs: [{src: .}]); there is no implicit default.
-	Srcs        []Src             `json:"srcs,omitempty"`
-	ExtraMounts []Mount           `json:"extraMounts,omitempty"`
-	Env         map[string]string `json:"env,omitempty"`
+	// config seeds an explicit src + branch); there is no implicit default.
+	Srcs []Src `json:"srcs,omitempty"`
+	// WorktreesDir overrides where this sandbox's worktrees live. Absolute,
+	// ~-prefixed, or relative to the PROJECT ROOT; empty = the default
+	// ../<project>-sandboxes/ beside the project. The sandbox occupies
+	// <worktreesDir>/<name>/<repo>/<branch>. Set it before creating the
+	// sandbox — changing it later sets the existing worktrees aside under the
+	// old location's _detached/ and checks out fresh ones at the new place.
+	WorktreesDir string            `json:"worktreesDir,omitempty"`
+	ExtraMounts  []Mount           `json:"extraMounts,omitempty"`
+	Env          map[string]string `json:"env,omitempty"`
 	// Setup is a one-time shell script run inside the sandbox (bash -lc) before
 	// the user/agent takes over — e.g. `npm ci`, a build, a DB seed. It runs
 	// once per sandbox (re-run only when the script changes) under the same

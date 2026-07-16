@@ -64,8 +64,8 @@ was extracted from:
   hash of the abs path) — the `_meta`/`_logs`/`_home/<slug>` dirs. Both are outside the repo, so
   credentials/scratch can never be committed. `sandboxer clean` wipes both (config stays).
 - **Sandbox backing = srcs** (`internal/worktree`, `internal/sandbox/srcs.go`): a sandbox exposes SOURCES —
-  `srcs: [{src, branch, include}]` — each a git worktree at `<sandboxesRoot>/<slug>/<branch>/` (the dir is
-  NAMED AFTER the branch; two srcs sharing a branch name split into `<branch>/<repo>`). `branch:` is
+  `srcs: [{src, branch, include}]` — each a git worktree at `<sandboxesRoot>/<slug>/<repo>/<branch>/`
+  (grouped by repo, dir NAMED AFTER the branch; root relocatable per profile via `worktreesDir`). `branch:` is
   REQUIRED — no default naming, a missing branch is an error (the error hints the recorded branch); a branch
   already checked out elsewhere (incl. the main checkout) is ADOPTED. Trees are narrowed by gitignore-style
   `include` patterns via **non-cone** `sparse-checkout`. srcs is ALWAYS explicit — an empty list is rejected;

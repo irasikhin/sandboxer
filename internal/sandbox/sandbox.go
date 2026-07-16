@@ -106,24 +106,42 @@ func (b *Base) metaDir() string  { return filepath.Join(b.Dir, "_meta") }
 func (b *Base) logsDir() string  { return filepath.Join(b.Dir, "_logs") }
 func (b *Base) homeRoot() string { return filepath.Join(b.Dir, "_home") }
 
-// SandboxesRoot is where a project's sandbox worktrees live: a sibling of the
-// project root named <project>-sandboxes. Deliberately OUTSIDE both the repo
-// (nothing can be committed) and the XDG state dir (no hashed path to dig
-// through): the user browses their sandboxes' branches as ordinary
-// directories right next to the project.
+// SandboxesRoot is the DEFAULT location for a project's sandbox worktrees: a
+// sibling of the project root named <project>-sandboxes. Deliberately OUTSIDE
+// both the repo (nothing can be committed) and the XDG state dir (no hashed
+// path to dig through): the user browses their sandboxes as ordinary
+// directories right next to the project. A profile's worktreesDir overrides
+// it per sandbox (see worktreesRoot).
 func SandboxesRoot(src string) string {
 	return filepath.Join(filepath.Dir(src), filepath.Base(src)+"-sandboxes")
 }
 
-// SandboxesRoot locates the project's sandbox worktree root (see the
-// package-level SandboxesRoot).
-func (b *Base) SandboxesRoot() string { return SandboxesRoot(b.Src) }
+// worktreesRoot resolves where slug's worktrees live: the stored profile's
+// worktreesDir (absolute, ~-prefixed, or relative to the project root), or
+// the default sibling SandboxesRoot. Reading the STORED snapshot keeps every
+// command's view of the sandbox location consistent between syncs.
+func (b *Base) worktreesRoot(slug string) string {
+	dir := b.profileWorktreesDir(slug)
+	if dir == "" {
+		return SandboxesRoot(b.Src)
+	}
+	if dir == "~" || strings.HasPrefix(dir, "~/") {
+		if home, err := os.UserHomeDir(); err == nil {
+			dir = filepath.Join(home, strings.TrimPrefix(strings.TrimPrefix(dir, "~"), "/"))
+		}
+	}
+	if !filepath.IsAbs(dir) {
+		dir = filepath.Join(b.Src, dir)
+	}
+	return filepath.Clean(dir)
+}
 
-// SandboxDir is the directory for a sandbox: <project>-sandboxes/<slug>. The
-// managed worktrees inside are named by their branch (see srcs.go), so the
-// on-disk path spells out sandbox and branch: …-sandboxes/<slug>/<branch>.
+// SandboxDir is the directory for a sandbox: <worktreesRoot>/<slug>. The
+// managed worktrees inside are grouped by repo and named by their branch
+// (see srcs.go), so the on-disk path spells everything out:
+// …-sandboxes/<slug>/<repo>/<branch>.
 func (b *Base) SandboxDir(slug string) string {
-	return filepath.Join(b.SandboxesRoot(), slug)
+	return filepath.Join(b.worktreesRoot(slug), slug)
 }
 
 // HomeDir is the sandbox's private agent home, mounted as $HOME in the
@@ -339,9 +357,10 @@ func (b *Base) RemoveState(slug string, keepHome bool) {
 	for _, p := range paths {
 		_ = os.RemoveAll(p)
 	}
-	// Tidy the sandboxes root when this was its last sandbox (os.Remove
-	// refuses a non-empty dir, which is exactly the wanted behavior).
-	_ = os.Remove(b.SandboxesRoot())
+	// Tidy the sandbox's worktrees root when this was its last occupant
+	// (os.Remove refuses a non-empty dir, which is exactly the wanted
+	// behavior — and keeps a user-chosen worktreesDir like "." safe).
+	_ = os.Remove(b.worktreesRoot(slug))
 	// Remove rotating logs (<slug>.json, <slug>.err, …).
 	if entries, err := os.ReadDir(b.logsDir()); err == nil {
 		for _, e := range entries {
@@ -350,6 +369,42 @@ func (b *Base) RemoveState(slug string, keepHome bool) {
 			}
 		}
 	}
+}
+
+// CleanWorktrees removes every sandbox worktree for the project. The default
+// sibling root is sandboxer-owned and removed wholesale; a user-chosen
+// worktreesDir may hold other things, so only the per-sandbox dirs and
+// _detached/ under it are removed (the root itself is tidied only when
+// empty). Must run BEFORE the state dir is wiped — the per-sandbox roots are
+// resolved from the stored profile snapshots. Returns the paths removed.
+func (b *Base) CleanWorktrees() []string {
+	var removed []string
+	rm := func(p string) {
+		if _, err := os.Stat(p); err != nil {
+			return
+		}
+		if os.RemoveAll(p) == nil {
+			removed = append(removed, p)
+		}
+	}
+	def := SandboxesRoot(b.Src)
+	custom := map[string]bool{}
+	for _, slug := range b.Agents() {
+		root := b.worktreesRoot(slug)
+		if root == def {
+			continue // covered by the wholesale default-root removal below
+		}
+		if !custom[root] {
+			custom[root] = true
+		}
+		rm(filepath.Join(root, slug))
+	}
+	for root := range custom {
+		rm(filepath.Join(root, "_detached"))
+		_ = os.Remove(root) // empty-only tidy; never wholesale on a user dir
+	}
+	rm(def)
+	return removed
 }
 
 // Remove deletes all state for a single sandbox, including its registration.

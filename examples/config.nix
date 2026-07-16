@@ -15,8 +15,9 @@
   # The sources the sandbox sees — always explicit (src = "." is this repo,
   # whole; relative paths resolve against the project root). branch is
   # REQUIRED: it names the worktree's branch and its on-disk directory
-  # (../<project>-sandboxes/<name>/<branch>). See with-srcs.nix for include
-  # patterns, extra repos and branch adoption.
+  # (../<project>-sandboxes/<name>/<repo>/<branch>; relocate the root with
+  # worktreesDir). See with-srcs.nix for include patterns, extra repos and
+  # branch adoption.
   srcs = [
     { src = "."; branch = "devops/feature-x"; }
   ];

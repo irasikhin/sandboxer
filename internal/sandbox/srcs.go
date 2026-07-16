@@ -66,9 +66,11 @@ func (b *Base) writeSrcs(slug string, srcs []Source) error {
 // detachedDir holds worktrees of sources that were dropped from a sandbox's
 // srcs — moved aside (uncommitted work intact) instead of destroyed, and out
 // of the mounted <slug>/ tree so the container loses access. It lives under
-// the sandboxes root (same filesystem as the worktrees, so setting one aside
-// is always a rename); `clean` wipes it with the rest.
-func (b *Base) detachedDir() string { return filepath.Join(b.SandboxesRoot(), "_detached") }
+// the sandbox's worktrees root (same filesystem as the worktrees, so setting
+// one aside is always a rename); `clean` wipes it with the rest.
+func (b *Base) detachedDir(slug string) string {
+	return filepath.Join(b.worktreesRoot(slug), "_detached")
+}
 
 // profileSrcs reads the srcs list from the sandbox's stored profile.json.
 // There is no implicit default — an absent profile or empty list is rejected
@@ -85,6 +87,22 @@ func (b *Base) profileSrcs(slug string) []config.Src {
 		return nil
 	}
 	return p.Srcs
+}
+
+// profileWorktreesDir reads the worktreesDir override from the sandbox's
+// stored profile.json ("" = the default sibling root).
+func (b *Base) profileWorktreesDir(slug string) string {
+	data, err := os.ReadFile(b.ProfileJSONPath(slug))
+	if err != nil {
+		return ""
+	}
+	var p struct {
+		WorktreesDir string `json:"worktreesDir"`
+	}
+	if err := json.Unmarshal(data, &p); err != nil {
+		return ""
+	}
+	return p.WorktreesDir
 }
 
 // resolveSrcs maps the configured srcs entries onto resolved Sources for slug:
@@ -193,54 +211,32 @@ func (b *Base) resolveSrcs(slug string, specs []config.Src, prev []Source, w io.
 	return out, nil
 }
 
-// assignManagedPaths places each managed source's worktree under root, named
-// by its branch — path = <root>/<branch>, branch slashes becoming directories
-// — so the on-disk layout spells out sandbox and branch (…/mybox/devops/x).
-// Sources on the SAME branch name (different repos) each get <branch>/<repo>
-// instead (one path cannot be both a checkout and a parent), deduped by a
-// short path hash when the repos share a basename too. Branch names that nest
-// across sources (one a path prefix of another) cannot coexist on disk and
-// are rejected.
+// assignManagedPaths places each managed source's worktree under root,
+// grouped by repo and named by branch — path = <root>/<repo>/<branch>, branch
+// slashes becoming directories — so the on-disk layout spells out repo and
+// branch (…/mybox/miko-java/feat/BDP-5291). Repos sharing a basename are
+// deduped with a short path hash. Within one repo branch names cannot nest
+// (git forbids such refs) and a repo appears once per sandbox, so paths never
+// collide.
 func assignManagedPaths(root string, srcs []Source) error {
-	uses := map[string]int{}
-	for _, s := range srcs {
-		if s.Managed {
-			uses[s.Branch]++
-		}
-	}
 	seenName := map[string]bool{}
 	sep := string(filepath.Separator)
 	for i := range srcs {
 		if !srcs[i].Managed {
 			continue
 		}
-		rel := filepath.FromSlash(srcs[i].Branch)
-		if uses[srcs[i].Branch] > 1 {
-			name := filepath.Base(srcs[i].RepoRoot)
-			if seenName[srcs[i].Branch+"\x00"+name] {
-				name = name + "-" + shortPathHash(srcs[i].RepoRoot)
-			}
-			seenName[srcs[i].Branch+"\x00"+name] = true
-			rel = filepath.Join(rel, name)
+		name := filepath.Base(srcs[i].RepoRoot)
+		if seenName[name] {
+			name = name + "-" + shortPathHash(srcs[i].RepoRoot)
 		}
-		p := filepath.Join(root, rel)
+		seenName[name] = true
+		p := filepath.Join(root, name, filepath.FromSlash(srcs[i].Branch))
 		// ValidBranch already rejects ".."-style names; this is the belt that
 		// guarantees no branch-derived path ever leaves the sandbox dir.
 		if !strings.HasPrefix(p, root+sep) {
 			return fmt.Errorf("srcs branch %q escapes the sandbox directory", srcs[i].Branch)
 		}
 		srcs[i].Path = p
-	}
-	for i := range srcs {
-		for j := range srcs {
-			if i == j || !srcs[i].Managed || !srcs[j].Managed {
-				continue
-			}
-			if strings.HasPrefix(srcs[j].Path, srcs[i].Path+sep) {
-				return fmt.Errorf("srcs branches %q and %q nest on disk — one worktree would sit "+
-					"inside the other; rename one", srcs[i].Branch, srcs[j].Branch)
-			}
-		}
 	}
 	return nil
 }
@@ -302,7 +298,7 @@ func (b *Base) SyncSrcs(slug string, w io.Writer) ([]Source, error) {
 				// may well be the wanted branch's.
 				if w != nil {
 					fmt.Fprintf(w, "sandboxer: srcs %s: worktree is not on a branch (detached HEAD?) — left in place\n",
-						filepath.Base(p.Path))
+						filepath.Base(p.RepoRoot))
 				}
 				continue
 			}
@@ -344,7 +340,7 @@ func warnEmptySelection(s Source, w io.Writer) {
 		}
 	}
 	fmt.Fprintf(w, "sandboxer: srcs %s: include matched no files — check the patterns "+
-		"(gitignore syntax; a directory is \"/dir/\")\n", filepath.Base(s.Path))
+		"(gitignore syntax; a directory is \"/dir/\")\n", filepath.Base(s.RepoRoot))
 }
 
 // detachSrc moves a managed worktree out of the mounted <slug>/ tree into
@@ -355,13 +351,14 @@ func warnEmptySelection(s Source, w io.Writer) {
 // real work behind a broken linkage); only a missing or empty one is removed.
 func (b *Base) detachSrc(slug string, s Source, w io.Writer) error {
 	defer removeEmptyParents(s.Path, b.SandboxDir(slug))
+	name := filepath.Base(s.RepoRoot) // display name: the repo, not the branch leaf
 	if !worktree.IsWorktree(s.Path) {
 		entries, err := os.ReadDir(s.Path)
 		switch {
 		case os.IsNotExist(err):
 			return nil // already gone
 		case err != nil:
-			return fmt.Errorf("set dropped source %s aside: %w", filepath.Base(s.Path), err)
+			return fmt.Errorf("set dropped source %s aside: %w", name, err)
 		case len(entries) == 0:
 			_ = os.RemoveAll(s.Path) // empty — nothing to preserve
 			return nil
@@ -371,11 +368,11 @@ func (b *Base) detachSrc(slug string, s Source, w io.Writer) error {
 			return err
 		}
 		if err := os.Rename(s.Path, target); err != nil {
-			return fmt.Errorf("set dropped source %s aside: %w", filepath.Base(s.Path), err)
+			return fmt.Errorf("set dropped source %s aside: %w", name, err)
 		}
 		if w != nil {
 			fmt.Fprintf(w, "sandboxer: source %s dropped — its directory moved to %s (not a git worktree)\n",
-				filepath.Base(s.Path), target)
+				name, target)
 		}
 		return nil
 	}
@@ -384,11 +381,11 @@ func (b *Base) detachSrc(slug string, s Source, w io.Writer) error {
 		return err
 	}
 	if err := worktree.Move(s.RepoRoot, s.Path, target); err != nil {
-		return fmt.Errorf("set dropped source %s aside: %w", filepath.Base(s.Path), err)
+		return fmt.Errorf("set dropped source %s aside: %w", name, err)
 	}
 	if w != nil {
 		fmt.Fprintf(w, "sandboxer: source %s dropped — its worktree moved to %s (branch %s kept)\n",
-			filepath.Base(s.Path), target, s.Branch)
+			name, target, s.Branch)
 	}
 	return nil
 }
@@ -405,16 +402,17 @@ func removeEmptyParents(path, root string) {
 	}
 }
 
-// CleanDetached removes everything set aside under _detached/ — both the
-// sandboxes-root location and the legacy state-dir one — and prunes the
-// affected repos' worktree admin entries. Live sandboxes are not touched, and
-// branches are kept (they live in the repos): only the set-aside working
-// trees, uncommitted work included, are destroyed — the caller gates this
-// behind an explicit confirmation. Returns the roots actually removed.
+// CleanDetached removes everything set aside under _detached/ — under the
+// default sibling root, every sandbox's configured worktreesDir, and the
+// legacy state-dir location — and prunes the affected repos' worktree admin
+// entries. Live sandboxes are not touched, and branches are kept (they live
+// in the repos): only the set-aside working trees, uncommitted work included,
+// are destroyed — the caller gates this behind an explicit confirmation.
+// Returns the roots actually removed.
 func (b *Base) CleanDetached() ([]string, error) {
 	var removed []string
 	repos := map[string]bool{}
-	for _, root := range []string{b.detachedDir(), filepath.Join(b.Dir, "_detached")} {
+	for _, root := range b.detachedRoots() {
 		entries, err := os.ReadDir(root)
 		if err != nil {
 			continue // absent — nothing set aside there
@@ -437,18 +435,39 @@ func (b *Base) CleanDetached() ([]string, error) {
 	return removed, nil
 }
 
+// detachedRoots enumerates every _detached/ location the project may have
+// accumulated: the default sibling root, each sandbox's configured
+// worktreesDir, and the legacy state-dir one.
+func (b *Base) detachedRoots() []string {
+	seen := map[string]bool{}
+	roots := []string{
+		filepath.Join(SandboxesRoot(b.Src), "_detached"),
+		filepath.Join(b.Dir, "_detached"),
+	}
+	for _, r := range roots {
+		seen[r] = true
+	}
+	for _, slug := range b.Agents() {
+		if r := b.detachedDir(slug); !seen[r] {
+			seen[r] = true
+			roots = append(roots, r)
+		}
+	}
+	return roots
+}
+
 // detachTarget picks a fresh destination under _detached/ for slug's dropped
 // source (creating the dir), suffix-numbered on collision.
 func (b *Base) detachTarget(slug string, s Source) (string, error) {
-	if err := os.MkdirAll(b.detachedDir(), 0o755); err != nil {
+	if err := os.MkdirAll(b.detachedDir(slug), 0o755); err != nil {
 		return "", err
 	}
-	target := filepath.Join(b.detachedDir(), slug+"-"+filepath.Base(s.Path))
+	target := filepath.Join(b.detachedDir(slug), slug+"-"+filepath.Base(s.Path))
 	for i := 2; ; i++ {
 		if _, err := os.Stat(target); os.IsNotExist(err) {
 			break
 		}
-		target = filepath.Join(b.detachedDir(), fmt.Sprintf("%s-%s-%d", slug, filepath.Base(s.Path), i))
+		target = filepath.Join(b.detachedDir(slug), fmt.Sprintf("%s-%s-%d", slug, filepath.Base(s.Path), i))
 	}
 	return target, nil
 }
