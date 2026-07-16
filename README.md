@@ -107,7 +107,7 @@ the **image** (`sandboxer image build|rm`) and **config**
 (`sandboxer config init|edit|validate`, plus
 `sandboxer profile list|use` for picking one), managing **state** (`clean`),
 and **entering/working** in the sandbox
-(`create` / `enter` / `exec` / `stop` / `rm` / `list` / `use`).
+(`create` / `enter` / `exec` / `stop` / `reset` / `rm` / `list` / `use`).
 
 ## Config vs data
 
@@ -140,22 +140,22 @@ sandbox).
 ### Continuing after a merged PR
 
 When a sandbox's branch has been merged and its remote branch deleted, re-base
-the same branch onto the freshly-merged default — on the **host**, with plain
-git in the worktree (sandboxer keeps no git history of its own, so there is no
-command for this):
+the same branch onto the freshly-merged default:
 
 ```bash
-wt="$(sandboxer path feat)"            # the worktree (multi-source: sandboxer path feat <name>)
-git -C "$wt" fetch origin --prune      # refresh origin/main; drop the deleted branch's ref
-git -C "$wt" reset --hard origin/main  # move the sandbox branch onto the merged default
-git -C "$wt" push -u origin HEAD       # re-create the remote branch for the next PR
+sandboxer reset feat                   # fetch + move every source's branch onto origin/main
+sandboxer reset feat api               # just the "api" source
+sandboxer reset feat --onto origin/master   # a repo whose default differs
+git -C "$(sandboxer path feat)" push -u origin HEAD   # re-create the remote branch for the next PR
 ```
 
-Stay on the branch — don't `git checkout main` in the worktree (git refuses a
-branch already checked out in your main repo); `reset --hard origin/main` moves
-the sandbox branch while staying on it. `reset --hard` discards uncommitted
-work, so commit or stash any WIP first. A live session sees the new base
-immediately (the worktree is a bind mount), so no `recreate` is needed.
+`reset` stays ON the sandbox branch (never a `git checkout main`, so the base
+branch checked out in your main repo is never contended), refuses a source
+with uncommitted work unless `--force` (checked across the whole sandbox
+BEFORE anything moves — never a half-reset), and skips adopted worktrees. A
+live session sees the new base immediately (the worktree is a bind mount), so
+no `recreate` is needed. It is plain `git fetch` + `reset --hard` under the
+hood — the manual equivalent is always available via `sandboxer path`.
 
 ## Persistent sessions
 

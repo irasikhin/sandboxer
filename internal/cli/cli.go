@@ -99,6 +99,7 @@ var commandGroups = map[string]string{
 	"exec":     groupSandbox,
 	"stop":     groupSandbox,
 	"recreate": groupSandbox,
+	"reset":    groupSandbox,
 	"rm":       groupSandbox,
 	"list":     groupSandbox,
 	"use":      groupSandbox,
