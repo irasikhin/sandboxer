@@ -150,6 +150,27 @@
                 navigate = true
           '';
 
+          # Nested-podman plumbing: podman refuses to run without a signature
+          # policy, and pulls need a registry search list. Mirrors are a
+          # per-user concern: add them in the sandbox at
+          # ~/.config/containers/registries.conf (rootless podman lets the
+          # $HOME config override this system one, and the sandbox $HOME
+          # persists).
+          containersPolicy = pkgs.writeTextDir "etc/containers/policy.json" ''
+            { "default": [ { "type": "insecureAcceptAnything" } ] }
+          '';
+          containersRegistries = pkgs.writeTextDir "etc/containers/registries.conf" ''
+            unqualified-search-registries = ["docker.io"]
+            # Mirrors (e.g. when docker.io is throttled where you are): copy
+            # this file to ~/.config/containers/registries.conf inside the
+            # sandbox and add
+            #   [[registry]]
+            #   prefix = "docker.io"
+            #   location = "registry-1.docker.io"
+            #   [[registry.mirror]]
+            #   location = "mirror.gcr.io"
+          '';
+
           # System tmux config at /etc/tmux.conf — tmux reads it by default, so
           # an OPT-IN `tmux` inside the sandbox is configured out of the box
           # (sandboxer itself no longer starts or attaches any multiplexer):
@@ -194,6 +215,25 @@
                 delta
                 gnumake
                 unzip
+                # everyday language runtimes — baked into the BASE image so
+                # scripts and builds just work (the tools packs still exist
+                # for pinned per-profile variants)
+                python3
+                nodejs
+                jdk
+                maven
+                redocly
+                # nested containers: ROOTLESS podman-in-podman (never dind —
+                # no engine socket is ever mounted) + its runtime pieces;
+                # pulls ride the sandbox's HTTP(S)_PROXY through the egress
+                # allowlist like any other traffic
+                podman
+                crun
+                conmon
+                netavark
+                aardvark-dns
+                passt
+                fuse-overlayfs
                 # OPT-IN terminal multiplexers — sandboxer does not start or
                 # attach them; run tmux or zellij yourself for detachable
                 # panes — plus the terminfo they need
@@ -207,6 +247,8 @@
                 shellRc
                 gitConfig
                 tmuxConf
+                containersPolicy
+                containersRegistries
               ]
               ++ userPkgs
               ++ userFiles;

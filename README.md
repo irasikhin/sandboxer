@@ -49,9 +49,13 @@ commit (`git init && git add -A && git commit -m init`). Non-git trees come in
 via `extraMounts`.
 
 Isolation backend — a **docker / podman** container built from a toolbox image
-with the agents baked in (claude, opencode, crush, aider, pi, gemini). Any of
-them; each sandbox gets its own isolated home, and network, proxy and
-credentials are wired per config.
+with the agents baked in (claude, opencode, crush, aider, pi, gemini) plus an
+everyday toolchain: python3, node/npm, jdk+maven, redocly, ripgrep/fd/jq/…,
+opt-in tmux/zellij, and **rootless podman** for nested containers (never
+docker-in-docker — no engine socket is ever mounted; pulls go through the
+egress allowlist, whose defaults include docker.io/ghcr.io/quay.io and
+mirror.gcr.io). Each sandbox gets its own isolated home, and network, proxy
+and credentials are wired per config.
 
 For the full picture — on-disk layout, sandbox lifecycle, how the toolbox image
 is built and cached, the egress proxy and the agent registry — see

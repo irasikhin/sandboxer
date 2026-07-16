@@ -122,7 +122,7 @@ func starterProfile(name string, d config.Defaults) string {
 
   # Egress: outbound-traffic policy. allowedDomains is the ONLY domains the
   # sandbox may reach (everything else is blocked), seeded with the effective
-  # defaults (SANDBOXER_DOMAINS or the built-in set — AI APIs + common package
+  # defaults (SANDBOXER_DOMAINS or the built-in set — AI APIs, package + container
   # registries). Setting allowedDomains REPLACES that default set wholesale —
   # re-list EVERY domain you need, or delete the attr to keep the full defaults.
   egress = {

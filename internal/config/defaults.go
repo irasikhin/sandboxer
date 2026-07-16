@@ -58,7 +58,8 @@ const DefaultProxyImage = "sandboxer-proxy:latest"
 func ProxyImage() string { return envOr("SANDBOXER_PROXY_IMAGE", DefaultProxyImage) }
 
 // DefaultDomains is the egress allowlist used when none is configured: AI API
-// endpoints plus common package registries across ecosystems. The Anthropic set
+// endpoints, common package registries across ecosystems, and the container
+// registries the in-sandbox rootless podman pulls from. The Anthropic set
 // covers the API plus the auth/config endpoints Claude Code v2.x reaches on
 // startup (platform.claude.com, console.anthropic.com) — omitting them leaves
 // the CLI unable to connect even though api.anthropic.com is allowed.
@@ -68,7 +69,10 @@ const DefaultDomains = "api.anthropic.com,platform.claude.com,console.anthropic.
 	"files.pythonhosted.org,repo.maven.apache.org,repo1.maven.org,central.sonatype.com," +
 	"plugins.gradle.org,services.gradle.org,crates.io,static.crates.io,index.crates.io," +
 	"proxy.golang.org,sum.golang.org,rubygems.org,github.com,codeload.github.com," +
-	"raw.githubusercontent.com,objects.githubusercontent.com,api.github.com"
+	"raw.githubusercontent.com,objects.githubusercontent.com,api.github.com," +
+	"docker.io,registry-1.docker.io,auth.docker.io,index.docker.io," +
+	"production.cloudflare.docker.com,mirror.gcr.io,ghcr.io," +
+	"pkg-containers.githubusercontent.com,quay.io,cdn01.quay.io,cdn02.quay.io,cdn03.quay.io"
 
 // Defaults holds the env-derived defaults (SANDBOXER_*), the lowest-precedence
 // layer below profile values and command flags.
