@@ -94,13 +94,25 @@ func (b *Base) profileSrcs(slug string) []config.Src {
 // short path hash on collision). Entry order is preserved. An empty list is
 // an error, never an implicit "current directory": what a sandbox exposes is
 // always spelled out in the config.
-func (b *Base) resolveSrcs(slug string, specs []config.Src, w io.Writer) ([]Source, error) {
+//
+// prev is the recorded source list from earlier syncs: a source's branch is
+// decided ONCE, at first sync, and sticky from then on — a repo already
+// recorded keeps its recorded branch (and minted-vs-reused verdict), so a
+// change of the default naming scheme can never set an existing sandbox's
+// worktree aside. An explicit branch: is the one way to switch.
+func (b *Base) resolveSrcs(slug string, specs []config.Src, prev []Source, w io.Writer) ([]Source, error) {
 	if len(specs) == 0 {
 		return nil, fmt.Errorf("srcs is empty — a sandbox needs at least one source; add to %s, e.g.:\n"+
 			"  srcs:\n"+
 			"    - src: .               # this repo\n"+
 			"    - src: ../other-repo   # any git repo\n"+
 			"(edit it with: sandboxer config edit)", config.ConfigFileName)
+	}
+	recorded := map[string]Source{} // repo toplevel -> the source as last synced
+	for _, p := range prev {
+		if p.Branch != "" {
+			recorded[p.RepoRoot] = p
+		}
 	}
 	seenRepo := map[string]bool{}
 	seenName := map[string]bool{}
@@ -136,12 +148,21 @@ func (b *Base) resolveSrcs(slug string, specs []config.Src, w io.Writer) ([]Sour
 		src := Source{RepoRoot: top, Include: spec.Include}
 		src.Branch = spec.Branch
 		if src.Branch == "" {
-			src.Branch = worktree.Branch(slug)
-			// Only a branch sandboxer mints itself may be deleted by a full
-			// reset; a pre-existing feat/<slug> of yours is reused, not owned.
-			// (SyncSrcs keeps this sticky across re-syncs via the recorded
-			// meta — after the first sync the branch exists either way.)
-			src.AutoBranch = !worktree.BranchExists(top, src.Branch)
+			if p, ok := recorded[top]; ok {
+				// Already synced once: the recorded branch is authoritative,
+				// whatever the CURRENT default naming would compute.
+				src.Branch, src.AutoBranch = p.Branch, p.AutoBranch
+			} else {
+				src.Branch = worktree.Branch(slug)
+				// Only a branch sandboxer mints itself may be deleted by a
+				// full reset; a pre-existing feat/<slug> of yours is reused,
+				// not owned.
+				src.AutoBranch = !worktree.BranchExists(top, src.Branch)
+			}
+		} else if p, ok := recorded[top]; ok && p.Branch == src.Branch {
+			// Same branch, now spelled explicitly: the minted verdict travels
+			// with the branch (it exists either way after the first sync).
+			src.AutoBranch = p.AutoBranch
 		}
 		if wt, ok := worktree.FindWorktree(top, src.Branch); ok &&
 			!strings.HasPrefix(wt, b.SandboxDir(slug)+string(filepath.Separator)) {
@@ -179,31 +200,24 @@ func shortPathHash(p string) string {
 }
 
 // SyncSrcs converges the sandbox's on-disk sources onto the stored profile:
-// it (re-)resolves srcs, creates missing managed worktrees, re-syncs their
-// sparse patterns, sets aside managed worktrees whose source was dropped (or
-// whose branch changed) under _detached/, and records the result in
-// _meta/<slug>.srcs.json. It runs on create and on every enter/exec, so
-// editing srcs opens access without recreating anything: the container's one
-// stable mount is the <slug>/ dir this function populates, and a live session
-// sees the change immediately.
+// it (re-)resolves srcs (each source's branch is decided at first sync and
+// sticky from then on — see resolveSrcs), creates missing managed worktrees,
+// re-syncs their sparse patterns, sets aside managed worktrees whose source
+// was dropped (or whose branch: changed) under _detached/, and records the
+// result in _meta/<slug>.srcs.json. It runs on create and on every
+// enter/exec, so editing srcs opens access without recreating anything: the
+// container's one stable mount is the <slug>/ dir this function populates,
+// and a live session sees the change immediately.
 func (b *Base) SyncSrcs(slug string, w io.Writer) ([]Source, error) {
 	dest := b.SandboxDir(slug)
 	if worktree.IsWorktree(dest) {
 		return nil, fmt.Errorf("sandbox %q predates the srcs model (its dir is itself a worktree) — "+
 			"rebuild it: sandboxer recreate %s", slug, slug)
 	}
-	srcs, err := b.resolveSrcs(slug, b.profileSrcs(slug), w)
+	prev := b.Srcs(slug)
+	srcs, err := b.resolveSrcs(slug, b.profileSrcs(slug), prev, w)
 	if err != nil {
 		return nil, err
-	}
-	// AutoBranch is decided when the branch is first minted; on later syncs
-	// the branch exists either way, so carry the recorded verdict forward.
-	for i := range srcs {
-		for _, prev := range b.Srcs(slug) {
-			if prev.RepoRoot == srcs[i].RepoRoot && prev.Branch == srcs[i].Branch && prev.AutoBranch {
-				srcs[i].AutoBranch = true
-			}
-		}
 	}
 	if err := os.MkdirAll(dest, 0o755); err != nil {
 		return nil, err
@@ -217,17 +231,31 @@ func (b *Base) SyncSrcs(slug string, w io.Writer) ([]Source, error) {
 			want[s.Path] = s.Branch
 		}
 	}
-	for _, prev := range b.Srcs(slug) {
-		if !prev.Managed {
+	for _, p := range prev {
+		if !p.Managed {
 			continue
 		}
-		if br, ok := want[prev.Path]; ok && br == worktree.CurrentBranch(prev.Path) {
-			continue
+		if br, ok := want[p.Path]; ok {
+			if !worktree.IsWorktree(p.Path) {
+				continue // not materialized yet; Ensure below will create it
+			}
+			cur := worktree.CurrentBranch(p.Path)
+			if cur == br {
+				continue
+			}
+			if cur == "" {
+				// No branch to compare: a detached HEAD (mid-rebase, a pinned
+				// commit) or a git failure. "Unknown" is not "switched" —
+				// leave the worktree in place rather than set aside work that
+				// may well be the wanted branch's.
+				if w != nil {
+					fmt.Fprintf(w, "sandboxer: srcs %s: worktree is not on a branch (detached HEAD?) — left in place\n",
+						filepath.Base(p.Path))
+				}
+				continue
+			}
 		}
-		if _, ok := want[prev.Path]; ok && !worktree.IsWorktree(prev.Path) {
-			continue // not materialized yet; Ensure below will create it
-		}
-		if err := b.detachSrc(slug, prev, w); err != nil {
+		if err := b.detachSrc(slug, p, w); err != nil {
 			return nil, err
 		}
 	}
@@ -270,21 +298,37 @@ func warnEmptySelection(s Source, w io.Writer) {
 // detachSrc moves a managed worktree out of the mounted <slug>/ tree into
 // _detached/, keeping its branch and any uncommitted work intact. The move is
 // mandatory — a tree that cannot be set aside would stay visible in the
-// container, silently keeping access open.
+// container, silently keeping access open. A directory git no longer
+// recognizes as a worktree is set aside the same way (its contents may be
+// real work behind a broken linkage); only a missing or empty one is removed.
 func (b *Base) detachSrc(slug string, s Source, w io.Writer) error {
 	if !worktree.IsWorktree(s.Path) {
-		_ = os.RemoveAll(s.Path)
+		entries, err := os.ReadDir(s.Path)
+		switch {
+		case os.IsNotExist(err):
+			return nil // already gone
+		case err != nil:
+			return fmt.Errorf("set dropped source %s aside: %w", filepath.Base(s.Path), err)
+		case len(entries) == 0:
+			_ = os.RemoveAll(s.Path) // empty — nothing to preserve
+			return nil
+		}
+		target, err := b.detachTarget(slug, s)
+		if err != nil {
+			return err
+		}
+		if err := os.Rename(s.Path, target); err != nil {
+			return fmt.Errorf("set dropped source %s aside: %w", filepath.Base(s.Path), err)
+		}
+		if w != nil {
+			fmt.Fprintf(w, "sandboxer: source %s dropped — its directory moved to %s (not a git worktree)\n",
+				filepath.Base(s.Path), target)
+		}
 		return nil
 	}
-	if err := os.MkdirAll(b.detachedDir(), 0o755); err != nil {
+	target, err := b.detachTarget(slug, s)
+	if err != nil {
 		return err
-	}
-	target := filepath.Join(b.detachedDir(), slug+"-"+filepath.Base(s.Path))
-	for i := 2; ; i++ {
-		if _, err := os.Stat(target); os.IsNotExist(err) {
-			break
-		}
-		target = filepath.Join(b.detachedDir(), fmt.Sprintf("%s-%s-%d", slug, filepath.Base(s.Path), i))
 	}
 	if err := worktree.Move(s.RepoRoot, s.Path, target); err != nil {
 		return fmt.Errorf("set dropped source %s aside: %w", filepath.Base(s.Path), err)
@@ -294,6 +338,22 @@ func (b *Base) detachSrc(slug string, s Source, w io.Writer) error {
 			filepath.Base(s.Path), target, s.Branch)
 	}
 	return nil
+}
+
+// detachTarget picks a fresh destination under _detached/ for slug's dropped
+// source (creating the dir), suffix-numbered on collision.
+func (b *Base) detachTarget(slug string, s Source) (string, error) {
+	if err := os.MkdirAll(b.detachedDir(), 0o755); err != nil {
+		return "", err
+	}
+	target := filepath.Join(b.detachedDir(), slug+"-"+filepath.Base(s.Path))
+	for i := 2; ; i++ {
+		if _, err := os.Stat(target); os.IsNotExist(err) {
+			break
+		}
+		target = filepath.Join(b.detachedDir(), fmt.Sprintf("%s-%s-%d", slug, filepath.Base(s.Path), i))
+	}
+	return target, nil
 }
 
 // SrcMounts returns the extra container mounts a sandbox needs beyond its

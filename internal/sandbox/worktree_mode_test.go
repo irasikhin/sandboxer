@@ -375,6 +375,136 @@ func TestDefaultBranchAdoptsExistingCheckout(t *testing.T) {
 	}
 }
 
+// TestSyncSrcsKeepsRecordedBranchAfterDefaultRename: the branch is chosen at
+// first sync and sticky thereafter — when the recorded branch differs from
+// what today's default naming would compute (e.g. the feat/<slug>-sb →
+// feat/<slug> rename), a re-sync keeps the recorded branch and the worktree
+// in place instead of setting the agent's work aside and minting a fresh
+// checkout.
+func TestSyncSrcsKeepsRecordedBranchAfterDefaultRename(t *testing.T) {
+	repo := gitRepoWithCommit(t)
+	b, err := ResolveBase(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := b.WriteProfileJSON("ren", []byte(`{"srcs":[{"src":"."}]}`)); err != nil {
+		t.Fatal(err)
+	}
+	if err := b.MakeSandbox("ren", io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	s := b.Srcs("ren")[0]
+
+	// given: the sandbox predates a rename of the default naming scheme — its
+	// worktree sits on feat/ren-old and the meta records that branch.
+	runGit(t, s.Path, "checkout", "-qb", "feat/ren-old")
+	s.Branch = "feat/ren-old"
+	if err := b.writeSrcs("ren", []Source{s}); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(s.Path, "wip.txt"), "precious")
+
+	// when: a re-sync would compute today's default (feat/ren)
+	srcs, err := b.SyncSrcs("ren", io.Discard)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// then: the recorded branch wins — same path, same branch, work intact,
+	// nothing set aside.
+	if len(srcs) != 1 || srcs[0].Path != s.Path || srcs[0].Branch != "feat/ren-old" {
+		t.Fatalf("recorded branch not sticky: %+v", srcs)
+	}
+	if br := strings.TrimSpace(runGit(t, s.Path, "rev-parse", "--abbrev-ref", "HEAD")); br != "feat/ren-old" {
+		t.Errorf("worktree switched to %q, want feat/ren-old", br)
+	}
+	if _, err := os.Stat(filepath.Join(s.Path, "wip.txt")); err != nil {
+		t.Errorf("uncommitted work lost: %v", err)
+	}
+	if _, err := os.Stat(b.detachedDir()); !os.IsNotExist(err) {
+		t.Errorf("worktree was set aside under _detached (err=%v)", err)
+	}
+}
+
+// TestSyncSrcsKeepsWorktreeOnDetachedHead: a worktree whose branch cannot be
+// read (detached HEAD — a rebase stop, a pinned commit) is left in place with
+// a notice, never set aside: "unknown" is not "switched".
+func TestSyncSrcsKeepsWorktreeOnDetachedHead(t *testing.T) {
+	repo := gitRepoWithCommit(t)
+	b, err := ResolveBase(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := b.WriteProfileJSON("det", []byte(`{"srcs":[{"src":"."}]}`)); err != nil {
+		t.Fatal(err)
+	}
+	if err := b.MakeSandbox("det", io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	s := b.Srcs("det")[0]
+	runGit(t, s.Path, "checkout", "-q", "--detach")
+	writeFile(t, filepath.Join(s.Path, "wip.txt"), "precious")
+
+	var progress strings.Builder
+	srcs, err := b.SyncSrcs("det", &progress)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(srcs) != 1 || srcs[0].Path != s.Path {
+		t.Fatalf("srcs = %+v, want the same single source", srcs)
+	}
+	if _, err := os.Stat(filepath.Join(s.Path, "wip.txt")); err != nil {
+		t.Errorf("uncommitted work lost: %v", err)
+	}
+	if _, err := os.Stat(b.detachedDir()); !os.IsNotExist(err) {
+		t.Errorf("detached-HEAD worktree was set aside (err=%v)", err)
+	}
+	if !strings.Contains(progress.String(), "not on a branch") {
+		t.Errorf("expected a left-in-place notice, got %q", progress.String())
+	}
+}
+
+// TestDetachSetsAsideNonWorktreeDir: a dropped managed source whose directory
+// git no longer recognizes (broken linkage) is moved under _detached/, never
+// deleted — the contents may be real work.
+func TestDetachSetsAsideNonWorktreeDir(t *testing.T) {
+	repo := gitRepoWithCommit(t)
+	other := gitRepoWithCommit(t)
+	b, err := ResolveBase(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pj := fmt.Sprintf(`{"srcs":[{"src":"."},{"src":%q}]}`, other)
+	if err := b.WriteProfileJSON("brk", []byte(pj)); err != nil {
+		t.Fatal(err)
+	}
+	if err := b.MakeSandbox("brk", io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	dropped := b.Srcs("brk")[1]
+
+	// given: the second worktree's git linkage broke, but real work is inside
+	if err := os.Remove(filepath.Join(dropped.Path, ".git")); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(dropped.Path, "wip.txt"), "precious")
+
+	// when: that source is dropped from srcs
+	if err := b.WriteProfileJSON("brk", []byte(`{"srcs":[{"src":"."}]}`)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := b.SyncSrcs("brk", io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	// then: the directory moved aside with its contents, not deleted
+	if _, err := os.Stat(dropped.Path); !os.IsNotExist(err) {
+		t.Errorf("dropped dir still under the sandbox dir (err=%v)", err)
+	}
+	moved, err := filepath.Glob(filepath.Join(b.detachedDir(), "brk-*", "wip.txt"))
+	if err != nil || len(moved) != 1 {
+		t.Errorf("dropped dir's work not preserved under _detached: %v (err=%v)", moved, err)
+	}
+}
+
 // TestSyncSrcsRejectsPreSrcsLayout: a sandbox whose dir is itself a worktree
 // (the pre-srcs layout) is refused with a recreate hint instead of nesting new
 // worktrees inside the old one.
