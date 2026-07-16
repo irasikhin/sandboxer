@@ -402,6 +402,41 @@ func TestCleanDetachedFlag(t *testing.T) {
 	}
 }
 
+// TestCreateSeedsHostConfigs: the scaffolded profile enables hostConfigs, so
+// create copies the host's agent configs into the sandbox's private home —
+// and never overwrites what a later in-sandbox login/edit put there.
+func TestCreateSeedsHostConfigs(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	if err := os.MkdirAll(filepath.Join(home, ".claude"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, ".claude", ".credentials.json"), []byte("tok"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, ".claude.json"), []byte("host"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	project := newProject(t)
+	if code, _, errs := run("create", "feat", "--src", project); code != 0 {
+		t.Fatalf("create: %d %s", code, errs)
+	}
+	seeded := stateDir(project, "_home", "feat", ".claude", ".credentials.json")
+	if data, err := os.ReadFile(seeded); err != nil || string(data) != "tok" {
+		t.Fatalf("credentials not seeded into the sandbox home: %q err=%v", data, err)
+	}
+	stateJSON := stateDir(project, "_home", "feat", ".claude.json")
+	if err := os.WriteFile(stateJSON, []byte("sandbox-edited"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if code, _, errs := run("create", "feat", "--src", project); code != 0 {
+		t.Fatalf("re-create: %d %s", code, errs)
+	}
+	if data, _ := os.ReadFile(stateJSON); string(data) != "sandbox-edited" {
+		t.Errorf("in-sandbox state overwritten by re-seed: %q", data)
+	}
+}
+
 func TestRunInContainerRestriction(t *testing.T) {
 	t.Setenv("SANDBOXER_IN_CONTAINER", "1")
 	code, _, errs := run("create", "x", "--src", t.TempDir())

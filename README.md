@@ -61,8 +61,14 @@ opt-in tmux/zellij, and **rootless podman** for nested containers (never
 docker-in-docker — no engine socket is ever mounted; pulls go through the
 egress allowlist, whose defaults include docker.io/ghcr.io/quay.io and
 mirror.gcr.io). Each sandbox gets its own isolated home, and network/proxy
-are wired per config. Credentials never come from the host: log in or export
-keys inside the sandbox (its private $HOME persists).
+are wired per config. Agent auth is yours to choose: with `hostConfigs = true`
+(the scaffolded default) the sandbox home is seeded with a COPY of your host
+agent configs — `~/.claude` + `~/.claude.json`, `~/.codex`, `~/.gemini`,
+opencode/crush/aider — credentials included, transcripts/caches excluded, so
+agents start already logged in (the host config is never mounted and never
+written back; an in-sandbox login is never overwritten). Without it,
+credentials never come from the host: log in or export keys inside the
+sandbox (its private $HOME persists).
 
 For the full picture — on-disk layout, sandbox lifecycle, how the toolbox image
 is built and cached, the egress proxy and the agent registry — see

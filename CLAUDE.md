@@ -90,7 +90,10 @@ was extracted from:
   network path. The config block is `egress` (`egress.enabled` = false drops to a direct proxy; default on).
   Disable with `SANDBOXER_NO_EGRESS=1`.
 - **Agent registry** (`internal/registry/registry.json`): the single-source catalog of agents — embedded in the
-  binary AND consumed by the Nix flake (`llm-agents.nix`). Edit the JSON, never duplicate it.
+  binary AND consumed by the Nix flake (`llm-agents.nix`). Edit the JSON, never duplicate it. Each agent's
+  `seed` entries name its host-home config paths (with skip lists for transcripts/caches): a profile with
+  `hostConfigs = true` (scaffold default) COPIES those into the sandbox home once — never a mount, never
+  written back, never overwriting an in-sandbox login (`sandbox.SeedHome`).
 - **Toolbox image** (`internal/toolbox` + flake `dockerTools.buildLayeredImage`): the OCI image with the agents
   baked in; built via `nix run .#build-image`.
 - **Integration tests** (`internal/itest`, `//go:build integration`): drive a real engine and skip cleanly when

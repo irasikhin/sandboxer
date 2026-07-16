@@ -26,6 +26,22 @@ type Agent struct {
 	// Image reports whether the agent is baked into the toolbox image. A nil
 	// pointer means yes (default); only codex sets it false.
 	Image *bool `json:"image,omitempty"`
+	// Seed lists the agent's config locations in the HOST home — credentials,
+	// settings, global memory — copied into a sandbox's private home when the
+	// profile opts in with hostConfigs, so the agent starts already
+	// authenticated. Paths are slash-relative to $HOME; an agent without seed
+	// entries only authenticates via env or an in-sandbox login.
+	Seed []SeedPath `json:"seed,omitempty"`
+}
+
+// SeedPath is one host-home location an agent's config is seeded from.
+type SeedPath struct {
+	// Path is the file or directory, slash-relative to the home dir.
+	Path string `json:"path"`
+	// Skip names subpaths (slash-relative to Path) excluded from the copy —
+	// bulky, private or machine-bound data an agent works fine without
+	// (transcripts, caches, session logs).
+	Skip []string `json:"skip,omitempty"`
 }
 
 var catalog map[string]Agent

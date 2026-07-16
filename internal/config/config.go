@@ -244,6 +244,17 @@ type Profile struct {
 	// stay dropped and no-new-privileges stays on either way — see
 	// backend.nestedContainerArgs and SECURITY.md.
 	NestedContainers bool `json:"nestedContainers,omitempty"`
+	// HostConfigs seeds the sandbox's private home from the HOST's agent
+	// configs (registry seed paths: ~/.claude + ~/.claude.json, ~/.codex,
+	// ~/.gemini, opencode/crush/aider configs — credentials included), so
+	// agents start already authenticated instead of demanding a login per
+	// sandbox. Always a COPY into the per-sandbox home (never a mount: the
+	// sandbox cannot touch the host's real config, and parallel sandboxes
+	// cannot race), applied on create/enter/exec only for paths the sandbox
+	// home does not have yet — an in-sandbox login/logout is never
+	// overwritten. Opt-in because it hands the sandbox live credentials; the
+	// scaffolded config enables it. See sandbox.SeedHome and SECURITY.md.
+	HostConfigs bool `json:"hostConfigs,omitempty"`
 	// Session selects how enter/exec use the container: "persistent" (the
 	// default) keeps one detached session container running across invocations,
 	// "ephemeral" starts a fresh one-shot container per command.
@@ -279,7 +290,7 @@ var removedKeys = map[string]string{
 	"agentProxy": "removed — route by destination instead: egress.routes",
 	"roots":      "removed — sandboxes are git worktrees now (no copy mode); mount other trees with extraMounts",
 	"context":    "removed — a git-worktree sandbox already contains the repo's files (nothing is copied in)",
-	"agents":     "removed — no credentials are passed through anymore; log in or export API keys INSIDE the sandbox (its $HOME persists)",
+	"agents":     "removed — set hostConfigs = true to seed the sandbox home from the host's agent configs (credentials included), or log in / export API keys INSIDE the sandbox (its $HOME persists)",
 	"extraPkgs":  "renamed — image.packages (same nixpkgs attr names; overlay-defined attrs may be listed too)",
 	"hook":       "removed — put static customization in image.{packages,files,env}; anything needing pkgs is a plain nixpkgs overlay file: image.overlay = \"./overlay.nix\"",
 	"nix":        "replaced by image.overlay — a file with a PLAIN nixpkgs overlay (final: prev: { … }); expose computed packages/files as overlay attrs and list them in image.packages",

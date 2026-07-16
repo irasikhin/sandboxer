@@ -40,6 +40,39 @@ func TestAgentFields(t *testing.T) {
 	}
 }
 
+// TestSeedPaths pins the seed surface hostConfigs relies on: every declared
+// seed path is home-relative (no leading '/' or '..'), and claude — the
+// primary agent — seeds both its config dir and the top-level state file.
+func TestSeedPaths(t *testing.T) {
+	for _, name := range Names() {
+		a, err := Get(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, sp := range a.Seed {
+			if sp.Path == "" || sp.Path[0] == '/' || sp.Path == ".." {
+				t.Errorf("%s: seed path %q must be home-relative", name, sp.Path)
+			}
+		}
+	}
+	claude, _ := Get("claude")
+	var paths []string
+	for _, sp := range claude.Seed {
+		paths = append(paths, sp.Path)
+	}
+	for _, want := range []string{".claude", ".claude.json"} {
+		if !slices.Contains(paths, want) {
+			t.Errorf("claude seed misses %q (got %v)", want, paths)
+		}
+	}
+	// the bulky, private transcripts dir stays behind
+	for _, sp := range claude.Seed {
+		if sp.Path == ".claude" && !slices.Contains(sp.Skip, "projects") {
+			t.Errorf(".claude seed must skip projects/ (got %v)", sp.Skip)
+		}
+	}
+}
+
 func TestCodexExcludedFromImage(t *testing.T) {
 	a, err := Get("codex")
 	if err != nil {

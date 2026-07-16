@@ -55,15 +55,22 @@ important — where it stops.
   (`git log`/`git diff`/`git merge <branch>`). There is no copy-back
   over host files.
 
-- **Isolated `$HOME` — no host credentials.** Each sandbox has its own private
-  home (`_home/<slug>` under the XDG state dir, `0700`), mounted as `$HOME`. The
-  host's real agent config — `~/.claude`, `~/.claude.json`, tokens, project
-  history, MCP servers — and your `~/.ssh`, `~/.aws`, etc. are **never** mounted
-  in. The **recommended, safe auth path is to log in inside the sandbox** (e.g.
-  `claude login`): the token lands in that sandbox's home and never reaches the
-  host. NOTHING credential-like is passed through from the host — API-key env
-  vars included: export a key or log in inside the sandbox when a task needs
-  it.
+- **Isolated `$HOME` — host configs only by opt-in, and only as a copy.** Each
+  sandbox has its own private home (`_home/<slug>` under the XDG state dir,
+  `0700`), mounted as `$HOME`. The host's real agent config — `~/.claude`,
+  `~/.claude.json`, tokens, project history, MCP servers — and your `~/.ssh`,
+  `~/.aws`, etc. are **never mounted** in, and API-key env vars are never
+  passed through. A profile may set `hostConfigs = true` (the scaffolded
+  config does) to **seed** the sandbox home with a one-time COPY of the
+  agents' own configs (credentials included, bulky/private transcripts
+  excluded), so agents start authenticated. The trade is explicit: code
+  running in that sandbox can read those copied credentials, and its egress
+  allowlist is the wall between them and an exfiltration attempt — but it
+  still cannot touch the host's real config (a hook written into the
+  sandbox's settings.json never executes on the host), copies are per-sandbox
+  (no cross-sandbox races), and an in-sandbox login/logout is never
+  overwritten by a later seed. Keeping `hostConfigs` off returns the old
+  posture: log in or export a key inside the sandbox when a task needs it.
 
 - **Clean container environment.** The agent runs in a podman/docker container
   from a clean, explicit environment: it does **not** inherit your host shell, so

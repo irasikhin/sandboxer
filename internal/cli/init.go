@@ -143,6 +143,14 @@ func starterProfile(name string, d config.Defaults) string {
     # ];
   };
 
+  # Seed the sandbox home from YOUR host agent configs — ~/.claude +
+  # ~/.claude.json, ~/.codex, ~/.gemini, opencode/crush/aider configs,
+  # credentials included — so agents start logged in (no per-sandbox auth).
+  # Always a COPY into the sandbox's private $HOME (the host config is never
+  # mounted and never written back); an in-sandbox login/logout is never
+  # overwritten. Remove (or set false) to keep sandboxes credential-free.
+  hostConfigs = true;
+
   # Where the worktrees live (absolute, ~, or relative to the project root);
   # default: ./sandboxes inside the project, auto-added to .gitignore. Set
   # BEFORE creating the sandbox — changing it later sets worktrees aside.

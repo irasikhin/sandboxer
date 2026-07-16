@@ -27,13 +27,16 @@ func sandboxDir(project string, parts ...string) string {
 // never writes into the developer's real ~/.local/state. SANDBOXER_STATE wins
 // over HOME/XDG_STATE_HOME, so tests that set their own HOME still get a state
 // dir under this root; config.StateDir(project) yields the matching path, which
-// tests use to locate the per-project state.
+// tests use to locate the per-project state. HOME is isolated too: the
+// scaffolded profile enables hostConfigs, and seeding must read a hermetic
+// home — never the developer's real ~/.claude — unless a test plants one.
 func TestMain(m *testing.M) {
 	dir, err := os.MkdirTemp("", "sandboxer-cli-state-")
 	if err != nil {
 		panic(err)
 	}
 	_ = os.Setenv("SANDBOXER_STATE", dir)
+	_ = os.Setenv("HOME", filepath.Join(dir, "home"))
 	code := m.Run()
 	_ = os.RemoveAll(dir)
 	os.Exit(code)

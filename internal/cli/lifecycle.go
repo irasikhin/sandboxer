@@ -72,6 +72,7 @@ func newCreateCmd() *cobra.Command {
 			if err := t.base.MakeSandbox(t.slug, cmd.ErrOrStderr()); err != nil {
 				return err
 			}
+			seedHostConfigs(t, cmd.ErrOrStderr())
 			warnIgnoredConfig(cmd.ErrOrStderr(), t.base.Src)
 			rtCreate, err := t.runtime(f)
 			if err != nil {
@@ -184,6 +185,7 @@ image, ready to use).`,
 			if err := t.base.EnsureHome(t.slug); err != nil {
 				return err
 			}
+			seedHostConfigs(t, errOut)
 			if err := runSetup(t, rt, engine, f.noSetup, errOut); err != nil {
 				return err
 			}
@@ -329,6 +331,7 @@ func newExecCmd() *cobra.Command {
 			if err := t.base.EnsureHome(t.slug); err != nil {
 				return err
 			}
+			seedHostConfigs(t, cmd.ErrOrStderr())
 			if err := runSetup(t, rt, engine, f.noSetup, cmd.ErrOrStderr()); err != nil {
 				return err
 			}
@@ -390,6 +393,16 @@ func newExecCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&f.noSetup, "no-setup", false, "skip the profile's one-time setup script")
 	cmd.Flags().BoolVar(&f.ephemeral, "ephemeral", false, "one-shot container instead of the persistent session")
 	return cmd
+}
+
+// seedHostConfigs seeds the sandbox home from the host's agent configs when
+// the profile opts in (hostConfigs = true) — after EnsureHome, before anything
+// runs in the container. Copy-only and never-overwrite semantics live in
+// sandbox.SeedHome; this is just the profile gate.
+func seedHostConfigs(t *target, w io.Writer) {
+	if t.profile != nil && t.profile.HostConfigs {
+		t.base.SeedHome(t.slug, w)
+	}
 }
 
 // noEgress reports whether the egress allowlist is disabled via the environment.
