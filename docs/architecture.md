@@ -37,7 +37,10 @@ Key invariants (`internal/sandbox`, `internal/worktree`):
 - **`<slug>/` holds one git worktree per source** (`srcs` entry): each source
   repo checked out at `<slug>/<repo>/` on branch `feat/<slug>` (or the
   entry's `branch:`), narrowed by its gitignore-style `include` patterns via
-  non-cone `git sparse-checkout`. The container mounts `<slug>/` (and any
+  non-cone `git sparse-checkout`. The branch is decided at FIRST sync and
+  sticky thereafter (recorded in the meta) — a later change of the default
+  naming scheme never sets an existing sandbox's worktree aside; an explicit
+  `branch:` is the one way to switch. The container mounts `<slug>/` (and any
   adopted worktrees) — **never git metadata** — so the sparse contents ARE the
   access boundary; work returns as ordinary branches committed on the host.
   The resolved list is recorded at `_meta/<slug>.srcs.json`; every enter/exec
