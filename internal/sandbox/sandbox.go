@@ -343,7 +343,7 @@ func (b *Base) Remove(slug string) error {
 }
 
 // RemoveSandboxBranches force-deletes the sandbox's AUTO-NAMED git branches
-// (feat/<slug>-sb) in every source repo that got one. Normal teardown keeps
+// (feat/<slug>) in every source repo that got one. Normal teardown keeps
 // branches so work survives; a full reset (recreate --full) calls this for a
 // clean slate. Branches the user named explicitly (srcs branch:) are never
 // deleted — they are the user's, not sandboxer's. srcs is the source list

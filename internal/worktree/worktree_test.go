@@ -106,8 +106,8 @@ func TestEnsureFull(t *testing.T) {
 	if s := git(t, dest, "status", "--porcelain"); strings.TrimSpace(s) != "" {
 		t.Errorf("worktree not clean:\n%s", s)
 	}
-	if b := strings.TrimSpace(git(t, dest, "rev-parse", "--abbrev-ref", "HEAD")); b != "feat/feat-sb" {
-		t.Errorf("branch = %q, want feat/feat-sb", b)
+	if b := strings.TrimSpace(git(t, dest, "rev-parse", "--abbrev-ref", "HEAD")); b != "feat/feat" {
+		t.Errorf("branch = %q, want feat/feat", b)
 	}
 	if !IsWorktree(dest) {
 		t.Error("IsWorktree(dest) = false, want true")
@@ -307,7 +307,7 @@ func TestEnsureReportsProgress(t *testing.T) {
 	if err := Ensure(repo, filepath.Join(t.TempDir(), "wt"), Branch("f"), nil, &full); err != nil {
 		t.Fatalf("Ensure: %v", err)
 	}
-	if got := full.String(); !strings.Contains(got, "full repo") || !strings.Contains(got, "feat/f-sb") {
+	if got := full.String(); !strings.Contains(got, "full repo") || !strings.Contains(got, "feat/f") {
 		t.Errorf("progress = %q, want it to mention the branch and 'full repo'", got)
 	}
 

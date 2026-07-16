@@ -4,7 +4,7 @@
 # A sandbox exposes SOURCES: each srcs entry is a git repo checked out into a
 # host-side worktree; ONLY the files its gitignore-style include patterns
 # select are visible inside the container — git itself never is. Work returns
-# as an ordinary branch (feat/<name>-sb) you review and commit on the HOST;
+# as an ordinary branch (feat/<name>) you review and commit on the HOST;
 # there is no copy-in and no push-back.
 {
   name = "integ";

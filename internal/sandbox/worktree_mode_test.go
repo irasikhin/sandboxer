@@ -66,7 +66,7 @@ func TestMakeSandboxDotSrcFull(t *testing.T) {
 		t.Fatalf("srcs = %+v, want one source", srcs)
 	}
 	s := srcs[0]
-	if !s.Managed || !s.AutoBranch || s.Branch != "feat/wt-sb" || s.RepoRoot != repo {
+	if !s.Managed || !s.AutoBranch || s.Branch != "feat/wt" || s.RepoRoot != repo {
 		t.Errorf("dot source wrong: %+v", s)
 	}
 	// then: the worktree lives UNDER <slug>/ (the sandbox dir is not itself a
@@ -82,8 +82,8 @@ func TestMakeSandboxDotSrcFull(t *testing.T) {
 			t.Errorf("missing %s in worktree: %v", p, err)
 		}
 	}
-	if br := strings.TrimSpace(runGit(t, s.Path, "rev-parse", "--abbrev-ref", "HEAD")); br != "feat/wt-sb" {
-		t.Errorf("branch = %q, want feat/wt-sb", br)
+	if br := strings.TrimSpace(runGit(t, s.Path, "rev-parse", "--abbrev-ref", "HEAD")); br != "feat/wt" {
+		t.Errorf("branch = %q, want feat/wt", br)
 	}
 	if st := runGit(t, s.Path, "status", "--porcelain"); strings.TrimSpace(st) != "" {
 		t.Errorf("worktree not clean:\n%s", st)
@@ -285,13 +285,13 @@ func TestRemoveStateKeepsBranchesFullDropsAuto(t *testing.T) {
 	if strings.Contains(runGit(t, repo, "worktree", "list"), wt) {
 		t.Error("worktree still listed after RemoveState")
 	}
-	if !strings.Contains(runGit(t, repo, "branch", "--list", "feat/gone-sb"), "feat/gone-sb") {
+	if !strings.Contains(runGit(t, repo, "branch", "--list", "feat/gone"), "feat/gone") {
 		t.Error("branch removed by RemoveState, want kept")
 	}
 
 	// and: RemoveSandboxBranches then deletes the auto-named one (recreate --full)
 	b.RemoveSandboxBranches("gone", srcs)
-	if strings.TrimSpace(runGit(t, repo, "branch", "--list", "feat/gone-sb")) != "" {
+	if strings.TrimSpace(runGit(t, repo, "branch", "--list", "feat/gone")) != "" {
 		t.Error("branch present after RemoveSandboxBranches")
 	}
 }
@@ -316,6 +316,65 @@ func TestSyncSrcsWarnsEmptyInclude(t *testing.T) {
 	}
 }
 
+// TestReusePreexistingBranch: a feat/<slug> branch that already exists is
+// REUSED (checked out into the managed worktree), and because sandboxer did
+// not mint it, a full reset keeps it.
+func TestReusePreexistingBranch(t *testing.T) {
+	repo := gitRepoWithCommit(t)
+	runGit(t, repo, "branch", "feat/mine")
+	b, err := ResolveBase(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := b.WriteProfileJSON("mine", []byte(`{"srcs":[{"src":"."}]}`)); err != nil {
+		t.Fatal(err)
+	}
+	if err := b.MakeSandbox("mine", io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	srcs := b.Srcs("mine")
+	if len(srcs) != 1 || srcs[0].Branch != "feat/mine" || !srcs[0].Managed || srcs[0].AutoBranch {
+		t.Fatalf("pre-existing branch should be reused, not owned: %+v", srcs)
+	}
+	// A re-sync must not flip the verdict (the branch exists now either way).
+	if _, err := b.SyncSrcs("mine", io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	if s := b.Srcs("mine")[0]; s.AutoBranch {
+		t.Errorf("re-sync minted ownership of a user branch: %+v", s)
+	}
+	b.RemoveState("mine", true)
+	b.RemoveSandboxBranches("mine", srcs)
+	if !strings.Contains(runGit(t, repo, "branch", "--list", "feat/mine"), "feat/mine") {
+		t.Error("full reset deleted a branch sandboxer did not create")
+	}
+}
+
+// TestDefaultBranchAdoptsExistingCheckout: when feat/<slug> is already checked
+// out outside the sandbox (here: the repo's main checkout), the default-branch
+// source ADOPTS that checkout instead of failing git's one-worktree-per-branch
+// rule — and never marks the branch deletable.
+func TestDefaultBranchAdoptsExistingCheckout(t *testing.T) {
+	repo := gitRepoWithCommit(t)
+	runGit(t, repo, "checkout", "-qb", "feat/adopted")
+	project := t.TempDir()
+	b, err := ResolveBase(project)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pj := fmt.Sprintf(`{"srcs":[{"src":%q}]}`, repo)
+	if err := b.WriteProfileJSON("adopted", []byte(pj)); err != nil {
+		t.Fatal(err)
+	}
+	if err := b.MakeSandbox("adopted", io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	s := b.Srcs("adopted")[0]
+	if s.Managed || s.AutoBranch || s.Path != repo || s.Branch != "feat/adopted" {
+		t.Fatalf("default branch should adopt the existing checkout: %+v", s)
+	}
+}
+
 // TestSyncSrcsRejectsPreSrcsLayout: a sandbox whose dir is itself a worktree
 // (the pre-srcs layout) is refused with a recreate hint instead of nesting new
 // worktrees inside the old one.
@@ -325,7 +384,7 @@ func TestSyncSrcsRejectsPreSrcsLayout(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := worktree.Ensure(repo, b.SandboxDir("old"), "feat/old-sb", nil, nil); err != nil {
+	if err := worktree.Ensure(repo, b.SandboxDir("old"), "feat/old", nil, nil); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := b.SyncSrcs("old", io.Discard); err == nil || !strings.Contains(err.Error(), "recreate") {

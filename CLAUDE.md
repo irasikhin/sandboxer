@@ -62,7 +62,7 @@ was extracted from:
   wipes that state (config stays).
 - **Sandbox backing = srcs** (`internal/worktree`, `internal/sandbox/srcs.go`): a sandbox exposes SOURCES —
   `srcs: [{src, include, branch}]` — each a git worktree at `<stateDir>/<slug>/<repo>/` on branch
-  `feat/<slug>-sb` (or the entry's `branch:`, which ADOPTS an existing worktree of that branch, incl. the main
+  `feat/<slug>` (or the entry's `branch:`, which ADOPTS an existing worktree of that branch, incl. the main
   checkout), narrowed by gitignore-style `include` patterns via **non-cone** `sparse-checkout`. srcs is ALWAYS
   explicit — an empty list is rejected; the scaffolded config seeds `srcs: [{src: .}]`. Relative src paths
   resolve against the PROJECT ROOT (not the profile file's dir). **Git never enters the container**: no git-dir mounts, no `GIT_CONFIG_*` — the

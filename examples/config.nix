@@ -5,7 +5,7 @@
 # `sandboxer create feat.nix`). This file is a standalone sample of the flat
 # single-profile form — copy it to ./sandboxer.nix to use it.
 {
-  # Sandbox name (slug). Drives the worktree branch feat/<name>-sb.
+  # Sandbox name (slug). Drives the worktree branch feat/<name>.
   name = "feature-x";
 
   # Isolation backend — a podman or docker container built from the toolbox

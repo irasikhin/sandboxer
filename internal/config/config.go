@@ -44,7 +44,7 @@ type Src struct {
 	// or ["**"] means the whole repo.
 	Include []string `json:"include,omitempty"`
 	// Branch checks the source out on a named branch instead of the managed
-	// feat/<slug>-sb one. An existing worktree of that branch (including the
+	// feat/<slug> one. An existing worktree of that branch (including the
 	// repo's main checkout) is adopted as-is; a missing branch is created off
 	// HEAD.
 	Branch string `json:"branch,omitempty"`

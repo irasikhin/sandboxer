@@ -18,7 +18,7 @@ can never be committed. The repo carries only two sandboxer-owned files:
                           #   committed; evaluated via host nix, restricted eval)
 
 $XDG_STATE_HOME/sandboxer/<project-id>/     # runtime state, outside the repo
-├── <slug>/               # one per sandbox: a git worktree on branch feat/<slug>-sb
+├── <slug>/               # one per sandbox: a git worktree on branch feat/<slug>
 ├── _meta/
 │   ├── run.env           # SRC / DOMAINS for this base
 │   ├── current           # the active sandbox slug (sandboxer use)
@@ -35,7 +35,7 @@ $XDG_STATE_HOME/sandboxer/<project-id>/     # runtime state, outside the repo
 Key invariants (`internal/sandbox`, `internal/worktree`):
 
 - **`<slug>/` holds one git worktree per source** (`srcs` entry): each source
-  repo checked out at `<slug>/<repo>/` on branch `feat/<slug>-sb` (or the
+  repo checked out at `<slug>/<repo>/` on branch `feat/<slug>` (or the
   entry's `branch:`), narrowed by its gitignore-style `include` patterns via
   non-cone `git sparse-checkout`. The container mounts `<slug>/` (and any
   adopted worktrees) — **never git metadata** — so the sparse contents ARE the
@@ -63,7 +63,7 @@ Key invariants (`internal/sandbox`, `internal/worktree`):
                     │   • run the one-time `setup:` if its hash changed
                     │   • shell into the persistent session container, or one-shot
                     ▼
-  review ─────────► per source, ON THE HOST: git -C <repo> log feat/<slug>-sb,
+  review ─────────► per source, ON THE HOST: git -C <repo> log feat/<slug>,
                     │   commit in the worktree, git diff / merge / cherry-pick
   stop ───────────► park the persistent session container (enter resumes it)
                     │

@@ -23,7 +23,7 @@ drives.
 ## How it works
 
 A **sandbox** exposes **sources**: git repos checked out into per-sandbox
-worktrees (branch `feat/<slug>-sb`) under the state dir. Run sandboxer inside a
+worktrees (branch `feat/<slug>`) under the state dir. Run sandboxer inside a
 repo and it just works — the scaffolded config pins `srcs: [{src: .}]`, the
 whole repo as the one source (always explicit, never implied). The
 container sees **only the files the sources select — git itself never enters
@@ -41,7 +41,7 @@ is copied.
   The scaffold seeds `srcs: [{src: .}]` — this repo, whole. Editing srcs
   applies on the next `enter`/`exec` — a running session sees the change live,
   no recreate.
-- **review** — on the HOST, per source repo: `git -C <repo> log feat/<slug>-sb`,
+- **review** — on the HOST, per source repo: `git -C <repo> log feat/<slug>`,
   `git add`/`commit` in the worktree, then merge or cherry-pick.
 
 sandboxer is **git-only**: every `src` must be a git repo with at least one
@@ -76,10 +76,10 @@ Or grab a [pre-built binary](https://github.com/irasikhin/sandboxer/releases)
 
 ```bash
 sandboxer config init                     # scaffold a commented sandboxer.nix to edit (optional)
-sandboxer create feat                     # create a sandbox named "feat" (worktree on branch feat/feat-sb)
+sandboxer create feat                     # create a sandbox named "feat" (worktree on branch feat/feat)
 sandboxer enter  feat                     # attach a shell (persistent session; Ctrl-q detaches)
 sandboxer exec   feat -- claude           # run an agent/command inside it
-git log feat/feat-sb                      # the work is an ordinary branch (commit it on the host)
+git log feat/feat                      # the work is an ordinary branch (commit it on the host)
 sandboxer stop   feat                     # park the session container (enter resumes it)
 sandboxer list                            # status of all sandboxes (alias: sandboxer status)
 sandboxer rm     feat                     # delete the sandbox and its session (keeps the branch)
@@ -113,9 +113,9 @@ state for the project; the config stays.
 ## How changes flow
 
 Changes flow through git — on the host. Each source is a **git worktree** on
-branch `feat/<slug>-sb`; the container's edits appear there live (bind mount),
+branch `feat/<slug>`; the container's edits appear there live (bind mount),
 and **you** commit/review them with plain git (`git -C <worktree> add/commit`,
-`git log`/`git diff`/`git merge feat/<slug>-sb`). The container itself has no
+`git log`/`git diff`/`git merge feat/<slug>`). The container itself has no
 git access at all: no object store, no hooks, no history. There is no copy-in
 and no push-back. Teardown (`rm`, `recreate`) keeps the branches;
 `recreate --full` deletes the auto-named ones for a fresh start (never a

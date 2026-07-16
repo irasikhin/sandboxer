@@ -122,5 +122,5 @@ one-off command in it; `sandboxer enter <slug>` drops you into an interactive
 shell. From there you have the same view the agent does — check the state dir's
 `_logs/` for captured output. To review the agent's pending work use ordinary
 git ON THE HOST (the container has no git access): uncommitted edits sit in the
-source worktrees under `<slug>/`, committed work on `feat/<slug>-sb`
-(`git log feat/<slug>-sb`, `git diff main...feat/<slug>-sb`).
+source worktrees under `<slug>/`, committed work on `feat/<slug>`
+(`git log feat/<slug>`, `git diff main...feat/<slug>`).

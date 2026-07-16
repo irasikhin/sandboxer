@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 
 	"github.com/irasikhin/sandboxer/internal/config"
 	"github.com/irasikhin/sandboxer/internal/worktree"
@@ -29,9 +30,9 @@ type Source struct {
 	// checked out somewhere, including the repo's main checkout) is never
 	// touched by teardown — it is only mounted.
 	Managed bool `json:"managed"`
-	// AutoBranch marks the managed feat/<slug>-sb branch (no explicit branch:
-	// in the config); recreate --full deletes only these, never a branch the
-	// user named.
+	// AutoBranch marks a branch sandboxer MINTED itself (it did not exist at
+	// first sync); recreate --full deletes only these — a pre-existing
+	// feat/<slug> of yours, or any branch: you named, is never deleted.
 	AutoBranch bool `json:"autoBranch,omitempty"`
 }
 
@@ -88,7 +89,7 @@ func (b *Base) profileSrcs(slug string) []config.Src {
 // resolveSrcs maps the configured srcs entries onto resolved Sources for slug:
 // paths are validated (must exist, be a repo toplevel with at least one
 // commit, no repo twice), branches decided (explicit branch: adopts an
-// existing worktree when one exists; otherwise the managed feat/<slug>-sb),
+// existing worktree when one exists; otherwise the managed feat/<slug>),
 // and managed worktrees named under <slug>/ (repo basename, deduped by a
 // short path hash on collision). Entry order is preserved. An empty list is
 // an error, never an implicit "current directory": what a sandbox exposes is
@@ -133,22 +134,31 @@ func (b *Base) resolveSrcs(slug string, specs []config.Src, w io.Writer) ([]Sour
 		seenRepo[top] = true
 
 		src := Source{RepoRoot: top, Include: spec.Include}
-		if spec.Branch != "" {
-			src.Branch = spec.Branch
-			if wt, ok := worktree.FindWorktree(top, spec.Branch); ok {
-				// Adopt the existing checkout of that branch as-is.
-				src.Path = wt
-				if len(spec.Include) > 0 && w != nil {
-					fmt.Fprintf(w, "sandboxer: srcs %s: include ignored — adopting the existing worktree at %s as-is\n",
-						filepath.Base(top), wt)
-				}
-				src.Include = nil
-				out = append(out, src)
-				continue
-			}
-		} else {
+		src.Branch = spec.Branch
+		if src.Branch == "" {
 			src.Branch = worktree.Branch(slug)
-			src.AutoBranch = true
+			// Only a branch sandboxer mints itself may be deleted by a full
+			// reset; a pre-existing feat/<slug> of yours is reused, not owned.
+			// (SyncSrcs keeps this sticky across re-syncs via the recorded
+			// meta — after the first sync the branch exists either way.)
+			src.AutoBranch = !worktree.BranchExists(top, src.Branch)
+		}
+		if wt, ok := worktree.FindWorktree(top, src.Branch); ok &&
+			!strings.HasPrefix(wt, b.SandboxDir(slug)+string(filepath.Separator)) {
+			// The branch is already checked out somewhere OUTSIDE this sandbox
+			// (your own worktree, or the repo's main checkout): adopt that
+			// checkout as-is — git allows only one worktree per branch. This
+			// sandbox's own managed worktree is not "somewhere": it stays
+			// managed, or a re-sync would adopt it and drop its include.
+			src.Path = wt
+			src.AutoBranch = false
+			if len(spec.Include) > 0 && w != nil {
+				fmt.Fprintf(w, "sandboxer: srcs %s: include ignored — adopting the existing worktree at %s as-is\n",
+					filepath.Base(top), wt)
+			}
+			src.Include = nil
+			out = append(out, src)
+			continue
 		}
 		src.Managed = true
 		name := filepath.Base(top)
@@ -185,6 +195,15 @@ func (b *Base) SyncSrcs(slug string, w io.Writer) ([]Source, error) {
 	srcs, err := b.resolveSrcs(slug, b.profileSrcs(slug), w)
 	if err != nil {
 		return nil, err
+	}
+	// AutoBranch is decided when the branch is first minted; on later syncs
+	// the branch exists either way, so carry the recorded verdict forward.
+	for i := range srcs {
+		for _, prev := range b.Srcs(slug) {
+			if prev.RepoRoot == srcs[i].RepoRoot && prev.Branch == srcs[i].Branch && prev.AutoBranch {
+				srcs[i].AutoBranch = true
+			}
+		}
 	}
 	if err := os.MkdirAll(dest, 0o755); err != nil {
 		return nil, err

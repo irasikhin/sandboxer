@@ -101,7 +101,7 @@ func starterProfile(name string, d config.Defaults) string {
 # Reuse between profiles is ordinary nix:
 #   let base = { backend = "docker"; }; in { profiles.api = base // { ... }; }
 {
-  # Sandbox name (slug); drives the worktree branch feat/<name>-sb.
+  # Sandbox name (slug); drives the worktree branch feat/<name>.
   name = %q;
 
   # Isolation backend: docker | podman.
@@ -109,7 +109,7 @@ func starterProfile(name string, d config.Defaults) string {
 
   # The sources the sandbox sees — ALWAYS explicit, there is no implicit
   # default. Each entry becomes a git worktree on the host (branch
-  # feat/<name>-sb unless branch names one), and ONLY the selected files are
+  # feat/<name> unless branch names one), and ONLY the selected files are
   # visible inside the container (git itself never is; review/commit on the
   # host). include uses gitignore-style patterns; srcs edits apply on the
   # next enter/exec — even a running session sees them live.

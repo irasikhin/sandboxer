@@ -48,11 +48,11 @@ important — where it stops.
 
 - **Sources are sparse git worktrees; git never enters the container.** Each
   source repo is checked out host-side into a worktree on branch
-  `feat/<slug>-sb`, narrowed by the profile's include patterns — the container
+  `feat/<slug>`, narrowed by the profile's include patterns — the container
   is bind-mounted ONLY those (sparse) contents. No git metadata is mounted, so
   the agent cannot read repo history, widen the selection, touch refs, or
   reach hooks/config at all; you review and commit its file edits on the host
-  (`git log`/`git diff`/`git merge feat/<slug>-sb`). There is no copy-back
+  (`git log`/`git diff`/`git merge feat/<slug>`). There is no copy-back
   over host files.
 
 - **Isolated `$HOME` — no host credentials.** Each sandbox has its own private
