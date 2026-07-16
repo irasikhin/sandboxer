@@ -6,6 +6,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.47.1] — 2026-07-16
+
+### Fixed
+
+- define the images once, not twice (9e75ad4)
+
+### Docs
+
+- fix 'path' source-selector help — repo directory, not worktree-dir basename (d947c42)
+
+
 ## [0.47.0] — 2026-07-16
 
 ### Added
@@ -439,3 +450,4 @@ isolated, containerized dev sandbox, on a local Linux machine:
 [0.45.0]: https://github.com/irasikhin/sandboxer/compare/v0.44.0...v0.45.0
 [0.46.0]: https://github.com/irasikhin/sandboxer/compare/v0.45.0...v0.46.0
 [0.47.0]: https://github.com/irasikhin/sandboxer/compare/v0.46.0...v0.47.0
+[0.47.1]: https://github.com/irasikhin/sandboxer/compare/v0.47.0...v0.47.1
