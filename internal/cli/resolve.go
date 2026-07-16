@@ -243,6 +243,22 @@ func configLine(rt config.Runtime, slug string, prof *config.Profile, backendSho
 		Version, slug, backendShown, egress, profile, srcs)
 }
 
+// srcLine renders one resolved source the way both enter's banner and show's
+// sources block report it: the repo, the branch it is on, any include
+// narrowing, and where the worktree actually lives on the host —
+// "repo → branch [inc] (/path, adopted)". Shared so the two can never drift.
+func srcLine(s sandbox.Source) string {
+	mark := ""
+	if !s.Managed {
+		mark = ", adopted"
+	}
+	scope := ""
+	if len(s.Include) > 0 {
+		scope = " [" + strings.Join(s.Include, " ") + "]"
+	}
+	return fmt.Sprintf("%s → %s%s (%s%s)", filepath.Base(s.RepoRoot), s.Branch, scope, s.Path, mark)
+}
+
 // syncSnapshot refreshes the sandbox's stored profile.json from the freshly
 // resolved profile, so editing sandboxer.nix propagates to an existing
 // sandbox (its resolved settings) instead of being frozen at create time.

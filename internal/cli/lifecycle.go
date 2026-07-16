@@ -5,7 +5,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -171,16 +170,7 @@ image, ready to use).`,
 			// Show what the sandbox actually exposes — one line per source repo,
 			// with its branch and where the worktree lives.
 			for _, s := range t.base.Srcs(t.slug) {
-				mark := ""
-				if !s.Managed {
-					mark = ", adopted"
-				}
-				scope := ""
-				if len(s.Include) > 0 {
-					scope = " [" + strings.Join(s.Include, " ") + "]"
-				}
-				fmt.Fprintf(errOut, "sandboxer: src %s → %s%s (%s%s)\n",
-					filepath.Base(s.RepoRoot), s.Branch, scope, s.Path, mark)
+				fmt.Fprintf(errOut, "sandboxer: src %s\n", srcLine(s))
 			}
 			warnIgnoredRoutes(errOut, rt)
 			engine, err := backend.ResolveEngine(rt.Backend, config.LoadDefaults())

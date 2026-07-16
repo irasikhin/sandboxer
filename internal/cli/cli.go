@@ -105,6 +105,7 @@ var commandGroups = map[string]string{
 
 	"clean": groupData,
 	"show":  groupData,
+	"path":  groupData,
 
 	"compose": groupOther,
 	"agents":  groupOther,

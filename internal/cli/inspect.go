@@ -75,7 +75,7 @@ func printList(cmd *cobra.Command, base *sandbox.Base, wide bool) {
 			marker, slugDisp, sessionState(states, slug), exit, secs, resDisp)
 	}
 	fmt.Fprintln(out)
-	fmt.Fprintln(out, "* = active (use). enter <s> | exec <s> -- cmd | show [s] | rm <s>")
+	fmt.Fprintln(out, "* = active (use). enter <s> | exec <s> -- cmd | show [s] | path [s] | rm <s>")
 }
 
 // projectSessionStates returns slug→container status for the project's
@@ -144,12 +144,31 @@ func newShowCmd() *cobra.Command {
 			if !dumpFile(out, t.base.ProfileJSONPath(t.slug)) {
 				fmt.Fprintln(out, "(no profile)")
 			}
+			printSourcesBlock(out, t)
 			printSessionBlock(out, t, rtShow)
 			return nil
 		},
 	}
 	bindExisting(cmd, &f)
 	return cmd
+}
+
+// printSourcesBlock renders show's "== sources ==" lines: the RESOLVED sources
+// — one per repo, with its branch, any include narrowing and the host path of
+// the worktree — as recorded at the last sync. The profile block above shows
+// what the config ASKS for; this shows what the sandbox actually got, which is
+// where the paths (and any adoption) become visible. Print with 'sandboxer
+// path' to get a bare path back.
+func printSourcesBlock(out io.Writer, t *target) {
+	fmt.Fprintln(out, "== sources ==")
+	srcs := t.base.Srcs(t.slug)
+	if len(srcs) == 0 {
+		fmt.Fprintln(out, "(none recorded — enter the sandbox once)")
+		return
+	}
+	for _, s := range srcs {
+		fmt.Fprintln(out, srcLine(s))
+	}
 }
 
 // printSessionBlock renders show's "== session ==" lines: the deterministic
