@@ -10,11 +10,7 @@ import (
 // /etc/tmux.conf whose default-command routes every window through the rc.sh
 // launcher — but sandboxer itself never starts or attaches them.
 func TestFlakeBakesMultiplexers(t *testing.T) {
-	data, err := assets.ReadFile("assets/flake.nix")
-	if err != nil {
-		t.Fatal(err)
-	}
-	s := string(data)
+	s := imageDefinition(t)
 	for _, want := range []string{
 		`writeTextDir "etc/tmux.conf"`,
 		"history-limit",
@@ -24,7 +20,7 @@ func TestFlakeBakesMultiplexers(t *testing.T) {
 		"ncurses",
 	} {
 		if !strings.Contains(s, want) {
-			t.Errorf("embedded flake.nix missing %q — opt-in multiplexers not wired", want)
+			t.Errorf("images.nix missing %q — opt-in multiplexers not wired", want)
 		}
 	}
 }

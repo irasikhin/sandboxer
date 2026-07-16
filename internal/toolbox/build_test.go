@@ -115,7 +115,7 @@ func TestWriteContext(t *testing.T) {
 	if err := writeContext(dir, Spec{Attrs: []string{"nodejs", "go"}}); err != nil {
 		t.Fatalf("writeContext: %v", err)
 	}
-	for _, f := range []string{"flake.nix", "agents.nix", "tools.nix", "overlay.nix", "files.json", "env.json"} {
+	for _, f := range []string{"flake.nix", "images.nix", "agents.nix", "tools.nix", "overlay.nix", "files.json", "env.json"} {
 		if _, err := os.Stat(filepath.Join(dir, f)); err != nil {
 			t.Errorf("missing %s in context: %v", f, err)
 		}

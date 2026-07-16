@@ -60,75 +60,17 @@
           map (n: llmAgents.${registry.${n}.nixPackage or n} or null) imageAgentNames
         );
 
-        # OCI toolbox image: base userland + the agents. The sandboxer binary is
-        # deliberately NOT baked in — it is a HOST tool, never reachable from
-        # inside the sandbox. Egress is enforced by a separate squid sidecar
-        # (proxyImage), not by the binary. Credentials are NOT baked — they are
-        # bind-mounted at run time.
-        image = pkgs.dockerTools.buildLayeredImage {
-          name = "sandboxer-toolbox";
-          tag = "latest";
-          maxLayers = 120;
-          contents =
-            (with pkgs; [
-              bashInteractive
-              coreutils
-              git
-              rsync
-              jq
-              curl
-              cacert
-              gnused
-              gawk
-              gnugrep
-              openssh
-              which
-            ])
-            ++ agentPkgs;
-          config = {
-            # No Entrypoint: `docker run img <cmd…>` runs <cmd> directly (the
-            # launcher always passes a full command, e.g. bash -lc …).
-            Cmd = [
-              "bash"
-              "-l"
-            ];
-            WorkingDir = "/work";
-            Env = [
-              "PATH=/bin"
-              "SSL_CERT_FILE=${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt"
-            ];
-          };
-          fakeRootCommands = ''
-            mkdir -p /work /tmp
-            chmod 1777 /tmp
-          '';
-          enableFakechroot = true; # let npm-agent postinstall scripts run
-        };
-
-        # Egress proxy image: a minimal squid that enforces the domain allowlist
-        # for a sandbox. It runs our generated /etc/sandboxer/squid.conf (bind-
-        # mounted at run time by the egress package) as the unprivileged run user;
-        # the config logs to std streams and keeps no on-disk cache, so no
-        # writable image dirs are needed. No sandboxer binary anywhere in the
-        # network path.
-        proxyImage = pkgs.dockerTools.buildLayeredImage {
-          name = "sandboxer-proxy";
-          tag = "latest";
-          contents = [ pkgs.squid ];
-          config = {
-            Entrypoint = [
-              "${pkgs.squid}/bin/squid"
-              "-N"
-              "-f"
-              "/etc/sandboxer/squid.conf"
-            ];
-            WorkingDir = "/tmp";
-          };
-          fakeRootCommands = ''
-            mkdir -p /tmp /etc/sandboxer
-            chmod 1777 /tmp
-          '';
-          enableFakechroot = true;
+        # The toolbox + egress-proxy images. Their CONTENTS are defined once, in
+        # internal/toolbox/assets/images.nix, and shared with the flake embedded
+        # in the binary — the one `sandboxer image build` runs. Keeping a second
+        # copy here is exactly how `.#image` silently rotted into a userland that
+        # no user ever gets (no podman, no runtimes, no shell rc) while the e2e
+        # suite kept testing it. This build has no profile, so it passes only the
+        # agents; the sandboxer binary is deliberately NOT baked in (a HOST tool,
+        # never reachable from inside), and credentials are bind-mounted at run
+        # time, never baked.
+        images = import ./internal/toolbox/assets/images.nix {
+          inherit pkgs agentPkgs;
         };
 
         # A tiny busybox image for the integration suite's smoke tier, sourced
@@ -157,8 +99,7 @@
         packages = {
           default = pkgs.sandboxer;
           sandboxer = pkgs.sandboxer;
-          image = image;
-          proxyImage = proxyImage;
+          inherit (images) image proxyImage;
           smokeImage = smokeImage;
         };
 

@@ -25,7 +25,13 @@ import (
 	"github.com/irasikhin/sandboxer/internal/registry"
 )
 
-//go:embed assets/flake.nix
+// images.nix carries what is IN the images; flake.nix only resolves the
+// profile's context and imports it. Both are embedded because the builder
+// container sees nothing but the context dir we render — the repo is never
+// mounted. The root flake imports the same images.nix, so the image a user
+// gets and the image CI builds cannot drift apart again.
+//
+//go:embed assets/flake.nix assets/images.nix
 var assets embed.FS
 
 const (
@@ -177,17 +183,19 @@ func BuildImage(o BuildOpts) error {
 // identical to one without any customization.
 const stubOverlay = "final: prev: { }\n"
 
-// writeContext populates the flake build context: the embedded flake.nix, the
-// generated agents.nix/tools.nix lists, the profile's overlay.nix (a plain
-// nixpkgs overlay; no-op stub when unset) and its files.json/env.json static
-// customization.
+// writeContext populates the flake build context: the embedded flake.nix and
+// the images.nix it imports, the generated agents.nix/tools.nix lists, the
+// profile's overlay.nix (a plain nixpkgs overlay; no-op stub when unset) and
+// its files.json/env.json static customization.
 func writeContext(ctxDir string, spec Spec) error {
-	flake, err := assets.ReadFile("assets/flake.nix")
-	if err != nil {
-		return err
-	}
-	if err := os.WriteFile(filepath.Join(ctxDir, "flake.nix"), flake, 0o644); err != nil {
-		return err
+	for _, name := range []string{"flake.nix", "images.nix"} {
+		data, err := assets.ReadFile("assets/" + name)
+		if err != nil {
+			return err
+		}
+		if err := os.WriteFile(filepath.Join(ctxDir, name), data, 0o644); err != nil {
+			return err
+		}
 	}
 	agents := renderNixList(imageAgentPackages())
 	if err := os.WriteFile(filepath.Join(ctxDir, "agents.nix"), []byte(agents), 0o644); err != nil {
