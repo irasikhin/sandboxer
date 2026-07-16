@@ -51,8 +51,8 @@ func TestPathPrintsSourceWorktree(t *testing.T) {
 }
 
 // TestPathSelectSource: a second positional selects one source of the sandbox
-// by name (its worktree-dir basename), so a multi-source sandbox composes into
-// a single command; an unknown name fails and lists the real sources, and a
+// by name (its repo directory), so a multi-source sandbox composes into a
+// single command; an unknown name fails and lists the real sources, and a
 // source name alongside --dir is rejected (--dir is slug-level).
 func TestPathSelectSource(t *testing.T) {
 	project := newProject(t)
