@@ -60,11 +60,14 @@ important — where it stops.
   `0700`), mounted as `$HOME`. The host's real agent config — `~/.claude`,
   `~/.claude.json`, tokens, project history, MCP servers — and your `~/.ssh`,
   `~/.aws`, etc. are **never mounted** in, and API-key env vars are never
-  passed through. A profile may set `hostConfigs = true` (the scaffolded
-  config does) to **seed** the sandbox home with a COPY of the agents' own
-  configs (credentials included, bulky/private transcripts excluded), so
-  agents start authenticated — a per-file merge on every create/enter/exec:
-  missing files are added, existing files are never overwritten. The trade is explicit: code
+  passed through by default. A profile may set `hostConfigs = true` (the
+  scaffolded config does) to opt into both: the sandbox home is **seeded**
+  with a COPY of the agents' configs (a per-file merge on every
+  create/enter/exec: missing files added, existing files never overwritten;
+  claude's rotating OAuth pair is excluded — a copy breaks on refresh
+  rotation and could hijack the host session), and the agents' auth env vars
+  set on the host (API keys, a `claude setup-token` long-lived token) are
+  passed into the container env. The trade is explicit: code
   running in that sandbox can read those copied credentials, and its egress
   allowlist is the wall between them and an exfiltration attempt — but it
   still cannot touch the host's real config (a hook written into the

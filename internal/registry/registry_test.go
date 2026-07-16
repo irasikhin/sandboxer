@@ -65,10 +65,17 @@ func TestSeedPaths(t *testing.T) {
 			t.Errorf("claude seed misses %q (got %v)", want, paths)
 		}
 	}
-	// the bulky, private transcripts dir stays behind
+	// the bulky, private transcripts dir stays behind — and so does the
+	// rotating OAuth pair, which cannot survive as a copy (refresh-token
+	// rotation kills one side; long-lived tokens travel via authEnv instead)
 	for _, sp := range claude.Seed {
-		if sp.Path == ".claude" && !slices.Contains(sp.Skip, "projects") {
-			t.Errorf(".claude seed must skip projects/ (got %v)", sp.Skip)
+		if sp.Path != ".claude" {
+			continue
+		}
+		for _, want := range []string{"projects", ".credentials.json"} {
+			if !slices.Contains(sp.Skip, want) {
+				t.Errorf(".claude seed must skip %s (got %v)", want, sp.Skip)
+			}
 		}
 	}
 }

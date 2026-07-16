@@ -9,6 +9,7 @@ import (
 
 	"github.com/irasikhin/sandboxer/internal/backend"
 	"github.com/irasikhin/sandboxer/internal/config"
+	"github.com/irasikhin/sandboxer/internal/registry"
 )
 
 // sessionCalls records what the stubbed backend seams were asked to do.
@@ -113,6 +114,60 @@ func TestEnterPersistentByDefault(t *testing.T) {
 		if !strings.Contains(errs, want) {
 			t.Errorf("stderr missing %q:\n%s", want, errs)
 		}
+	}
+}
+
+// TestEnterPassesHostAuthEnv: with hostConfigs on (the scaffold default), the
+// registry agents' auth env vars set on the HOST ride into the container opts
+// — sorted, deduped, empties dropped — so a long-lived `claude setup-token`
+// authenticates every sandbox without copying a rotating credentials file.
+func TestEnterPassesHostAuthEnv(t *testing.T) {
+	project := sessionProject(t)
+	c := stubSessionSeams(t, backend.SessionInfo{}, "h")
+	clearAuthEnv(t)
+	t.Setenv("CLAUDE_CODE_OAUTH_TOKEN", "tok-123")
+
+	if code, _, errs := run("enter", "feat", "--src", project); code != 0 {
+		t.Fatalf("enter = %d, %s", code, errs)
+	}
+	got := c.ensure[0].AuthEnv
+	if len(got) != 1 || got[0] != "CLAUDE_CODE_OAUTH_TOKEN=tok-123" {
+		t.Errorf("AuthEnv = %v, want exactly the one set host var", got)
+	}
+}
+
+// clearAuthEnv empties every registry auth var so a developer's own exported
+// keys can never leak into a test's expectations.
+func clearAuthEnv(t *testing.T) {
+	t.Helper()
+	for _, name := range registry.Names() {
+		a, err := registry.Get(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, k := range a.AuthEnv {
+			t.Setenv(k, "")
+		}
+	}
+}
+
+// TestHostAuthEnvGate: no profile opt-in, no passthrough — hostConfigs owns
+// both halves of host auth (config seed and env), and the helper sorts and
+// dedupes across agents sharing a var.
+func TestHostAuthEnvGate(t *testing.T) {
+	clearAuthEnv(t)
+	t.Setenv("CLAUDE_CODE_OAUTH_TOKEN", "tok")
+	t.Setenv("OPENAI_API_KEY", "oai") // listed by several agents — must appear once
+	if got := hostAuthEnv(nil); got != nil {
+		t.Errorf("nil profile: AuthEnv = %v, want none", got)
+	}
+	if got := hostAuthEnv(&config.Profile{}); got != nil {
+		t.Errorf("hostConfigs off: AuthEnv = %v, want none", got)
+	}
+	got := hostAuthEnv(&config.Profile{HostConfigs: true})
+	want := []string{"CLAUDE_CODE_OAUTH_TOKEN=tok", "OPENAI_API_KEY=oai"}
+	if len(got) != len(want) || got[0] != want[0] || got[1] != want[1] {
+		t.Errorf("AuthEnv = %v, want %v (sorted, deduped)", got, want)
 	}
 }
 

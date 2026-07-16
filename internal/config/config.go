@@ -244,11 +244,18 @@ type Profile struct {
 	// stay dropped and no-new-privileges stays on either way — see
 	// backend.nestedContainerArgs and SECURITY.md.
 	NestedContainers bool `json:"nestedContainers,omitempty"`
-	// HostConfigs seeds the sandbox's private home from the HOST's agent
-	// configs (registry seed paths: ~/.claude + ~/.claude.json, ~/.codex,
-	// ~/.gemini, opencode/crush/aider configs — credentials included), so
-	// agents start already authenticated instead of demanding a login per
-	// sandbox. Always a COPY into the per-sandbox home (never a mount: the
+	// HostConfigs wires the HOST's agent identity into the sandbox, two
+	// halves under one opt-in:
+	//   - config seed: the registry seed paths (~/.claude + ~/.claude.json,
+	//     ~/.codex, ~/.gemini, opencode/crush/aider — settings, skills,
+	//     memory) copied into the sandbox's private home. Claude's rotating
+	//     OAuth pair (.claude/.credentials.json) is deliberately NOT copied:
+	//     a copy dies on the next refresh-token rotation either side
+	//     performs — and can hijack the host's session;
+	//   - auth env: the registry agents' auth vars set on the host
+	//     (CLAUDE_CODE_OAUTH_TOKEN from `claude setup-token`, API keys)
+	//     passed into the container env — the durable way to start
+	//     authenticated. Always a COPY into the per-sandbox home (never a mount: the
 	// sandbox cannot touch the host's real config, and parallel sandboxes
 	// cannot race), applied on create/enter/exec as a per-FILE merge: files
 	// the sandbox home lacks are added (so new host skills or a later host

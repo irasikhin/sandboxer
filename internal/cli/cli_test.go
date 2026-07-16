@@ -411,7 +411,7 @@ func TestCreateSeedsHostConfigs(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(home, ".claude"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(home, ".claude", ".credentials.json"), []byte("tok"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(home, ".claude", "settings.json"), []byte("host-settings"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(home, ".claude.json"), []byte("host"), 0o644); err != nil {
@@ -421,9 +421,9 @@ func TestCreateSeedsHostConfigs(t *testing.T) {
 	if code, _, errs := run("create", "feat", "--src", project); code != 0 {
 		t.Fatalf("create: %d %s", code, errs)
 	}
-	seeded := stateDir(project, "_home", "feat", ".claude", ".credentials.json")
-	if data, err := os.ReadFile(seeded); err != nil || string(data) != "tok" {
-		t.Fatalf("credentials not seeded into the sandbox home: %q err=%v", data, err)
+	seeded := stateDir(project, "_home", "feat", ".claude", "settings.json")
+	if data, err := os.ReadFile(seeded); err != nil || string(data) != "host-settings" {
+		t.Fatalf("settings not seeded into the sandbox home: %q err=%v", data, err)
 	}
 	stateJSON := stateDir(project, "_home", "feat", ".claude.json")
 	if err := os.WriteFile(stateJSON, []byte("sandbox-edited"), 0o644); err != nil {

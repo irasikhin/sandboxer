@@ -63,12 +63,16 @@ egress allowlist, whose defaults include docker.io/ghcr.io/quay.io and
 mirror.gcr.io). Each sandbox gets its own isolated home, and network/proxy
 are wired per config. Agent auth is yours to choose: with `hostConfigs = true`
 (the scaffolded default) the sandbox home is seeded with a COPY of your host
-agent configs — `~/.claude` + `~/.claude.json`, `~/.codex`, `~/.gemini`,
-opencode/crush/aider — credentials included, transcripts/caches excluded, so
-agents start already logged in (the host config is never mounted and never
-written back; an in-sandbox login is never overwritten). Without it,
-credentials never come from the host: log in or export keys inside the
-sandbox (its private $HOME persists).
+agent configs — `~/.claude` (settings, skills, memory) + `~/.claude.json`,
+`~/.codex`, `~/.gemini`, opencode/crush/aider — transcripts/caches excluded,
+never mounted, never written back, and your in-sandbox edits always win; the
+agents' auth env vars set on the host (`ANTHROPIC_API_KEY`,
+`CLAUDE_CODE_OAUTH_TOKEN`, …) are passed through as well. Claude's rotating
+OAuth file is deliberately not copied — a copy goes 401 on the next refresh
+either side performs: for subscription auth run `claude setup-token` once and
+export `CLAUDE_CODE_OAUTH_TOKEN`, or `/login` once inside the sandbox (its
+private $HOME persists). Without `hostConfigs`, credentials never come from
+the host at all.
 
 For the full picture — on-disk layout, sandbox lifecycle, how the toolbox image
 is built and cached, the egress proxy and the agent registry — see

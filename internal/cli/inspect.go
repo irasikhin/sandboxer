@@ -225,6 +225,7 @@ func sessionHashOpts(t *target, rt config.Runtime, engine string) (backend.RunOp
 		SrcMounts: sandbox.SrcMounts(t.base.Srcs(t.slug)),
 		HomeDir:   t.base.HomeDir(t.slug),
 		DestGen:   t.base.Gen(t.slug),
+		AuthEnv:   hostAuthEnv(t.profile),
 		RT:        rt, Profile: t.profile,
 		ProfileJSONPath: t.base.ProfileJSONPath(t.slug),
 		Mem:             rt.Mem, CPU: rt.CPU, Pids: rt.Pids,

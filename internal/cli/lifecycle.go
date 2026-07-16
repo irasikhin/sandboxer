@@ -5,11 +5,13 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 
 	"github.com/spf13/cobra"
 
 	"github.com/irasikhin/sandboxer/internal/backend"
 	"github.com/irasikhin/sandboxer/internal/config"
+	"github.com/irasikhin/sandboxer/internal/registry"
 	"github.com/irasikhin/sandboxer/internal/sandbox"
 )
 
@@ -204,6 +206,7 @@ image, ready to use).`,
 				SrcMounts: sandbox.SrcMounts(t.base.Srcs(t.slug)),
 				HomeDir:   t.base.HomeDir(t.slug),
 				DestGen:   t.base.Gen(t.slug),
+				AuthEnv:   hostAuthEnv(t.profile),
 				RT:        rt, Profile: t.profile,
 				ProfileJSONPath: t.base.ProfileJSONPath(t.slug),
 				Mem:             rt.Mem, CPU: rt.CPU, Pids: rt.Pids,
@@ -344,6 +347,7 @@ func newExecCmd() *cobra.Command {
 				SrcMounts: sandbox.SrcMounts(t.base.Srcs(t.slug)),
 				HomeDir:   t.base.HomeDir(t.slug),
 				DestGen:   t.base.Gen(t.slug),
+				AuthEnv:   hostAuthEnv(t.profile),
 				RT:        rt, Profile: t.profile,
 				ProfileJSONPath: t.base.ProfileJSONPath(t.slug),
 				Mem:             rt.Mem, CPU: rt.CPU, Pids: rt.Pids,
@@ -403,6 +407,38 @@ func seedHostConfigs(t *target, w io.Writer) {
 	if t.profile != nil && t.profile.HostConfigs {
 		t.base.SeedHome(t.slug, w)
 	}
+}
+
+// hostAuthEnv collects the registry agents' auth env vars that are set (and
+// non-empty) in the HOST environment — CLAUDE_CODE_OAUTH_TOKEN, API keys — for
+// the container env, gated by the same hostConfigs opt-in as the config seed.
+// This is the durable half of host auth: a long-lived token survives any
+// number of sandboxes, while a copied OAuth credentials file dies with the
+// next refresh-token rotation (see registry seed skip). Sorted, deduped: the
+// result feeds the argv that ConfigHash fingerprints.
+func hostAuthEnv(p *config.Profile) []string {
+	if p == nil || !p.HostConfigs {
+		return nil
+	}
+	seen := map[string]bool{}
+	var out []string
+	for _, name := range registry.Names() {
+		a, err := registry.Get(name)
+		if err != nil {
+			continue
+		}
+		for _, k := range a.AuthEnv {
+			if seen[k] {
+				continue
+			}
+			seen[k] = true
+			if v := os.Getenv(k); v != "" {
+				out = append(out, k+"="+v)
+			}
+		}
+	}
+	sort.Strings(out)
+	return out
 }
 
 // noEgress reports whether the egress allowlist is disabled via the environment.
@@ -495,6 +531,7 @@ func runSetup(t *target, rt config.Runtime, engine string, noSetup bool, errOut 
 		SrcMounts:       sandbox.SrcMounts(t.base.Srcs(t.slug)),
 		HomeDir:         t.base.HomeDir(t.slug),
 		DestGen:         t.base.Gen(t.slug),
+		AuthEnv:         hostAuthEnv(t.profile),
 		RT:              rt,
 		Profile:         t.profile,
 		ProfileJSONPath: t.base.ProfileJSONPath(t.slug),

@@ -87,7 +87,16 @@ type RunOpts struct {
 	// DELETED directory, and the generation flip is what makes it read as stale
 	// instead of silently reused. "" (a pre-gen sandbox) adds no flag, keeping
 	// existing sessions' hashes unchanged.
-	DestGen         string
+	DestGen string
+	// AuthEnv is the agents' auth environment ("KEY=value" entries, sorted by
+	// the caller — the order is part of the ConfigHash contract), collected by
+	// the CLI from the HOST environment when the profile opts into hostConfigs:
+	// long-lived tokens like CLAUDE_CODE_OAUTH_TOKEN (`claude setup-token`) or
+	// plain API keys. Env is the sanctioned channel for these — unlike a copied
+	// OAuth credentials FILE, whose rotating refresh chain dies (or hijacks the
+	// host's session) on the next refresh either side performs. The profile's
+	// own env is appended later, so it still overrides per key.
+	AuthEnv         []string
 	RT              config.Runtime
 	Profile         *config.Profile
 	ProfileJSONPath string // mounted ro at /run/sandboxer/profile.json if present
@@ -199,6 +208,11 @@ func commonArgs(o RunOpts, egNet, egProxyURL string) []string {
 	// so a pre-gen sandbox keeps its argv — and session hash — byte-identical.
 	if o.DestGen != "" {
 		args = append(args, "--env", "SANDBOXER_SANDBOX_GEN="+o.DestGen)
+	}
+	// Host auth env (see RunOpts.AuthEnv) — pre-sorted; a changed token flips
+	// the session hash, so a stale session is rebuilt with the fresh one.
+	for _, kv := range o.AuthEnv {
+		args = append(args, "--env", kv)
 	}
 	// $HOME is the sandbox-private agent home, bound at its own host path. It is
 	// isolated per sandbox (see sandbox.Base.HomeDir): the host's real home is

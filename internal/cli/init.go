@@ -143,12 +143,16 @@ func starterProfile(name string, d config.Defaults) string {
     # ];
   };
 
-  # Seed the sandbox home from YOUR host agent configs — ~/.claude +
-  # ~/.claude.json, ~/.codex, ~/.gemini, opencode/crush/aider configs,
-  # credentials included — so agents start logged in (no per-sandbox auth).
-  # Always a COPY into the sandbox's private $HOME (the host config is never
-  # mounted and never written back); an in-sandbox login/logout is never
-  # overwritten. Remove (or set false) to keep sandboxes credential-free.
+  # Wire YOUR host agent identity into the sandbox: (1) seed its private
+  # $HOME from your agent configs — ~/.claude (settings, skills, memory) +
+  # ~/.claude.json, ~/.codex, ~/.gemini, opencode/crush/aider — as a COPY
+  # (never mounted, never written back; per-file merge, your in-sandbox
+  # edits always win); (2) pass through the agents' auth env vars set on
+  # the host (ANTHROPIC_API_KEY, CLAUDE_CODE_OAUTH_TOKEN, ...). Claude's
+  # rotating OAuth file is NOT copied — for subscription auth run
+  # "claude setup-token" once and export CLAUDE_CODE_OAUTH_TOKEN on the
+  # host (or /login once inside — the sandbox home persists).
+  # Remove (or set false) to keep sandboxes credential-free.
   hostConfigs = true;
 
   # Where the worktrees live (absolute, ~, or relative to the project root);

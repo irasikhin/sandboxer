@@ -4,7 +4,7 @@
     "authEnv": ["ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_BASE_URL"],
     "nixPackage": "claude-code",
     "seed": [
-      { "path": ".claude", "skip": ["projects", "todos", "statsig", "shell-snapshots", "downloads", "cache"] },
+      { "path": ".claude", "skip": [".credentials.json", "projects", "todos", "statsig", "shell-snapshots", "downloads", "cache"] },
       { "path": ".claude.json" }
     ]
   },

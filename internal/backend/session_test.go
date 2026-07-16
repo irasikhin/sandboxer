@@ -155,6 +155,13 @@ func TestConfigHash(t *testing.T) {
 		// A bumped sandbox-dir generation must invalidate the session: its bind
 		// mounts hold the pre-deletion directory (see RunOpts.DestGen).
 		{"dest generation", func() RunOpts { o := base; o.DestGen = "2"; return o }(), [2]string{"", ""}},
+		// A new/rotated host auth token must invalidate the session too — the
+		// old container keeps serving the stale token otherwise.
+		{"auth env", func() RunOpts {
+			o := base
+			o.AuthEnv = []string{"CLAUDE_CODE_OAUTH_TOKEN=t1"}
+			return o
+		}(), [2]string{"", ""}},
 	}
 	for _, tc := range diff {
 		if g := ConfigHash(tc.o, tc.eg[0], tc.eg[1]); g == h {

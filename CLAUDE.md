@@ -94,7 +94,10 @@ was extracted from:
   `seed` entries name its host-home config paths (with skip lists for transcripts/caches): a profile with
   `hostConfigs = true` (scaffold default) COPIES those into the sandbox home as a per-file merge (missing
   files added on every create/enter/exec; existing files never overwritten) — never a mount, never written
-  back, an in-sandbox login/logout/edit always wins (`sandbox.SeedHome`).
+  back, an in-sandbox login/logout/edit always wins (`sandbox.SeedHome`) — AND passes through the agents'
+  `authEnv` vars set on the host (cli `hostAuthEnv` → RunOpts.AuthEnv; part of the session hash). Claude's
+  `.claude/.credentials.json` is seed-SKIPPED: rotating refresh tokens die as copies (401) or hijack the
+  host session — subscription auth = `claude setup-token` + export CLAUDE_CODE_OAUTH_TOKEN.
 - **Toolbox image** (`internal/toolbox` + flake `dockerTools.buildLayeredImage`): the OCI image with the agents
   baked in; built via `nix run .#build-image`.
 - **Integration tests** (`internal/itest`, `//go:build integration`): drive a real engine and skip cleanly when

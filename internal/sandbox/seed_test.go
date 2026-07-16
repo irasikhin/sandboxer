@@ -13,11 +13,12 @@ func plantHostConfigs(t *testing.T) {
 	t.Helper()
 	host := t.TempDir()
 	t.Setenv("HOME", host)
-	writeFile(t, filepath.Join(host, ".claude", ".credentials.json"), "token")
-	if err := os.Chmod(filepath.Join(host, ".claude", ".credentials.json"), 0o600); err != nil {
+	writeFile(t, filepath.Join(host, ".claude", ".credentials.json"), "rotating-oauth")
+	writeFile(t, filepath.Join(host, ".claude", "settings.json"), "{}")
+	if err := os.Chmod(filepath.Join(host, ".claude", "settings.json"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	writeFile(t, filepath.Join(host, ".claude", "settings.json"), "{}")
+	writeFile(t, filepath.Join(host, ".claude", "skills", "deploy", "SKILL.md"), "skill")
 	writeFile(t, filepath.Join(host, ".claude", "projects", "p", "chat.jsonl"), "transcript")
 	writeFile(t, filepath.Join(host, ".claude.json"), `{"state":1}`)
 	if err := os.Symlink("settings.json", filepath.Join(host, ".claude", "link")); err != nil {
@@ -42,13 +43,16 @@ func TestSeedHomeCopiesAgentConfigs(t *testing.T) {
 	b.SeedHome("s", &progress)
 	home := b.HomeDir("s")
 
-	cred := filepath.Join(home, ".claude", ".credentials.json")
-	data, err := os.ReadFile(cred)
-	if err != nil || string(data) != "token" {
-		t.Fatalf("credentials not seeded: %q err=%v", data, err)
+	settings := filepath.Join(home, ".claude", "settings.json")
+	data, err := os.ReadFile(settings)
+	if err != nil || string(data) != "{}" {
+		t.Fatalf("settings not seeded: %q err=%v", data, err)
 	}
-	if fi, err := os.Stat(cred); err != nil || fi.Mode().Perm() != 0o600 {
-		t.Errorf("credentials mode = %v (err=%v), want 0600 preserved", fi.Mode(), err)
+	if fi, err := os.Stat(settings); err != nil || fi.Mode().Perm() != 0o600 {
+		t.Errorf("settings mode = %v (err=%v), want 0600 preserved", fi.Mode(), err)
+	}
+	if _, err := os.Stat(filepath.Join(home, ".claude", "skills", "deploy", "SKILL.md")); err != nil {
+		t.Errorf("skills not seeded: %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(home, ".claude.json")); err != nil {
 		t.Errorf(".claude.json not seeded: %v", err)
@@ -58,6 +62,11 @@ func TestSeedHomeCopiesAgentConfigs(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(home, ".claude", "projects")); !os.IsNotExist(err) {
 		t.Errorf("skip-listed projects/ was seeded (err=%v)", err)
+	}
+	// the rotating OAuth pair NEVER travels: a copy dies on the next refresh
+	// either side performs — long-lived tokens go via authEnv instead
+	if _, err := os.Stat(filepath.Join(home, ".claude", ".credentials.json")); !os.IsNotExist(err) {
+		t.Errorf(".credentials.json was seeded, want excluded (err=%v)", err)
 	}
 	if target, err := os.Readlink(filepath.Join(home, ".claude", "link")); err != nil || target != "settings.json" {
 		t.Errorf("symlink not recreated as a link: %q err=%v", target, err)
@@ -147,8 +156,7 @@ func TestSeedHomeMergesIntoExistingHome(t *testing.T) {
 		t.Fatal(err)
 	}
 	home := b.HomeDir("s")
-	// the sandbox's own prior agent run: .claude exists, has its own state,
-	// but no credentials
+	// the sandbox's own prior agent run: .claude exists with its own state
 	writeFile(t, filepath.Join(home, ".claude", "statsig", "cache"), "sandbox-local")
 	writeFile(t, filepath.Join(home, ".claude", "settings.json"), `{"sandbox":true}`)
 
@@ -156,8 +164,8 @@ func TestSeedHomeMergesIntoExistingHome(t *testing.T) {
 	b.SeedHome("s", &progress)
 
 	// missing files arrived…
-	if data, err := os.ReadFile(filepath.Join(home, ".claude", ".credentials.json")); err != nil || string(data) != "token" {
-		t.Fatalf("credentials not merged into the existing .claude: %q err=%v", data, err)
+	if data, err := os.ReadFile(filepath.Join(home, ".claude", "skills", "deploy", "SKILL.md")); err != nil || string(data) != "skill" {
+		t.Fatalf("host skills not merged into the existing .claude: %q err=%v", data, err)
 	}
 	if _, err := os.Stat(filepath.Join(home, ".claude.json")); err != nil {
 		t.Errorf(".claude.json not seeded: %v", err)
