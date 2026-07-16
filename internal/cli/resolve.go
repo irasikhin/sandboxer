@@ -213,9 +213,10 @@ func backendLabel(rt config.Runtime) string {
 }
 
 // configLine summarises the resolved settings so a command always tells the user
-// what is actually in effect — which agent/backend/model, the egress status, the
-// profile source and the dependency count — instead of leaving them to infer the
-// silent defaults. backendShown is the engine label (see backendLabel) so the
+// what is actually in effect — the binary VERSION (so cross-machine skew is
+// visible at a glance), which backend, the egress status, the profile source
+// and the source count — instead of leaving them to infer the silent
+// defaults. backendShown is the engine label (see backendLabel) so the
 // reported backend matches what runs. Printed to stderr by create/enter/exec.
 func configLine(rt config.Runtime, slug string, prof *config.Profile, backendShown string) string {
 	egress := "off"
@@ -238,8 +239,8 @@ func configLine(rt config.Runtime, slug string, prof *config.Profile, backendSho
 		}
 		srcs = len(prof.Srcs)
 	}
-	return fmt.Sprintf("sandboxer: %s — backend=%s egress=%s profile=%s srcs=%d",
-		slug, backendShown, egress, profile, srcs)
+	return fmt.Sprintf("sandboxer %s: %s — backend=%s egress=%s profile=%s srcs=%d",
+		Version, slug, backendShown, egress, profile, srcs)
 }
 
 // syncSnapshot refreshes the sandbox's stored profile.json from the freshly
