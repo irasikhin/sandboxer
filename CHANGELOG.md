@@ -6,6 +6,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.47.0] — 2026-07-16
+
+### Added
+
+- opt-in nested rootless podman in the sandbox (aa9e2a3)
+
+
 ## [0.46.0] — 2026-07-16
 
 ### Added
@@ -431,3 +438,4 @@ isolated, containerized dev sandbox, on a local Linux machine:
 [0.44.0]: https://github.com/irasikhin/sandboxer/compare/v0.43.0...v0.44.0
 [0.45.0]: https://github.com/irasikhin/sandboxer/compare/v0.44.0...v0.45.0
 [0.46.0]: https://github.com/irasikhin/sandboxer/compare/v0.45.0...v0.46.0
+[0.47.0]: https://github.com/irasikhin/sandboxer/compare/v0.46.0...v0.47.0
