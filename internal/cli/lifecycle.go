@@ -211,13 +211,38 @@ image, ready to use).`,
 			var runErr error
 			if persistent {
 				o.BaseDir = t.base.Dir
-				if _, err := backendEnsureSession(o); err != nil {
-					// EnsureSession's message IS the diagnostic (busy session, egress
-					// failure, …) — print it here; the tail then returns silently.
-					fmt.Fprintln(errOut, "sandboxer:", err)
-					runErr = err
+				// Safety check: if the session is running with a stale config
+				// (profile changed or image rebuilt), refuse to tear it down
+				// by default — fall back to a one-shot container instead, so
+				// the running session (and any agent/tmux inside) stays alive.
+				// --recreate forces the old behaviour.
+				forceRecreate := f.recreate
+				if !forceRecreate {
+					if info := backendInspectSession(engine, name); info.Running {
+						if info.Hash != backendWantHash(o) {
+							fmt.Fprintf(errOut,
+								"sandboxer: session %s is stale (profile changed) — running one-shot; use --recreate to rebuild\n", name)
+						} else if !backend.ImageFresh(info.ImageID, backendImageID(engine, o.Image)) {
+							fmt.Fprintf(errOut,
+								"sandboxer: session %s is stale (image rebuilt) — running one-shot; use --recreate to rebuild\n", name)
+						} else {
+							forceRecreate = true // fresh → proceed to EnsureSession
+						}
+					} else {
+						forceRecreate = true // not running → safe to converge
+					}
+				}
+				if forceRecreate {
+					if _, err := backendEnsureSession(o); err != nil {
+						// EnsureSession's message IS the diagnostic (busy session, egress
+						// failure, …) — print it here; the tail then returns silently.
+						fmt.Fprintln(errOut, "sandboxer:", err)
+						runErr = err
+					} else {
+						code, runErr = backendExecSession(o, name, interactiveShellArgs())
+					}
 				} else {
-					code, runErr = backendExecSession(o, name, interactiveShellArgs())
+					code, runErr = backendRun(o)
 				}
 			} else {
 				code, runErr = backendRun(o)
@@ -239,6 +264,7 @@ image, ready to use).`,
 	bindExisting(cmd, &f)
 	cmd.Flags().BoolVar(&f.noSetup, "no-setup", false, "skip the profile's one-time setup script")
 	cmd.Flags().BoolVar(&f.ephemeral, "ephemeral", false, "one-shot container instead of the persistent session")
+	cmd.Flags().BoolVar(&f.recreate, "recreate", false, "force session rebuild even if running (picks up config changes)")
 	return cmd
 }
 

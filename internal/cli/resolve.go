@@ -26,6 +26,7 @@ type commonFlags struct {
 	domains   string
 	noSetup   bool
 	ephemeral bool // --ephemeral: one-shot container instead of the persistent session
+	recreate  bool // --recreate: force session rebuild even if running (enter only)
 }
 
 // bindExisting registers the flags shared by commands that operate on an
