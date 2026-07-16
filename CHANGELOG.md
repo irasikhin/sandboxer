@@ -6,6 +6,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.36.0] — 2026-07-16
+
+### Added
+
+- show the binary version on every create/enter/exec banner (4d6b055)
+
+
 ## [0.35.1] — 2026-07-16
 
 ### Fixed
@@ -333,3 +340,4 @@ isolated, containerized dev sandbox, on a local Linux machine:
 [0.34.0]: https://github.com/irasikhin/sandboxer/compare/v0.33.1...v0.34.0
 [0.35.0]: https://github.com/irasikhin/sandboxer/compare/v0.34.0...v0.35.0
 [0.35.1]: https://github.com/irasikhin/sandboxer/compare/v0.35.0...v0.35.1
+[0.36.0]: https://github.com/irasikhin/sandboxer/compare/v0.35.1...v0.36.0
