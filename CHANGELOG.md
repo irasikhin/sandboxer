@@ -6,6 +6,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.44.0] — 2026-07-16
+
+### Added
+
+- group worktrees by repo; relocatable root via worktreesDir (f1e57f9)
+
+
 ## [0.43.0] — 2026-07-16
 
 ### Added
@@ -406,3 +413,4 @@ isolated, containerized dev sandbox, on a local Linux machine:
 [0.41.0]: https://github.com/irasikhin/sandboxer/compare/v0.40.0...v0.41.0
 [0.42.0]: https://github.com/irasikhin/sandboxer/compare/v0.41.0...v0.42.0
 [0.43.0]: https://github.com/irasikhin/sandboxer/compare/v0.42.0...v0.43.0
+[0.44.0]: https://github.com/irasikhin/sandboxer/compare/v0.43.0...v0.44.0
