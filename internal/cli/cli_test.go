@@ -352,6 +352,51 @@ func TestRunLifecycle(t *testing.T) {
 	}
 }
 
+// TestCleanDetachedFlag: clean --detached sweeps only the set-aside sources —
+// the live sandbox worktree stays put.
+func TestCleanDetachedFlag(t *testing.T) {
+	project := newProject(t)
+	if code, _, errs := run("create", "feat", "--src", project); code != 0 {
+		t.Fatalf("create: %d %s", code, errs)
+	}
+	// A branch change on re-create sets the old worktree aside under _detached/.
+	cfg := filepath.Join(project, "sandboxer.nix")
+	data, err := os.ReadFile(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(cfg, []byte(strings.Replace(string(data),
+		`branch = "feat/feat";`, `branch = "devops/feat2";`, 1)), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if code, _, errs := run("create", "feat", "--src", project); code != 0 {
+		t.Fatalf("re-create: %d %s", code, errs)
+	}
+	detached := sandboxDir(project, "_detached")
+	if _, err := os.Stat(detached); err != nil {
+		t.Fatalf("no _detached after the branch change: %v", err)
+	}
+
+	// --detached still requires --force.
+	if code, _, errs := run("clean", "--detached", project); code != 1 || !strings.Contains(errs, "--force") {
+		t.Errorf("clean --detached without --force = (%d, %q)", code, errs)
+	}
+	if code, out, errs := run("clean", "--detached", "--force", project); code != 0 || !strings.Contains(out, "removed") {
+		t.Errorf("clean --detached = (%d, %q, %q)", code, out, errs)
+	}
+	if _, err := os.Stat(detached); !os.IsNotExist(err) {
+		t.Errorf("_detached survived clean --detached (err=%v)", err)
+	}
+	// The live sandbox worktree is untouched.
+	if _, err := os.Stat(sandboxDir(project, "feat", "devops", "feat2")); err != nil {
+		t.Errorf("live worktree touched by clean --detached: %v", err)
+	}
+	// A second sweep finds nothing and says so.
+	if code, _, errs := run("clean", "--detached", "--force", project); code != 0 || !strings.Contains(errs, "nothing set aside") {
+		t.Errorf("second clean --detached = (%d, %q)", code, errs)
+	}
+}
+
 func TestRunInContainerRestriction(t *testing.T) {
 	t.Setenv("SANDBOXER_IN_CONTAINER", "1")
 	code, _, errs := run("create", "x", "--src", t.TempDir())

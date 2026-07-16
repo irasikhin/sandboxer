@@ -558,6 +558,59 @@ func TestDetachSetsAsideNonWorktreeDir(t *testing.T) {
 	}
 }
 
+// TestCleanDetached: the _detached/ sweep removes only the set-aside sources
+// — the live sandbox and the branches stay — and prunes the repos' dangling
+// worktree admin entries.
+func TestCleanDetached(t *testing.T) {
+	repo := gitRepoWithCommit(t)
+	b, err := ResolveBase(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := b.WriteProfileJSON("cd", []byte(`{"srcs":[{"src":".","branch":"feat/cd"}]}`)); err != nil {
+		t.Fatal(err)
+	}
+	if err := b.MakeSandbox("cd", io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	// given: a branch change set the first worktree aside under _detached/
+	if err := b.WriteProfileJSON("cd", []byte(`{"srcs":[{"src":".","branch":"feat/cd2"}]}`)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := b.SyncSrcs("cd", io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(b.detachedDir()); err != nil {
+		t.Fatalf("no _detached to clean: %v", err)
+	}
+
+	removed, err := b.CleanDetached()
+	if err != nil || len(removed) == 0 {
+		t.Fatalf("CleanDetached = (%v, %v)", removed, err)
+	}
+	if _, err := os.Stat(b.detachedDir()); !os.IsNotExist(err) {
+		t.Errorf("_detached survived the sweep (err=%v)", err)
+	}
+	// the live sandbox and both branches are untouched
+	live := b.Srcs("cd")[0]
+	if _, err := os.Stat(filepath.Join(live.Path, "CLAUDE.md")); err != nil {
+		t.Errorf("live sandbox worktree touched by CleanDetached: %v", err)
+	}
+	for _, br := range []string{"feat/cd", "feat/cd2"} {
+		if !strings.Contains(runGit(t, repo, "branch", "--list", br), br) {
+			t.Errorf("branch %s deleted by CleanDetached, want kept", br)
+		}
+	}
+	// the dangling admin entry was pruned
+	if strings.Contains(runGit(t, repo, "worktree", "list"), "_detached") {
+		t.Error("dangling _detached admin entry survived, want pruned")
+	}
+	// idempotent: a second sweep finds nothing and is not an error
+	if removed, err := b.CleanDetached(); err != nil || len(removed) != 0 {
+		t.Errorf("second CleanDetached = (%v, %v), want a no-op", removed, err)
+	}
+}
+
 // TestSyncSrcsRejectsPreSrcsLayout: a sandbox whose dir is itself a worktree
 // (the pre-srcs layout) is refused with a recreate hint instead of nesting new
 // worktrees inside the old one.

@@ -118,7 +118,9 @@ the rest of the runtime state (the private agent homes, logs and metadata)
 lives under the XDG state dir (`$XDG_STATE_HOME/sandboxer/<project>`, default
 `~/.local/state/...`). Both are outside the repo, so secrets and scratch data
 can never be committed by accident. `sandboxer clean` wipes both for the
-project; the config stays.
+project (the config stays); a dropped source's worktree is set aside under
+`_detached/` rather than destroyed — sweep those alone with
+`sandboxer clean --detached --force` once reviewed.
 
 ## How changes flow
 

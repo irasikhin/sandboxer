@@ -20,7 +20,8 @@ can never be committed. The repo carries only two sandboxer-owned files:
 ../<project>-sandboxes/                     # the worktrees, BESIDE the project
 ├── <slug>/               # one per sandbox: worktrees at <branch> paths
 │   └── <branch>/         #   e.g. devops/branch1/ — dir named after the branch
-└── _detached/            # dropped sources, set aside (never destroyed)
+└── _detached/            # dropped sources, set aside (never destroyed
+                          #   automatically; sweep: sandboxer clean --detached --force)
 
 $XDG_STATE_HOME/sandboxer/<project-id>/     # runtime state, outside the repo
 ├── _meta/

@@ -405,6 +405,38 @@ func removeEmptyParents(path, root string) {
 	}
 }
 
+// CleanDetached removes everything set aside under _detached/ — both the
+// sandboxes-root location and the legacy state-dir one — and prunes the
+// affected repos' worktree admin entries. Live sandboxes are not touched, and
+// branches are kept (they live in the repos): only the set-aside working
+// trees, uncommitted work included, are destroyed — the caller gates this
+// behind an explicit confirmation. Returns the roots actually removed.
+func (b *Base) CleanDetached() ([]string, error) {
+	var removed []string
+	repos := map[string]bool{}
+	for _, root := range []string{b.detachedDir(), filepath.Join(b.Dir, "_detached")} {
+		entries, err := os.ReadDir(root)
+		if err != nil {
+			continue // absent — nothing set aside there
+		}
+		for _, e := range entries {
+			// A set-aside worktree knows its repo via --git-common-dir
+			// (<repo>/.git); a plain renamed dir has none and needs no prune.
+			if _, common, ok := worktree.Detect(filepath.Join(root, e.Name())); ok {
+				repos[filepath.Dir(common)] = true
+			}
+		}
+		if err := os.RemoveAll(root); err != nil {
+			return removed, err
+		}
+		removed = append(removed, root)
+	}
+	for r := range repos {
+		_ = worktree.Prune(r)
+	}
+	return removed, nil
+}
+
 // detachTarget picks a fresh destination under _detached/ for slug's dropped
 // source (creating the dir), suffix-numbered on collision.
 func (b *Base) detachTarget(slug string, s Source) (string, error) {

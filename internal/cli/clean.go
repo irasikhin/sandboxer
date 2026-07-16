@@ -21,6 +21,7 @@ func init() { register(newCleanCmd) }
 // which is the whole point of the config/data split.
 func newCleanCmd() *cobra.Command {
 	var force bool
+	var detached bool
 	cmd := &cobra.Command{
 		Use:   "clean [src]",
 		Short: "Remove all runtime data for the project (keeps the committed config)",
@@ -29,8 +30,18 @@ project (<project>-sandboxes/) and every agent home, log and metadata file
 under the state directory. The committed config (sandboxer.nix) is left
 untouched.
 
+--detached limits the sweep to _detached/ — the sources set aside when a
+srcs entry was dropped or its branch changed. Live sandboxes stay; branches
+are kept (they live in the repos); any uncommitted work still sitting in the
+set-aside trees is destroyed — inspect them first (git -C <entry> status).
+
 Requires --force to protect against accidental deletion; use 'sandboxer rm <slug>'
 to remove a single sandbox instead.`,
+		Example: `  # wipe the project's entire runtime data (config stays)
+  sandboxer clean --force
+
+  # only sweep the set-aside dropped sources (_detached/); sandboxes stay
+  sandboxer clean --detached --force`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if !force {
@@ -40,6 +51,27 @@ to remove a single sandbox instead.`,
 			abs, err := filepath.Abs(src)
 			if err != nil {
 				return fmt.Errorf("no such directory: %s", src)
+			}
+			if detached {
+				b, oerr := sandbox.OpenBase(abs)
+				if oerr != nil {
+					return oerr
+				}
+				if b == nil {
+					fmt.Fprintln(cmd.ErrOrStderr(), "sandboxer: nothing set aside — no sandboxer state here")
+					return nil
+				}
+				removed, cerr := b.CleanDetached()
+				for _, r := range removed {
+					fmt.Fprintf(cmd.OutOrStdout(), "removed: %s\n", r)
+				}
+				if cerr != nil {
+					return cerr
+				}
+				if len(removed) == 0 {
+					fmt.Fprintln(cmd.ErrOrStderr(), "sandboxer: nothing set aside — _detached/ is empty")
+				}
+				return nil
 			}
 			dir := config.StateDir(abs)
 			if dir == "" {
@@ -94,5 +126,6 @@ to remove a single sandbox instead.`,
 		},
 	}
 	cmd.Flags().BoolVar(&force, "force", false, "required to confirm deletion")
+	cmd.Flags().BoolVar(&detached, "detached", false, "only remove _detached/ (set-aside dropped sources); live sandboxes stay")
 	return cmd
 }
