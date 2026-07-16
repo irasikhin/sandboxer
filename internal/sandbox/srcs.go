@@ -36,6 +36,18 @@ type Source struct {
 	AutoBranch bool `json:"autoBranch,omitempty"`
 }
 
+// Name is the label this source is addressed by within its sandbox: the
+// repo-level directory of its worktree (<slug>/<NAME>/<branch> — deduped by
+// assignManagedPaths when two repos share a basename), or the checkout's own
+// dir name for an adopted source. Unique across a sandbox's managed sources.
+// `path <slug> <name>` selects one source by it.
+func (s Source) Name() string {
+	if suffix := string(filepath.Separator) + filepath.FromSlash(s.Branch); s.Managed && strings.HasSuffix(s.Path, suffix) {
+		return filepath.Base(strings.TrimSuffix(s.Path, suffix))
+	}
+	return filepath.Base(s.Path)
+}
+
 // SrcsMetaPath locates the recorded source list for a sandbox.
 func (b *Base) SrcsMetaPath(slug string) string {
 	return filepath.Join(b.metaDir(), slug+".srcs.json")
@@ -53,6 +65,39 @@ func (b *Base) Srcs(slug string) []Source {
 		return nil
 	}
 	return out
+}
+
+// SourceNames lists the sources' names in srcs order (see Source.Name), for
+// diagnostics that must spell out the choices.
+func SourceNames(srcs []Source) []string {
+	names := make([]string, len(srcs))
+	for i, s := range srcs {
+		names[i] = s.Name()
+	}
+	return names
+}
+
+// FindSource returns the single source addressed by name — its Name(), or the
+// repo basename as a convenience when that is unambiguous. It errors, listing
+// the available names, when nothing matches or the name is ambiguous, so a
+// caller can surface a usable diagnostic instead of guessing.
+func FindSource(srcs []Source, name string) (Source, error) {
+	var hits []Source
+	for _, s := range srcs {
+		if s.Name() == name || filepath.Base(s.RepoRoot) == name {
+			hits = append(hits, s)
+		}
+	}
+	switch len(hits) {
+	case 1:
+		return hits[0], nil
+	case 0:
+		return Source{}, fmt.Errorf("sandbox has no source %q — its sources are: %s",
+			name, strings.Join(SourceNames(srcs), ", "))
+	default:
+		return Source{}, fmt.Errorf("source %q is ambiguous — name one exactly: %s",
+			name, strings.Join(SourceNames(srcs), ", "))
+	}
 }
 
 func (b *Base) writeSrcs(slug string, srcs []Source) error {

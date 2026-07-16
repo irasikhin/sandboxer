@@ -50,6 +50,35 @@ func TestPathPrintsSourceWorktree(t *testing.T) {
 	}
 }
 
+// TestPathSelectSource: a second positional selects one source of the sandbox
+// by name (its worktree-dir basename), so a multi-source sandbox composes into
+// a single command; an unknown name fails and lists the real sources, and a
+// source name alongside --dir is rejected (--dir is slug-level).
+func TestPathSelectSource(t *testing.T) {
+	project := newProject(t)
+	if code, _, errs := run("create", "feat", "--src", project); code != 0 {
+		t.Fatalf("create: %d %s", code, errs)
+	}
+	name := filepath.Base(project) // the single source's name
+
+	lines := pathLines(t, "feat", name, "--src", project)
+	if len(lines) != 1 {
+		t.Fatalf("path feat %s lines = %d, want 1: %v", name, len(lines), lines)
+	}
+	if want := filepath.Join(sandboxDir(project, "feat"), name, "feat", "feat"); lines[0] != want {
+		t.Errorf("path feat %s = %q, want %q", name, lines[0], want)
+	}
+
+	code, _, errs := run("path", "feat", "nonesuch", "--src", project)
+	if code == 0 || !strings.Contains(errs, "no source") || !strings.Contains(errs, name) {
+		t.Errorf("path feat nonesuch = %d %q, want a rejection listing %q", code, errs, name)
+	}
+
+	if code, _, errs := run("path", "feat", name, "--dir", "--src", project); code == 0 || !strings.Contains(errs, "--dir") {
+		t.Errorf("path feat %s --dir = %d %q, want a rejection naming --dir", name, code, errs)
+	}
+}
+
 // createSandbox makes the sandbox slug in project from its own one-profile
 // config file — the way a second sandbox is added beside the auto-scaffolded
 // one (see TestListStateColumn).

@@ -137,6 +137,26 @@ keeps the branches; `recreate --full` also deletes the branches sandboxer
 itself created, for a fresh start (never one that existed before the
 sandbox).
 
+### Continuing after a merged PR
+
+When a sandbox's branch has been merged and its remote branch deleted, re-base
+the same branch onto the freshly-merged default — on the **host**, with plain
+git in the worktree (sandboxer keeps no git history of its own, so there is no
+command for this):
+
+```bash
+wt="$(sandboxer path feat)"            # the worktree (multi-source: sandboxer path feat <name>)
+git -C "$wt" fetch origin --prune      # refresh origin/main; drop the deleted branch's ref
+git -C "$wt" reset --hard origin/main  # move the sandbox branch onto the merged default
+git -C "$wt" push -u origin HEAD       # re-create the remote branch for the next PR
+```
+
+Stay on the branch — don't `git checkout main` in the worktree (git refuses a
+branch already checked out in your main repo); `reset --hard origin/main` moves
+the sandbox branch while staying on it. `reset --hard` discards uncommitted
+work, so commit or stash any WIP first. A live session sees the new base
+immediately (the worktree is a bind mount), so no `recreate` is needed.
+
 ## Persistent sessions
 
 By default `enter` opens a shell in a **persistent session container**:
