@@ -6,6 +6,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.49.1] — 2026-07-16
+
+### Fixed
+
+- seed hostConfigs as a per-file merge, not a whole-path skip (956de65)
+
+
 ## [0.49.0] — 2026-07-16
 
 ### Added
@@ -471,3 +478,4 @@ isolated, containerized dev sandbox, on a local Linux machine:
 [0.47.1]: https://github.com/irasikhin/sandboxer/compare/v0.47.0...v0.47.1
 [0.48.0]: https://github.com/irasikhin/sandboxer/compare/v0.47.1...v0.48.0
 [0.49.0]: https://github.com/irasikhin/sandboxer/compare/v0.48.0...v0.49.0
+[0.49.1]: https://github.com/irasikhin/sandboxer/compare/v0.49.0...v0.49.1
