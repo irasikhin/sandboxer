@@ -3,8 +3,6 @@ package config
 import (
 	"slices"
 	"testing"
-
-	"github.com/irasikhin/sandboxer/internal/registry"
 )
 
 func TestLoadDefaultsFromEnv(t *testing.T) {
@@ -43,26 +41,6 @@ func TestDomainsCSV(t *testing.T) {
 	}
 	if got := (Runtime{}).DomainsCSV(); got != "" {
 		t.Errorf("empty DomainsCSV = %q", got)
-	}
-}
-
-func TestResolveRuntimeAuthAgents(t *testing.T) {
-	// Explicit agents list is carried verbatim.
-	p := &Profile{Agents: []string{"claude", "codex"}}
-	rt, err := ResolveRuntime(p, Defaults{}, "", Overrides{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !slices.Equal(rt.AuthAgents, []string{"claude", "codex"}) {
-		t.Errorf("AuthAgents = %v", rt.AuthAgents)
-	}
-	// No agents list → the full registry.
-	rt2, err := ResolveRuntime(&Profile{}, Defaults{}, "", Overrides{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !slices.Equal(rt2.AuthAgents, registry.Names()) {
-		t.Errorf("AuthAgents fallback = %v, want registry.Names()", rt2.AuthAgents)
 	}
 }
 

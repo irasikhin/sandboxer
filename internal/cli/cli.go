@@ -131,7 +131,8 @@ pin an existing branch/worktree; other trees come in via extraMounts.
 
 The agent runs inside a podman/docker container built from the toolbox image
 (the agents baked in — see 'sandboxer agents'); each sandbox has its own
-isolated home, and network, proxy and credentials are wired per-config.
+isolated home, and network/proxy are wired per-config. Credentials never come
+from the host — log in or export keys inside the sandbox.
 
 Config: flags + SANDBOXER_* env, plus sandboxer.nix for the structured fields
 (srcs, extraMounts, env, setup, tools, image — evaluated with a restricted nix

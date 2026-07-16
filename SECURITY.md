@@ -61,9 +61,9 @@ important — where it stops.
   history, MCP servers — and your `~/.ssh`, `~/.aws`, etc. are **never** mounted
   in. The **recommended, safe auth path is to log in inside the sandbox** (e.g.
   `claude login`): the token lands in that sandbox's home and never reaches the
-  host. API-key env vars (e.g. `ANTHROPIC_API_KEY`) are passed through only when
-  you have set them on the host — an explicit opt-in. Wire in only the agents and
-  keys the task needs.
+  host. NOTHING credential-like is passed through from the host — API-key env
+  vars included: export a key or log in inside the sandbox when a task needs
+  it.
 
 - **Clean container environment.** The agent runs in a podman/docker container
   from a clean, explicit environment: it does **not** inherit your host shell, so

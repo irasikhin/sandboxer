@@ -93,37 +93,27 @@ func TestExtraMountsAndEnv(t *testing.T) {
 	}
 }
 
-func TestAuthEnvFlags(t *testing.T) {
+// TestNoCredentialPassthrough pins the auth posture: NOTHING credential-like
+// leaves the host — no API-key env vars, no credential-dir mounts. The user
+// logs in or exports keys INSIDE the sandbox (its private $HOME persists).
+func TestNoCredentialPassthrough(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
-	// A real host ~/.claude and ~/.claude.json exist — and must NOT be bound in:
-	// each sandbox uses its own isolated $HOME, nothing from the host is mounted.
 	if err := os.MkdirAll(filepath.Join(home, ".claude"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(home, ".claude.json"), []byte("{}"), 0o600); err != nil {
+	t.Setenv("ANTHROPIC_API_KEY", "secret")
+
+	argv, err := RunArgv(RunOpts{Engine: "docker", Image: "img:1", Dest: "/d", Slug: "s", Args: []string{"true"}})
+	if err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("ANTHROPIC_API_KEY", "secret")
-	t.Setenv("CLAUDE_CODE_OAUTH_TOKEN", "")
-
-	got := strings.Join(authEnvFlags([]string{"claude"}), " ")
-
-	// The API-key env the user set is passed through.
-	if !strings.Contains(got, "ANTHROPIC_API_KEY=secret") {
-		t.Errorf("authEnvFlags missing auth env in %q", got)
+	got := strings.Join(argv, " ")
+	if strings.Contains(got, "ANTHROPIC_API_KEY") || strings.Contains(got, "secret") {
+		t.Errorf("host API key leaked into the argv: %q", got)
 	}
-	// No --volume at all: host credential dirs are never bound.
-	if strings.Contains(got, "--volume") || strings.Contains(got, ".claude") {
-		t.Errorf("authEnvFlags must not bind any host config dir, got %q", got)
-	}
-	// An empty/unset env var is not passed through.
-	if strings.Contains(got, "CLAUDE_CODE_OAUTH_TOKEN") {
-		t.Errorf("unset env var leaked: %q", got)
-	}
-	// An unknown agent is skipped silently.
-	if a := authEnvFlags([]string{"nope"}); a != nil {
-		t.Errorf("unknown agent should yield nil, got %v", a)
+	if strings.Contains(got, ".claude") {
+		t.Errorf("host credential dir leaked into the argv: %q", got)
 	}
 }
 

@@ -251,7 +251,6 @@ func commonArgs(o RunOpts, egNet, egProxyURL string) []string {
 	if csv := o.RT.DomainsCSV(); csv != "" {
 		args = append(args, "--env", "SANDBOXER_ALLOW_DOMAINS="+csv)
 	}
-	args = append(args, authEnvFlags(o.RT.AuthAgents)...)
 	args = append(args, extraMountsAndEnv(o.Profile)...)
 	return args
 }

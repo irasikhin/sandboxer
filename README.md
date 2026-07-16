@@ -54,8 +54,9 @@ everyday toolchain: python3, node/npm, jdk+maven, redocly, ripgrep/fd/jq/…,
 opt-in tmux/zellij, and **rootless podman** for nested containers (never
 docker-in-docker — no engine socket is ever mounted; pulls go through the
 egress allowlist, whose defaults include docker.io/ghcr.io/quay.io and
-mirror.gcr.io). Each sandbox gets its own isolated home, and network, proxy
-and credentials are wired per config.
+mirror.gcr.io). Each sandbox gets its own isolated home, and network/proxy
+are wired per config. Credentials never come from the host: log in or export
+keys inside the sandbox (its private $HOME persists).
 
 For the full picture — on-disk layout, sandbox lifecycle, how the toolbox image
 is built and cached, the egress proxy and the agent registry — see
@@ -408,7 +409,7 @@ can call it unconditionally.
 ## Agents
 
 ```bash
-sandboxer agents   # catalog: bin, sandbox mode, image inclusion, creds/env to bind
+sandboxer agents   # catalog: bin, image inclusion, auth env vars (set them INSIDE)
 ```
 
 The registry is a single source of truth, `internal/registry/registry.json` (the

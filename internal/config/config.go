@@ -200,10 +200,6 @@ type Profile struct {
 	Name    string `json:"name,omitempty"`
 	Backend string `json:"backend,omitempty"`
 	Egress  Egress `json:"egress,omitempty"`
-	// Agents lists whose credentials to pass through to the sandbox (a sandbox is
-	// not bound to one agent — pick which agent to run per exec). Empty means every
-	// agent in the registry.
-	Agents []string `json:"agents,omitempty"`
 	// Srcs are the sandbox's sources — repositories (whole, or narrowed by
 	// gitignore-style include patterns) exposed inside the container. ALWAYS
 	// explicit: an empty list is rejected at sandbox creation (the scaffolded
@@ -258,6 +254,7 @@ var removedKeys = map[string]string{
 	"agentProxy": "removed — route by destination instead: egress.routes",
 	"roots":      "removed — sandboxes are git worktrees now (no copy mode); mount other trees with extraMounts",
 	"context":    "removed — a git-worktree sandbox already contains the repo's files (nothing is copied in)",
+	"agents":     "removed — no credentials are passed through anymore; log in or export API keys INSIDE the sandbox (its $HOME persists)",
 	"deps":       "replaced by srcs — e.g. srcs = [ { src = \".\"; include = [ \"/some/dir/\" ]; } ] (src = path to a repo; include = gitignore-style patterns; empty include = the whole repo)",
 	"defaults":   "removed — profiles are self-contained; share between them with ordinary nix (let base = { ... }; in { profiles.web = base // { ... }; })",
 }

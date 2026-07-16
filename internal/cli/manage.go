@@ -141,12 +141,11 @@ func newAgentsCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "agents",
 		Short: "List the coding agents baked into the toolbox image",
-		Long: `List the coding agents baked into the toolbox image — the valid values for a
-profile's agents: list (whose credentials to pass through to the sandbox). A
-sandbox is not bound to one agent: run any of them with 'sandboxer exec <slug> --
-<agent>'. For each: its binary, whether it ships in the image, and the env vars
-it authenticates with (passed through when set on the host — or log in inside the
-sandbox).`,
+		Long: `List the coding agents baked into the toolbox image. A sandbox is not bound
+to one agent: run any of them with 'sandboxer exec <slug> -- <agent>'. For
+each: its binary, whether it ships in the image, and the env vars it reads for
+auth — nothing is passed through from the host; log in or export those vars
+INSIDE the sandbox (its private $HOME persists).`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			tw := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 2, ' ', 0)

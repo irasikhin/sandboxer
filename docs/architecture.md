@@ -172,7 +172,8 @@ both **embedded in the binary** (via `go:embed`) and **read by the nix flake**
     image inclusion)                   packages to bake into the image)
 ```
 
-Each entry declares only the agent's binary name (`bin`), the env vars that carry
-its credentials (`authEnv`, passed through when set on the host), whether it ships
-in the image (`image`), and the `nixPackage` used to bake it in. **Adding an agent
+Each entry declares only the agent's binary name (`bin`), the env vars it reads
+for auth (`authEnv` — informational; nothing is passed through from the host),
+whether it ships in the image (`image`), and the `nixPackage` used to bake it
+in. **Adding an agent
 is one JSON entry** — never duplicate the catalog. `sandboxer agents` prints it.

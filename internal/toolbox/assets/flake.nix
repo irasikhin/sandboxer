@@ -220,8 +220,8 @@
                 # for pinned per-profile variants)
                 python3
                 nodejs
-                jdk
-                maven
+                jdk25
+                (maven.override { jdk_headless = jdk25; })
                 redocly
                 # nested containers: ROOTLESS podman-in-podman (never dind —
                 # no engine socket is ever mounted) + its runtime pieces;
@@ -268,6 +268,8 @@
                 # UTF-8 by default: agent TUIs and tmux need a UTF-8 locale or
                 # glyphs degrade to '_' (glibc ships C.UTF-8 unconditionally).
                 "LANG=C.UTF-8"
+                # Point maven and the JVM tooling at the baked JDK.
+                "JAVA_HOME=${pkgs.jdk25.home}"
               ]
               ++ userEnv;
             };

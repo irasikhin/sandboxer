@@ -6,35 +6,7 @@ import (
 	"sort"
 
 	"github.com/irasikhin/sandboxer/internal/config"
-	"github.com/irasikhin/sandboxer/internal/registry"
 )
-
-// authEnvFlags builds the --env args that pass each agent's auth-related
-// environment (e.g. ANTHROPIC_API_KEY) through to the container when the user
-// has set it on the host.
-//
-// It deliberately does NOT bind any host credential *directory*: each sandbox
-// has its own isolated $HOME (sandbox.Base.HomeDir), so an agent authenticates
-// inside its own sandbox (claude login, or one of these env vars) and nothing
-// from the host's real config — tokens, project history, MCP servers — is ever
-// pulled in. This also means parallel sandboxes never race on one shared
-// ~/.claude.json. Passing an env var is an explicit host action by the user, not
-// host state being mounted, so it stays opt-in here.
-func authEnvFlags(authAgents []string) []string {
-	var out []string
-	for _, name := range authAgents {
-		a, err := registry.Get(name)
-		if err != nil {
-			continue
-		}
-		for _, e := range a.AuthEnv {
-			if v := os.Getenv(e); v != "" {
-				out = append(out, "--env", e+"="+v)
-			}
-		}
-	}
-	return out
-}
 
 // extraMountsAndEnv adds the profile's extraMounts and env injections.
 func extraMountsAndEnv(p *config.Profile) []string {

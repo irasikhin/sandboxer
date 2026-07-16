@@ -141,10 +141,6 @@ func starterProfile(name string, d config.Defaults) string {
     # ];
   };
 
-  # Which agents' credentials to pass through (see: sandboxer agents).
-  # Defaults to every agent in the registry.
-  # agents = [ "claude" "codex" ];
-
   # Session mode for enter/exec: "persistent" (default) | "ephemeral".
   # session = "persistent";
 

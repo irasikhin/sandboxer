@@ -10,10 +10,6 @@
   name = "integ";
   backend = "podman";
 
-  # Which agents' credentials to pass through. Defaults to every agent in the
-  # registry; narrow it to avoid passing creds you don't need.
-  agents = [ "opencode" "claude" ];
-
   egress = {
     allowedDomains = [
       "api.openai.com" "api.anthropic.com" "registry.npmjs.org" "pypi.org"

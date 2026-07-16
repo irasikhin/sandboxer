@@ -3,7 +3,6 @@ package cli
 import (
 	"fmt"
 	"io"
-	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -96,26 +95,13 @@ Run this after a fresh install or when something isn't working.`,
 				reportSessions(tw, e, &ok, &warn)
 			}
 
-			// Agent credentials — check ONLY the auth env vars each agent reads.
-			// Host credential DIRECTORIES are deliberately never mounted (every
-			// sandbox has an isolated $HOME), so an absent env var is not a
-			// problem: the recommended path is to log in INSIDE the sandbox. We
-			// report presence, never a scary "no creds" for that normal flow.
+			// Agents baked into the toolbox image. Credentials are NEVER passed
+			// through from the host: log in or export API keys INSIDE the
+			// sandbox (its private $HOME persists).
 			for _, name := range registry.Names() {
 				a, _ := registry.Get(name)
-				found := false
-				for _, e := range a.AuthEnv {
-					if os.Getenv(e) != "" {
-						found = true
-						break
-					}
-				}
-				status := "✓ auth env set"
-				if !found {
-					status = "- no auth env (or log in inside the sandbox)"
-				}
-				fmt.Fprintf(tw, "agent %s\t%s\tbin=%s image=%v\n",
-					name, status, a.Bin, a.Image == nil || *a.Image)
+				fmt.Fprintf(tw, "agent %s\t-\tbin=%s image=%v (auth inside the sandbox)\n",
+					name, a.Bin, a.Image == nil || *a.Image)
 			}
 
 			// Project config at the repo root.

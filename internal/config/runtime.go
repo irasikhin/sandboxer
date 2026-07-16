@@ -4,8 +4,6 @@ import (
 	"fmt"
 	"net/url"
 	"strings"
-
-	"github.com/irasikhin/sandboxer/internal/registry"
 )
 
 // Runtime is the fully-resolved set of effective settings for one sandbox
@@ -15,13 +13,12 @@ type Runtime struct {
 	// parent the allowlist sidecar chains through; with Egress off the agent
 	// talks to it directly. The backend rewrites a localhost host to the host
 	// gateway before use (see backend.ContainerProxyURL).
-	Proxy      string
-	NoProxy    string   // NO_PROXY, applied only in direct mode (Egress off)
-	Domains    []string // resolved egress allowlist
-	Backend    string
-	Session    string   // SessionPersistent or SessionEphemeral (resolved; never empty)
-	AuthAgents []string // whose creds to bind in the container
-	Egress     bool
+	Proxy   string
+	NoProxy string   // NO_PROXY, applied only in direct mode (Egress off)
+	Domains []string // resolved egress allowlist
+	Backend string
+	Session string // SessionPersistent or SessionEphemeral (resolved; never empty)
+	Egress  bool
 	// Routes send specific domains through a dedicated upstream proxy (see
 	// Egress.Routes). Applied only with Egress on; ignored in direct mode.
 	Routes []Route
@@ -94,11 +91,6 @@ func ResolveRuntime(p *Profile, d Defaults, baseDomains string, f Overrides) (Ru
 	// that must win over a profile's `session:` choice.
 	rt.Session = firstNonEmpty(f.Session, d.Session, p.Session, SessionPersistent)
 
-	if len(p.Agents) > 0 {
-		rt.AuthAgents = append([]string{}, p.Agents...)
-	} else {
-		rt.AuthAgents = registry.Names()
-	}
 	// Resource caps: a profile's limits: overrides the SANDBOXER_MEM/SANDBOXER_CPU
 	// env defaults; pids has no env default and comes straight from the profile.
 	rt.Mem = firstNonEmpty(p.Limits.Memory, d.Mem)
