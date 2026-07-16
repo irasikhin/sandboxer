@@ -6,6 +6,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.48.0] — 2026-07-16
+
+### Added
+
+- reset — re-base a sandbox's source branches onto the merged base (f58c553)
+
+
 ## [0.47.1] — 2026-07-16
 
 ### Fixed
@@ -451,3 +458,4 @@ isolated, containerized dev sandbox, on a local Linux machine:
 [0.46.0]: https://github.com/irasikhin/sandboxer/compare/v0.45.0...v0.46.0
 [0.47.0]: https://github.com/irasikhin/sandboxer/compare/v0.46.0...v0.47.0
 [0.47.1]: https://github.com/irasikhin/sandboxer/compare/v0.47.0...v0.47.1
+[0.48.0]: https://github.com/irasikhin/sandboxer/compare/v0.47.1...v0.48.0
