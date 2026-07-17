@@ -24,8 +24,9 @@
   # resolve against the project root); branch is REQUIRED — it names the
   # worktree's branch AND its directory (./sandboxes/<name>/<repo>/<branch>);
   # include lists the DIRECTORIES the container may see — anchored at the repo
-  # root and slash-terminated (omit it for the whole repo). Globs and negations
-  # ("*.md", "!/vendor/") are refused: a mount names a path, not a file set.
+  # root, trailing slash optional (omit include entirely for the whole repo).
+  # Globs and negations ("*.md", "!/vendor/") are refused: a mount names a path,
+  # not a file set.
   # A branch already checked out somewhere is adopted as-is.
   srcs = [
     {

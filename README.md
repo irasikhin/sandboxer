@@ -239,8 +239,8 @@ profiles live in one file under a `profiles` attrset. See `examples/config.nix`,
 ```
 
 Each `srcs` entry is a repo (`src` — `.` or a path to another repo's root)
-narrowed by `include` — **a list of directories** (`/src/proto/`, `/shared/lib/`;
-anchored at the repo root, slash-terminated; omit for the whole repo) — and
+narrowed by `include` — **a list of directories** (`/src/proto`, `/shared/lib`;
+anchored at the repo root, trailing slash optional; omit for the whole repo) — and
 optionally pinned with `branch` — naming a branch whose worktree already
 exists (even your main checkout) **adopts** it instead of creating one. Editing
 `srcs` applies on the next `enter`/`exec` and is visible to a **running**

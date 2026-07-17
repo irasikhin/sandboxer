@@ -41,8 +41,8 @@ type Src struct {
 	// lives (project root or an explicit -f path).
 	Src string `json:"src"`
 	// Include narrows what the CONTAINER sees of this source to the listed
-	// directories — each an anchored, slash-terminated repo-relative path
-	// ("/services/api/"). Empty (or ["**"]) means the whole repo. The host's
+	// directories — each an anchored repo-relative path ("/services/api",
+	// trailing slash optional). Empty (or ["**"]) means the whole repo. The host's
 	// worktree is complete either way: narrowing is enforced by mounting only
 	// these directories into the container, so an IDE on the host still sees a
 	// full tree. Directories only — see ValidateInclude for why a glob cannot
@@ -176,16 +176,21 @@ func WholeRepo(include []string) bool {
 // Narrowing is enforced by bind-mounting ONLY the selected directories into the
 // container (the host worktree stays complete, so an IDE can open it). A mount
 // names a path, so a pattern must resolve to exactly one directory: an anchored,
-// slash-terminated, glob-free repo-relative path. The rejected shapes each have
-// a concrete reason, not a stylistic one:
+// glob-free repo-relative path. A trailing slash is optional ("/api" and "/api/"
+// are the same). The rejected shapes each have a concrete reason, not a stylistic
+// one:
 //   - a glob ("*.md", "**/x") or a negation ("!/vendor/") selects a FILE SET
 //     that only a matcher can evaluate — it would have to expand to one mount
 //     per matched file, and a file-granular bind mount breaks atomic saves
 //     (write-temp + rename over the mountpoint fails with EBUSY), which is how
 //     editors and agents write files;
-//   - a bare file ("/go.mod") hits the same rename problem — name its directory;
-//   - an unanchored path ("src/proto/") is ambiguous under gitignore semantics
+//   - an unanchored path ("src/proto") is ambiguous under gitignore semantics
 //     (any depth), and a mount cannot be ambiguous.
+//
+// Whether the path is actually a directory (not a file) is NOT checked here —
+// that needs the repo on disk and lives in sandbox.checkViewDirs, which stats it
+// and rejects a file with an actionable message. Requiring a trailing slash was
+// no substitute: "/go.mod/" is still a file. So this stays pure syntax.
 func ValidateInclude(include []string) error {
 	if WholeRepo(include) {
 		return nil
@@ -202,10 +207,7 @@ func ValidateInclude(include []string) error {
 				"(a glob selects a file set, and mounting files one by one breaks atomic saves)", p)
 		case !strings.HasPrefix(p, "/"):
 			return fmt.Errorf("srcs include %q: must be anchored at the repo root — write \"/%s\"", p, p)
-		case !strings.HasSuffix(p, "/"):
-			return fmt.Errorf("srcs include %q: must name a directory and end with \"/\" — write %q "+
-				"(to expose a single file, expose its directory)", p, p+"/")
-		case p == "/":
+		case p == "/" || p == "//":
 			return errors.New("srcs include \"/\": that is the whole repo — drop include entirely instead")
 		}
 		for _, seg := range strings.Split(strings.Trim(p, "/"), "/") {

@@ -385,6 +385,16 @@ func TestValidateInclude(t *testing.T) {
 		{name: "several directories", include: []string{"/src/proto/", "/shared/lib/"}},
 		{name: "deep directory", include: []string{"/a/b/c/d/"}},
 		{name: "dash and dot in a name", include: []string{"/my-svc/v1.2/"}},
+		// A trailing slash is optional — "/api" and "/api/" mean the same
+		// directory. Requiring it was pure friction: whether the path is a file
+		// or a directory is decided by stat'ing it, not by the syntax.
+		{name: "no trailing slash", include: []string{"/api"}},
+		{name: "no trailing slash, deep", include: []string{"/src/proto"}},
+		{name: "mixed trailing slashes", include: []string{"/api", "/web/"}},
+		// A bare path that turns out to be a FILE is accepted by the syntax and
+		// rejected later by sandbox.checkViewDirs (which stats it) — see
+		// TestCheckViewDirsRejectsAFile.
+		{name: "bare path (file-ness checked at materialize)", include: []string{"/go.mod"}},
 		// A directory and a child of it is redundant, not invalid: overlap is not
 		// checked here (each pattern is validated alone), and the parent already
 		// exposes the child. sandbox.Mounts turns both into nested bind mounts.
@@ -395,8 +405,8 @@ func TestValidateInclude(t *testing.T) {
 		{name: "question mark", include: []string{"/src?/"}, wantErr: "globs are not supported"},
 		{name: "bracket", include: []string{"/src[ab]/"}, wantErr: "globs are not supported"},
 		{name: "negation", include: []string{"!/vendor/"}, wantErr: "negation is not supported"},
-		{name: "bare file", include: []string{"/go.mod"}, wantErr: "must name a directory"},
 		{name: "unanchored", include: []string{"src/proto/"}, wantErr: "must be anchored"},
+		{name: "unanchored no slash", include: []string{"api"}, wantErr: "must be anchored"},
 		{name: "root", include: []string{"/"}, wantErr: "the whole repo"},
 		{name: "empty pattern", include: []string{""}, wantErr: "empty pattern"},
 		{name: "parent escape", include: []string{"/../etc/"}, wantErr: "plain repo-relative"},
