@@ -6,6 +6,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.51.0] — 2026-07-17
+
+### Added
+
+- enter attaches an in-container tmux again; drop zellij from the image (6e857dd)
+
+
 ## [0.50.0] — 2026-07-16
 
 ### Added
@@ -487,3 +494,4 @@ isolated, containerized dev sandbox, on a local Linux machine:
 [0.49.0]: https://github.com/irasikhin/sandboxer/compare/v0.48.0...v0.49.0
 [0.49.1]: https://github.com/irasikhin/sandboxer/compare/v0.49.0...v0.49.1
 [0.50.0]: https://github.com/irasikhin/sandboxer/compare/v0.49.1...v0.50.0
+[0.51.0]: https://github.com/irasikhin/sandboxer/compare/v0.50.0...v0.51.0
