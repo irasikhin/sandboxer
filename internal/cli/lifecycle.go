@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 
 	"github.com/spf13/cobra"
@@ -104,28 +105,36 @@ func newCreateCmd() *cobra.Command {
 
 func newEnterCmd() *cobra.Command {
 	var f commonFlags
+	var sessionName string
 	cmd := &cobra.Command{
 		Use:   "enter [slug|profile|file.nix]",
 		Short: "Open an interactive shell inside the sandbox",
-		Long: `Open an interactive shell inside the sandbox's container. By default the
-shell runs in the persistent session container: exiting the shell keeps the
-container (and anything detached inside it) running, and a later enter drops
-into it again. --ephemeral runs a one-shot container instead. A sandbox that
-doesn't exist yet is created first.
+		Long: `Open a shell inside the sandbox, attached to an in-container tmux
+session (detach: Ctrl-b d; the session and anything running in it keep going
+— a later enter drops straight back in, and a second terminal can attach the
+same session in parallel). By default the shell runs in the persistent
+session container; --ephemeral runs a one-shot container instead. A sandbox
+that doesn't exist yet is created first.
 
-sandboxer does not manage terminal multiplexing: run your own tmux/zellij —
-outside around enter, or inside the sandbox (both are baked into the toolbox
-image, ready to use).`,
+The tmux server lives INSIDE the container (tmux -L sandboxer, system
+/etc/tmux.conf: mouse on, sandboxer prompt in every pane). --session opens a
+separate named session in the same container.`,
 		Example: `  # enter the active sandbox (see: sandboxer use)
   sandboxer enter
 
   # enter (or create) the sandbox "feat"
   sandboxer enter feat
 
-  # a second terminal into the same container
-  sandboxer enter feat`,
+  # a second terminal into the same tmux session
+  sandboxer enter feat
+
+  # a separate tmux session in the same container
+  sandboxer enter feat --session side`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := validateSessionName(sessionName); err != nil {
+				return err
+			}
 			if err := maybeAutoScaffold(cmd, &f, posArg(args)); err != nil {
 				return err
 			}
@@ -210,7 +219,7 @@ image, ready to use).`,
 				RT:        rt, Profile: t.profile,
 				ProfileJSONPath: t.base.ProfileJSONPath(t.slug),
 				Mem:             rt.Mem, CPU: rt.CPU, Pids: rt.Pids,
-				Interactive: true, Args: interactiveShellArgs(),
+				Interactive: true, Args: tmuxEnterArgs(sessionName),
 				NoEgress: noEgress(),
 				Stdin:    cmd.InOrStdin(), Stdout: cmd.OutOrStdout(), Stderr: errOut,
 			}
@@ -250,7 +259,7 @@ image, ready to use).`,
 						fmt.Fprintln(errOut, "sandboxer:", err)
 						runErr = err
 					} else {
-						code, runErr = backendExecSession(o, name, interactiveShellArgs())
+						code, runErr = backendExecSession(o, name, tmuxEnterArgs(sessionName))
 					}
 				} else {
 					code, runErr = backendRun(o)
@@ -276,6 +285,7 @@ image, ready to use).`,
 	cmd.Flags().BoolVar(&f.noSetup, "no-setup", false, "skip the profile's one-time setup script")
 	cmd.Flags().BoolVar(&f.ephemeral, "ephemeral", false, "one-shot container instead of the persistent session")
 	cmd.Flags().BoolVar(&f.recreate, "recreate", false, "force session rebuild even if running (picks up config changes)")
+	cmd.Flags().StringVar(&sessionName, "session", "main", "tmux session name inside the container")
 	return cmd
 }
 
@@ -455,22 +465,45 @@ func warnIgnoredRoutes(w io.Writer, rt config.Runtime) {
 	}
 }
 
-// interactiveShellArgs is the in-container command for `enter`: launch bash with
-// the baked rc (sandbox-aware prompt, aliases, EDITOR/PAGER) when it is present,
-// otherwise a plain interactive shell. The guard tolerates an older cached
-// toolbox image built before the rc existed — a fresh `sandboxer image build`
-// adds it — so flipping the launcher never strands such an image at a dead
-// `--rcfile` path.
-func interactiveShellArgs() []string {
+// tmuxEnterArgs is the in-container command for `enter`: attach to (or
+// create) the named session on the in-container `tmux -L sandboxer` server —
+// the system /etc/tmux.conf routes every pane through the rc.sh launcher
+// (sandbox-aware prompt, aliases) and turns the mouse on, so wheel scrolling
+// works regardless of what TERM made it into the container. The guard
+// tolerates an older cached toolbox image without tmux — degrading to the
+// plain rc shell with a rebuild hint instead of stranding the user. The
+// session name is interpolated into the script, so callers must vet it with
+// validateSessionName first.
+func tmuxEnterArgs(session string) []string {
 	return []string{"bash", "-c",
-		"test -r /etc/sandboxer/rc.sh && exec bash --rcfile /etc/sandboxer/rc.sh -i || exec bash -i"}
+		"if command -v tmux >/dev/null; then " +
+			"exec tmux -L sandboxer new-session -A -s " + session + "; " +
+			"else " +
+			"echo 'sandboxer: tmux not in image — plain shell (rebuild: sandboxer image build)' >&2; " +
+			"test -r /etc/sandboxer/rc.sh && exec bash --rcfile /etc/sandboxer/rc.sh -i || exec bash -i; fi"}
+}
+
+// sessionNameRe pins --session to characters that are safe to splice into the
+// bash -c launcher (the name lands inside a shell word) and that tmux accepts
+// unquoted.
+var sessionNameRe = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
+
+// validateSessionName rejects a tmux session name outside the safe alphabet —
+// it is interpolated into tmuxEnterArgs' script, so this is an injection
+// guard, not cosmetics.
+func validateSessionName(name string) error {
+	if !sessionNameRe.MatchString(name) {
+		return fmt.Errorf("invalid --session name %q — use letters, digits, dash or underscore", name)
+	}
+	return nil
 }
 
 // enterBanner is the orientation notice printed to stderr when an interactive
 // shell opens: which sandbox, the engine and the working directory. The
 // agent's work stays on its sandbox branch — there is no copy-back. The
 // backend/egress facts are already on the configLine printed just above, so
-// this only adds what that line does not.
+// this only adds what that line does not. (The one-shot container still runs
+// tmux — mouse scrolling and panes — it just dies with the shell.)
 func enterBanner(slug, engine, dir string) string {
 	return fmt.Sprintf(
 		"sandboxer: interactive shell in %q (%s) — %s",
@@ -478,13 +511,13 @@ func enterBanner(slug, engine, dir string) string {
 }
 
 // persistentEnterBanner is enterBanner's persistent-session variant: it also
-// names the session container and spells out the exit semantics — leaving the
-// shell keeps the container alive for a later re-enter. Multiplexing is the
-// user's own business (tmux and zellij ship in the image, opt-in).
+// names the session container and spells out the exit semantics — detaching
+// or exiting keeps the container (and the in-container tmux with everything
+// in it) alive for a later re-enter.
 func persistentEnterBanner(slug, engine, dir, container string) string {
 	return fmt.Sprintf(
 		"sandboxer: persistent session %s in %q (%s) — %s\n"+
-			"sandboxer: exiting the shell keeps the container running; reattach: sandboxer enter %s (tmux/zellij available inside)",
+			"sandboxer: tmux inside — Ctrl-b d detaches, exiting keeps the container running; reattach: sandboxer enter %s",
 		container, slug, engine, dir, slug)
 }
 

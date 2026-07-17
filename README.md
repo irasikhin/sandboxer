@@ -57,7 +57,7 @@ via `extraMounts`.
 Isolation backend — a **docker / podman** container built from a toolbox image
 with the agents baked in (claude, opencode, crush, aider, pi, gemini) plus an
 everyday toolchain: python3, node/npm, jdk+maven, redocly, ripgrep/fd/jq/…,
-opt-in tmux/zellij, and **rootless podman** for nested containers (never
+tmux (auto-attached by `enter`), and **rootless podman** for nested containers (never
 docker-in-docker — no engine socket is ever mounted; pulls go through the
 egress allowlist, whose defaults include docker.io/ghcr.io/quay.io and
 mirror.gcr.io). Each sandbox gets its own isolated home, and network/proxy
@@ -174,12 +174,12 @@ hood — the manual equivalent is always available via `sandboxer path`.
 
 ## Persistent sessions
 
-By default `enter` opens a shell in a **persistent session container**:
-exiting the shell keeps the container running, and a later `sandboxer enter
-feat` drops back into it; a second terminal can enter the same container in
-parallel. sandboxer does **not** manage terminal multiplexing — run your own
-**tmux or zellij**, outside around `enter` or inside the sandbox (both ship in
-the toolbox image, configured and ready). `exec` reuses a running session;
+By default `enter` attaches a **tmux session inside a persistent session
+container** (`tmux -L sandboxer`, mouse scrolling on, sandboxer prompt in
+every pane): `Ctrl-b d` detaches, exiting keeps the container running, and a
+later `sandboxer enter feat` drops straight back in; a second terminal
+attaches the same session in parallel (`--session <name>` opens a separate
+one in the same container). `exec` reuses a running session;
 `stop` parks the container for a later resume; `rm` removes it along with the
 sandbox. `list`'s STATE column shows `running`/`stopped`/`-` per sandbox. When
 the profile changes or the toolbox image is rebuilt, the next `enter`

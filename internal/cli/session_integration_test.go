@@ -77,8 +77,8 @@ func TestSessionLifecycle_Container_EnterStopRm(t *testing.T) {
 	// 2. the opt-in multiplexers ship in the image (sandboxer never starts
 	// them — the user does).
 	if code, out, errs := run("exec", "feat", "--src", project, "--config", cfg, "--",
-		"sh", "-c", "command -v tmux && command -v zellij"); code != 0 {
-		t.Fatalf("tmux/zellij missing from the image = (%d, %q)\n%s", code, out, errs)
+		"sh", "-c", "command -v tmux"); code != 0 {
+		t.Fatalf("tmux missing from the image = (%d, %q)\n%s", code, out, errs)
 	}
 	// A marker in the container's own fs proves exec rode the session (a
 	// one-shot fallback would get a fresh /tmp) and must survive stop/start.

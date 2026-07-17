@@ -97,9 +97,10 @@ Key invariants (`internal/sandbox`, `internal/worktree`):
 
 Notes:
 
-- `enter` shells into a **persistent session container** (no managed
-  multiplexer — tmux/zellij ship in the image as opt-in tools); `exec`
-  reuses a running session; `stop` parks it; `rm` removes it. Full semantics
+- `enter` attaches an in-container **tmux session** (`tmux -L sandboxer`,
+  system /etc/tmux.conf: mouse on, rc.sh panes) inside a **persistent session
+  container**; `exec` reuses a running session; `stop` parks it; `rm` removes
+  it. Full semantics
   and escape hatches: README "Persistent sessions"; decisions:
   [sessions-design.md](./sessions-design.md).
 - The agent's work is a git branch in your repo's shared object store; you review

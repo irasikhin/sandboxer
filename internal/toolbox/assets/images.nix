@@ -116,9 +116,9 @@ let
     #   location = "mirror.gcr.io"
   '';
 
-  # System tmux config at /etc/tmux.conf — tmux reads it by default, so
-  # an OPT-IN `tmux` inside the sandbox is configured out of the box
-  # (sandboxer itself no longer starts or attaches any multiplexer):
+  # System tmux config at /etc/tmux.conf — tmux reads it by default.
+  # `enter` attaches a tmux session on its own socket (tmux -L sandboxer,
+  # see cli tmuxEnterArgs), and a manual `tmux` works the same way:
   # panes reuse the rc.sh launcher for the sandboxer prompt/aliases.
   tmuxConf = pkgs.writeTextDir "etc/tmux.conf" ''
     set -g default-command "bash -c 'test -r /etc/sandboxer/rc.sh && exec bash --rcfile /etc/sandboxer/rc.sh -i || exec bash -i'"
@@ -179,11 +179,9 @@ in
         aardvark-dns
         passt
         fuse-overlayfs
-        # OPT-IN terminal multiplexers — sandboxer does not start or
-        # attach them; run tmux or zellij yourself for detachable
-        # panes — plus the terminfo they need
+        # the multiplexer `enter` attaches (detach/reattach, wheel
+        # scrolling, panes) — plus the terminfo it needs
         tmux
-        zellij
         ncurses
       ])
       ++ agentPkgs

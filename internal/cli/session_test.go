@@ -104,8 +104,9 @@ func TestEnterPersistentByDefault(t *testing.T) {
 		t.Errorf("exec target = %q, want %q", c.execTo[0], name)
 	}
 	argv := c.exec[0]
-	if len(argv) != 3 || argv[0] != "bash" || argv[1] != "-c" || !strings.Contains(argv[2], "bash") {
-		t.Errorf("exec argv = %v", argv)
+	if len(argv) != 3 || argv[0] != "bash" || argv[1] != "-c" ||
+		!strings.Contains(argv[2], "tmux -L sandboxer new-session -A -s main") {
+		t.Errorf("exec argv = %v, want the tmux attach launcher", argv)
 	}
 	for _, want := range []string{
 		name, "keeps the container running", "sandboxer enter feat", "sandboxer: done in",
@@ -171,19 +172,26 @@ func TestHostAuthEnvGate(t *testing.T) {
 	}
 }
 
-// TestEnterRunsPlainShell: a persistent enter execs the plain interactive
-// shell launcher — sandboxer starts no multiplexer (tmux/zellij are opt-in
-// tools inside the image).
-func TestEnterRunsPlainShell(t *testing.T) {
+// TestEnterSessionFlag: --session opens a separate named tmux session in the
+// same container, and an unsafe name is rejected before any backend call —
+// the name is spliced into the launcher script.
+func TestEnterSessionFlag(t *testing.T) {
 	project := sessionProject(t)
 	c := stubSessionSeams(t, backend.SessionInfo{}, "h")
 
-	if code, _, errs := run("enter", "feat", "--src", project); code != 0 {
-		t.Fatalf("enter = %d, %s", code, errs)
+	if code, _, errs := run("enter", "feat", "--src", project, "--session", "side"); code != 0 {
+		t.Fatalf("enter --session = %d, %s", code, errs)
 	}
-	if len(c.exec) != 1 || strings.Contains(c.exec[0][2], "tmux") ||
-		!strings.Contains(c.exec[0][2], "bash") {
-		t.Errorf("exec argv = %v, want the plain rc shell launcher", c.exec)
+	if len(c.exec) != 1 || !strings.Contains(c.exec[0][2], "new-session -A -s side") {
+		t.Errorf("exec argv = %v, want the side session attached", c.exec)
+	}
+
+	code, _, errs := run("enter", "feat", "--src", project, "--session", "a;b")
+	if code != 1 || !strings.Contains(errs, "invalid --session") {
+		t.Errorf("unsafe session name = (%d, %q), want a validation error", code, errs)
+	}
+	if len(c.exec) != 1 || len(c.run) != 0 {
+		t.Error("an invalid session name must not reach the backend")
 	}
 }
 

@@ -241,9 +241,9 @@ const (
 // AND the container still runs the image the engine would use today
 // (ImageFresh — a rebuilt image under an unchanged tag keeps the hash but
 // flips the ID; either ID unknown skips that half). A stale session is always
-// recreated (with a notice): sandboxer no longer tracks in-container clients
-// — multiplexing and long-running work are the user's own tmux/zellij
-// business. Engine-free so the decision table is unit-testable:
+// recreated (with a notice): sandboxer tracks no in-container clients —
+// park long-running work (the in-container tmux dies with its container).
+// Engine-free so the decision table is unit-testable:
 //
 //	not found        → create
 //	stopped + fresh  → start
