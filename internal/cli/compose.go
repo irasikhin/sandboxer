@@ -9,7 +9,6 @@ import (
 
 	"github.com/irasikhin/sandboxer/internal/backend"
 	"github.com/irasikhin/sandboxer/internal/config"
-	"github.com/irasikhin/sandboxer/internal/sandbox"
 )
 
 func init() { register(newComposeCmd) }
@@ -63,12 +62,14 @@ equivalent — its purpose is "run it with your own tooling".`,
 			if err != nil {
 				return err
 			}
+			mountDest, srcMounts := t.mounts()
 			opts := backend.RunOpts{
 				Engine:          engine,
 				Image:           image,
 				Spec:            spec,
 				Dest:            t.base.SandboxDir(t.slug),
-				SrcMounts:       sandbox.SrcMounts(t.base.Srcs(t.slug)),
+				MountDest:       mountDest,
+				SrcMounts:       srcMounts,
 				Slug:            t.slug,
 				BaseDir:         t.base.Dir,
 				HomeDir:         t.base.HomeDir(t.slug),

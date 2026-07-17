@@ -71,29 +71,20 @@ func Detect(dir string) (toplevel, commonDir string, ok bool) {
 	return strings.TrimSpace(lines[0]), strings.TrimSpace(lines[1]), true
 }
 
-// wholeRepo reports whether the include patterns select the whole repository —
-// no patterns, or the single catch-all "**" — so no sparse-checkout is needed.
-func wholeRepo(include []string) bool {
-	return len(include) == 0 || (len(include) == 1 && include[0] == "**")
-}
-
 // Ensure makes dest a git worktree of the repo at repoToplevel, checked out on
 // branch — created off HEAD when new, reused when it already exists (so a
-// recreate keeps the agent's prior commits). include narrows what is
-// materialized via non-cone sparse-checkout with gitignore-syntax patterns
-// (last match wins, "!…" negates); empty (or ["**"]) checks out the whole
-// repo. dest must not already exist — the caller removes it first (git
-// worktree add refuses a non-empty path).
-func Ensure(repoToplevel, dest, branch string, include []string, w io.Writer) error {
+// recreate keeps the agent's prior commits). The checkout is always COMPLETE:
+// narrowing a sandbox is a container-mount concern (see sandbox.ViewDirs), not
+// a working-tree one, so the host keeps a full tree an IDE can open. dest must
+// not already exist — the caller removes it first (git worktree add refuses a
+// non-empty path).
+func Ensure(repoToplevel, dest, branch string, w io.Writer) error {
 	branchExists := false
 	if _, err := run(repoToplevel, "rev-parse", "--verify", "-q", "refs/heads/"+branch); err == nil {
 		branchExists = true
 	}
 
 	add := []string{"worktree", "add"}
-	if !wholeRepo(include) {
-		add = append(add, "--no-checkout")
-	}
 	if branchExists {
 		add = append(add, dest, branch)
 	} else {
@@ -103,65 +94,36 @@ func Ensure(repoToplevel, dest, branch string, include []string, w io.Writer) er
 		return fmt.Errorf("git worktree add: %w", err)
 	}
 
-	if !wholeRepo(include) {
-		set := append([]string{"sparse-checkout", "set", "--no-cone", "--"}, include...)
-		if _, err := run(dest, set...); err != nil {
-			return fmt.Errorf("git sparse-checkout: %w", err)
-		}
-		// The worktree was added --no-checkout; check HEAD out now, honoring the
-		// sparse patterns just configured.
-		if _, err := run(dest, "checkout"); err != nil {
-			return fmt.Errorf("git checkout (sparse): %w", err)
-		}
-	}
-
 	if w != nil {
-		fmt.Fprintf(w, "worktree %s on %s (%s)\n", branch, filepath.Base(dest), scopeLabel(include))
+		fmt.Fprintf(w, "worktree %s on %s (full repo)\n", branch, filepath.Base(dest))
 	}
 	return nil
 }
 
-// scopeLabel renders the include patterns for progress lines.
-func scopeLabel(include []string) string {
-	if wholeRepo(include) {
-		return "full repo"
+// Unsparse guarantees dest is a COMPLETE checkout, disabling sparse-checkout
+// when it is active. It is the migration path for worktrees created before
+// narrowing moved from sparse-checkout to container mounts: such a tree is
+// missing files on the host, and this widens it in place — the branch, and any
+// uncommitted work, survive untouched. Idempotent and cheap on an already-full
+// tree (the overwhelmingly common case), so it is safe on every sync.
+// changed reports whether the working tree was touched.
+func Unsparse(dest string, w io.Writer) (changed bool, err error) {
+	if sparseList(dest) == nil {
+		return false, nil // already a full checkout
 	}
-	return strings.Join(include, ", ")
-}
-
-// SyncSparse converges an existing worktree's sparse-checkout onto the include
-// patterns: narrowing, widening or disabling as needed, in place. It is
-// idempotent and cheap when nothing changed. Pattern ORDER matters (gitignore
-// semantics: last match wins), so the comparison is order-sensitive. Locally
-// modified files in paths that fall out of the selection are left on disk by
-// git — nothing is lost. changed reports whether the working tree was touched.
-func SyncSparse(dest string, include []string, w io.Writer) (changed bool, err error) {
-	current := sparseList(dest)
-	if wholeRepo(include) {
-		if current == nil {
-			return false, nil // already a full checkout
-		}
-		if _, err := run(dest, "sparse-checkout", "disable"); err != nil {
-			return false, fmt.Errorf("git sparse-checkout disable: %w", err)
-		}
-	} else {
-		if slicesEqual(current, include) {
-			return false, nil
-		}
-		set := append([]string{"sparse-checkout", "set", "--no-cone", "--"}, include...)
-		if _, err := run(dest, set...); err != nil {
-			return false, fmt.Errorf("git sparse-checkout: %w", err)
-		}
+	if _, err := run(dest, "sparse-checkout", "disable"); err != nil {
+		return false, fmt.Errorf("git sparse-checkout disable: %w", err)
 	}
 	if w != nil {
-		fmt.Fprintf(w, "worktree %s resynced (%s)\n", filepath.Base(dest), scopeLabel(include))
+		fmt.Fprintf(w, "worktree %s widened to the full repo (narrowing is now a container-mount concern)\n",
+			filepath.Base(dest))
 	}
 	return true, nil
 }
 
 // sparseList returns the worktree's current sparse-checkout patterns, or nil
 // when sparse-checkout is not active (a full checkout). Errors read as "not
-// sparse" — SyncSparse then converges from scratch.
+// sparse": the only caller, Unsparse, then leaves the tree alone.
 func sparseList(dest string) []string {
 	if out, err := run(dest, "config", "--worktree", "core.sparseCheckout"); err != nil || strings.TrimSpace(out) != "true" {
 		return nil
@@ -177,18 +139,6 @@ func sparseList(dest string) []string {
 		}
 	}
 	return patterns
-}
-
-func slicesEqual(a, b []string) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for i := range a {
-		if a[i] != b[i] {
-			return false
-		}
-	}
-	return true
 }
 
 // FindWorktree reports where branch is currently checked out — any worktree of

@@ -16,28 +16,22 @@ import (
 	"github.com/irasikhin/sandboxer/internal/sandbox"
 )
 
-// TestRun_RealEngine_SrcsWall proves the srcs containment model end-to-end on
-// a real engine: the container sees ONLY what the include patterns selected
-// (non-cone sparse worktree contents), git does not function inside (no git
-// metadata is mounted), and a write from the container lands in the host
-// worktree where plain host git picks it up.
-func TestRun_RealEngine_SrcsWall(t *testing.T) {
-	engine := itest.Engine(t)
-	image := itest.SmokeImage(t, engine)
-	t.Setenv("SANDBOXER_STATE", t.TempDir())
-
+// wallRepo builds a repo with an exposed directory, two directories that must
+// stay hidden and a root file, and returns its path.
+func wallRepo(t *testing.T) string {
+	t.Helper()
 	repo := t.TempDir()
 	gitHost := func(args ...string) {
 		t.Helper()
-		cmd := exec.Command("git", append([]string{"-C", repo}, args...)...)
-		if out, err := cmd.CombinedOutput(); err != nil {
+		if out, err := exec.Command("git", append([]string{"-C", repo}, args...)...).CombinedOutput(); err != nil {
 			t.Fatalf("git %v: %v\n%s", args, err, out)
 		}
 	}
 	gitHost("init", "-q")
 	gitHost("config", "user.email", "t@example.com")
 	gitHost("config", "user.name", "t")
-	for _, d := range []string{"serviceA", "serviceB"} {
+	gitHost("config", "commit.gpgsign", "false")
+	for _, d := range []string{"serviceA", "serviceB", "secrets"} {
 		if err := os.MkdirAll(filepath.Join(repo, d), 0o755); err != nil {
 			t.Fatal(err)
 		}
@@ -45,38 +39,45 @@ func TestRun_RealEngine_SrcsWall(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	if err := os.WriteFile(filepath.Join(repo, "CLAUDE.md"), []byte("ctx"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	gitHost("add", "-A")
 	gitHost("commit", "-qm", "init")
+	return repo
+}
 
+// narrowedSandbox creates a sandbox exposing only /serviceA/ and returns the
+// base, its slug and the source worktree path.
+func narrowedSandbox(t *testing.T, repo string) (*sandbox.Base, string, string) {
+	t.Helper()
 	b, err := sandbox.ResolveBase(repo)
 	if err != nil {
 		t.Fatal(err)
 	}
 	slug := itest.Slug("wall")
-	if err := b.WriteProfileJSON(slug, []byte(`{"srcs":[{"src":".","include":["/serviceA/"]}]}`)); err != nil {
+	if err := b.WriteProfileJSON(slug,
+		[]byte(`{"srcs":[{"src":".","branch":"feat/wall","include":["/serviceA/"]}]}`)); err != nil {
 		t.Fatal(err)
 	}
 	if err := b.MakeSandbox(slug, io.Discard); err != nil {
 		t.Fatalf("MakeSandbox: %v", err)
 	}
-	srcs := b.Srcs(slug)
-	wt := srcs[0].Path
+	return b, slug, b.Srcs(slug)[0].Path
+}
 
-	// Inside the container: the selection is there, everything else is not,
-	// and git — when the image even has it — cannot resolve the repo (its
-	// metadata lives only on the host).
-	script := fmt.Sprintf(`set -e
-test -f %[1]s/serviceA/f.txt || exit 10
-test ! -e %[1]s/serviceB || exit 11
-if command -v git >/dev/null 2>&1; then
-  git -C %[1]s status >/dev/null 2>&1 && exit 13
-fi
-printf agent > %[1]s/serviceA/out.txt
-echo walled`, wt)
-
+// runInSandbox runs script in the narrowed sandbox and returns its exit code
+// and combined output.
+func runInSandbox(t *testing.T, engine, image string, b *sandbox.Base, slug, script string) (int, string) {
+	t.Helper()
+	mountDest, srcMounts := sandbox.Mounts(b.Srcs(slug))
+	if mountDest {
+		t.Fatal("a narrowed sandbox asked to mount its root — the wall is gone before the container even starts")
+	}
 	o := RunOpts{
 		Engine: engine, Image: image, Dest: b.SandboxDir(slug), Slug: slug,
-		SrcMounts: sandbox.SrcMounts(srcs), // none here — the managed tree rides the Dest mount
+		MountDest: mountDest,
+		SrcMounts: srcMounts,
 		HomeDir:   t.TempDir(),
 		NoEgress:  true,
 		Args:      []string{"sh", "-c", script},
@@ -87,22 +88,180 @@ echo walled`, wt)
 	if err != nil {
 		t.Fatalf("Run: %v\n%s", err, out.String())
 	}
-	if code != 0 {
-		t.Fatalf("exit = %d, want 0 (10=selection missing 11=wall breached 13=git worked)\n%s", code, out.String())
-	}
-	if !strings.Contains(out.String(), "walled") {
-		t.Errorf("stdout = %q, want 'walled'", out.String())
+	return code, out.String()
+}
+
+// TestRun_RealEngine_SrcsWall proves the containment model end-to-end on a real
+// engine, and it is the test that matters most for view mounts: the excluded
+// files are NOT missing from the host — they sit in a complete worktree one
+// directory up — so the only thing hiding them is that their directory is never
+// mounted. Everything below is checked against a real engine because none of it
+// can be proven by inspecting an argv.
+func TestRun_RealEngine_SrcsWall(t *testing.T) {
+	engine := itest.Engine(t)
+	image := itest.SmokeImage(t, engine)
+	t.Setenv("SANDBOXER_STATE", t.TempDir())
+
+	repo := wallRepo(t)
+	b, slug, wt := narrowedSandbox(t, repo)
+
+	// The host tree is WHOLE — this is the property view mounts exist to give
+	// (an IDE can open the branch), and it is what makes the wall load-bearing:
+	// everything the container must not see is right there on disk.
+	for _, p := range []string{"serviceA", "serviceB", "secrets", "CLAUDE.md"} {
+		if _, err := os.Stat(filepath.Join(wt, p)); err != nil {
+			t.Fatalf("host worktree is not whole — %s missing: %v", p, err)
+		}
 	}
 
-	// On the host: the container's write is in the worktree, visible to git.
-	if data, err := os.ReadFile(filepath.Join(wt, "serviceA", "out.txt")); err != nil || string(data) != "agent" {
-		t.Errorf("container write did not land in the host worktree: %q (err %v)", data, err)
+	script := fmt.Sprintf(`set -e
+# what is exposed is there, and readable
+test -f %[1]s/serviceA/f.txt || exit 10
+grep -q serviceA %[1]s/serviceA/f.txt || exit 11
+# what is NOT exposed does not exist — not merely unreadable
+test ! -e %[1]s/serviceB || exit 12
+test ! -e %[1]s/secrets || exit 13
+test ! -e %[1]s/CLAUDE.md || exit 14
+# and it cannot be reached by walking up to the unmounted root either
+ls %[1]s/.. >/dev/null 2>&1 && ls %[1]s/../.. >/dev/null 2>&1
+find / -name 'CLAUDE.md' 2>/dev/null | grep -q . && exit 15
+find / -path '*/secrets/f.txt' 2>/dev/null | grep -q . && exit 16
+# git cannot work: its metadata is never mounted
+if command -v git >/dev/null 2>&1; then
+  git -C %[1]s/serviceA status >/dev/null 2>&1 && exit 17
+fi
+# a NEW file in the exposed directory is real work on the host
+printf agent > %[1]s/serviceA/new.txt
+mkdir -p %[1]s/serviceA/newdir && printf nested > %[1]s/serviceA/newdir/deep.txt
+echo walled`, wt)
+
+	code, out := runInSandbox(t, engine, image, b, slug, script)
+	if code != 0 {
+		t.Fatalf(`exit = %d, want 0
+ 10=exposed file missing 11=unreadable 12/13/14=WALL BREACHED (excluded path visible)
+ 15/16=WALL BREACHED (excluded content reachable elsewhere) 17=git worked inside
+%s`, code, out)
+	}
+	if !strings.Contains(out, "walled") {
+		t.Fatalf("stdout = %q, want 'walled'", out)
+	}
+
+	// New files land in the host worktree, where plain host git sees them.
+	for name, want := range map[string]string{
+		"serviceA/new.txt":         "agent",
+		"serviceA/newdir/deep.txt": "nested",
+	} {
+		if data, err := os.ReadFile(filepath.Join(wt, name)); err != nil || string(data) != want {
+			t.Errorf("new file %s did not reach the host worktree: %q (err %v)", name, data, err)
+		}
 	}
 	st, err := exec.Command("git", "-C", wt, "status", "--porcelain").Output()
 	if err != nil {
 		t.Fatalf("host git status in worktree: %v", err)
 	}
-	if !strings.Contains(string(st), "serviceA/out.txt") {
-		t.Errorf("host git does not see the container's write:\n%s", st)
+	for _, want := range []string{"serviceA/new.txt", "serviceA/newdir/"} {
+		if !strings.Contains(string(st), want) {
+			t.Errorf("host git does not see %q:\n%s", want, st)
+		}
+	}
+	// The host tree is still whole, and the container never touched what it
+	// could not see.
+	if data, err := os.ReadFile(filepath.Join(wt, "secrets", "f.txt")); err != nil || string(data) != "secrets" {
+		t.Errorf("excluded file changed under the container: %q (err %v)", data, err)
+	}
+}
+
+// TestRun_RealEngine_WriteOutsideViewFails: a write to a path the sandbox does
+// not expose must FAIL rather than land in the container's ephemeral layer and
+// disappear with it. Nothing in sandboxer arranges this — the engine
+// materializes the unmounted parents as root-owned directories and the sandbox
+// runs as the host uid (see containerUserArgs), so the kernel refuses the write.
+// The test pins that behavior because the alternative is silent data loss.
+func TestRun_RealEngine_WriteOutsideViewFails(t *testing.T) {
+	engine := itest.Engine(t)
+	image := itest.SmokeImage(t, engine)
+	t.Setenv("SANDBOXER_STATE", t.TempDir())
+
+	repo := wallRepo(t)
+	b, slug, wt := narrowedSandbox(t, repo)
+
+	script := fmt.Sprintf(`
+# outside the exposed directory: every write is refused
+touch %[1]s/ghost.txt 2>/dev/null && exit 20
+mkdir -p %[1]s/ghostdir 2>/dev/null && exit 21
+touch %[1]s/../ghost.txt 2>/dev/null && exit 22
+# inside it: writes work
+touch %[1]s/serviceA/real.txt || exit 23
+echo denied`, wt)
+
+	code, out := runInSandbox(t, engine, image, b, slug, script)
+	if code != 0 {
+		t.Fatalf(`exit = %d, want 0
+ 20/21/22=a write outside the view SUCCEEDED (it would vanish with the container)
+ 23=a write inside the view was refused
+%s`, code, out)
+	}
+	if !strings.Contains(out, "denied") {
+		t.Fatalf("stdout = %q, want 'denied'", out)
+	}
+	if _, err := os.Stat(filepath.Join(wt, "serviceA", "real.txt")); err != nil {
+		t.Errorf("in-view write did not reach the host: %v", err)
+	}
+	for _, ghost := range []string{"ghost.txt", "ghostdir"} {
+		if _, err := os.Stat(filepath.Join(wt, ghost)); !os.IsNotExist(err) {
+			t.Errorf("%s exists on the host (err=%v)", ghost, err)
+		}
+	}
+}
+
+// TestRun_RealEngine_UnnarrowedMountsWholeTree is the other half of the switch:
+// with no include, the sandbox root is mounted and the container sees the whole
+// repository — the behavior every unnarrowed sandbox has always had.
+func TestRun_RealEngine_UnnarrowedMountsWholeTree(t *testing.T) {
+	engine := itest.Engine(t)
+	image := itest.SmokeImage(t, engine)
+	t.Setenv("SANDBOXER_STATE", t.TempDir())
+
+	repo := wallRepo(t)
+	b, err := sandbox.ResolveBase(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	slug := itest.Slug("whole")
+	if err := b.WriteProfileJSON(slug, []byte(`{"srcs":[{"src":".","branch":"feat/whole"}]}`)); err != nil {
+		t.Fatal(err)
+	}
+	if err := b.MakeSandbox(slug, io.Discard); err != nil {
+		t.Fatalf("MakeSandbox: %v", err)
+	}
+	wt := b.Srcs(slug)[0].Path
+
+	mountDest, srcMounts := sandbox.Mounts(b.Srcs(slug))
+	if !mountDest {
+		t.Fatal("an unnarrowed sandbox does not mount its root — it would see nothing")
+	}
+	script := fmt.Sprintf(`set -e
+test -f %[1]s/serviceA/f.txt || exit 10
+test -f %[1]s/serviceB/f.txt || exit 11
+test -f %[1]s/CLAUDE.md || exit 12
+echo whole`, wt)
+
+	o := RunOpts{
+		Engine: engine, Image: image, Dest: b.SandboxDir(slug), Slug: slug,
+		MountDest: mountDest, SrcMounts: srcMounts,
+		HomeDir: t.TempDir(), NoEgress: true,
+		Args: []string{"sh", "-c", script},
+	}
+	var out bytes.Buffer
+	o.Stdout, o.Stderr = &out, &out
+	code, err := Run(o)
+	if err != nil {
+		t.Fatalf("Run: %v\n%s", err, out.String())
+	}
+	if code != 0 {
+		t.Fatalf("exit = %d, want 0 (10/11/12 = a file of the whole repo is missing)\n%s", code, out.String())
+	}
+	if !strings.Contains(out.String(), "whole") {
+		t.Errorf("stdout = %q, want 'whole'", out.String())
 	}
 }

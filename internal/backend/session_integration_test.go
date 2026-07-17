@@ -48,7 +48,7 @@ func TestSession_RealEngine_Lifecycle(t *testing.T) {
 	baseDir := t.TempDir()
 	var notices bytes.Buffer
 	o := RunOpts{
-		Engine: engine, Image: image, Dest: t.TempDir(), Slug: slug,
+		MountDest: true, Engine: engine, Image: image, Dest: t.TempDir(), Slug: slug,
 		BaseDir: baseDir, HomeDir: t.TempDir(),
 		RT: config.Runtime{}, NoEgress: true,
 		Stderr: &notices,
@@ -140,7 +140,7 @@ func TestSession_RealEngine_StopStart(t *testing.T) {
 	slug := itest.Slug("sess")
 	baseDir := t.TempDir()
 	o := RunOpts{
-		Engine: engine, Image: image, Dest: t.TempDir(), Slug: slug,
+		MountDest: true, Engine: engine, Image: image, Dest: t.TempDir(), Slug: slug,
 		BaseDir: baseDir, HomeDir: t.TempDir(),
 		RT: config.Runtime{}, NoEgress: true,
 	}

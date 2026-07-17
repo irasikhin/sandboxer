@@ -73,12 +73,15 @@ was extracted from:
   (re-attached to its managed path instead) or a stale registration whose dir was hand-deleted (pruned, checked
   out fresh — `rm -rf ./sandboxes` self-heals on the next enter; `_meta/<slug>.gen` flips the session hash so
   the pre-deletion session container is rebuilt, not reused with dead mounts). Trees are narrowed by gitignore-style
-  `include` patterns via **non-cone** `sparse-checkout`. srcs is ALWAYS explicit — an empty list is rejected;
+  `include` — a list of DIRECTORIES that narrows the container's MOUNT SET, never the worktree (the host tree
+  is always a complete checkout, so an IDE can open it; globs/negations are rejected — a mount names a path,
+  not a file set; see `docs/view-mounts-design.md`). srcs is ALWAYS explicit — an empty list is rejected;
   the scaffolded config seeds `srcs = [{src = "."; branch = "feat/<name>";}]`. Relative src paths
   resolve against the PROJECT ROOT (not the profile file's dir). **Git never enters the container**: no git-dir mounts, no `GIT_CONFIG_*` — the
-  container gets one stable rw mount of `<slug>/` (plus adopted paths), so the sparse worktree contents ARE the
-  wall and srcs edits are picked up by every enter/exec (a LIVE session sees them immediately); commits happen
-  on the host. Resolved sources are recorded at `_meta/<slug>.srcs.json`; a dropped source's worktree is
+  MOUNT SET is the wall (`sandbox.Mounts` decides it): unnarrowed = one stable rw mount of `<slug>/` (plus
+  adopted paths), so srcs edits are picked up by every enter/exec (a LIVE session sees them immediately);
+  narrowed = `<slug>/` is NOT mounted at all (the host worktrees under it are complete — that absence IS the
+  boundary) and each include dir is mounted rw at its own path. Commits happen on the host. Resolved sources are recorded at `_meta/<slug>.srcs.json`; a dropped source's worktree is
   REMOVED when clean (branch kept) and moved to `_detached/` only when it holds uncommitted work (a worktree in
   detached-HEAD state is left in place, and a non-worktree dir with content is renamed aside, never
   deleted). Teardown removes managed worktrees only and KEEPS branches (`recreate --full`

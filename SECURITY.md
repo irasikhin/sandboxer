@@ -46,14 +46,29 @@ important — where it stops.
 
 ### What the isolation gives you
 
-- **Sources are sparse git worktrees; git never enters the container.** Each
-  source repo is checked out host-side into a worktree on its configured
-  branch, narrowed by the profile's include patterns — the container
-  is bind-mounted ONLY those (sparse) contents. No git metadata is mounted, so
-  the agent cannot read repo history, widen the selection, touch refs, or
-  reach hooks/config at all; you review and commit its file edits on the host
-  (`git log`/`git diff`/`git merge <branch>`). There is no copy-back
-  over host files.
+- **Sources are git worktrees; git never enters the container.** Each source
+  repo is checked out host-side into a complete worktree on its configured
+  branch. The container is bind-mounted ONLY the directories the profile's
+  `include` lists (all of it when `include` is absent) — **the mount set is the
+  boundary**: an excluded path is not mounted, so it does not exist inside the
+  container, and the agent cannot reach it by any path. No git metadata is
+  mounted either, so the agent cannot read repo history, widen the selection,
+  touch refs, or reach hooks/config at all; you review and commit its file
+  edits on the host (`git log`/`git diff`/`git merge <branch>`). There is no
+  copy-back over host files.
+
+  Note what this means for the host side: a narrowed sandbox's worktree holds
+  the excluded files in full, one directory above the mounted ones. That is
+  deliberate (it is what lets an IDE open the branch), and it makes the absence
+  of a `<slug>/` root mount load-bearing rather than incidental — see
+  `sandbox.Mounts` and the tests that pin it (`TestRunArgvNarrowedNeverMountsDest`,
+  `TestRun_RealEngine_SrcsWall`). A write to a path the sandbox does not expose
+  fails rather than silently landing in the container's ephemeral layer,
+  because the engine materializes the unmounted parents as root-owned
+  directories and the sandbox runs as the host uid. Clearing
+  `SANDBOXER_CONTAINER_USER` (the documented macOS escape hatch) runs the
+  container as root and gives up that last property — the mount boundary itself
+  still holds.
 
 - **Isolated `$HOME` — host configs only by opt-in, and only as a copy.** Each
   sandbox has its own private home (`_home/<slug>` under the XDG state dir,

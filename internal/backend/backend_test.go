@@ -104,7 +104,7 @@ func TestNoCredentialPassthrough(t *testing.T) {
 	}
 	t.Setenv("ANTHROPIC_API_KEY", "secret")
 
-	argv, err := RunArgv(RunOpts{Engine: "docker", Image: "img:1", Dest: "/d", Slug: "s", Args: []string{"true"}})
+	argv, err := RunArgv(RunOpts{MountDest: true, Engine: "docker", Image: "img:1", Dest: "/d", Slug: "s", Args: []string{"true"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -197,7 +197,7 @@ func TestContainerRun(t *testing.T) {
 	dest := t.TempDir()
 
 	code, err := Run(RunOpts{
-		Engine: engine, Image: "toolbox:latest", Dest: dest, Slug: "s",
+		MountDest: true, Engine: engine, Image: "toolbox:latest", Dest: dest, Slug: "s",
 		RT: config.Runtime{}, NoEgress: true, Args: []string{"echo", "hi"},
 		Stdin: strings.NewReader(""), Stdout: &bytes.Buffer{}, Stderr: &bytes.Buffer{},
 	})
@@ -234,7 +234,7 @@ func TestContainerRunProxyAndExit(t *testing.T) {
 	t.Setenv("SBX_EXIT", "7")
 
 	code, err := Run(RunOpts{
-		Engine: engine, Image: "img", Dest: t.TempDir(), Slug: "s",
+		MountDest: true, Engine: engine, Image: "img", Dest: t.TempDir(), Slug: "s",
 		RT:       config.Runtime{Proxy: "http://p", Domains: []string{"x.com"}},
 		NoEgress: true, Interactive: true, Args: []string{"true"},
 		Stdin: strings.NewReader(""), Stdout: &bytes.Buffer{}, Stderr: &bytes.Buffer{},
@@ -262,7 +262,7 @@ func TestContainerRunPodman(t *testing.T) {
 	t.Setenv("PATH", bin+":"+os.Getenv("PATH"))
 
 	code, err := Run(RunOpts{
-		Engine: "podman", Image: "img", Dest: t.TempDir(), Slug: "s",
+		MountDest: true, Engine: "podman", Image: "img", Dest: t.TempDir(), Slug: "s",
 		RT: config.Runtime{}, NoEgress: true, Args: []string{"true"},
 		Stdin: strings.NewReader(""), Stdout: &bytes.Buffer{}, Stderr: &bytes.Buffer{},
 	})
@@ -283,7 +283,7 @@ func TestContainerRunLimits(t *testing.T) {
 	writeEngineScript(t, engine, logPath)
 
 	code, err := Run(RunOpts{
-		Engine: engine, Image: "img", Dest: t.TempDir(), Slug: "s",
+		MountDest: true, Engine: engine, Image: "img", Dest: t.TempDir(), Slug: "s",
 		RT: config.Runtime{}, NoEgress: true,
 		Mem: "2G", CPU: "100%",
 		Args:  []string{"bash", "-lc", "true"},

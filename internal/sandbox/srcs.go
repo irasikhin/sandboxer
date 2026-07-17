@@ -171,6 +171,12 @@ func (b *Base) resolveSrcs(slug string, specs []config.Src, prev []Source, w io.
 			"  ];\n"+
 			"(edit it with: sandboxer config edit)", config.ConfigFileName)
 	}
+	// Validate the patterns before touching git: `create` resolves the runtime
+	// (where config.ValidateSrcs also runs) only AFTER materializing the
+	// sandbox, so this is what stops a bad include from getting that far.
+	if err := config.ValidateSrcs(specs); err != nil {
+		return nil, err
+	}
 	recorded := map[string]Source{} // repo toplevel -> the source as last synced
 	for _, p := range prev {
 		if p.Branch != "" {
@@ -370,17 +376,19 @@ func (b *Base) SyncSrcs(slug string, w io.Writer) ([]Source, error) {
 	}
 
 	for _, s := range srcs {
-		if !s.Managed {
-			continue
-		}
-		if worktree.IsWorktree(s.Path) {
-			if _, err := worktree.SyncSparse(s.Path, s.Include, w); err != nil {
+		if s.Managed {
+			if worktree.IsWorktree(s.Path) {
+				// Widen a tree left narrow by a pre-view-mounts sandboxer.
+				if _, err := worktree.Unsparse(s.Path, w); err != nil {
+					return nil, err
+				}
+			} else if err := b.materializeSrc(s, w); err != nil {
 				return nil, err
 			}
-		} else if err := b.materializeSrc(s, w); err != nil {
+		}
+		if err := checkViewDirs(s); err != nil {
 			return nil, err
 		}
-		warnEmptySelection(s, w)
 	}
 	return srcs, b.writeSrcs(slug, srcs)
 }
@@ -403,13 +411,12 @@ func (b *Base) materializeSrc(s Source, w io.Writer) error {
 			return b.reattachSrc(wt, s, w)
 		}
 	}
-	return worktree.Ensure(s.RepoRoot, s.Path, s.Branch, s.Include, w)
+	return worktree.Ensure(s.RepoRoot, s.Path, s.Branch, w)
 }
 
-// reattachSrc moves a set-aside worktree back to its managed path and
-// re-applies the include patterns — the reverse of detachSrc, keeping any
-// uncommitted work. The sandbox must never depend on a _detached/ location:
-// that is exactly what `clean --detached` destroys.
+// reattachSrc moves a set-aside worktree back to its managed path — the reverse
+// of detachSrc, keeping any uncommitted work. The sandbox must never depend on a
+// _detached/ location: that is exactly what `clean --detached` destroys.
 func (b *Base) reattachSrc(from string, s Source, w io.Writer) error {
 	if err := os.MkdirAll(filepath.Dir(s.Path), 0o755); err != nil {
 		return err
@@ -422,7 +429,7 @@ func (b *Base) reattachSrc(from string, s Source, w io.Writer) error {
 		fmt.Fprintf(w, "sandboxer: srcs %s: worktree re-attached from %s (branch %s, work intact)\n",
 			filepath.Base(s.RepoRoot), from, s.Branch)
 	}
-	_, err := worktree.SyncSparse(s.Path, s.Include, w)
+	_, err := worktree.Unsparse(s.Path, w)
 	return err
 }
 
@@ -446,23 +453,29 @@ func dirExists(p string) bool {
 	return err == nil && fi.IsDir()
 }
 
-// warnEmptySelection notes when a narrowed source materialized no files — a
-// typo'd include pattern would otherwise yield a silently empty sandbox.
-func warnEmptySelection(s Source, w io.Writer) {
-	if w == nil || len(s.Include) == 0 || (len(s.Include) == 1 && s.Include[0] == "**") {
-		return
+// checkViewDirs rejects an include directory that is not a directory in the
+// source's checkout. It is a hard error, not a warning, for two reasons: an
+// engine asked to bind-mount a missing source path CREATES it — root-owned, on
+// the host, inside the user's worktree — and a sandbox whose view is a typo
+// would otherwise come up silently empty. The message names the branch, since
+// the usual cause is a path that exists on another one.
+func checkViewDirs(s Source) error {
+	if config.WholeRepo(s.Include) {
+		return nil
 	}
-	entries, err := os.ReadDir(s.Path)
-	if err != nil {
-		return
-	}
-	for _, e := range entries {
-		if e.Name() != ".git" {
-			return
+	for i, dir := range ViewDirs(s) {
+		// ValidateInclude already rejects ".."-style patterns; this is the belt
+		// guaranteeing no include-derived mount ever leaves the worktree.
+		if !strings.HasPrefix(dir, s.Path+string(filepath.Separator)) {
+			return fmt.Errorf("srcs %s: include %q escapes the worktree", filepath.Base(s.RepoRoot), s.Include[i])
+		}
+		if !dirExists(dir) {
+			return fmt.Errorf("srcs %s: include %q is not a directory on branch %s — "+
+				"check the path (sandboxer config edit); only directories that exist can be exposed",
+				filepath.Base(s.RepoRoot), s.Include[i], s.Branch)
 		}
 	}
-	fmt.Fprintf(w, "sandboxer: srcs %s: include matched no files — check the patterns "+
-		"(gitignore syntax; a directory is \"/dir/\")\n", filepath.Base(s.RepoRoot))
+	return nil
 }
 
 // detachSrc takes a managed worktree out of the mounted <slug>/ tree when its
@@ -645,16 +658,61 @@ func (b *Base) detachTarget(slug string, s Source) (string, error) {
 	return target, nil
 }
 
-// SrcMounts returns the extra container mounts a sandbox needs beyond its
-// <slug>/ root: the adopted worktrees, which live outside the state dir.
-// Sorted for a stable argv (the session ConfigHash depends on it).
-func SrcMounts(srcs []Source) []string {
-	var out []string
+// Narrowed reports whether any source restricts what the container sees of it.
+// It is the switch between the sandbox's two mount shapes (see Mounts): with no
+// narrowed source the container gets the <slug>/ root whole, exactly as it
+// always has; one narrowed source moves every source onto its own mount.
+func Narrowed(srcs []Source) bool {
 	for _, s := range srcs {
-		if !s.Managed {
-			out = append(out, s.Path)
+		if !config.WholeRepo(s.Include) {
+			return true
 		}
 	}
-	sort.Strings(out)
+	return false
+}
+
+// ViewDirs returns the absolute host directories of s the container may see:
+// the include directories for a narrowed source, else the worktree itself.
+// These are bind-mounted at their own paths, so what is NOT listed is not
+// mounted and therefore does not exist inside the container — the host tree
+// stays complete regardless (that is the point: an IDE can open it).
+func ViewDirs(s Source) []string {
+	if config.WholeRepo(s.Include) {
+		return []string{s.Path}
+	}
+	out := make([]string, 0, len(s.Include))
+	for _, p := range s.Include {
+		out = append(out, filepath.Join(s.Path, filepath.FromSlash(strings.Trim(p, "/"))))
+	}
 	return out
+}
+
+// Mounts returns the container's source bind mounts and whether the sandbox's
+// <slug>/ root is mounted as one.
+//
+// Nothing narrowed: the root IS the mount — one stable window whose contents a
+// live session sees change (the pre-view behavior, kept byte-identical so an
+// unnarrowed sandbox's argv, and its session hash, never moved).
+//
+// Anything narrowed: the root is NOT mounted and every source is mounted
+// individually. This is the whole containment boundary — the excluded files sit
+// on the host inside an unmounted directory, so they are unreachable from the
+// container rather than merely unreadable. Skipping the root mount is therefore
+// load-bearing, not an optimization; TestMounts_NarrowedNeverMountsDest pins it.
+// Sorted for a stable argv (the session ConfigHash depends on it).
+func Mounts(srcs []Source) (mountDest bool, mounts []string) {
+	if !Narrowed(srcs) {
+		for _, s := range srcs {
+			if !s.Managed { // adopted worktrees live outside <slug>/
+				mounts = append(mounts, s.Path)
+			}
+		}
+		sort.Strings(mounts)
+		return true, mounts
+	}
+	for _, s := range srcs {
+		mounts = append(mounts, ViewDirs(s)...)
+	}
+	sort.Strings(mounts)
+	return false, mounts
 }

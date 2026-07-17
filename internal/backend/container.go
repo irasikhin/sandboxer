@@ -70,12 +70,22 @@ type RunOpts struct {
 	Engine string
 	Image  string
 	Spec   toolbox.Spec // image variant customization; drives the auto-build of a missing variant
-	Dest   string       // sandbox root (<stateDir>/<slug>), mounted rw and used as workdir
-	// SrcMounts are ADOPTED source worktrees living outside Dest, each bind-
-	// mounted rw at its own host path. Managed source worktrees need no entry —
-	// they live under Dest, whose single stable mount is a live window (a srcs
-	// edit shows up in a running session without recreating it). Sorted by the
-	// caller: the order is part of the ConfigHash contract.
+	Dest   string       // sandbox root (<slug>/), the workdir; mounted rw only when MountDest
+	// MountDest bind-mounts Dest itself rw — the whole sandbox root as one
+	// stable window (a srcs edit shows up in a running session without
+	// recreating it). It is set for a sandbox no source narrows.
+	//
+	// A narrowed sandbox clears it, and that is the CONTAINMENT BOUNDARY: the
+	// worktrees under Dest are complete on the host, so mounting Dest would
+	// hand the container every excluded file. Unmounted, they are unreachable —
+	// what is not in SrcMounts does not exist inside. Never set this because a
+	// mount seems to be missing; the false is what makes narrowing real. See
+	// sandbox.Mounts, which decides both fields together.
+	MountDest bool
+	// SrcMounts are the source directories bind-mounted rw at their own host
+	// paths: the adopted worktrees when MountDest (they live outside Dest), else
+	// every source's exposed directories. Sorted by the caller: the order is
+	// part of the ConfigHash contract.
 	SrcMounts []string
 	Slug      string
 	BaseDir   string // host state dir (config.StateDir); names/labels the persistent session (zero value fine for one-shot runs)
@@ -195,7 +205,16 @@ func commonArgs(o RunOpts, egNet, egProxyURL string) []string {
 	args := containerUserArgs()
 	args = append(args,
 		"--cap-drop=ALL", "--security-opt", "no-new-privileges",
-		"--workdir", o.Dest, "--volume", o.Dest+":"+o.Dest+":rw",
+		"--workdir", o.Dest)
+	// A narrowed sandbox deliberately leaves Dest unmounted — see
+	// RunOpts.MountDest. The engine then materializes it (and the parents of
+	// each source mount) as an empty directory in the container's own layer,
+	// owned by root: with --user set, a write outside the exposed directories
+	// fails loudly instead of vanishing with the container.
+	if o.MountDest {
+		args = append(args, "--volume", o.Dest+":"+o.Dest+":rw")
+	}
+	args = append(args,
 		"--env", "SANDBOXER_IN_CONTAINER=1",
 		"--env", "SANDBOXER_SLUG="+o.Slug, "--env", "SANDBOXER_SANDBOX_DIR="+o.Dest,
 		// A UTF-8 locale by default: the image is locale-less, and without one
@@ -223,12 +242,13 @@ func commonArgs(o RunOpts, egNet, egProxyURL string) []string {
 		args = append(args, "--env", "HOME="+o.HomeDir,
 			"--volume", o.HomeDir+":"+o.HomeDir+":rw")
 	}
-	// Adopted source worktrees live outside Dest, so each needs its own mount.
+	// The source mounts (see RunOpts.SrcMounts): adopted worktrees, or every
+	// source's exposed directories when the sandbox is narrowed.
 	// GIT METADATA IS NEVER MOUNTED: a worktree's .git file points at a host
 	// path that does not exist in the container, so git inside fails cleanly —
-	// the (sparse) worktree contents ARE the access boundary, commits happen on
-	// the host, and the whole git-RCE surface (hooks, config, filters) is gone
-	// with the mount. See SECURITY.md.
+	// the mounted directories ARE the access boundary, commits happen on the
+	// host, and the whole git-RCE surface (hooks, config, filters) is gone with
+	// the mount. See SECURITY.md.
 	for _, m := range o.SrcMounts {
 		args = append(args, "--volume", m+":"+m+":rw")
 	}

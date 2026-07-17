@@ -2,10 +2,12 @@
 # backend and a custom agent set.
 #
 # A sandbox exposes SOURCES: each srcs entry is a git repo checked out into a
-# host-side worktree; ONLY the files its gitignore-style include patterns
-# select are visible inside the container — git itself never is. Work returns
-# as an ordinary branch (the one you configured) you review and commit on the HOST;
-# there is no copy-in and no push-back.
+# host-side worktree; ONLY the directories its include list names are visible
+# inside the container — git itself never is. The worktree on the HOST stays a
+# COMPLETE checkout (open it in your IDE): include narrows what gets mounted
+# into the container, not what is on disk. Work returns as an ordinary branch
+# (the one you configured) you review and commit on the HOST; there is no
+# copy-in and no push-back.
 {
   name = "integ";
   backend = "podman";
@@ -21,8 +23,10 @@
   # there is no implicit default. src is a path to a repo root (relative paths
   # resolve against the project root); branch is REQUIRED — it names the
   # worktree's branch AND its directory (./sandboxes/<name>/<repo>/<branch>);
-  # include narrows the tree with gitignore-style patterns (omit it for the
-  # whole repo). A branch already checked out somewhere is adopted as-is.
+  # include lists the DIRECTORIES the container may see — anchored at the repo
+  # root and slash-terminated (omit it for the whole repo). Globs and negations
+  # ("*.md", "!/vendor/") are refused: a mount names a path, not a file set.
+  # A branch already checked out somewhere is adopted as-is.
   srcs = [
     {
       src = ".";

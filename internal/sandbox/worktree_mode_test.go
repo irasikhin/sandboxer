@@ -89,9 +89,9 @@ func TestMakeSandboxDotSrcFull(t *testing.T) {
 	if st := runGit(t, s.Path, "status", "--porcelain"); strings.TrimSpace(st) != "" {
 		t.Errorf("worktree not clean:\n%s", st)
 	}
-	// and: nothing extra is mounted for a fully managed sandbox
-	if m := SrcMounts(srcs); len(m) != 0 {
-		t.Errorf("SrcMounts = %v, want none (managed lives under <slug>/)", m)
+	// and: an unnarrowed sandbox mounts its <slug>/ root and nothing else
+	if mountDest, m := Mounts(srcs); !mountDest || len(m) != 0 {
+		t.Errorf("Mounts = (%v, %v), want (true, none) — managed lives under <slug>/", mountDest, m)
 	}
 	// and: the in-project ./sandboxes root was git-ignored, exactly once even
 	// after a re-sync.
@@ -110,36 +110,51 @@ func TestMakeSandboxDotSrcFull(t *testing.T) {
 	}
 }
 
-func TestMakeSandboxSparseInclude(t *testing.T) {
+// TestMakeSandboxIncludeKeepsHostTreeWhole is the whole point of view mounts:
+// `include` narrows what the CONTAINER sees, and nothing else. The host keeps a
+// complete checkout — that is what lets an IDE open the branch, which a sparse
+// worktree made impossible.
+func TestMakeSandboxIncludeKeepsHostTreeWhole(t *testing.T) {
 	repo := gitRepoWithCommit(t)
 	b, err := ResolveBase(repo)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	// given: a stored profile narrowing to serviceA via a gitignore pattern
+	// given: a stored profile narrowing the container's view to serviceA
 	if err := b.WriteProfileJSON("narrow", []byte(`{"srcs":[{"src":".","branch":"feat/narrow","include":["/serviceA/"]}]}`)); err != nil {
 		t.Fatal(err)
 	}
 
 	if err := b.MakeSandbox("narrow", io.Discard); err != nil {
-		t.Fatalf("MakeSandbox sparse: %v", err)
+		t.Fatalf("MakeSandbox: %v", err)
 	}
 	s := b.Srcs("narrow")[0]
 
-	// then: ONLY the included path is materialized — non-cone sparse keeps no
-	// root files, so the container (which mounts the worktree contents) sees
-	// nothing but the selection.
-	if _, err := os.Stat(filepath.Join(s.Path, "serviceA", "f.txt")); err != nil {
-		t.Errorf("serviceA missing in sparse worktree: %v", err)
-	}
-	for _, gone := range []string{"serviceB", "CLAUDE.md"} {
-		if _, err := os.Stat(filepath.Join(s.Path, gone)); !os.IsNotExist(err) {
-			t.Errorf("%s present, want sparse-excluded (err=%v)", gone, err)
+	// then: the HOST worktree is complete — the excluded files are right there,
+	// which is precisely why the container must not get a mount of the root.
+	for _, p := range []string{"serviceA", "serviceB", "CLAUDE.md"} {
+		if _, err := os.Stat(filepath.Join(s.Path, p)); err != nil {
+			t.Errorf("host worktree is not whole — %s missing: %v", p, err)
 		}
 	}
+	// git exits non-zero with "not sparse" on a full checkout — that IS the
+	// assertion, so this call must tolerate the failure rather than use runGit.
+	if out, err := exec.Command("git", "-C", s.Path, "sparse-checkout", "list").CombinedOutput(); err == nil {
+		t.Errorf("worktree is sparse, want a full checkout:\n%s", out)
+	}
 	if st := runGit(t, s.Path, "status", "--porcelain"); strings.TrimSpace(st) != "" {
-		t.Errorf("sparse worktree not clean:\n%s", st)
+		t.Errorf("worktree not clean:\n%s", st)
+	}
+
+	// and: the container gets ONLY serviceA, mounted directly — the root, which
+	// holds serviceB and CLAUDE.md, is not mounted at all.
+	mountDest, mounts := Mounts(b.Srcs("narrow"))
+	if mountDest {
+		t.Fatal("narrowed sandbox mounts its root — serviceB and CLAUDE.md would be exposed")
+	}
+	if len(mounts) != 1 || mounts[0] != filepath.Join(s.Path, "serviceA") {
+		t.Errorf("mounts = %v, want [%q]", mounts, filepath.Join(s.Path, "serviceA"))
 	}
 }
 
@@ -240,8 +255,8 @@ func TestSrcsAdoptExistingWorktree(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(repo, "serviceB", "f.txt")); err != nil {
 		t.Errorf("adopted checkout was narrowed: %v", err)
 	}
-	if m := SrcMounts(srcs); len(m) != 1 || m[0] != repo {
-		t.Errorf("SrcMounts = %v, want the adopted path", m)
+	if mountDest, m := Mounts(srcs); !mountDest || len(m) != 1 || m[0] != repo {
+		t.Errorf("Mounts = (%v, %v), want (true, [adopted path])", mountDest, m)
 	}
 	// teardown never touches an adopted worktree
 	b.RemoveState("adopt", false)
@@ -316,7 +331,7 @@ func TestRemoveStateKeepsBranchesFullDropsAuto(t *testing.T) {
 
 // TestSyncSrcsWarnsEmptyInclude: include patterns that match nothing yield a
 // loud notice instead of a silently empty sandbox.
-func TestSyncSrcsWarnsEmptyInclude(t *testing.T) {
+func TestSyncSrcsRejectsIncludeThatIsNotADirectory(t *testing.T) {
 	repo := gitRepoWithCommit(t)
 	b, err := ResolveBase(repo)
 	if err != nil {
@@ -325,12 +340,21 @@ func TestSyncSrcsWarnsEmptyInclude(t *testing.T) {
 	if err := b.WriteProfileJSON("typo", []byte(`{"srcs":[{"src":".","branch":"feat/typo","include":["/no-such-dir/"]}]}`)); err != nil {
 		t.Fatal(err)
 	}
-	var progress strings.Builder
-	if err := b.MakeSandbox("typo", &progress); err != nil {
-		t.Fatalf("MakeSandbox: %v", err)
+	// A typo'd include is a hard error, not a warning: the engine would CREATE
+	// the missing mount source as a root-owned directory inside the user's
+	// worktree, and the sandbox would come up with an empty view.
+	err = b.MakeSandbox("typo", io.Discard)
+	if err == nil {
+		t.Fatal("MakeSandbox accepted an include naming no directory, want an error")
 	}
-	if !strings.Contains(progress.String(), "include matched no files") {
-		t.Errorf("expected an empty-selection notice, got %q", progress.String())
+	for _, want := range []string{"/no-such-dir/", "not a directory", "feat/typo"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error %q does not mention %q", err, want)
+		}
+	}
+	// Nothing was created on the host to satisfy the bad pattern.
+	if _, err := os.Stat(filepath.Join(b.SandboxDir("typo"), filepath.Base(repo), "feat", "typo", "no-such-dir")); !os.IsNotExist(err) {
+		t.Errorf("the bad include path was materialized on the host (err=%v)", err)
 	}
 }
 
@@ -702,7 +726,7 @@ func TestSyncSrcsRejectsPreSrcsLayout(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := worktree.Ensure(repo, b.SandboxDir("old"), "feat/old", nil, nil); err != nil {
+	if err := worktree.Ensure(repo, b.SandboxDir("old"), "feat/old", nil); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := b.SyncSrcs("old", io.Discard); err == nil || !strings.Contains(err.Error(), "recreate") {
@@ -810,8 +834,13 @@ func TestSyncSrcsReattachSetAside(t *testing.T) {
 	if _, err := os.Stat(b.detachedDir("ra")); !os.IsNotExist(err) {
 		t.Errorf("_detached survived the re-attach (err=%v)", err)
 	}
-	if m := SrcMounts(srcs); len(m) != 0 {
-		t.Errorf("SrcMounts = %v, want none (the source is managed again)", m)
+	// The source is narrowed, so it is mounted by view — never via the root.
+	mountDest, m := Mounts(srcs)
+	if mountDest {
+		t.Error("Mounts mounts the root for a narrowed source — the whole repo would be exposed")
+	}
+	if len(m) != 1 || m[0] != filepath.Join(want, "serviceA") {
+		t.Errorf("Mounts view = %v, want [%q]", m, filepath.Join(want, "serviceA"))
 	}
 }
 

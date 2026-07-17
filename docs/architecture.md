@@ -48,14 +48,16 @@ $XDG_STATE_HOME/sandboxer/<project-id>/     # runtime state, outside the repo
 Key invariants (`internal/sandbox`, `internal/worktree`):
 
 - **`<slug>/` holds one git worktree per source** (`srcs` entry): each source
-  repo checked out at `<slug>/<repo>/<branch>/` — every entry names its branch
-  explicitly (no default naming; a missing `branch:` is an error) and the
-  worktree's directory is named after it — narrowed by gitignore-style
-  `include` patterns via non-cone `git sparse-checkout`. Editing `branch:` is
-  the one way to move a sandbox's worktree. The container mounts `<slug>/`
-  (and any adopted worktrees) — **never git metadata** — so the sparse
-  contents ARE the access boundary; work returns as ordinary branches
-  committed on the host. The resolved list is recorded at
+  repo checked out **complete** at `<slug>/<repo>/<branch>/` — every entry names
+  its branch explicitly (no default naming; a missing `branch:` is an error) and
+  the worktree's directory is named after it. Editing `branch:` is the one way
+  to move a sandbox's worktree. What the CONTAINER sees is decided by the mount
+  set, not by the tree (`sandbox.Mounts`): with no `include`, `<slug>/` is
+  mounted whole; with `include`, `<slug>/` is **not mounted at all** and each
+  listed directory is mounted at its own path instead. Either way **no git
+  metadata is mounted** — the mount set IS the access boundary; work returns as
+  ordinary branches committed on the host. Keeping the host tree complete is
+  what lets an IDE open a narrowed sandbox's branch. The resolved list is recorded at
   `_meta/<slug>.srcs.json`; every enter/exec re-syncs it (a live session sees
   srcs edits immediately). A dropped source's worktree is removed when CLEAN
   (branch kept) and set aside under `_detached/` when it holds uncommitted
@@ -76,8 +78,8 @@ Key invariants (`internal/sandbox`, `internal/worktree`):
 ```
   init ──────────►  scaffold sandboxer.nix   [optional]
                     │
-  create <slug> ──► per srcs entry: git worktree at <slug>/<repo>/<branch>/ (sparse to
-                    │   include patterns); mkdir _home/<slug>; snapshot
+  create <slug> ──► per srcs entry: full git worktree at <slug>/<repo>/<branch>/
+                    │   (include narrows the MOUNTS, not the tree); mkdir _home/<slug>; snapshot
                     │   profile.json + srcs.json; register slug
                     ▼
   enter / exec ───► run the agent inside the container:

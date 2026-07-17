@@ -50,7 +50,7 @@ func TestSessionName(t *testing.T) {
 // deliberately NO --rm, no -i/-t and no o.Args.
 func TestCreateArgv(t *testing.T) {
 	o := RunOpts{
-		Engine: "podman", Image: "img:1", Dest: "/d", Slug: "s", BaseDir: "/b",
+		MountDest: true, Engine: "podman", Image: "img:1", Dest: "/d", Slug: "s", BaseDir: "/b",
 		HomeDir: "/d/.home", Mem: "2G", CPU: "150%", Interactive: true,
 		Args:  []string{"bash", "-l"},
 		Stdin: strings.NewReader(""), Stdout: &bytes.Buffer{},
@@ -102,7 +102,7 @@ func TestExecArgv(t *testing.T) {
 
 func TestConfigHash(t *testing.T) {
 	base := RunOpts{
-		Engine: "docker", Image: "img:1", Dest: "/d", Slug: "s", BaseDir: "/b",
+		MountDest: true, Engine: "docker", Image: "img:1", Dest: "/d", Slug: "s", BaseDir: "/b",
 		Profile: &config.Profile{Env: map[string]string{"B": "2", "A": "1"}},
 	}
 	h := ConfigHash(base, "", "")
@@ -442,7 +442,7 @@ func TestInspectSession(t *testing.T) {
 // sessionOpts is the no-egress baseline the EnsureSession scenarios tweak.
 func sessionOpts(engine string) RunOpts {
 	return RunOpts{
-		Engine: engine, Image: "img:1", Dest: "/d", Slug: "s", BaseDir: "/b",
+		MountDest: true, Engine: engine, Image: "img:1", Dest: "/d", Slug: "s", BaseDir: "/b",
 		RT: config.Runtime{}, NoEgress: true,
 		Stdin: strings.NewReader(""), Stdout: &bytes.Buffer{}, Stderr: &bytes.Buffer{},
 	}
@@ -818,7 +818,7 @@ func TestExecSession(t *testing.T) {
 	engine := filepath.Join(dir, "engine")
 	writeEngineScript(t, engine, logPath)
 	o := RunOpts{
-		Engine: engine, Dest: "/d",
+		MountDest: true, Engine: engine, Dest: "/d",
 		Stdin: strings.NewReader(""), Stdout: &bytes.Buffer{}, Stderr: &bytes.Buffer{},
 	}
 	t.Setenv("TERM", "")

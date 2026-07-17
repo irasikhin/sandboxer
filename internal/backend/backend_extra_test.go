@@ -24,7 +24,7 @@ func TestContainerRunWithEgress(t *testing.T) {
 	writeEngineScript(t, engine, logPath) // exits 0 for all subcommands
 
 	code, err := Run(RunOpts{
-		Engine: engine, Image: "toolbox:latest", Dest: t.TempDir(), Slug: "s",
+		MountDest: true, Engine: engine, Image: "toolbox:latest", Dest: t.TempDir(), Slug: "s",
 		RT:       config.Runtime{Egress: true, Domains: []string{"a.com"}},
 		NoEgress: false, Args: []string{"true"},
 		Stdin: strings.NewReader(""), Stdout: &bytes.Buffer{}, Stderr: &bytes.Buffer{},
@@ -59,7 +59,7 @@ func TestContainerRunEgressFailRefuses(t *testing.T) {
 	t.Setenv("SBX_EXIT", "1") // every engine call fails, including `network create`
 
 	code, err := Run(RunOpts{
-		Engine: engine, Image: "img", Dest: t.TempDir(), Slug: "s",
+		MountDest: true, Engine: engine, Image: "img", Dest: t.TempDir(), Slug: "s",
 		RT:       config.Runtime{Egress: true, Domains: []string{"a.com"}},
 		NoEgress: false, Args: []string{"true"},
 		Stdin: strings.NewReader(""), Stdout: &bytes.Buffer{}, Stderr: &bytes.Buffer{},
@@ -103,7 +103,7 @@ func TestContainerProxyURL(t *testing.T) {
 // proxy and egress-env branches without a real engine.
 func TestRunArgv(t *testing.T) {
 	argv, err := RunArgv(RunOpts{
-		Engine: "podman", Image: "img:1", Dest: "/d", Slug: "s", HomeDir: "/d/.home",
+		MountDest: true, Engine: "podman", Image: "img:1", Dest: "/d", Slug: "s", HomeDir: "/d/.home",
 		RT: config.Runtime{
 			Proxy: "http://p", NoProxy: "x",
 			Domains: []string{"a.com"}, Egress: false, // egress off → direct proxy env
@@ -135,7 +135,7 @@ func TestRunArgv(t *testing.T) {
 // sessions fingerprint the shared block).
 func TestRunArgvExact(t *testing.T) {
 	argv, err := RunArgv(RunOpts{
-		Engine: "docker", Image: "img:1", Dest: "/d", Slug: "s", HomeDir: "/h",
+		MountDest: true, Engine: "docker", Image: "img:1", Dest: "/d", Slug: "s", HomeDir: "/h",
 		RT:  config.Runtime{Proxy: "http://p", NoProxy: "x", Domains: []string{"a.com"}},
 		Mem: "1G", CPU: "2", Interactive: true,
 		Args:  []string{"echo", "hi"},
@@ -168,13 +168,13 @@ func TestRunArgvExact(t *testing.T) {
 	}
 }
 
-// TestRunArgvSrcMounts: adopted source worktrees are bind-mounted rw at their
-// own host paths, and NO git plumbing ever reaches the argv — no git-dir
-// mount, no GIT_CONFIG_* env (the git-outside model: the sparse worktree
-// contents are the wall, commits happen on the host).
+// TestRunArgvSrcMounts: source worktrees are bind-mounted rw at their own host
+// paths, and NO git plumbing ever reaches the argv — no git-dir mount, no
+// GIT_CONFIG_* env (the git-outside model: the mounted directories are the
+// wall, commits happen on the host).
 func TestRunArgvSrcMounts(t *testing.T) {
 	o := RunOpts{
-		Engine: "docker", Image: "img:1", Dest: "/d", Slug: "s", HomeDir: "/h",
+		MountDest: true, Engine: "docker", Image: "img:1", Dest: "/d", Slug: "s", HomeDir: "/h",
 		SrcMounts: []string{"/repos/lib", "/repos/proto"},
 		Args:      []string{"true"},
 	}
@@ -198,6 +198,45 @@ func TestRunArgvSrcMounts(t *testing.T) {
 	}
 }
 
+// TestRunArgvNarrowedNeverMountsDest pins THE containment invariant of a
+// narrowed sandbox.
+//
+// The worktrees under Dest are COMPLETE on the host (that is the point — an IDE
+// opens them), so the only thing keeping the excluded files away from the
+// container is the absence of a Dest mount. A stray `--volume /d:/d` would hand
+// the agent the entire repository while every other test still passed: the view
+// mounts would be there, the sandbox would work, and the wall would be gone.
+// This test exists so that mistake cannot ship quietly.
+func TestRunArgvNarrowedNeverMountsDest(t *testing.T) {
+	argv, err := RunArgv(RunOpts{
+		Engine: "docker", Image: "img:1", Dest: "/d", Slug: "s", HomeDir: "/h",
+		MountDest: false, // narrowed
+		SrcMounts: []string{"/d/repo/feat/x/src/proto"},
+		Args:      []string{"true"},
+	})
+	if err != nil {
+		t.Fatalf("RunArgv: %v", err)
+	}
+	for i, a := range argv {
+		if a != "--volume" || i+1 >= len(argv) {
+			continue
+		}
+		if host, _, ok := strings.Cut(argv[i+1], ":"); ok && host == "/d" {
+			t.Fatalf("narrowed sandbox mounts its root (%q) — the whole repo is exposed:\n%s",
+				argv[i+1], strings.Join(argv, " "))
+		}
+	}
+	// The view mount itself is still there — the wall must not be a broken sandbox.
+	if s := strings.Join(argv, " "); !strings.Contains(s, "--volume /d/repo/feat/x/src/proto:/d/repo/feat/x/src/proto:rw") {
+		t.Errorf("view mount missing:\n%s", s)
+	}
+	// The workdir stays the sandbox root even though it is not mounted: the
+	// engine materializes it in the container layer.
+	if s := strings.Join(argv, " "); !strings.Contains(s, "--workdir /d") {
+		t.Errorf("workdir is not the sandbox root:\n%s", s)
+	}
+}
+
 // TestEnsureImage covers the preflight: present image is a no-op; a missing
 // custom image is left to the engine; a missing bundled default is auto-built
 // (or fails fast with a build hint when auto-build is disabled).
@@ -210,21 +249,21 @@ func TestEnsureImage(t *testing.T) {
 	imageExists = func(string, string) bool { return true }
 	built := false
 	buildImage = func(toolbox.BuildOpts) error { built = true; return nil }
-	if err := ensureImage(RunOpts{Engine: "e", Image: config.DefaultImage}); err != nil || built {
+	if err := ensureImage(RunOpts{MountDest: true, Engine: "e", Image: config.DefaultImage}); err != nil || built {
 		t.Errorf("present image: err=%v built=%v; want nil/false", err, built)
 	}
 
 	// 2. Missing CUSTOM image with an empty spec → nil (engine pulls), no build.
 	imageExists = func(string, string) bool { return false }
 	built = false
-	if err := ensureImage(RunOpts{Engine: "e", Image: "ghcr.io/x/y:1"}); err != nil || built {
+	if err := ensureImage(RunOpts{MountDest: true, Engine: "e", Image: "ghcr.io/x/y:1"}); err != nil || built {
 		t.Errorf("custom missing image: err=%v built=%v; want nil/false", err, built)
 	}
 
 	// 3. Missing default + auto-build disabled → fail fast with the hint.
 	t.Setenv("SANDBOXER_NO_AUTOBUILD", "1")
 	built = false
-	err := ensureImage(RunOpts{Engine: "e", Image: config.DefaultImage})
+	err := ensureImage(RunOpts{MountDest: true, Engine: "e", Image: config.DefaultImage})
 	if err == nil || !strings.Contains(err.Error(), "sandboxer image build") {
 		t.Errorf("autobuild-disabled: err=%v; want a 'sandboxer image build' hint", err)
 	}
@@ -238,7 +277,7 @@ func TestEnsureImage(t *testing.T) {
 	imageExists = func(string, string) bool { calls++; return calls > 1 } // missing then present
 	gotOpts := toolbox.BuildOpts{}
 	buildImage = func(o toolbox.BuildOpts) error { gotOpts = o; return nil }
-	if err := ensureImage(RunOpts{Engine: "podman", Image: config.DefaultImage, Stderr: &bytes.Buffer{}}); err != nil {
+	if err := ensureImage(RunOpts{MountDest: true, Engine: "podman", Image: config.DefaultImage, Stderr: &bytes.Buffer{}}); err != nil {
 		t.Errorf("auto-build: unexpected err %v", err)
 	}
 	if gotOpts.Engine != "podman" || gotOpts.Image != config.DefaultImage {
@@ -252,7 +291,7 @@ func TestEnsureImage(t *testing.T) {
 	calls = 0
 	imageExists = func(string, string) bool { calls++; return calls > 1 }
 	gotOpts = toolbox.BuildOpts{}
-	if err := ensureImage(RunOpts{Engine: "docker", Image: variant, Spec: spec, Stderr: &bytes.Buffer{}}); err != nil {
+	if err := ensureImage(RunOpts{MountDest: true, Engine: "docker", Image: variant, Spec: spec, Stderr: &bytes.Buffer{}}); err != nil {
 		t.Errorf("variant auto-build: unexpected err %v", err)
 	}
 	if gotOpts.Image != variant || len(gotOpts.Spec.Attrs) != 1 || gotOpts.Spec.Attrs[0] != "ripgrep" {
@@ -264,7 +303,7 @@ func TestEnsureImage(t *testing.T) {
 	imageExists = func(string, string) bool { return false }
 	built = false
 	buildImage = func(toolbox.BuildOpts) error { built = true; return nil }
-	err = ensureImage(RunOpts{Engine: "e", Image: variant, Spec: spec})
+	err = ensureImage(RunOpts{MountDest: true, Engine: "e", Image: variant, Spec: spec})
 	if err == nil || !strings.Contains(err.Error(), "sandboxer image build") || built {
 		t.Errorf("variant autobuild-disabled: err=%v built=%v; want a build-image hint, no build", err, built)
 	}
@@ -273,7 +312,7 @@ func TestEnsureImage(t *testing.T) {
 	// 7. Build "succeeds" but image still absent → error.
 	imageExists = func(string, string) bool { return false }
 	buildImage = func(toolbox.BuildOpts) error { return nil }
-	if err := ensureImage(RunOpts{Engine: "e", Image: config.DefaultImage, Stderr: &bytes.Buffer{}}); err == nil {
+	if err := ensureImage(RunOpts{MountDest: true, Engine: "e", Image: config.DefaultImage, Stderr: &bytes.Buffer{}}); err == nil {
 		t.Error("still-missing after build should error")
 	}
 }
@@ -282,7 +321,7 @@ func TestEnsureImage(t *testing.T) {
 // misconfiguration, not an open-network run.
 func TestContainerRunEgressNoDomains(t *testing.T) {
 	code, err := Run(RunOpts{
-		Engine: "true", Image: "img", Dest: t.TempDir(), Slug: "s",
+		MountDest: true, Engine: "true", Image: "img", Dest: t.TempDir(), Slug: "s",
 		RT:       config.Runtime{Egress: true}, // no domains
 		NoEgress: false, Args: []string{"true"},
 		Stdin: strings.NewReader(""), Stdout: &bytes.Buffer{}, Stderr: &bytes.Buffer{},
@@ -298,7 +337,7 @@ func TestContainerRunEgressNoDomains(t *testing.T) {
 // ConfigHash moves and they all get recreated.
 func TestNestedContainerArgs(t *testing.T) {
 	opts := func(p *config.Profile) RunOpts {
-		return RunOpts{Engine: "docker", Image: "img:1", Dest: "/d", Slug: "s", Profile: p}
+		return RunOpts{MountDest: true, Engine: "docker", Image: "img:1", Dest: "/d", Slug: "s", Profile: p}
 	}
 
 	t.Run("nil profile stays off", func(t *testing.T) {
@@ -375,7 +414,7 @@ func TestContainerUser(t *testing.T) {
 	})
 	// It flows through to the real argv.
 	t.Setenv("SANDBOXER_CONTAINER_USER", "1234:5678")
-	argv, _ := RunArgv(RunOpts{Engine: "docker", Image: "img:1", Dest: "/d", Slug: "s"})
+	argv, _ := RunArgv(RunOpts{MountDest: true, Engine: "docker", Image: "img:1", Dest: "/d", Slug: "s"})
 	if !strings.Contains(strings.Join(argv, " "), "--user 1234:5678") {
 		t.Errorf("override did not reach argv: %v", argv)
 	}

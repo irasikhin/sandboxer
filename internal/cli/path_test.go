@@ -2,6 +2,7 @@ package cli
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -147,14 +148,26 @@ func TestPathNoSlug(t *testing.T) {
 	}
 }
 
-// TestSourcesIncludeScope: a narrowed source reports its include patterns
-// alongside the path, so show explains why the worktree holds only some files.
+// TestSourcesIncludeScope: a narrowed source reports its include directories
+// alongside the path, so show explains what the container actually sees (the
+// worktree itself is whole — the narrowing lives in the mounts).
 func TestSourcesIncludeScope(t *testing.T) {
 	project := newProject(t)
 	cfg := filepath.Join(t.TempDir(), "narrow.nix")
-	body := "{ name = \"narrow\"; srcs = [ { src = \".\"; branch = \"feat/narrow\"; include = [ \"/f.txt\" ]; } ]; }\n"
+	body := "{ name = \"narrow\"; srcs = [ { src = \".\"; branch = \"feat/narrow\"; include = [ \"/sub/\" ]; } ]; }\n"
 	if err := os.WriteFile(cfg, []byte(body), 0o644); err != nil {
 		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(project, "sub"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(project, "sub", "f.txt"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for _, args := range [][]string{{"add", "-A"}, {"commit", "-qm", "sub"}} {
+		if out, err := exec.Command("git", append([]string{"-C", project}, args...)...).CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v (%s)", args, err, out)
+		}
 	}
 	if code, _, errs := run("create", "--src", project, "--config", cfg); code != 0 {
 		t.Fatalf("create: %d %s", code, errs)
@@ -164,8 +177,31 @@ func TestSourcesIncludeScope(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("show = %d, %s", code, errs)
 	}
-	if !strings.Contains(out, "[/f.txt]") {
+	if !strings.Contains(out, "[/sub/]") {
 		t.Errorf("show sources block does not report the include scope:\n%s", out)
+	}
+}
+
+// TestIncludeRejectsGlob: a glob cannot be honored by a mount, so it is refused
+// at config time with a message naming the directory form — not silently
+// half-applied.
+func TestIncludeRejectsGlob(t *testing.T) {
+	project := newProject(t)
+	cfg := filepath.Join(t.TempDir(), "glob.nix")
+	body := "{ name = \"glob\"; srcs = [ { src = \".\"; branch = \"feat/glob\"; include = [ \"**/*.md\" ]; } ]; }\n"
+	if err := os.WriteFile(cfg, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	code, _, errs := run("create", "--src", project, "--config", cfg)
+	if code == 0 {
+		t.Fatal("create accepted a glob include, want a refusal")
+	}
+	if !strings.Contains(errs, "globs are not supported") || !strings.Contains(errs, "/src/proto/") {
+		t.Errorf("error does not explain the directory form: %q", errs)
+	}
+	// and: nothing was created before the refusal
+	if _, err := os.Stat(filepath.Join(project, "sandboxes")); !os.IsNotExist(err) {
+		t.Errorf("a sandbox tree was materialized despite the bad include (err=%v)", err)
 	}
 }
 

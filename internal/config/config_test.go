@@ -367,3 +367,82 @@ func TestLoadUnknownFieldRejected(t *testing.T) {
 		t.Errorf("unknown attr = %v, want a strict unknown-field error", err)
 	}
 }
+
+// TestValidateInclude pins the shape an include pattern must have for a bind
+// mount to honor it: an anchored, slash-terminated, glob-free directory. The
+// rejected shapes are the ones a mount CANNOT express, so each is refused with
+// a message that names the directory form rather than failing later and
+// vaguely.
+func TestValidateInclude(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		include []string
+		wantErr string // "" = accepted; else a substring the message must carry
+	}{
+		{name: "empty is the whole repo", include: nil},
+		{name: "double-star is the whole repo", include: []string{"**"}},
+		{name: "one directory", include: []string{"/src/proto/"}},
+		{name: "several directories", include: []string{"/src/proto/", "/shared/lib/"}},
+		{name: "deep directory", include: []string{"/a/b/c/d/"}},
+		{name: "dash and dot in a name", include: []string{"/my-svc/v1.2/"}},
+
+		{name: "glob", include: []string{"**/*.md"}, wantErr: "globs are not supported"},
+		{name: "star", include: []string{"/src/*.go"}, wantErr: "globs are not supported"},
+		{name: "question mark", include: []string{"/src?/"}, wantErr: "globs are not supported"},
+		{name: "bracket", include: []string{"/src[ab]/"}, wantErr: "globs are not supported"},
+		{name: "negation", include: []string{"!/vendor/"}, wantErr: "negation is not supported"},
+		{name: "bare file", include: []string{"/go.mod"}, wantErr: "must name a directory"},
+		{name: "unanchored", include: []string{"src/proto/"}, wantErr: "must be anchored"},
+		{name: "root", include: []string{"/"}, wantErr: "the whole repo"},
+		{name: "empty pattern", include: []string{""}, wantErr: "empty pattern"},
+		{name: "parent escape", include: []string{"/../etc/"}, wantErr: "plain repo-relative"},
+		{name: "dot segment", include: []string{"/a/./b/"}, wantErr: "plain repo-relative"},
+		{name: "double slash", include: []string{"/a//b/"}, wantErr: "plain repo-relative"},
+		{name: "one bad among good", include: []string{"/ok/", "**/*.md"}, wantErr: "globs are not supported"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			err := ValidateInclude(tc.include)
+			if tc.wantErr == "" {
+				if err != nil {
+					t.Fatalf("ValidateInclude(%v) = %v, want accepted", tc.include, err)
+				}
+				return
+			}
+			if err == nil {
+				t.Fatalf("ValidateInclude(%v) accepted, want an error mentioning %q", tc.include, tc.wantErr)
+			}
+			if !strings.Contains(err.Error(), tc.wantErr) {
+				t.Errorf("ValidateInclude(%v) = %q, want it to mention %q", tc.include, err, tc.wantErr)
+			}
+		})
+	}
+}
+
+// TestWholeRepo: only an absent or explicitly catch-all include means "no
+// narrowing" — anything else puts the sandbox on view mounts.
+func TestWholeRepo(t *testing.T) {
+	for _, tc := range []struct {
+		include []string
+		want    bool
+	}{
+		{nil, true},
+		{[]string{}, true},
+		{[]string{"**"}, true},
+		{[]string{"/src/"}, false},
+		{[]string{"**", "/src/"}, false}, // not the single catch-all
+	} {
+		if got := WholeRepo(tc.include); got != tc.want {
+			t.Errorf("WholeRepo(%v) = %v, want %v", tc.include, got, tc.want)
+		}
+	}
+}
+
+// TestResolveRuntimeValidatesSrcs: a bad include is refused wherever a profile
+// is resolved, so `config validate` catches it without touching git.
+func TestResolveRuntimeValidatesSrcs(t *testing.T) {
+	p := &Profile{Srcs: []Src{{Src: ".", Branch: "feat/x", Include: []string{"*.md"}}}}
+	if _, err := ResolveRuntime(p, Defaults{}, "", Overrides{}); err == nil ||
+		!strings.Contains(err.Error(), "globs are not supported") {
+		t.Errorf("ResolveRuntime = %v, want a glob refusal", err)
+	}
+}

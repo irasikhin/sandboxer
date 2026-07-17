@@ -20,7 +20,7 @@ import (
 func realRunOpts(t *testing.T, engine, image, dest string, args ...string) RunOpts {
 	t.Helper()
 	return RunOpts{
-		Engine: engine, Image: image, Dest: dest, Slug: "itest",
+		MountDest: true, Engine: engine, Image: image, Dest: dest, Slug: "itest",
 		HomeDir:  t.TempDir(),
 		RT:       config.Runtime{}, // Egress=false ⇒ no allowlist required
 		NoEgress: true,
@@ -82,7 +82,7 @@ func TestRunArgv_RealEngineAccepts(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 
 	argv, err := RunArgv(RunOpts{
-		Engine: engine, Image: image, Dest: t.TempDir(), Slug: "itest",
+		MountDest: true, Engine: engine, Image: image, Dest: t.TempDir(), Slug: "itest",
 		RT: config.Runtime{}, NoEgress: true, Args: []string{"true"},
 	})
 	if err != nil {

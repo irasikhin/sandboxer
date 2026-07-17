@@ -239,12 +239,22 @@ profiles live in one file under a `profiles` attrset. See `examples/config.nix`,
 ```
 
 Each `srcs` entry is a repo (`src` — `.` or a path to another repo's root)
-narrowed by `include` **gitignore-style patterns** (`/dir/`, `*.md`, `!…`;
-non-cone `git sparse-checkout` under the hood — omit for the whole repo), and
+narrowed by `include` — **a list of directories** (`/src/proto/`, `/shared/lib/`;
+anchored at the repo root, slash-terminated; omit for the whole repo) — and
 optionally pinned with `branch` — naming a branch whose worktree already
 exists (even your main checkout) **adopts** it instead of creating one. Editing
 `srcs` applies on the next `enter`/`exec` and is visible to a **running**
 session immediately. To bring in **non-git** trees, use `extraMounts`.
+
+`include` narrows **what the container sees, and nothing else**: the host's
+worktree is always a complete checkout, so your IDE opens the branch and
+indexes it normally. The narrowing is enforced by bind-mounting only the listed
+directories into the container — what is not listed is not mounted, and
+therefore does not exist inside. This is why `include` takes directories rather
+than gitignore patterns: a glob (`*.md`, `!/vendor/`) selects a file *set*,
+which a mount cannot express — mounting files one by one would break atomic
+saves (write-temp + rename over a mountpoint fails). A glob is refused by
+`sandboxer config validate` with the directory form to use instead.
 
 `setup` is a one-time shell script (`bash -lc`) run inside the sandbox before
 you take over — e.g. `npm ci`, a build, a DB seed. It runs on the first

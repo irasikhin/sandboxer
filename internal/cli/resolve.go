@@ -48,6 +48,14 @@ type target struct {
 	json    []byte          // profile JSON when loaded from a file (for storing)
 }
 
+// mounts returns the sandbox's source bind mounts and whether its <slug>/ root
+// is one of them. The two are ALWAYS derived together (see sandbox.Mounts):
+// mounting the root while a source is narrowed would expose every excluded
+// file, so the pair must never be assembled field by field at a call site.
+func (t *target) mounts() (mountDest bool, srcMounts []string) {
+	return sandbox.Mounts(t.base.Srcs(t.slug))
+}
+
 // resolveProfileFile selects the profile file and returns it together with
 // the leftover positional and any resolution error. Profiles live in ONE
 // config file (several as its profiles: sections) — there is no directory

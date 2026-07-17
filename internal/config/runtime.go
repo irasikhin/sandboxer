@@ -63,6 +63,9 @@ func ResolveRuntime(p *Profile, d Defaults, baseDomains string, f Overrides) (Ru
 	if err := ValidateImageSpec(p.Image); err != nil {
 		return Runtime{}, err
 	}
+	if err := ValidateSrcs(p.Srcs); err != nil {
+		return Runtime{}, err
+	}
 
 	domains := f.Domains
 	if domains == "" {
