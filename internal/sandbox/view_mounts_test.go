@@ -108,6 +108,47 @@ func TestMountsShape(t *testing.T) {
 	})
 }
 
+// TestMountsNestedInclude: listing a directory and a child of it is redundant
+// (the parent already exposes the child) but accepted, and both become mounts.
+// The load-bearing property is ORDER: the parent must sort before its child so
+// the engine mounts the parent first and the child on top — the reverse would
+// have the parent bind shadow the child. Mounts sorts, and a path is always a
+// prefix-lesser of its own descendant, so this holds; the test pins it because
+// a change to the mount ordering would break nested includes on the engine.
+func TestMountsNestedInclude(t *testing.T) {
+	src := Source{
+		Path:    "/slug/repo/feat/x",
+		Managed: true,
+		Include: []string{"/src/proto/", "/src/"}, // child listed FIRST on purpose
+	}
+	mountDest, m := Mounts([]Source{src})
+	if mountDest {
+		t.Fatal("mountDest = true for a narrowed source")
+	}
+	parent := filepath.FromSlash("/slug/repo/feat/x/src")
+	child := filepath.FromSlash("/slug/repo/feat/x/src/proto")
+	if len(m) != 2 || !containsPath(m, parent) || !containsPath(m, child) {
+		t.Fatalf("mounts = %v, want both %q and %q", m, parent, child)
+	}
+	// Despite the child being listed first in include, the sorted mount list
+	// puts the parent first — the order the engine needs for nested binds.
+	if indexOf(m, parent) > indexOf(m, child) {
+		t.Errorf("mounts = %v: parent %q must precede child %q (nested bind order)", m, parent, child)
+	}
+	if !sortedStrings(m) {
+		t.Errorf("mounts = %v, want sorted", m)
+	}
+}
+
+func indexOf(list []string, want string) int {
+	for i, s := range list {
+		if s == want {
+			return i
+		}
+	}
+	return -1
+}
+
 func containsPath(list []string, want string) bool {
 	for _, s := range list {
 		if s == want {

@@ -385,6 +385,10 @@ func TestValidateInclude(t *testing.T) {
 		{name: "several directories", include: []string{"/src/proto/", "/shared/lib/"}},
 		{name: "deep directory", include: []string{"/a/b/c/d/"}},
 		{name: "dash and dot in a name", include: []string{"/my-svc/v1.2/"}},
+		// A directory and a child of it is redundant, not invalid: overlap is not
+		// checked here (each pattern is validated alone), and the parent already
+		// exposes the child. sandbox.Mounts turns both into nested bind mounts.
+		{name: "parent and child (redundant, allowed)", include: []string{"/src/", "/src/proto/"}},
 
 		{name: "glob", include: []string{"**/*.md"}, wantErr: "globs are not supported"},
 		{name: "star", include: []string{"/src/*.go"}, wantErr: "globs are not supported"},

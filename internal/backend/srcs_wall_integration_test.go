@@ -337,3 +337,91 @@ func TestRun_RealEngine_OrphanedMountIsCaught(t *testing.T) {
 		t.Fatalf("MountFingerprint did not change across the host recreate (%q) — the orphaned mount would be reused", before)
 	}
 }
+
+// TestRun_RealEngine_NestedInclude pins the nested-include behavior on a real
+// engine: listing a directory AND a child of it (redundant, since the parent
+// already exposes the child) produces two OVERLAPPING bind mounts. The engine
+// must accept them, the parent must expose everything under it (the child entry
+// adds nothing), and a sibling directory OUTSIDE the includes must stay hidden —
+// the redundancy must not widen the wall. sandbox.Mounts sorts parent before
+// child so the nested binds apply in the order the engine needs.
+func TestRun_RealEngine_NestedInclude(t *testing.T) {
+	engine := itest.Engine(t)
+	image := itest.SmokeImage(t, engine)
+	t.Setenv("SANDBOXER_STATE", t.TempDir())
+
+	// A repo where the exposed dir has children, plus a sibling to stay hidden.
+	repo := t.TempDir()
+	gitHost := func(args ...string) {
+		t.Helper()
+		if out, err := exec.Command("git", append([]string{"-C", repo}, args...)...).CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	gitHost("init", "-q")
+	gitHost("config", "user.email", "t@example.com")
+	gitHost("config", "user.name", "t")
+	gitHost("config", "commit.gpgsign", "false")
+	for _, f := range []string{"src/proto/a.txt", "src/other/b.txt", "secret/s.txt"} {
+		p := filepath.Join(repo, f)
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(f), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	gitHost("add", "-A")
+	gitHost("commit", "-qm", "init")
+
+	b, err := sandbox.ResolveBase(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	slug := itest.Slug("nested")
+	// The child is listed FIRST, to prove the sorted mount order (parent first)
+	// is what actually reaches the engine.
+	if err := b.WriteProfileJSON(slug,
+		[]byte(`{"srcs":[{"src":".","branch":"feat/nested","include":["/src/proto/","/src/"]}]}`)); err != nil {
+		t.Fatal(err)
+	}
+	if err := b.MakeSandbox(slug, io.Discard); err != nil {
+		t.Fatalf("MakeSandbox: %v", err)
+	}
+	wt := b.Srcs(slug)[0].Path
+
+	mountDest, srcMounts := sandbox.Mounts(b.Srcs(slug))
+	if mountDest {
+		t.Fatal("nested-include sandbox asked to mount its root")
+	}
+	if len(srcMounts) != 2 {
+		t.Fatalf("mounts = %v, want the parent and the child", srcMounts)
+	}
+
+	script := fmt.Sprintf(`set -e
+# the parent exposes everything under it — the child entry adds nothing
+test -f %[1]s/src/proto/a.txt || exit 10
+test -f %[1]s/src/other/b.txt || exit 11
+# the sibling outside the includes stays hidden — redundancy must not widen the wall
+test ! -e %[1]s/secret || exit 12
+echo nested-ok`, wt)
+
+	o := RunOpts{
+		Engine: engine, Image: image, Dest: b.SandboxDir(slug), Slug: slug,
+		MountDest: mountDest, SrcMounts: srcMounts,
+		HomeDir: t.TempDir(), NoEgress: true,
+		Args: []string{"sh", "-c", script},
+	}
+	var out bytes.Buffer
+	o.Stdout, o.Stderr = &out, &out
+	code, err := Run(o)
+	if err != nil {
+		t.Fatalf("Run (engine rejected overlapping mounts?): %v\n%s", err, out.String())
+	}
+	if code != 0 {
+		t.Fatalf("exit = %d, want 0 (10/11 = parent did not expose a child, 12 = WALL BREACHED)\n%s", code, out.String())
+	}
+	if !strings.Contains(out.String(), "nested-ok") {
+		t.Errorf("stdout = %q, want 'nested-ok'", out.String())
+	}
+}
