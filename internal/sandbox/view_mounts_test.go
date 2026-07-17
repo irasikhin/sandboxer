@@ -1,6 +1,7 @@
 package sandbox
 
 import (
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -172,5 +173,123 @@ func TestCheckViewDirsRejectsAFile(t *testing.T) {
 func TestCheckViewDirsWholeRepoIsAlwaysFine(t *testing.T) {
 	if err := checkViewDirs(Source{Path: "/does/not/exist"}); err != nil {
 		t.Errorf("checkViewDirs(whole repo) = %v, want nil", err)
+	}
+}
+
+// TestMountFingerprint pins the inode-staleness guard for view mounts. A bind
+// mount is pinned to the inode it names, so the fingerprint must be stable when
+// nothing changed and flip the instant a mounted directory becomes a different
+// inode — otherwise a live session keeps a mount orphaned by a host-side git
+// checkout.
+func TestMountFingerprint(t *testing.T) {
+	dir := t.TempDir()
+	a := filepath.Join(dir, "a")
+	b := filepath.Join(dir, "b")
+	for _, p := range []string{a, b} {
+		if err := os.MkdirAll(p, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// empty in → empty out: an unnarrowed sandbox's only mount is the
+	// inode-stable <slug>/ root, which needs no fingerprint.
+	if got := MountFingerprint(nil); got != "" {
+		t.Errorf("MountFingerprint(nil) = %q, want empty", got)
+	}
+
+	base := MountFingerprint([]string{a, b})
+	if base == "" {
+		t.Fatal("MountFingerprint of real dirs is empty")
+	}
+
+	// stable across calls when nothing changed — the common re-enter path must
+	// not spuriously rebuild the session.
+	if again := MountFingerprint([]string{a, b}); again != base {
+		t.Errorf("fingerprint changed with no filesystem change: %q → %q", base, again)
+	}
+
+	// writing a FILE inside a mounted dir does NOT change the dir's inode, so
+	// the mount is still live and the fingerprint must not flip (the container
+	// sees the new file through the existing mount).
+	if err := os.WriteFile(filepath.Join(a, "f.txt"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got := MountFingerprint([]string{a, b}); got != base {
+		t.Errorf("fingerprint flipped on an in-dir write (inode unchanged): %q → %q", base, got)
+	}
+
+	// recreating a mounted dir (rmdir+mkdir, as a checkout switching branches
+	// can) IS a new inode — the live mount is now orphaned, so the fingerprint
+	// MUST flip to rebuild the session.
+	if err := os.RemoveAll(a); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(a, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if got := MountFingerprint([]string{a, b}); got == base {
+		t.Errorf("fingerprint did NOT flip after a mounted dir was recreated: %q", got)
+	}
+
+	// a vanished mount also flips the fingerprint (a missing dir the engine
+	// would recreate root-owned must not read as unchanged).
+	if err := os.RemoveAll(b); err != nil {
+		t.Fatal(err)
+	}
+	if got := MountFingerprint([]string{a, b}); got == base {
+		t.Errorf("fingerprint did NOT flip after a mount vanished: %q", got)
+	}
+
+	// order matters: the mounts are argv order (Mounts sorts them), so a
+	// different order is a different argv and must fingerprint differently.
+	if MountFingerprint([]string{a, b}) == MountFingerprint([]string{b, a}) {
+		t.Error("fingerprint is order-insensitive, but the argv is ordered")
+	}
+}
+
+// TestMountFingerprintStableAcrossSync is the property the whole guard depends
+// on being cheap: a re-sync with no external change must NOT alter the view
+// dirs' inodes, or every enter/exec would spuriously rebuild the session. And a
+// host-side recreate of a view dir (a git checkout switching branches) MUST
+// change the fingerprint, so the stale mount is caught.
+func TestMountFingerprintStableAcrossSync(t *testing.T) {
+	repo := gitRepoWithCommit(t)
+	b, err := ResolveBase(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := b.WriteProfileJSON("v", []byte(`{"srcs":[{"src":".","branch":"feat/v","include":["/serviceA/"]}]}`)); err != nil {
+		t.Fatal(err)
+	}
+	if err := b.MakeSandbox("v", io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	fp := func() string {
+		_, m := Mounts(b.Srcs("v"))
+		return MountFingerprint(m)
+	}
+	base := fp()
+	if base == "" {
+		t.Fatal("narrowed sandbox produced an empty mount fingerprint")
+	}
+
+	// re-sync with nothing changed → identical inode → identical fingerprint
+	if _, err := b.SyncSrcs("v", io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	if again := fp(); again != base {
+		t.Errorf("a no-op re-sync changed the fingerprint (%q → %q) — sessions would churn", base, again)
+	}
+
+	// simulate a host-side checkout recreating the view dir: rm + recreate
+	viewDir := filepath.Join(b.Srcs("v")[0].Path, "serviceA")
+	if err := os.RemoveAll(viewDir); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(viewDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if got := fp(); got == base {
+		t.Errorf("recreating the view dir did not flip the fingerprint (%q) — a live session would keep the orphaned mount", got)
 	}
 }

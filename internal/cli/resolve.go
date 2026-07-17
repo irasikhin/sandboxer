@@ -48,12 +48,15 @@ type target struct {
 	json    []byte          // profile JSON when loaded from a file (for storing)
 }
 
-// mounts returns the sandbox's source bind mounts and whether its <slug>/ root
-// is one of them. The two are ALWAYS derived together (see sandbox.Mounts):
-// mounting the root while a source is narrowed would expose every excluded
-// file, so the pair must never be assembled field by field at a call site.
-func (t *target) mounts() (mountDest bool, srcMounts []string) {
-	return sandbox.Mounts(t.base.Srcs(t.slug))
+// mounts returns the sandbox's source bind mounts, whether its <slug>/ root is
+// one of them, and the mounts' inode fingerprint (RunOpts.MountGen). All three
+// are ALWAYS derived together (see sandbox.Mounts / MountFingerprint): mounting
+// the root while a source is narrowed would expose every excluded file, and the
+// fingerprint must cover exactly the mounts that end up in the argv, so the
+// triple must never be assembled field by field at a call site.
+func (t *target) mounts() (mountDest bool, srcMounts []string, mountGen string) {
+	mountDest, srcMounts = sandbox.Mounts(t.base.Srcs(t.slug))
+	return mountDest, srcMounts, sandbox.MountFingerprint(srcMounts)
 }
 
 // resolveProfileFile selects the profile file and returns it together with

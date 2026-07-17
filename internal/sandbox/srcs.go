@@ -716,3 +716,40 @@ func Mounts(srcs []Source) (mountDest bool, mounts []string) {
 	sort.Strings(mounts)
 	return false, mounts
 }
+
+// MountFingerprint fingerprints the on-disk identity of individual source
+// mounts, for RunOpts.MountGen — see it for the why. It is the view-mount
+// analogue of Gen: the <slug>/ root mount is inode-stable (a git operation
+// inside it recreates children, never the mounted dir itself), but the
+// directories mounted one level in — a narrowed sandbox's view dirs, an adopted
+// worktree — are exactly what a host-side checkout/rebase can remove and
+// recreate, orphaning a live session's bind mount.
+//
+// The fingerprint is device+inode per mount, in the given order (Mounts sorts
+// them), so it is STABLE across syncs when nothing external changed and flips
+// the moment a mounted directory becomes a different inode. Empty in →  empty
+// out: a sandbox whose only mount is the inode-stable <slug>/ root needs no
+// fingerprint, and the empty value keeps its argv, and session hash, unchanged.
+// A path that cannot be stat'd contributes a sentinel rather than being
+// skipped, so a directory vanishing also flips the hash.
+func MountFingerprint(mounts []string) string {
+	if len(mounts) == 0 {
+		return ""
+	}
+	h := sha256.New()
+	for _, m := range mounts {
+		fmt.Fprintf(h, "%s\x00%s\x00", m, inodeID(m))
+	}
+	return hex.EncodeToString(h.Sum(nil))[:16]
+}
+
+// inodeID returns a "device:inode" string identifying the file object at path,
+// or "missing" when it cannot be stat'd — a stable sentinel so a vanished mount
+// still changes the fingerprint deterministically.
+func inodeID(path string) string {
+	fi, err := os.Stat(path)
+	if err != nil {
+		return "missing"
+	}
+	return fileIdentity(fi)
+}

@@ -198,6 +198,59 @@ func TestRunArgvSrcMounts(t *testing.T) {
 	}
 }
 
+// TestMountGenFoldsIntoSessionHash: the mount fingerprint (RunOpts.MountGen)
+// travels as an env var that folds into the session ConfigHash, so a host-side
+// git checkout that recreates a mounted view directory (new inode → new
+// fingerprint) flips the hash and the stale session is rebuilt against the fresh
+// mount instead of reusing the orphaned one. And — the load-bearing half —
+// leaving MountGen empty (a sandbox with no individual mounts) emits no flag, so
+// its argv and hash are byte-identical to a pre-MountGen sandbox: no mass
+// session rebuild on upgrade.
+func TestMountGenFoldsIntoSessionHash(t *testing.T) {
+	base := RunOpts{
+		Engine: "docker", Image: "img:1", Dest: "/d", Slug: "s", HomeDir: "/h",
+		SrcMounts: []string{"/d/repo/feat/x/src/proto"},
+	}
+
+	// empty MountGen → no env flag, argv unchanged
+	empty, err := RunArgv(base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(strings.Join(empty, " "), "SANDBOXER_MOUNT_GEN") {
+		t.Error("empty MountGen still emitted SANDBOXER_MOUNT_GEN — every existing session would rebuild on upgrade")
+	}
+
+	// a set MountGen → the env flag appears
+	o1 := base
+	o1.MountGen = "abc123"
+	argv1, err := RunArgv(o1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(strings.Join(argv1, " "), "--env SANDBOXER_MOUNT_GEN=abc123") {
+		t.Errorf("MountGen not emitted:\n%s", strings.Join(argv1, " "))
+	}
+
+	// the session hash tracks the fingerprint: same value → same hash, changed
+	// value (a recreated view dir) → different hash → rebuild.
+	h1 := ConfigHash(o1, "", "")
+	o1same := base
+	o1same.MountGen = "abc123"
+	if ConfigHash(o1same, "", "") != h1 {
+		t.Error("same MountGen produced a different hash — a re-enter would spuriously rebuild")
+	}
+	o2 := base
+	o2.MountGen = "def456" // the view dir was recreated on the host
+	if ConfigHash(o2, "", "") == h1 {
+		t.Error("a changed mount fingerprint did NOT flip the session hash — the stale mount would be reused")
+	}
+	// and an unfingerprinted sandbox hashes identically to a pre-MountGen one.
+	if ConfigHash(base, "", "") == h1 {
+		t.Error("empty vs set MountGen hash the same — the guard is inert")
+	}
+}
+
 // TestRunArgvNarrowedNeverMountsDest pins THE containment invariant of a
 // narrowed sandbox.
 //

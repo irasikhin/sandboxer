@@ -62,13 +62,14 @@ equivalent — its purpose is "run it with your own tooling".`,
 			if err != nil {
 				return err
 			}
-			mountDest, srcMounts := t.mounts()
+			mountDest, srcMounts, mountGen := t.mounts()
 			opts := backend.RunOpts{
 				Engine:          engine,
 				Image:           image,
 				Spec:            spec,
 				Dest:            t.base.SandboxDir(t.slug),
 				MountDest:       mountDest,
+				MountGen:        mountGen,
 				SrcMounts:       srcMounts,
 				Slug:            t.slug,
 				BaseDir:         t.base.Dir,

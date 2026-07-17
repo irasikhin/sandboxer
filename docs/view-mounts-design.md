@@ -131,9 +131,32 @@ gated by the GitHub build.
   changing `include` rebuilds the session. Correct, and cheap.
 - **A bind mount is pinned to an inode.** If a host-side `git checkout` or build
   removes and recreates a mounted directory, a live session keeps the old inode
-  and silently diverges. `DestGen` solves this class of problem for `<slug>/`
-  already; extending it to view directories is **not done yet** and is the known
-  gap.
+  and silently diverges. `DestGen` solves this for the `<slug>/` root (which is
+  inode-stable anyway — a git op inside it recreates children, never the mounted
+  dir). The individual mounts one level in — a narrowed sandbox's view dirs and
+  any adopted worktree — are exactly what a checkout can recreate, so they get
+  the same treatment: `MountFingerprint` folds their device+inode into
+  `RunOpts.MountGen`, a `SANDBOXER_MOUNT_GEN` env var that enters the session
+  `ConfigHash`. A recreate flips the fingerprint, flips the hash, and the next
+  enter rebuilds against the fresh directory. Empty for a sandbox with no
+  individual mounts (the common one-managed-source case), so that argv — and its
+  session hash — is unchanged and nothing rebuilds on upgrade. The orphaning
+  hazard itself is demonstrated on a real engine
+  (`TestRun_RealEngine_OrphanedMountIsCaught`): a detached container keeps
+  reading the orphaned inode while the host has moved on, and the fingerprint
+  changes across the recreate.
+
+## Verified on both engines
+
+The wall, the out-of-view write refusal, the unnarrowed whole-repo mount and the
+orphaned-mount hazard all pass on **docker** and on **rootless podman** (the
+engine sandboxer prefers). Notably the "a write outside the view fails" property
+holds on rootless podman too, under its `--userns=keep-id` mapping — not only on
+docker. The one integration test that fails locally on podman,
+`TestRunArgv_RealEngineAccepts`, does so only because it runs podman under an
+empty `$HOME` with no `policy.json`/`registries.conf`; that is a podman host-config
+prerequisite (present at `/etc/containers` on a real CI host), not a property of
+this change — the argv it generates is byte-identical to before.
 
 ## Migration
 

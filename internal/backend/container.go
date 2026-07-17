@@ -98,6 +98,19 @@ type RunOpts struct {
 	// instead of silently reused. "" (a pre-gen sandbox) adds no flag, keeping
 	// existing sessions' hashes unchanged.
 	DestGen string
+	// MountGen fingerprints the on-disk identity (device+inode) of the
+	// individual source mounts in SrcMounts — the view directories of a narrowed
+	// sandbox, and any adopted worktrees. Like DestGen it travels as a container
+	// env var folded into the session ConfigHash, and for the same reason: a
+	// bind mount is pinned to the inode it names, so a host-side git operation
+	// (checkout, rebase) that removes and recreates a mounted directory leaves a
+	// live session bound to the orphaned OLD inode — the agent reading stale
+	// files and writing where nobody looks. When the fingerprint changes the
+	// session hash flips, so the next enter/exec rebuilds against the fresh
+	// directories. Empty for a sandbox with no individual mounts (the common
+	// case: one managed source, no include, whose <slug>/ root mount is itself
+	// inode-stable), keeping that argv — and its session hash — unchanged.
+	MountGen string
 	// AuthEnv is the agents' auth environment ("KEY=value" entries, sorted by
 	// the caller — the order is part of the ConfigHash contract), collected by
 	// the CLI from the HOST environment when the profile opts into hostConfigs:
@@ -227,6 +240,13 @@ func commonArgs(o RunOpts, egNet, egProxyURL string) []string {
 	// so a pre-gen sandbox keeps its argv — and session hash — byte-identical.
 	if o.DestGen != "" {
 		args = append(args, "--env", "SANDBOXER_SANDBOX_GEN="+o.DestGen)
+	}
+	// The source mounts' inode fingerprint (see RunOpts.MountGen): flag only
+	// when set — a sandbox with no individual mounts keeps its argv, and hash,
+	// byte-identical. This must sit right after the gen flag and before any
+	// other conditional flag so the emitted order is deterministic.
+	if o.MountGen != "" {
+		args = append(args, "--env", "SANDBOXER_MOUNT_GEN="+o.MountGen)
 	}
 	// Host auth env (see RunOpts.AuthEnv) — pre-sorted; a changed token flips
 	// the session hash, so a stale session is rebuilt with the fresh one.

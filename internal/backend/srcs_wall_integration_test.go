@@ -265,3 +265,75 @@ echo whole`, wt)
 		t.Errorf("stdout = %q, want 'whole'", out.String())
 	}
 }
+
+// TestRun_RealEngine_OrphanedMountIsCaught demonstrates, on a real engine, the
+// concrete hazard the mount fingerprint (RunOpts.MountGen) exists to catch: a
+// bind mount is pinned to the inode it named at mount time, so when the host
+// removes and recreates that directory (a git checkout switching branches), a
+// LIVE container keeps seeing the orphaned old inode — stale reads, writes into
+// a directory nobody looks at. The test proves both halves: the engine really
+// does orphan the mount, and sandbox.MountFingerprint changes across the
+// recreate, which is what flips the session hash so the next enter rebuilds.
+func TestRun_RealEngine_OrphanedMountIsCaught(t *testing.T) {
+	engine := itest.Engine(t)
+	image := itest.SmokeImage(t, engine)
+
+	host := t.TempDir()
+	view := filepath.Join(host, "view")
+	if err := os.MkdirAll(view, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(view, "marker"), []byte("original"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// fingerprint BEFORE — this is what a session would carry in its hash.
+	before := sandbox.MountFingerprint([]string{view})
+	if before == "" {
+		t.Fatal("empty fingerprint for a real dir")
+	}
+
+	// A detached container holding the bind mount open — the live session.
+	name := itest.Slug("orphan")
+	runOut, err := exec.Command(engine, "run", "-d", "--name", name,
+		"-v", view+":"+view, image, "sleep", "infinity").CombinedOutput()
+	if err != nil {
+		t.Fatalf("run -d: %v\n%s", err, runOut)
+	}
+	defer exec.Command(engine, "rm", "-f", name).Run()
+
+	// On the host: recreate the mounted directory, as a checkout would (rmdir +
+	// mkdir → new inode), with new content.
+	if err := os.RemoveAll(view); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(view, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(view, "marker"), []byte("updated"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// The live container is now bound to the orphaned inode, so it does NOT see
+	// the host's fresh content — it reads the old inode (whose marker the host's
+	// rm already unlinked, so "GONE") rather than "updated". Either way it has
+	// diverged from the host, which is the hazard.
+	seen, err := exec.Command(engine, "exec", name, "sh", "-c",
+		"cat "+filepath.Join(view, "marker")+" 2>/dev/null || echo GONE").CombinedOutput()
+	if err != nil {
+		t.Fatalf("exec: %v\n%s", err, seen)
+	}
+	if got := strings.TrimSpace(string(seen)); got == "updated" {
+		t.Fatalf("container saw the host's fresh content (%q) — no orphaning occurred, "+
+			"which would mean this guard is unnecessary; investigate before trusting the test", got)
+	} else {
+		t.Logf("container is orphaned from the host as expected (sees %q, host has \"updated\")", got)
+	}
+
+	// The guard: the fingerprint changed, so the session hash would flip and the
+	// next enter rebuilds against the fresh directory instead of the orphan.
+	after := sandbox.MountFingerprint([]string{view})
+	if after == before {
+		t.Fatalf("MountFingerprint did not change across the host recreate (%q) — the orphaned mount would be reused", before)
+	}
+}
