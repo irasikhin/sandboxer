@@ -3,62 +3,92 @@
 package sandbox
 
 import (
-	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 )
 
-// TestFileIdentityRealFile: a real file yields a "dev:inode" identity, and it is
-// stable for the same inode.
-func TestFileIdentityRealFile(t *testing.T) {
-	p := filepath.Join(t.TempDir(), "f")
-	if err := os.WriteFile(p, []byte("x"), 0o644); err != nil {
+// TestStatIdentityRealFile: a real path yields a non-empty identity, stable for
+// the same inode object and unchanged when only the directory's CONTENTS change
+// (an inode's device/number/birth-time are all immutable) — the property that
+// keeps a live session from rebuilding every time the agent writes a file.
+func TestStatIdentityRealFile(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "d")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	fi, err := os.Stat(p)
-	if err != nil {
-		t.Fatal(err)
+	id, ok := statIdentity(dir)
+	if !ok || id == "" {
+		t.Fatalf("statIdentity(dir) = (%q, %v), want a real identity", id, ok)
 	}
-	id := fileIdentity(fi)
 	if !strings.Contains(id, ":") {
-		t.Errorf("fileIdentity = %q, want a dev:inode form", id)
+		t.Errorf("identity = %q, want a dev:inode[:btime] form", id)
 	}
-	fi2, _ := os.Stat(p)
-	if again := fileIdentity(fi2); again != id {
-		t.Errorf("fileIdentity not stable for the same inode: %q vs %q", id, again)
+
+	// adding a file changes the directory's contents (and its ctime/mtime) but
+	// NOT its object identity — the fingerprint must not move.
+	if err := os.WriteFile(filepath.Join(dir, "f.txt"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if again, _ := statIdentity(dir); again != id {
+		t.Errorf("identity changed on an in-dir write (same inode): %q → %q", id, again)
 	}
 }
 
-// fakeInfo is an fs.FileInfo whose Sys() is not a *syscall.Stat_t, exercising
-// fileIdentity's platform fallback (unreachable via os.Stat on unix).
-type fakeInfo struct {
-	size int64
-	mod  time.Time
+// TestStatIdentityMissing: a path that cannot be stat'd reports not-ok, which
+// inodeID turns into its "missing" sentinel.
+func TestStatIdentityMissing(t *testing.T) {
+	if id, ok := statIdentity(filepath.Join(t.TempDir(), "nope")); ok {
+		t.Errorf("statIdentity(absent) = (%q, true), want not-ok", id)
+	}
+	if got := inodeID(filepath.Join(t.TempDir(), "nope")); got != "missing" {
+		t.Errorf("inodeID(absent) = %q, want \"missing\"", got)
+	}
 }
 
-func (f fakeInfo) Name() string       { return "fake" }
-func (f fakeInfo) Size() int64        { return f.size }
-func (f fakeInfo) Mode() fs.FileMode  { return 0 }
-func (f fakeInfo) ModTime() time.Time { return f.mod }
-func (f fakeInfo) IsDir() bool        { return false }
-func (f fakeInfo) Sys() any           { return nil }
+// TestStatIdentityChangesOnRecreate is the property the whole guard rests on,
+// and the one that broke on ext4 with a naive inode-number identity: replacing
+// a directory (rmdir+mkdir) must change the identity on ANY filesystem — btrfs
+// distinguishes by inode number, ext4 (which recycles the number) by the fresh
+// birth time. This runs on whatever filesystem the test host uses, so it pins
+// the cross-filesystem robustness directly.
+func TestStatIdentityChangesOnRecreate(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "view")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	before, _ := statIdentity(dir)
 
-// TestFileIdentityFallback: when the platform stat is not the expected shape,
-// fileIdentity falls back to a size/mtime identity rather than panicking, and
-// that identity still changes when the file does.
-func TestFileIdentityFallback(t *testing.T) {
-	when := time.Unix(1_700_000_000, 0)
-	a := fileIdentity(fakeInfo{size: 10, mod: when})
-	if !strings.HasPrefix(a, "sz") {
-		t.Errorf("fallback identity = %q, want the sz/mt form", a)
+	if err := os.RemoveAll(dir); err != nil {
+		t.Fatal(err)
 	}
-	if b := fileIdentity(fakeInfo{size: 11, mod: when}); b == a {
-		t.Error("fallback identity did not change with the size")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
 	}
-	if b := fileIdentity(fakeInfo{size: 10, mod: when.Add(time.Second)}); b == a {
-		t.Error("fallback identity did not change with the mtime")
+	after, _ := statIdentity(dir)
+	if after == before {
+		t.Errorf("identity unchanged after rmdir+mkdir (%q) — an orphaned mount would be reused; "+
+			"neither inode number nor birth time distinguished the recreate on this filesystem (%s)",
+			before, fsType(dir))
 	}
+}
+
+// fsType names the filesystem behind a path, for the diagnostic when the
+// recreate-identity assertion fails (it tells us whether inode reuse or coarse
+// btime was the culprit).
+func fsType(path string) string {
+	out, err := os.ReadFile("/proc/mounts")
+	if err != nil {
+		return "unknown"
+	}
+	best := "unknown"
+	var bestLen int
+	for _, line := range strings.Split(string(out), "\n") {
+		f := strings.Fields(line)
+		if len(f) >= 3 && strings.HasPrefix(path, f[1]) && len(f[1]) >= bestLen {
+			best, bestLen = f[2], len(f[1])
+		}
+	}
+	return best
 }

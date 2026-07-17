@@ -743,13 +743,13 @@ func MountFingerprint(mounts []string) string {
 	return hex.EncodeToString(h.Sum(nil))[:16]
 }
 
-// inodeID returns a "device:inode" string identifying the file object at path,
-// or "missing" when it cannot be stat'd — a stable sentinel so a vanished mount
-// still changes the fingerprint deterministically.
+// inodeID returns a string identifying the file OBJECT at path (see
+// statIdentity for what it is and why), or "missing" when it cannot be stat'd —
+// a stable sentinel so a vanished mount still changes the fingerprint
+// deterministically.
 func inodeID(path string) string {
-	fi, err := os.Stat(path)
-	if err != nil {
-		return "missing"
+	if id, ok := statIdentity(path); ok {
+		return id
 	}
-	return fileIdentity(fi)
+	return "missing"
 }
