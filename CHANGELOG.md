@@ -6,6 +6,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.52.3] — 2026-07-17
+
+### Fixed
+
+- accept an include directory without a trailing slash (f47b259)
+
+### Tests
+
+- pin nested parent+child include behavior (235ab4b)
+
+
 ## [0.52.2] — 2026-07-17
 
 ### Fixed
@@ -519,3 +530,4 @@ isolated, containerized dev sandbox, on a local Linux machine:
 [0.52.0]: https://github.com/irasikhin/sandboxer/compare/v0.51.0...v0.52.0
 [0.52.1]: https://github.com/irasikhin/sandboxer/compare/v0.52.0...v0.52.1
 [0.52.2]: https://github.com/irasikhin/sandboxer/compare/v0.52.1...v0.52.2
+[0.52.3]: https://github.com/irasikhin/sandboxer/compare/v0.52.2...v0.52.3
