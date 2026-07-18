@@ -304,9 +304,10 @@ func shortPathHash(p string) string {
 
 // SyncSrcs converges the sandbox's on-disk sources onto the stored profile:
 // it (re-)resolves srcs (every source names its branch explicitly — see
-// resolveSrcs), creates missing managed worktrees, re-syncs their sparse
-// patterns, sets aside managed worktrees whose source was dropped (or whose
-// branch: changed) under _detached/, and records the result in
+// resolveSrcs), creates missing managed worktrees, widens any left narrow by a
+// pre-view-mounts sandboxer (Unsparse), sets aside managed worktrees whose
+// source was dropped (or whose branch: changed) under _detached/, and records
+// the result in
 // _meta/<slug>.srcs.json. It runs on create and on every enter/exec, so
 // editing srcs opens access without recreating anything: the container's one
 // stable mount is the <slug>/ dir this function populates, and a live session
@@ -453,26 +454,58 @@ func dirExists(p string) bool {
 	return err == nil && fi.IsDir()
 }
 
-// checkViewDirs rejects an include directory that is not a directory in the
-// source's checkout. It is a hard error, not a warning, for two reasons: an
-// engine asked to bind-mount a missing source path CREATES it — root-owned, on
-// the host, inside the user's worktree — and a sandbox whose view is a typo
-// would otherwise come up silently empty. The message names the branch, since
-// the usual cause is a path that exists on another one.
+// checkViewDirs rejects an include directory that cannot be safely bind-mounted
+// as the container's view of the source. It is a hard error, not a warning, for
+// three reasons:
+//   - an engine asked to bind-mount a MISSING source path CREATES it —
+//     root-owned, on the host, inside the user's worktree;
+//   - a sandbox whose view is a typo would otherwise come up silently empty;
+//   - a view dir that is (or traverses) a SYMLINK pointing OUTSIDE the worktree
+//     is a containment ESCAPE: the engine resolves the mount source on the HOST
+//     before mounting, so `include = ["/services/"]` where services -> /etc
+//     would bind-mount the host's /etc into the container, past the wall. The
+//     old sparse-checkout model was immune (a symlink inside the single <slug>/
+//     mount resolved in the container's namespace); view mounts are not, so the
+//     lexical prefix belt is not enough — the REAL path must stay in the tree.
+//
+// The message names the branch, since a missing/typo'd path usually exists on
+// another one.
 func checkViewDirs(s Source) error {
 	if config.WholeRepo(s.Include) {
 		return nil
 	}
+	name := filepath.Base(s.RepoRoot)
+	sep := string(filepath.Separator)
+	// Resolve the worktree root once — the containment base every view dir's
+	// real path must fall under. Resolving both sides makes the comparison
+	// robust to a symlinked ancestor of the worktree itself (e.g. /tmp).
+	root, err := filepath.EvalSymlinks(s.Path)
+	if err != nil {
+		return fmt.Errorf("srcs %s: %w", name, err)
+	}
 	for i, dir := range ViewDirs(s) {
-		// ValidateInclude already rejects ".."-style patterns; this is the belt
-		// guaranteeing no include-derived mount ever leaves the worktree.
-		if !strings.HasPrefix(dir, s.Path+string(filepath.Separator)) {
-			return fmt.Errorf("srcs %s: include %q escapes the worktree", filepath.Base(s.RepoRoot), s.Include[i])
+		// ValidateInclude already rejects ".."-style patterns; this lexical belt
+		// guarantees no include-derived mount PATH leaves the worktree.
+		if !strings.HasPrefix(dir, s.Path+sep) {
+			return fmt.Errorf("srcs %s: include %q escapes the worktree", name, s.Include[i])
 		}
 		if !dirExists(dir) {
 			return fmt.Errorf("srcs %s: include %q is not a directory on branch %s — "+
 				"check the path (sandboxer config edit); only directories that exist can be exposed",
-				filepath.Base(s.RepoRoot), s.Include[i], s.Branch)
+				name, s.Include[i], s.Branch)
+		}
+		// Real-path belt: a symlinked view dir (or a symlinked component) must
+		// not resolve OUTSIDE the worktree — otherwise the engine bind-mounts the
+		// host target past the wall. Symlinks INSIDE the mounted content are fine:
+		// the container dereferences those in its own namespace.
+		real, err := filepath.EvalSymlinks(dir)
+		if err != nil {
+			return fmt.Errorf("srcs %s: include %q: %w", name, s.Include[i], err)
+		}
+		if real != root && !strings.HasPrefix(real, root+sep) {
+			return fmt.Errorf("srcs %s: include %q resolves to %q, outside the worktree — a symlinked "+
+				"include would bind-mount host files past the sandbox boundary; expose a real directory",
+				name, s.Include[i], real)
 		}
 	}
 	return nil
@@ -699,7 +732,10 @@ func ViewDirs(s Source) []string {
 // on the host inside an unmounted directory, so they are unreachable from the
 // container rather than merely unreadable. Skipping the root mount is therefore
 // load-bearing, not an optimization; TestMounts_NarrowedNeverMountsDest pins it.
-// Sorted for a stable argv (the session ConfigHash depends on it).
+// Sorted and de-duplicated for a stable, minimal argv (the session ConfigHash
+// depends on it): an exact-duplicate include (or a child listed twice) must not
+// emit the same --volume twice — a nested parent+child stays as two DISTINCT
+// paths, only literal repeats collapse.
 func Mounts(srcs []Source) (mountDest bool, mounts []string) {
 	if !Narrowed(srcs) {
 		for _, s := range srcs {
@@ -707,14 +743,27 @@ func Mounts(srcs []Source) (mountDest bool, mounts []string) {
 				mounts = append(mounts, s.Path)
 			}
 		}
-		sort.Strings(mounts)
-		return true, mounts
+		return true, sortedUnique(mounts)
 	}
 	for _, s := range srcs {
 		mounts = append(mounts, ViewDirs(s)...)
 	}
-	sort.Strings(mounts)
-	return false, mounts
+	return false, sortedUnique(mounts)
+}
+
+// sortedUnique sorts paths and drops exact duplicates (nil in → nil out).
+func sortedUnique(paths []string) []string {
+	if len(paths) == 0 {
+		return paths
+	}
+	sort.Strings(paths)
+	out := paths[:1]
+	for _, p := range paths[1:] {
+		if p != out[len(out)-1] {
+			out = append(out, p)
+		}
+	}
+	return out
 }
 
 // MountFingerprint fingerprints the on-disk identity of individual source

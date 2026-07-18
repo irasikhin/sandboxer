@@ -70,6 +70,15 @@ An include naming a path that is not a directory on the branch is a hard error,
 not a warning: an engine asked to bind-mount a missing source **creates it**,
 root-owned, inside the user's worktree.
 
+`checkViewDirs` also resolves each include's real path and refuses one that
+escapes the worktree via a **symlink**. This is a genuine exposure the old
+sparse model did not have: the engine resolves a bind-mount source on the host,
+so `include = ["/services/"]` where a checked-in `services -> /etc` symlink
+exists would mount the host's `/etc` past the wall (a lexical prefix check does
+not catch it — the symlink's own path is inside the worktree). Symlinks *inside*
+the mounted content are left alone; the container resolves those in its own
+namespace.
+
 ## Alternatives rejected
 
 **Symlinks** (full worktree, a tree of symlinks mounted into the container).

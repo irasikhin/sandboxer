@@ -334,3 +334,59 @@ func TestMountFingerprintStableAcrossSync(t *testing.T) {
 		t.Errorf("recreating the view dir did not flip the fingerprint (%q) — a live session would keep the orphaned mount", got)
 	}
 }
+
+// TestCheckViewDirsRejectsSymlinkEscape is the containment fix for view mounts:
+// an engine resolves a bind-mount SOURCE on the host before mounting, so an
+// include naming a directory that is (or traverses) a symlink pointing OUTSIDE
+// the worktree would bind-mount the host target past the wall. checkViewDirs
+// must reject it — the lexical prefix belt cannot, since the symlink's own path
+// is inside the worktree. A symlink pointing INSIDE the worktree stays allowed.
+func TestCheckViewDirsRejectsSymlinkEscape(t *testing.T) {
+	requireGit(t)
+	root := t.TempDir()
+	wt := filepath.Join(root, "wt")
+	inside := filepath.Join(wt, "real")
+	if err := os.MkdirAll(inside, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	outside := filepath.Join(root, "outside")
+	if err := os.MkdirAll(outside, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	// A checked-in symlink pointing OUT of the worktree — the escape.
+	if err := os.Symlink(outside, filepath.Join(wt, "escape")); err != nil {
+		t.Skipf("symlinks unsupported: %v", err)
+	}
+	err := checkViewDirs(Source{RepoRoot: wt, Path: wt, Branch: "feat/x", Include: []string{"/escape/"}})
+	if err == nil {
+		t.Fatal("checkViewDirs accepted a symlinked-out include — host files would be mounted past the wall")
+	}
+	if !strings.Contains(err.Error(), "outside the worktree") {
+		t.Errorf("error = %q, want it to name the escape", err)
+	}
+
+	// A symlink pointing INSIDE the worktree is legitimate and must be allowed.
+	if err := os.Symlink(inside, filepath.Join(wt, "alias")); err != nil {
+		t.Fatal(err)
+	}
+	if err := checkViewDirs(Source{RepoRoot: wt, Path: wt, Branch: "feat/x", Include: []string{"/alias/"}}); err != nil {
+		t.Errorf("checkViewDirs rejected an in-worktree symlink: %v", err)
+	}
+}
+
+// TestMountsDedupsExactDuplicates: an include repeated verbatim must not emit the
+// same --volume twice (a needless flag some engines could reject), while a
+// nested parent+child — DISTINCT paths — is preserved.
+func TestMountsDedupsExactDuplicates(t *testing.T) {
+	// exact duplicate collapses
+	_, m := Mounts([]Source{{Path: "/wt", Managed: true, Include: []string{"/api/", "/api/", "/api"}}})
+	if len(m) != 1 || m[0] != filepath.FromSlash("/wt/api") {
+		t.Errorf("mounts = %v, want a single /wt/api", m)
+	}
+	// distinct nested paths are both kept
+	_, m2 := Mounts([]Source{{Path: "/wt", Managed: true, Include: []string{"/src/", "/src/proto/"}}})
+	if len(m2) != 2 {
+		t.Errorf("mounts = %v, want the parent and child both kept", m2)
+	}
+}

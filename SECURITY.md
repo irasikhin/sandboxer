@@ -70,6 +70,14 @@ important — where it stops.
   container as root and gives up that last property — the mount boundary itself
   still holds.
 
+  One subtlety a narrowed view must defend against: the engine resolves a
+  bind-mount SOURCE on the HOST before mounting, so an `include` that names a
+  directory which is (or traverses) a **symlink pointing outside the worktree**
+  would bind-mount the host target past the wall. `sandbox.checkViewDirs`
+  resolves every include's real path and refuses one that escapes the worktree
+  (`TestCheckViewDirsRejectsSymlinkEscape`); symlinks INSIDE the mounted content
+  are fine — the container dereferences those in its own namespace.
+
 - **Isolated `$HOME` — host configs only by opt-in, and only as a copy.** Each
   sandbox has its own private home (`_home/<slug>` under the XDG state dir,
   `0700`), mounted as `$HOME`. The host's real agent config — `~/.claude`,

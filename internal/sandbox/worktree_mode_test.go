@@ -954,3 +954,34 @@ func TestSrcsStaleForeignRegistration(t *testing.T) {
 		t.Errorf("worktree on %q, want feat/fr", br)
 	}
 }
+
+// TestMakeSandboxRejectsSymlinkEscape drives the full create flow: a repo with a
+// checked-in symlink pointing OUTSIDE the worktree, narrowed to that symlink,
+// must be refused before anything is mounted — otherwise the engine would
+// bind-mount the host target (e.g. /etc) into the container, past the wall.
+func TestMakeSandboxRejectsSymlinkEscape(t *testing.T) {
+	repo := gitRepoWithCommit(t)
+	// A secret OUTSIDE the repo, and a checked-in symlink to its dir.
+	outside := t.TempDir()
+	writeFile(t, filepath.Join(outside, "secret.txt"), "HOST-SECRET")
+	if err := os.Symlink(outside, filepath.Join(repo, "escape")); err != nil {
+		t.Skipf("symlinks unsupported: %v", err)
+	}
+	runGit(t, repo, "add", "-A")
+	runGit(t, repo, "commit", "-qm", "add escape symlink")
+
+	b, err := ResolveBase(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := b.WriteProfileJSON("esc", []byte(`{"srcs":[{"src":".","branch":"feat/esc","include":["/escape/"]}]}`)); err != nil {
+		t.Fatal(err)
+	}
+	err = b.MakeSandbox("esc", io.Discard)
+	if err == nil {
+		t.Fatal("MakeSandbox accepted a symlink-escape include — host files would be exposed")
+	}
+	if !strings.Contains(err.Error(), "outside the worktree") {
+		t.Errorf("error = %q, want it to name the containment escape", err)
+	}
+}
