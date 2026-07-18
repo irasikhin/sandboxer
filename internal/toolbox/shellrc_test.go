@@ -87,3 +87,18 @@ func TestImageBakesNestedPodman(t *testing.T) {
 		}
 	}
 }
+
+// TestImageBakesPythonBatteries guards that the base python3 carries the glue
+// libraries baked into the image (click CLIs, YAML config, jinja2 templating),
+// via python3.withPackages — a plain python3 would import-error on them.
+func TestImageBakesPythonBatteries(t *testing.T) {
+	s := imageDefinition(t)
+	if !strings.Contains(s, "python3.withPackages") {
+		t.Error("images.nix ships a bare python3 — the batteries (click/pyyaml/jinja2) are not wired")
+	}
+	for _, want := range []string{"click", "pyyaml", "jinja2"} {
+		if !strings.Contains(s, want) {
+			t.Errorf("images.nix python batteries missing %q", want)
+		}
+	}
+}

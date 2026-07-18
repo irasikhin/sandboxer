@@ -162,8 +162,15 @@ in
         unzip
         # everyday language runtimes — baked into the BASE image so
         # scripts and builds just work (the tools packs still exist
-        # for pinned per-profile variants)
-        python3
+        # for pinned per-profile variants). python3 carries a few
+        # batteries every glue script reaches for (click CLIs, YAML
+        # config, jinja2 templating); the nixpkgs attr is pyyaml, the
+        # import is `yaml`.
+        (python3.withPackages (ps: with ps; [
+          click
+          pyyaml
+          jinja2
+        ]))
         nodejs
         jdk25
         (maven.override { jdk_headless = jdk25; })

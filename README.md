@@ -93,6 +93,11 @@ go install github.com/irasikhin/sandboxer/cmd/sandboxer@latest  # Go
 Or grab a [pre-built binary](https://github.com/irasikhin/sandboxer/releases)
 (linux amd64/arm64).
 
+The Nix install also puts a short alias **`sb`** on your `PATH` (with shell
+completions) — `sb create`, `sb enter`, `sb exec …` all work exactly like
+`sandboxer`. (A `go install` or a raw binary gives you just `sandboxer`; symlink
+`sb` yourself if you want the shorthand.)
+
 ## Quick start
 
 ```bash

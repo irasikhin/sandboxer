@@ -60,6 +60,23 @@ buildGoModule {
 
     mkdir -p $out/share/fish/vendor_completions.d
     $out/bin/sandboxer completion fish > $out/share/fish/vendor_completions.d/sandboxer.fish
+
+    # `sb` — a short alias for `sandboxer`. The binary is functionally identical
+    # under either name (the command name only shapes help text), so a symlink to
+    # the wrapped program is enough; it inherits the same runtime-PATH prefix.
+    ln -s sandboxer $out/bin/sb
+
+    # Completions for `sb`, reusing sandboxer's completion function (cobra's
+    # completion resolves the invoked command name at runtime, so the same
+    # function serves both — only the REGISTRATION is retargeted). Anchored
+    # substitutions keep other "sandboxer" text untouched.
+    sed -E 's/(complete .*-F __start_sandboxer) sandboxer$/\1 sb/' \
+      $out/share/bash-completion/completions/sandboxer \
+      > $out/share/bash-completion/completions/sb
+    sed 's/-c sandboxer/-c sb/g' \
+      $out/share/fish/vendor_completions.d/sandboxer.fish \
+      > $out/share/fish/vendor_completions.d/sb.fish
+    printf '#compdef sb\n_sandboxer "$@"\n' > $out/share/zsh/site-functions/_sb
   '';
 
   meta = {
