@@ -6,6 +6,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.53.0] — 2026-07-18
+
+### Added
+
+- add an `sb` shorthand and bake python batteries into the image (192c015)
+
+### Fixed
+
+- reject a symlinked include that escapes the worktree (7e0f46a)
+
+### Docs
+
+- align package comments with the view-mount model (c1a5f87)
+
+
 ## [0.52.3] — 2026-07-17
 
 ### Fixed
@@ -531,3 +546,4 @@ isolated, containerized dev sandbox, on a local Linux machine:
 [0.52.1]: https://github.com/irasikhin/sandboxer/compare/v0.52.0...v0.52.1
 [0.52.2]: https://github.com/irasikhin/sandboxer/compare/v0.52.1...v0.52.2
 [0.52.3]: https://github.com/irasikhin/sandboxer/compare/v0.52.2...v0.52.3
+[0.53.0]: https://github.com/irasikhin/sandboxer/compare/v0.52.3...v0.53.0
