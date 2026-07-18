@@ -8,12 +8,13 @@
 // finds them without digging through XDG paths.
 //
 // A sandbox is a set of SOURCES (see srcs.go): per-repo git worktrees under
-// <slug>/, each named by its (explicitly configured) branch and optionally
-// narrowed by gitignore-style include patterns via non-cone sparse-checkout.
-// The container mounts the <slug>/ dir (plus any adopted worktrees) and NEVER
-// the git metadata — the sparse worktree contents are the access boundary,
-// and commits happen on the host. A source that is not a git repository (or
-// has no commit) is rejected — there is no copy-mode fallback.
+// <slug>/, each named by its (explicitly configured) branch. The host worktree
+// is always a COMPLETE checkout; a source's `include` narrows what the CONTAINER
+// sees by mounting only the listed directories (see Mounts) — with no include,
+// <slug>/ is mounted whole. Git metadata is NEVER mounted either way, so the
+// mount set is the access boundary and commits happen on the host. A source
+// that is not a git repository (or has no commit) is rejected — there is no
+// copy-mode fallback.
 package sandbox
 
 import (

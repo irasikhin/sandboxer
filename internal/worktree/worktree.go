@@ -1,14 +1,13 @@
 // Package worktree backs a sandbox source with a host-side git worktree.
 //
 // Each source repository is checked out into a per-sandbox worktree on its own
-// branch (named explicitly per source — there is no default), optionally
-// narrowed to a subset of files
-// via non-cone sparse-checkout with gitignore-syntax include patterns. The
-// worktree is the containment boundary: only its (sparse) contents are mounted
-// into the container — git metadata never is — so work accumulates in the
-// worktree and returns as an ordinary branch via HOST-side git. A source that
-// is not a git repository (or has no commit yet) is rejected — there is no
-// copy-mode fallback.
+// branch (named explicitly per source — there is no default). The checkout is
+// always COMPLETE: narrowing a sandbox is a container-mount concern (see
+// sandbox.Mounts / ViewDirs), not a working-tree one, so the host keeps a full
+// tree an IDE can open. Git metadata is never mounted into the container, so
+// work accumulates in the worktree and returns as an ordinary branch via
+// HOST-side git. A source that is not a git repository (or has no commit yet) is
+// rejected — there is no copy-mode fallback.
 //
 // Everything here is thin orchestration over the git CLI; git is expected on
 // PATH (Detect reports the repo as absent when it is not, so the caller falls
