@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 
 	"github.com/irasikhin/sandboxer/internal/egress"
@@ -285,6 +286,23 @@ func staleReason(info SessionInfo, wantHash string) string {
 // so re-running EnsureSession after any outcome is always safe.
 func EnsureSession(o RunOpts) (string, error) {
 	name := SessionName(o.Slug, o.BaseDir)
+
+	// Serialize concurrent converges of THIS session across processes. Two
+	// first-enters racing to create the same session would otherwise each bring
+	// up the egress sidecar, and the loser's egress.UpNamed would tear down the
+	// winner's live proxy (it removes same-named resources as presumed
+	// leftovers), leaving the winner's session with no outbound until its next
+	// enter. Under the lock the loser instead re-inspects, finds the winner's
+	// running-and-fresh session, and execs it. Per-session-name, so different
+	// sandboxes never contend. Best-effort: an unlockable path proceeds without
+	// the lock, exactly as before this guard.
+	if o.BaseDir != "" {
+		if err := os.MkdirAll(o.BaseDir, 0o700); err == nil {
+			if release, lerr := lockFile(filepath.Join(o.BaseDir, "."+name+".lock")); lerr == nil {
+				defer release()
+			}
+		}
+	}
 
 	needEgress := egressRequired(o)
 	if needEgress && len(o.RT.Domains) == 0 {
