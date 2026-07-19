@@ -169,6 +169,14 @@ important — where it stops.
   > (the default) the proxy is chained *through* the allowlist, which keeps
   > applying — don't run `egress.enabled = false` + proxy expecting the domain
   > allowlist to also apply.
+  >
+  > **`egress.enabled = false` with NO proxy is a fully open network** — no
+  > allowlist and no proxy, so the agent has unrestricted outbound. sandboxer
+  > does not silently accept this as "off": every run labels it
+  > `egress=OPEN — unrestricted outbound` on the config line, and prints an
+  > explicit `WARNING` when `hostConfigs` is also on (seeded host credentials
+  > with an open exit is the worst-case pairing). It is never the safe default;
+  > reach for it only when you truly want the agent on the open internet.
 
 - **Not a multi-tenant boundary.** Assume an adversarial agent can reach anything
   the sandbox can reach (the allowed domains, the mounted paths). sandboxer

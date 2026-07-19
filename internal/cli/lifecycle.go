@@ -83,6 +83,7 @@ func newCreateCmd() *cobra.Command {
 			}
 			fmt.Fprintln(cmd.ErrOrStderr(), configLine(rtCreate, t.slug, t.profile, backendLabel(rtCreate)))
 			warnIgnoredRoutes(cmd.ErrOrStderr(), rtCreate)
+			warnOpenNetwork(cmd.ErrOrStderr(), rtCreate, t.profile)
 			out := cmd.OutOrStdout()
 			fmt.Fprintf(out, "sandbox %q created: %s\n", t.slug, t.base.SandboxDir(t.slug))
 			fmt.Fprintf(out, "enter:  sandboxer enter %s\n", t.slug)
@@ -189,6 +190,7 @@ separate named session in the same container.`,
 				fmt.Fprintf(errOut, "sandboxer: src %s\n", srcLine(s))
 			}
 			warnIgnoredRoutes(errOut, rt)
+			warnOpenNetwork(errOut, rt, t.profile)
 			engine, err := backend.ResolveEngine(rt.Backend, config.LoadDefaults())
 			if err != nil {
 				return err
@@ -340,6 +342,7 @@ func newExecCmd() *cobra.Command {
 			}
 			fmt.Fprintln(cmd.ErrOrStderr(), configLine(rt, t.slug, t.profile, backendLabel(rt)))
 			warnIgnoredRoutes(cmd.ErrOrStderr(), rt)
+			warnOpenNetwork(cmd.ErrOrStderr(), rt, t.profile)
 			engine, err := backend.ResolveEngine(rt.Backend, config.LoadDefaults())
 			if err != nil {
 				return err
@@ -469,6 +472,23 @@ func warnIgnoredRoutes(w io.Writer, rt config.Runtime) {
 		fmt.Fprintln(w, "sandboxer: egress.routes ignored — egress is off (routes need the allowlist sidecar; "+
 			"in direct mode the agent talks to egress.proxy directly)")
 	}
+}
+
+// warnOpenNetwork warns when the resolved network is fully open — no allowlist
+// sidecar and no proxy (networkOpen) — so the agent has unrestricted outbound.
+// The configLine already labels this "OPEN", but it is the one egress state
+// with no wall at all, and a run that also seeds host credentials (hostConfigs)
+// deserves an explicit line: the allowlist is the wall between those creds and
+// an exfiltration attempt, and here there is none. See SECURITY.md.
+func warnOpenNetwork(w io.Writer, rt config.Runtime, prof *config.Profile) {
+	if !networkOpen(rt) {
+		return
+	}
+	msg := "sandboxer: WARNING — egress is unrestricted (no allowlist, no proxy); the agent can reach any host"
+	if prof != nil && prof.HostConfigs {
+		msg += " — and hostConfigs is on, so seeded credentials could be exfiltrated"
+	}
+	fmt.Fprintln(w, msg)
 }
 
 // tmuxEnterArgs is the in-container command for `enter`: attach to (or

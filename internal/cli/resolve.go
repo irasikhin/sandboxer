@@ -236,17 +236,6 @@ func backendLabel(rt config.Runtime) string {
 // defaults. backendShown is the engine label (see backendLabel) so the
 // reported backend matches what runs. Printed to stderr by create/enter/exec.
 func configLine(rt config.Runtime, slug string, prof *config.Profile, backendShown string) string {
-	egress := "off"
-	switch {
-	case noEgress():
-		egress = "off (SANDBOXER_NO_EGRESS)"
-	case rt.Egress && rt.Proxy != "":
-		egress = fmt.Sprintf("on→proxy (%d domains)", len(rt.Domains))
-	case rt.Egress:
-		egress = fmt.Sprintf("on (%d domains)", len(rt.Domains))
-	case rt.Proxy != "":
-		egress = "off → proxy (direct)"
-	}
 	profile, srcs := "none (defaults)", 0
 	if prof != nil {
 		if prof.Name != "" {
@@ -257,7 +246,39 @@ func configLine(rt config.Runtime, slug string, prof *config.Profile, backendSho
 		srcs = len(prof.Srcs)
 	}
 	return fmt.Sprintf("sandboxer %s: %s — backend=%s egress=%s profile=%s srcs=%d",
-		Version, slug, backendShown, egress, profile, srcs)
+		Version, slug, backendShown, egressLabel(rt), profile, srcs)
+}
+
+// egressLabel renders the resolved egress posture for the configLine. It names
+// the one state with no outbound wall at all — no allowlist sidecar AND no
+// proxy — distinctly as OPEN, so an unrestricted network can never hide behind
+// the same "off" the trusted-proxy (direct) case uses. See networkOpen.
+func egressLabel(rt config.Runtime) string {
+	sidecar := rt.Egress && !noEgress()
+	switch {
+	case sidecar && rt.Proxy != "":
+		return fmt.Sprintf("on→proxy (%d domains)", len(rt.Domains))
+	case sidecar:
+		return fmt.Sprintf("on (%d domains)", len(rt.Domains))
+	case rt.Proxy != "":
+		if noEgress() {
+			return "off (SANDBOXER_NO_EGRESS) → proxy (direct)"
+		}
+		return "off → proxy (direct)"
+	default:
+		if noEgress() {
+			return "OPEN — unrestricted outbound (SANDBOXER_NO_EGRESS)"
+		}
+		return "OPEN — unrestricted outbound"
+	}
+}
+
+// networkOpen reports whether the resolved settings leave the container on an
+// unrestricted network: no allowlist sidecar (egress off, or the NO_EGRESS
+// kill-switch) AND no proxy to route through — the one egress state with no
+// outbound wall. Kept in lockstep with egressLabel's OPEN branch.
+func networkOpen(rt config.Runtime) bool {
+	return (!rt.Egress || noEgress()) && rt.Proxy == ""
 }
 
 // srcLine renders one resolved source the way both enter's banner and show's

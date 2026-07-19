@@ -177,10 +177,11 @@ func TestConfigLine(t *testing.T) {
 		}
 	}
 
-	// With a named profile and srcs; egress off when not enabled.
+	// With a named profile and srcs; egress off AND no proxy is an OPEN network,
+	// labelled distinctly (never the same "off" the trusted-proxy case uses).
 	prof := &config.Profile{Name: "web", Srcs: []config.Src{{Src: "x"}, {Src: "y"}}}
 	line2 := configLine(config.Runtime{Backend: "podman"}, "web", prof, "podman")
-	for _, want := range []string{"profile=web", "srcs=2", "egress=off"} {
+	for _, want := range []string{"profile=web", "srcs=2", "egress=OPEN"} {
 		if !strings.Contains(line2, want) {
 			t.Errorf("configLine (profile) missing %q in %q", want, line2)
 		}
@@ -198,10 +199,34 @@ func TestConfigLine(t *testing.T) {
 		t.Errorf("configLine direct-proxy branch: %q", l)
 	}
 
-	// Disabled via env is called out explicitly.
+	// Disabled via env is called out explicitly (and is an OPEN network).
 	t.Setenv("SANDBOXER_NO_EGRESS", "1")
 	if l := configLine(rt, "feat", nil, "docker"); !strings.Contains(l, "SANDBOXER_NO_EGRESS") {
 		t.Errorf("configLine should note env-disabled egress: %q", l)
+	}
+}
+
+// TestWarnOpenNetwork: the open-network warning fires only when there is no
+// allowlist sidecar and no proxy, and calls out hostConfigs when it is on.
+func TestWarnOpenNetwork(t *testing.T) {
+	t.Setenv("SANDBOXER_NO_EGRESS", "")
+	var b strings.Builder
+	// egress off, no proxy → OPEN; hostConfigs on → credential caveat.
+	warnOpenNetwork(&b, config.Runtime{Backend: "docker"}, &config.Profile{HostConfigs: true})
+	if !strings.Contains(b.String(), "WARNING") || !strings.Contains(b.String(), "hostConfigs") {
+		t.Errorf("open network + hostConfigs should warn about creds: %q", b.String())
+	}
+	// A proxy is a boundary — no warning.
+	b.Reset()
+	warnOpenNetwork(&b, config.Runtime{Proxy: "http://p:3128"}, nil)
+	if b.String() != "" {
+		t.Errorf("proxy set should not warn: %q", b.String())
+	}
+	// Allowlist on — no warning.
+	b.Reset()
+	warnOpenNetwork(&b, config.Runtime{Egress: true, Domains: []string{"a.com"}}, nil)
+	if b.String() != "" {
+		t.Errorf("allowlist on should not warn: %q", b.String())
 	}
 }
 
