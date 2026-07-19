@@ -149,7 +149,7 @@ func buildImageProfile(configPath, pos string) (*config.Profile, error) {
 		return nil, err
 	}
 	if file == "" {
-		return nil, fmt.Errorf("no profile %q (a *.yaml file, or a profiles: section of %s)",
+		return nil, fmt.Errorf("no profile %q (a *.nix file, or a profiles section of %s)",
 			pos, config.ConfigPath())
 	}
 	doc, err := config.LoadDocument(file)

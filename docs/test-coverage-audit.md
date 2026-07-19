@@ -46,14 +46,14 @@ proxy.
 
 Command *logic* is exercised extensively through `cli.Run` by the engine-free
 unit tests (`cli_*_test.go`, stub engine on `PATH`), which cover `create`,
-`enter`, `exec`, `stop`, `rm`, `recreate`, `list`, `use`, `pull`, `push`,
-`diff`, `show`, `clean`, `compose`, `doctor`, `hook`, `agents`, `image *` and
+`enter`, `exec`, `stop`, `rm`, `recreate`, `reset`, `list`, `use`, `show`,
+`path`, `clean`, `compose`, `doctor`, `hook`, `agents`, `image *` and
 `profile *`. The integration tests add the real-engine behaviour those cannot:
 
 | Flow | Real-path test |
 |---|---|
-| `create → diff → push` with real file vendoring + real `diff(1)` | `TestLifecycle_CreateDiffPush` (engine-free) |
-| `create → exec` container round-trip, in-container edit pushed back via the rw mount | `TestLifecycle_Container_ExecPush` |
+| one-shot run: exit-code propagation + the rw worktree mount round-trip | `TestRun_RealEngine_NoEgress_ExitAndMount`, `…_ExitCodePropagation` |
+| srcs mount boundary: a narrowed sandbox exposes only its include dirs; a write outside them fails | `TestRun_RealEngine_SrcsWall`, `…_WriteOutsideViewFails`, `…_UnnarrowedMountsWholeTree` |
 | persistent session `enter → exec → stop → re-enter → rm` WITH egress on | `TestSessionLifecycle_Container_EnterStopRm` |
 | one-shot `exec --ephemeral` WITH egress on: `HTTP_PROXY` injected, allow/deny over HTTP + HTTPS | `TestExec_Container_EgressOn_OneShot` |
 | agent env passthrough + host-home isolation | `TestExec_Container_AgentEnvAndHomeIsolation` |
@@ -63,7 +63,7 @@ unit tests (`cli_*_test.go`, stub engine on `PATH`), which cover `create`,
 
 | Package | Status |
 |---|---|
-| `srcs` (`CopyIn`/`CopyOut`) | Real-fs in `srcs_test.go`; also exercised end-to-end by the lifecycle tests. |
+| `srcs` (`resolveSrcs`/`SyncSrcs`/`Mounts`/`checkViewDirs`) | Real-fs in `worktree_mode_test.go` / `view_mounts_test.go`; the mount boundary is pinned end-to-end by the srcs-wall real-engine tests. |
 | `sandbox` (`ResolveBase`/`MakeSandbox`/…) | Real-fs; exercised by the lifecycle + recreate tests. |
 | `config` (`ResolveRuntime`/`ValidateDomains`/`Load*`/`Sanitize`/…) | Pure logic, fully unit-tested; no external-process path. |
 | `registry` (`Get`/`Names`/`HeadlessCmd`/…) | Pure command-template rendering; fully unit-tested. |

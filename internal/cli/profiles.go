@@ -26,7 +26,7 @@ Use one by name:
 
   sandboxer create web        # the profiles: section named "web"`,
 		Example: `  sandboxer profile list            # the project config
-  sandboxer profile list -f ./other.yaml`,
+  sandboxer profile list -f ./other.nix`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			out := cmd.OutOrStdout()

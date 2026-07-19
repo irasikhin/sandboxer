@@ -102,7 +102,11 @@ important — where it stops.
 - **Clean container environment.** The agent runs in a podman/docker container
   from a clean, explicit environment: it does **not** inherit your host shell, so
   an `AWS_*` / `GITHUB_*` / `*_TOKEN` left in your environment is invisible to it
-  unless you wire it in.
+  unless you wire it in. One such wire-in is the config itself: `sandboxer.nix`
+  is evaluated under a restricted — but **not** *pure* — nix eval, so
+  `builtins.getEnv` can read a host variable into the resolved profile. That is
+  one more reason an untrusted repo's config is code you read before running
+  (see "The config is code" below).
 
 - **Unprivileged container + resource caps.** The backend runs the agent
   `--user` (non-root), `--cap-drop=ALL`, `--security-opt no-new-privileges`, and
