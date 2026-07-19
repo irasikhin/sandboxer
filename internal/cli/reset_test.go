@@ -88,6 +88,30 @@ func TestResetRefusesDirty(t *testing.T) {
 	}
 }
 
+// TestResetRefusesUnmergedCommits: a branch with commits the base lacks is
+// refused — reset --hard would abandon them — then --force resets anyway. The
+// working-tree clean check alone would have let this through (M5).
+func TestResetRefusesUnmergedCommits(t *testing.T) {
+	project := newProject(t)
+	if code, _, errs := run("create", "feat", "--src", project); code != 0 {
+		t.Fatalf("create: %d %s", code, errs)
+	}
+	wt := worktreeOf(t, project)
+	base := gitIn(t, wt, "rev-parse", "HEAD") // the base the branch is still at
+	commitFile(t, wt, "work.txt", "unmerged\n")
+
+	code, _, errs := run("reset", "feat", "--onto", base, "--no-fetch", "--src", project)
+	if code == 0 || !strings.Contains(errs, "un-merged commits") {
+		t.Fatalf("reset with un-merged commits = %d %q, want refusal", code, errs)
+	}
+	if code, _, errs := run("reset", "feat", "--onto", base, "--no-fetch", "--force", "--src", project); code != 0 {
+		t.Fatalf("reset --force: %d %s", code, errs)
+	}
+	if got := gitIn(t, wt, "rev-parse", "HEAD"); got != base {
+		t.Errorf("HEAD = %q, want the base %q after --force reset", got, base)
+	}
+}
+
 // TestResetUnknownSource: naming a source that does not exist fails and lists
 // the real sources (shared FindSource path).
 func TestResetUnknownSource(t *testing.T) {

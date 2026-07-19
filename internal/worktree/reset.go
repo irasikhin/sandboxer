@@ -2,6 +2,7 @@ package worktree
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 )
 
@@ -46,4 +47,22 @@ func ShortHash(dir, ref string) string {
 		return ""
 	}
 	return strings.TrimSpace(out)
+}
+
+// Ahead reports how many commits the worktree's HEAD has that ref (the reset
+// base) does not — the commits a `reset --hard ref` would abandon (they survive
+// only in the reflog). It is the commit-level counterpart of IsClean, which sees
+// only the working tree: running reset before the branch's PR has actually
+// merged would otherwise silently discard the un-merged commits. An error is
+// returned (not a zero) so the caller treats "cannot tell" as "not proven safe".
+func Ahead(dir, ref string) (int, error) {
+	out, err := run(dir, "rev-list", "--count", ref+"..HEAD")
+	if err != nil {
+		return 0, fmt.Errorf("git rev-list %s..HEAD: %w", ref, err)
+	}
+	n, err := strconv.Atoi(strings.TrimSpace(out))
+	if err != nil {
+		return 0, fmt.Errorf("parse commit count %q: %w", strings.TrimSpace(out), err)
+	}
+	return n, nil
 }

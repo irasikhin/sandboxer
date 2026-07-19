@@ -36,9 +36,10 @@ out elsewhere) are skipped: sandboxer does not own them.
 
 The base is origin/main by default; override with --onto <ref> (e.g. a repo
 whose default branch is master: --onto origin/master). 'reset --hard' discards
-uncommitted work, so a source with local changes is refused unless --force —
-and the whole sandbox is checked before anything is reset, so one dirty source
-never leaves you half-reset.`,
+uncommitted work AND abandons any commits the branch has beyond the base
+(they remain only in the reflog), so a source with local changes or un-merged
+commits is refused unless --force — and the whole sandbox is checked before
+anything is reset, so one dirty source never leaves you half-reset.`,
 		Example: `  # reset every source of "feat" onto origin/main
   sandboxer reset feat
 
@@ -77,7 +78,7 @@ never leaves you half-reset.`,
 			// Pass 1 — fetch and pre-flight every target, so a dirty source or an
 			// unresolvable base aborts BEFORE any branch is moved (no half-reset).
 			var managed []sandbox.Source
-			var dirty []string
+			var dirty, ahead []string
 			for _, s := range targets {
 				if !s.Managed {
 					fmt.Fprintf(errOut, "sandboxer: source %s skipped — adopted worktree, sandboxer does not reset it\n", s.Name())
@@ -99,11 +100,26 @@ never leaves you half-reset.`,
 				if !clean && !force {
 					dirty = append(dirty, s.Name())
 				}
+				// reset --hard also abandons commits the branch has beyond the base
+				// (the branch's PR hasn't merged yet). IsClean only sees the working
+				// tree, so guard those un-merged commits explicitly.
+				n, err := worktree.Ahead(s.Path, base)
+				if err != nil {
+					return fmt.Errorf("source %s: %w", s.Name(), err)
+				}
+				if n > 0 && !force {
+					ahead = append(ahead, fmt.Sprintf("%s (%d commit(s))", s.Name(), n))
+				}
 				managed = append(managed, s)
 			}
 			if len(dirty) > 0 {
 				return fmt.Errorf("uncommitted changes in: %s — commit or stash them, "+
 					"or pass --force to discard (reset --hard)", strings.Join(dirty, ", "))
+			}
+			if len(ahead) > 0 {
+				return fmt.Errorf("un-merged commits would be abandoned in: %s — the branch is ahead of %s "+
+					"(has the PR merged?); push/merge first, or pass --force to reset anyway "+
+					"(the old commits stay in the reflog)", strings.Join(ahead, ", "), base)
 			}
 			if len(managed) == 0 {
 				fmt.Fprintln(errOut, "sandboxer: nothing to reset (no managed sources)")
@@ -122,7 +138,7 @@ never leaves you half-reset.`,
 	}
 	bindExisting(cmd, &f)
 	cmd.Flags().StringVar(&onto, "onto", "", "base ref to reset onto (default: origin/main)")
-	cmd.Flags().BoolVar(&force, "force", false, "reset even with uncommitted changes (discards them)")
+	cmd.Flags().BoolVar(&force, "force", false, "reset even with uncommitted changes or un-merged commits (discards them)")
 	cmd.Flags().BoolVar(&noFetch, "no-fetch", false, "skip 'git fetch' (use already-fetched refs)")
 	return cmd
 }
