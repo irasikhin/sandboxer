@@ -6,6 +6,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.53.1] — 2026-07-19
+
+### Fixed
+
+- reject "." and ".." sandbox names (rm .. deleted the project) (ac3c42e)
+- validate allowlist domains as hostnames (squid.conf injection) (8504fc2)
+- signpost the open-network egress state (was shown as "off") (060ff3d)
+- refuse to abandon un-merged commits without --force (7835419)
+- refuse to discard uncommitted work; fix --full branch help (55e3078)
+- recognize a wrapped silentErr, surface profile-marshal errors (e888a35)
+
+### Docs
+
+- fix post-migration drift; note the restrict-eval getEnv caveat (55f525c)
+
+### CI
+
+- verify the module graph (go mod verify) (32bf255)
+
+
 ## [0.53.0] — 2026-07-18
 
 ### Added
@@ -547,3 +567,4 @@ isolated, containerized dev sandbox, on a local Linux machine:
 [0.52.2]: https://github.com/irasikhin/sandboxer/compare/v0.52.1...v0.52.2
 [0.52.3]: https://github.com/irasikhin/sandboxer/compare/v0.52.2...v0.52.3
 [0.53.0]: https://github.com/irasikhin/sandboxer/compare/v0.52.3...v0.53.0
+[0.53.1]: https://github.com/irasikhin/sandboxer/compare/v0.53.0...v0.53.1
