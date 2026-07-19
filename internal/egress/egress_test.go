@@ -49,6 +49,24 @@ func TestUpNoDomains(t *testing.T) {
 	}
 }
 
+// TestSquidConfRejectsInjection: even if a domain carrying a newline/tab slipped
+// past config validation, writeDomains must not emit it — squid.conf can never
+// gain a stray directive from allowlist data. The legitimate line is
+// `http_access allow allowed`, so we look for the injected `http_access allow
+// all` as a line of its own.
+func TestSquidConfRejectsInjection(t *testing.T) {
+	c := squidConf([]string{"a.com\nhttp_access allow all", "\tb.evil\tallow", "good.com"}, "", nil)
+	for _, line := range strings.Split(c, "\n") {
+		if strings.TrimSpace(line) == "http_access allow all" {
+			t.Fatalf("injected directive reached squid.conf:\n%s", c)
+		}
+	}
+	// The clean entry still lands; the tainted ones are dropped.
+	if !strings.Contains(c, "acl allowed dstdomain .good.com\n") {
+		t.Errorf("clean domain missing / tainted domains not dropped:\n%s", c)
+	}
+}
+
 // TestSquidConf pins the generated allowlist config: each domain becomes a
 // leading-dot dstdomain (host + subdomains), HTTP and CONNECT-to-443 for allowed
 // domains are permitted, everything else denied; a non-empty upstream chains via

@@ -216,10 +216,17 @@ func squidConf(domains []string, upstream string, routes []config.Route) string 
 
 // writeDomains appends each non-empty domain to b as a space-prefixed
 // leading-dot dstdomain token (a leading dot matches the domain AND subdomains).
+//
+// Defence-in-depth: only a clean hostname token is ever emitted. The config
+// layer already rejects anything else with an error (config.ValidateDomains),
+// but skipping a non-hostname value HERE too structurally guarantees a domain
+// can never carry a newline or tab that would inject a squid.conf directive
+// (e.g. an `http_access allow all` above the deny), regardless of how the value
+// reached this function.
 func writeDomains(b *strings.Builder, domains []string) {
 	for _, d := range domains {
 		d = strings.TrimSpace(d)
-		if d == "" {
+		if d == "" || !isCleanDomainToken(d) {
 			continue
 		}
 		if !strings.HasPrefix(d, ".") {
@@ -228,6 +235,21 @@ func writeDomains(b *strings.Builder, domains []string) {
 		b.WriteString(" ")
 		b.WriteString(d)
 	}
+}
+
+// isCleanDomainToken reports whether d consists solely of the characters a DNS
+// hostname (or its leading-dot subdomain form) may contain, so it can be written
+// into squid.conf without introducing a new token or directive.
+func isCleanDomainToken(d string) bool {
+	for _, r := range d {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9',
+			r == '.', r == '-':
+		default:
+			return false
+		}
+	}
+	return true
 }
 
 // ConfFingerprint is the sha256 of the squid.conf Up would generate for the

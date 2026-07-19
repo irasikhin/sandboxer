@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"net/url"
+	"regexp"
 	"strings"
 )
 
@@ -105,27 +106,55 @@ func ResolveRuntime(p *Profile, d Defaults, baseDomains string, f Overrides) (Ru
 // DomainsCSV joins the resolved allowlist back to a comma-separated string.
 func (r Runtime) DomainsCSV() string { return strings.Join(r.Domains, ",") }
 
-// ValidateDomains checks each domain for common typos (missing dot, spaces,
-// protocol prefix, path components). It returns nil for an empty list and the
-// first invalid domain found together with a hint.
+// hostnameRe matches a plain DNS hostname: dot-separated labels of ASCII
+// letters, digits and internal dashes, with an OPTIONAL leading dot (the
+// subdomain-matching form squid's dstdomain uses). It forbids whitespace,
+// control characters, '_', '/', a scheme prefix and a bare/only-dot value —
+// every shape that could otherwise reach the generated squid.conf verbatim and
+// either inject a directive (a newline/tab) or match every host (a lone ".").
+var hostnameRe = regexp.MustCompile(`^\.?([A-Za-z0-9](-*[A-Za-z0-9])*\.)+[A-Za-z0-9](-*[A-Za-z0-9])*$`)
+
+// ValidateDomains checks each domain for the common typos (each with a specific
+// hint) and then against the strict hostname grammar. It returns nil for an
+// empty list and the first invalid domain found.
+//
+// The strict check is a SECURITY boundary, not cosmetics: an allowlist domain
+// is written verbatim into the egress squid.conf (egress.squidConf), above the
+// `http_access deny all` line — so a value carrying a newline or tab could
+// inject an `http_access allow all` directive and silently open all egress
+// while the banner still reports the allowlist as on.
 func ValidateDomains(domains []string) error {
 	for _, d := range domains {
-		d = strings.TrimSpace(d)
-		if d == "" {
-			continue
+		if err := validateDomain(d); err != nil {
+			return err
 		}
-		if strings.Contains(d, " ") {
-			return fmt.Errorf("invalid domain %q — contains whitespace", d)
-		}
-		if strings.HasPrefix(d, "http://") || strings.HasPrefix(d, "https://") {
-			return fmt.Errorf("invalid domain %q — give a hostname, not a URL", d)
-		}
-		if strings.Contains(d, "/") {
-			return fmt.Errorf("invalid domain %q — give a hostname, not a path", d)
-		}
-		if !strings.Contains(d, ".") {
-			return fmt.Errorf("invalid domain %q — missing dot (did you mean something like %s.com?)", d, d)
-		}
+	}
+	return nil
+}
+
+// validateDomain validates one egress allowlist / route domain; a blank entry
+// is skipped (nil). Shared by ValidateDomains and ValidateRoutes so an allowlist
+// domain and a routed domain are held to the same grammar.
+func validateDomain(d string) error {
+	d = strings.TrimSpace(d)
+	if d == "" {
+		return nil
+	}
+	if strings.ContainsAny(d, " \t\r\n\v\f") {
+		return fmt.Errorf("invalid domain %q — contains whitespace", d)
+	}
+	if strings.HasPrefix(d, "http://") || strings.HasPrefix(d, "https://") {
+		return fmt.Errorf("invalid domain %q — give a hostname, not a URL", d)
+	}
+	if strings.Contains(d, "/") {
+		return fmt.Errorf("invalid domain %q — give a hostname, not a path", d)
+	}
+	if !strings.Contains(d, ".") {
+		return fmt.Errorf("invalid domain %q — missing dot (did you mean something like %s.com?)", d, d)
+	}
+	if !hostnameRe.MatchString(d) {
+		return fmt.Errorf("invalid domain %q — expected a hostname like api.example.com "+
+			"(letters, digits, dashes and dots; an optional leading dot matches subdomains)", d)
 	}
 	return nil
 }
@@ -210,6 +239,9 @@ func ValidateRoutes(allowed []string, routes []Route, egress bool) error {
 			d = strings.TrimSpace(d)
 			if d == "" {
 				return fmt.Errorf("egress.routes[%d]: empty domain", i)
+			}
+			if err := validateDomain(d); err != nil {
+				return fmt.Errorf("egress.routes[%d]: %w", i, err)
 			}
 			if prev, ok := claimed[d]; ok {
 				return fmt.Errorf("egress.routes: domain %q is in routes %d and %d — a domain can route to only one proxy", d, prev, i)

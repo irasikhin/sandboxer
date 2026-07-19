@@ -104,4 +104,23 @@ func TestValidateDomains(t *testing.T) {
 	if err := ValidateDomains([]string{"api.example.com/v1"}); err == nil {
 		t.Error("path should fail")
 	}
+	// The leading-dot subdomain form is accepted.
+	if err := ValidateDomains([]string{".anthropic.com"}); err != nil {
+		t.Errorf("leading-dot domain should pass: %v", err)
+	}
+	// Security: a value carrying a control char (newline/tab/CR) would inject a
+	// squid.conf directive; a bare/only-dot value would match every host. All
+	// must be rejected before they can reach egress.squidConf.
+	for _, bad := range []string{
+		"a.com\nhttp_access allow all",
+		"a.com\thttp_access\tallow\tall",
+		"a.com\r\nhttp_access allow all",
+		".",
+		"..",
+		"under_score.com",
+	} {
+		if err := ValidateDomains([]string{bad}); err == nil {
+			t.Errorf("ValidateDomains(%q) = nil, want rejection (injection / degenerate domain)", bad)
+		}
+	}
 }
