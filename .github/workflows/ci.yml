@@ -18,6 +18,9 @@ jobs:
         with:
           # Track the toolchain pinned in go.mod (do not hardcode the version).
           go-version-file: go.mod
+      # Fail fast if go.sum no longer matches the module graph (a contributor
+      # without the pre-commit hook could otherwise drift go.mod/go.sum).
+      - run: go mod verify
       # The config layer shells out to nix-instantiate (sandboxer.nix is the
       # config format), so the unit tests need a real nix — eval only, no
       # builds.
