@@ -167,7 +167,11 @@ func resolveTarget(f commonFlags, pos string) (*target, error) {
 			prof = p
 			slug = p.Name
 		}
-		profJSON, _ = prof.JSON()
+		pj, jerr := prof.JSON()
+		if jerr != nil {
+			return nil, fmt.Errorf("serialize profile %q: %w", slug, jerr)
+		}
+		profJSON = pj
 		if slug == "" {
 			return nil, errors.New("profile has no name")
 		}

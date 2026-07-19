@@ -75,6 +75,7 @@ Run this after a fresh install or when something isn't working.`,
 				warn++
 			} else {
 				fmt.Fprintf(tw, "container engine\t✓\t%s available\n", engine)
+				ok++
 
 				// Toolbox image.
 				image := d.Image

@@ -2,6 +2,7 @@
 package cli
 
 import (
+	"errors"
 	"fmt"
 	"io"
 
@@ -24,7 +25,10 @@ func Run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	if err := root.Execute(); err != nil {
 		// Cobra already prints usage on arg errors; command bodies print their
 		// own diagnostics via cmd.PrintErrln. Just surface a final marker.
-		if _, ok := err.(silentErr); !ok {
+		// errors.As (not a bare type assertion) so a wrapped silentErr is still
+		// recognized and not double-printed.
+		var se silentErr
+		if !errors.As(err, &se) {
 			fmt.Fprintln(stderr, "sandboxer:", err)
 		}
 		return 1
@@ -37,6 +41,11 @@ func Run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 type silentErr struct{ err error }
 
 func (e silentErr) Error() string { return e.err.Error() }
+
+// Unwrap exposes the wrapped error so errors.Is/As see through silentErr — in
+// particular Run's own errors.As check, which must recognize a silentErr even
+// if a caller ever wraps it.
+func (e silentErr) Unwrap() error { return e.err }
 
 func newRootCmd() *cobra.Command {
 	root := &cobra.Command{
