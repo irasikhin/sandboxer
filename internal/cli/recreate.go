@@ -3,8 +3,12 @@ package cli
 import (
 	"fmt"
 	"os"
+	"path/filepath"
+	"strings"
 
 	"github.com/spf13/cobra"
+
+	"github.com/irasikhin/sandboxer/internal/worktree"
 )
 
 func init() { register(newRecreateCmd) }
@@ -12,16 +16,20 @@ func init() { register(newRecreateCmd) }
 func newRecreateCmd() *cobra.Command {
 	var f commonFlags
 	var full bool
+	var force bool
 	cmd := &cobra.Command{
-		Use:   "recreate [slug|profile|file.yaml]",
-		Short: "Re-create a sandbox from scratch (keeps the agent home; --full also drops the branch)",
+		Use:   "recreate [slug|profile|file.nix]",
+		Short: "Re-create a sandbox from scratch (keeps the agent home; --full also drops minted branches)",
 		Long: `Tear a sandbox down and build it again from the profile. Every managed
 source worktree is removed and re-created off HEAD, reusing its branch so prior
-commits survive. The setup script re-runs on the next enter. The private agent
-home (_home/<slug> — logins, shell history) is preserved so agents need no
-re-authentication; --full removes it too AND drops the auto-named sandbox
-branches (never a branch you set via srcs branch:), making recreate a full
-reset.`,
+COMMITS survive — but UNCOMMITTED work in a worktree is force-removed, so
+recreate refuses when any source has local changes unless you pass --force
+(commit first to keep them). The setup script re-runs on the next enter. The
+private agent home (_home/<slug> — logins, shell history) is preserved so
+agents need no re-authentication; --full removes it too AND drops the branches
+sandboxer MINTED for this sandbox (those that did not already exist when it was
+first created; a branch that pre-existed is always kept), making recreate a
+full reset.`,
 		Example: `  # rebuild the active sandbox's working copy, keep agent logins
   sandboxer recreate
 
@@ -35,6 +43,20 @@ reset.`,
 			}
 			if t.profile == nil {
 				return fmt.Errorf("no profile for %q — scaffold one with 'sandboxer config init', then recreate", t.slug)
+			}
+			// recreate force-removes each managed worktree and re-checks it out off
+			// HEAD: branches (and their commits) survive, but UNCOMMITTED work does
+			// not. Refuse when any source has local changes unless --force, so a
+			// rebuild never silently discards edits (mirrors reset).
+			var dirty []string
+			for _, s := range t.base.Srcs(t.slug) {
+				if s.Managed && worktree.IsWorktree(s.Path) && worktree.HasWork(s.Path) {
+					dirty = append(dirty, filepath.Base(s.RepoRoot))
+				}
+			}
+			if len(dirty) > 0 && !force {
+				return fmt.Errorf("uncommitted work in: %s — commit it (it survives on the branch), "+
+					"or pass --force to discard and rebuild", strings.Join(dirty, ", "))
 			}
 			// Capture the stored snapshot and the active marker before the wipe:
 			// MakeSandbox below needs a profile snapshot even when the target was
@@ -87,5 +109,6 @@ reset.`,
 	}
 	bindExisting(cmd, &f)
 	cmd.Flags().BoolVar(&full, "full", false, "also wipe the private agent home (full rm+create)")
+	cmd.Flags().BoolVar(&force, "force", false, "discard uncommitted work in the worktrees (recreate force-removes them)")
 	return cmd
 }

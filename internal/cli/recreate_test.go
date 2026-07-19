@@ -119,6 +119,30 @@ func TestRecreateSessionFailureOnlyWarns(t *testing.T) {
 	}
 }
 
+// TestRecreateRefusesDirtyWorktree: uncommitted work in a source worktree makes
+// recreate refuse (it force-removes worktrees), then --force rebuilds and
+// discards it (M3).
+func TestRecreateRefusesDirtyWorktree(t *testing.T) {
+	project := newProject(t)
+	if code, _, errs := run("create", "feat", "--src", project); code != 0 {
+		t.Fatalf("create: %d %s", code, errs)
+	}
+	wt := worktreeOf(t, project)
+	if err := os.WriteFile(filepath.Join(wt, "wip.txt"), []byte("uncommitted\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	code, _, errs := run("recreate", "feat", "--src", project)
+	if code == 0 || !strings.Contains(errs, "uncommitted work") {
+		t.Fatalf("recreate with a dirty worktree = %d %q, want refusal", code, errs)
+	}
+	if code, _, errs := run("recreate", "feat", "--force", "--src", project); code != 0 {
+		t.Fatalf("recreate --force: %d %s", code, errs)
+	}
+	if fileExists(filepath.Join(worktreeOf(t, project), "wip.txt")) {
+		t.Error("--force recreate kept the uncommitted file")
+	}
+}
+
 // TestRecreateNoProfile: recreating a sandbox that has no profile (live or
 // stored) errors instead of silently making an empty one — recreate never
 // auto-scaffolds.
