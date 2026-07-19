@@ -294,8 +294,9 @@ type Profile struct {
 	// ./sandboxes inside the project (auto-added to the project's
 	// .gitignore, as is any in-project override). The sandbox occupies
 	// <worktreesDir>/<name>/<repo>/<branch>. Set it before creating the
-	// sandbox — changing it later sets the existing worktrees aside under the
-	// old location's _detached/ and checks out fresh ones at the new place.
+	// sandbox — changing it on an existing sandbox is REFUSED (an in-place
+	// relocation would need a cross-filesystem worktree move); rebuild at the
+	// new location with `sandboxer recreate` instead, which keeps the branches.
 	WorktreesDir string            `json:"worktreesDir,omitempty"`
 	ExtraMounts  []Mount           `json:"extraMounts,omitempty"`
 	Env          map[string]string `json:"env,omitempty"`

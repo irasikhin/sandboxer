@@ -323,6 +323,24 @@ func (b *Base) SyncSrcs(slug string, w io.Writer) ([]Source, error) {
 	if err != nil {
 		return nil, err
 	}
+	// A worktreesDir change on an EXISTING sandbox would strand its worktrees
+	// under the old root and force a cross-root (possibly cross-filesystem) git
+	// worktree move — which fails on EXDEV and wedges the sync. Refuse in place
+	// and route to recreate, which rebuilds cleanly at the new location (branches
+	// and commits are kept, and recreate itself now guards uncommitted work).
+	// Only trips when a materialized managed worktree actually sits outside the
+	// current root, so a first sync (empty prev) and an unchanged root pass.
+	curRoot := b.worktreesRoot(slug)
+	for _, p := range prev {
+		if p.Managed && worktree.IsWorktree(p.Path) &&
+			!strings.HasPrefix(p.Path, curRoot+string(filepath.Separator)) {
+			return nil, fmt.Errorf("sandbox %q already has a worktree at %s, but worktreesDir now resolves to %s — "+
+				"relocating an existing sandbox in place is not supported; rebuild it at the new location with "+
+				"'sandboxer recreate %s' (branches and commits are kept — commit uncommitted work first, or "+
+				"'sandboxer recreate %s --force' to discard it)",
+				slug, p.Path, curRoot, slug, slug)
+		}
+	}
 	if !dirExists(dest) {
 		// The sandbox dir is being created from nothing — first sync, or the
 		// tree was deleted by hand / relocated by worktreesDir. Bump its

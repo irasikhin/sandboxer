@@ -463,6 +463,39 @@ func TestSyncSrcsBranchChangeSetsAside(t *testing.T) {
 	}
 }
 
+// TestSyncSrcsWorktreesDirChangeRefused: changing worktreesDir on an existing
+// sandbox is refused with a hint to recreate — an in-place relocation would need
+// a cross-filesystem worktree move (M6). The old worktree and its uncommitted
+// work stay put (no data loss, no half-move).
+func TestSyncSrcsWorktreesDirChangeRefused(t *testing.T) {
+	repo := gitRepoWithCommit(t)
+	b, err := ResolveBase(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := b.WriteProfileJSON("mv", []byte(`{"srcs":[{"src":".","branch":"feat/mv"}]}`)); err != nil {
+		t.Fatal(err)
+	}
+	if err := b.MakeSandbox("mv", io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	oldPath := b.Srcs("mv")[0].Path
+	writeFile(t, filepath.Join(oldPath, "wip.txt"), "precious")
+
+	// when: worktreesDir now points elsewhere
+	if err := b.WriteProfileJSON("mv", []byte(`{"worktreesDir":"relocated","srcs":[{"src":".","branch":"feat/mv"}]}`)); err != nil {
+		t.Fatal(err)
+	}
+	_, err = b.SyncSrcs("mv", io.Discard)
+	if err == nil || !strings.Contains(err.Error(), "recreate") {
+		t.Fatalf("worktreesDir change = %v, want a refusal pointing at recreate", err)
+	}
+	// then: the old worktree's uncommitted work is untouched (no half-move)
+	if _, statErr := os.Stat(filepath.Join(oldPath, "wip.txt")); statErr != nil {
+		t.Errorf("old worktree work was disturbed by the refused relocation: %v", statErr)
+	}
+}
+
 // TestMissingBranchHintNamesRecorded: an entry that loses its branch: errors,
 // and the error names the branch the sandbox's worktree is recorded on.
 func TestMissingBranchHintNamesRecorded(t *testing.T) {
