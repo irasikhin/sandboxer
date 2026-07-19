@@ -196,6 +196,11 @@ func resolveTarget(f commonFlags, pos string) (*target, error) {
 		return nil, errors.New("no sandbox selected — give <slug>, -S <slug>, or `sandboxer use <slug>` (create one: sandboxer create)")
 	}
 	slug = config.Sanitize(slug)
+	// Guard every command against a slug that would escape the sandbox tree:
+	// SandboxDir("..") is the project root and RemoveState os.RemoveAll's it.
+	if err := config.ValidSlug(slug); err != nil {
+		return nil, err
+	}
 
 	if prof == nil {
 		prof = loadStoredProfile(base, slug)

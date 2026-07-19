@@ -366,6 +366,16 @@ func (b *Base) ClearCurrent() error {
 // full reset). Adopted worktrees are never touched — they were only mounted.
 func (b *Base) RemoveState(slug string, keepHome bool) {
 	dest := b.SandboxDir(slug)
+	// Defense-in-depth: dest must be strictly UNDER the worktrees root. A valid
+	// slug always is (dest = <root>/<slug>); an empty, "." or ".." slug would
+	// resolve dest onto the root itself or — via filepath.Join(root, "..") — the
+	// project root, and the os.RemoveAll below would then wipe it. The CLI
+	// rejects such a slug up front (config.ValidSlug), so reaching here means a
+	// mis-called API: refuse rather than delete outside the sandbox tree.
+	if root := b.worktreesRoot(slug); dest == root ||
+		!strings.HasPrefix(dest, root+string(filepath.Separator)) {
+		return
+	}
 	for _, s := range b.Srcs(slug) {
 		if s.Managed && worktree.IsWorktree(s.Path) {
 			_ = worktree.Remove(s.RepoRoot, s.Path)

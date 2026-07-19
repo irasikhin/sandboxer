@@ -116,6 +116,9 @@ func newUseCmd() *cobra.Command {
 				return nil
 			}
 			slug = config.Sanitize(slug)
+			if err := config.ValidSlug(slug); err != nil {
+				return err
+			}
 			if err := base.SetCurrent(slug); err != nil {
 				return err
 			}

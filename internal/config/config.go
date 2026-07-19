@@ -434,3 +434,22 @@ func Sanitize(s string) string {
 	s = dashTrimRe.ReplaceAllString(s, "")
 	return s
 }
+
+// ValidSlug rejects a sandbox name that is unsafe to use as a path component.
+// A slug names the sandbox's worktree directory under the worktrees root
+// (sandbox.SandboxDir) plus several files under the state dir, all of which
+// teardown removes — so "", "." or ".." would resolve those destructive
+// operations onto the worktrees root or, via filepath.Join(root, ".."), the
+// PROJECT ROOT itself. Sanitize collapses "/" to "-", so these pure-dot forms
+// are the only path-traversal values that survive it; callers Sanitize first,
+// then reject these explicitly.
+func ValidSlug(slug string) error {
+	switch slug {
+	case "":
+		return errors.New("empty sandbox name — give a name like \"feat\"")
+	case ".", "..":
+		return fmt.Errorf("invalid sandbox name %q — a sandbox name cannot be %q "+
+			"(it would name the worktrees root or the project directory itself)", slug, slug)
+	}
+	return nil
+}

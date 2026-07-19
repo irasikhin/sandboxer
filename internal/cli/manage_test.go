@@ -99,6 +99,36 @@ func TestRmEngineLessHost(t *testing.T) {
 	}
 }
 
+// TestRmRejectsUnsafeSlug: a slug of "." or ".." resolves the removal path onto
+// the worktrees root (".") or the PROJECT ROOT ("..", via filepath.Join), where
+// os.RemoveAll would wipe it. rm must refuse it and delete nothing — the guard
+// for the path-traversal data-loss class (config.ValidSlug + the RemoveState
+// containment check).
+func TestRmRejectsUnsafeSlug(t *testing.T) {
+	project := newProject(t)
+	// A real sandbox so there is state that must survive the rejected rm.
+	if code, _, errs := run("create", "feat", "--src", project); code != 0 {
+		t.Fatalf("create: %d %s", code, errs)
+	}
+	marker := filepath.Join(project, "f.txt") // planted by newProject
+	worktree := sandboxDir(project, "feat")
+	for _, bad := range []string{".", ".."} {
+		code, _, errs := run("rm", bad, "--src", project)
+		if code == 0 {
+			t.Fatalf("rm %q: want a non-zero exit, got 0 (errs=%q)", bad, errs)
+		}
+		if !fileExists(marker) {
+			t.Fatalf("rm %q deleted the project directory (marker %s is gone)", bad, marker)
+		}
+		if !fileExists(sandboxDir(project)) { // the worktrees root (no slug part)
+			t.Fatalf("rm %q deleted the worktrees root", bad)
+		}
+		if !fileExists(worktree) {
+			t.Fatalf("rm %q removed the sandbox worktree", bad)
+		}
+	}
+}
+
 // stubRemoveAllSessions replaces the clean seam with a recorder returning
 // err, snapshotting whether the state dir still existed at call time.
 func stubRemoveAllSessions(t *testing.T, sdir string, err error) (calls *[]seamCall, dirExisted *bool) {
