@@ -6,6 +6,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.53.2] — 2026-07-19
+
+### Fixed
+
+- serialize session converge to fix the first-enter egress race (bcfd59c)
+- refuse an in-place worktreesDir change; route to recreate (4eb60c6)
+
+
 ## [0.53.1] — 2026-07-19
 
 ### Fixed
@@ -568,3 +576,4 @@ isolated, containerized dev sandbox, on a local Linux machine:
 [0.52.3]: https://github.com/irasikhin/sandboxer/compare/v0.52.2...v0.52.3
 [0.53.0]: https://github.com/irasikhin/sandboxer/compare/v0.52.3...v0.53.0
 [0.53.1]: https://github.com/irasikhin/sandboxer/compare/v0.53.0...v0.53.1
+[0.53.2]: https://github.com/irasikhin/sandboxer/compare/v0.53.1...v0.53.2
