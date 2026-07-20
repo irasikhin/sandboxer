@@ -20,6 +20,7 @@ import (
 	"strings"
 
 	"github.com/irasikhin/sandboxer/internal/config"
+	"github.com/irasikhin/sandboxer/internal/execx"
 )
 
 // errNoDomains rejects bringing up an allowlist with nothing on it: that is
@@ -336,7 +337,9 @@ func (e *Egress) Start() error {
 	return nil
 }
 
+// run executes one engine command; on failure the error carries the engine's
+// own stderr, so a caller's wrapping context ("proxy sidecar failed to start")
+// is followed by the reason rather than a bare "exit status 125".
 func (e *Egress) run(args ...string) error {
-	cmd := exec.Command(e.engine, args...)
-	return cmd.Run()
+	return execx.Run(e.engine, args...)
 }

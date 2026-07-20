@@ -12,6 +12,7 @@ import (
 
 	"github.com/irasikhin/sandboxer/internal/config"
 	"github.com/irasikhin/sandboxer/internal/egress"
+	"github.com/irasikhin/sandboxer/internal/execx"
 	"github.com/irasikhin/sandboxer/internal/toolbox"
 )
 
@@ -466,7 +467,7 @@ func RemoveImage(engine, image string) error {
 	if !ImageExists(engine, image) {
 		return nil
 	}
-	return exec.Command(engine, "image", "rm", "-f", image).Run()
+	return execx.Run(engine, "image", "rm", "-f", image)
 }
 
 // exitCode maps a command error to a process exit code (0 success, the child's

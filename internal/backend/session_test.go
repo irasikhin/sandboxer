@@ -206,7 +206,7 @@ func sessionEngine(t *testing.T) (engine, logPath string) {
 	engine = filepath.Join(dir, "engine")
 	script := `#!/bin/sh
 printf '%s\n' "$*" >> "` + logPath + `"
-[ -n "$SBX_FAIL_ON" ] && [ "$1" = "$SBX_FAIL_ON" ] && exit 1
+[ -n "$SBX_FAIL_ON" ] && [ "$1" = "$SBX_FAIL_ON" ] && { [ -n "$SBX_STDERR" ] && printf '%s\n' "$SBX_STDERR" >&2; exit 1; }
 for a in "$@"; do last="$a"; done
 case "$1" in
 container)
@@ -515,10 +515,16 @@ func TestEnsureSessionStartStoppedFresh(t *testing.T) {
 		t.Errorf("stopped+fresh must not create:\n%s", strings.Join(lines, "\n"))
 	}
 
-	// A failing start surfaces as an error.
+	// A failing start surfaces as an error — carrying the engine's own
+	// diagnostic, not a bare exit status the user cannot act on.
 	t.Setenv("SBX_FAIL_ON", "start")
-	if _, err := EnsureSession(o); err == nil || !strings.Contains(err.Error(), "start session") {
+	t.Setenv("SBX_STDERR", "Error: cannot set up namespace")
+	_, err := EnsureSession(o)
+	if err == nil || !strings.Contains(err.Error(), "start session") {
 		t.Errorf("start failure = %v, want a start session error", err)
+	}
+	if err != nil && !strings.Contains(err.Error(), "cannot set up namespace") {
+		t.Errorf("start failure dropped the engine's stderr: %v", err)
 	}
 }
 
@@ -934,8 +940,13 @@ func TestRemoveSession(t *testing.T) {
 		engine, _ := sessionEngine(t)
 		t.Setenv("SBX_INSPECT_OUT", "true h")
 		t.Setenv("SBX_FAIL_ON", "rm")
-		if err := RemoveSession(engine, "s", "/b"); err == nil || !strings.Contains(err.Error(), "remove session") {
+		t.Setenv("SBX_STDERR", "Error: container state improper")
+		err := RemoveSession(engine, "s", "/b")
+		if err == nil || !strings.Contains(err.Error(), "remove session") {
 			t.Errorf("RemoveSession = %v, want a remove session error", err)
+		}
+		if err != nil && !strings.Contains(err.Error(), "container state improper") {
+			t.Errorf("RemoveSession dropped the engine's stderr: %v", err)
 		}
 	})
 }

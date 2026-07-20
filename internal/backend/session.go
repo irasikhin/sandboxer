@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/irasikhin/sandboxer/internal/egress"
+	"github.com/irasikhin/sandboxer/internal/execx"
 )
 
 // Labels stamped on persistent session containers so they can be discovered,
@@ -332,7 +333,7 @@ func EnsureSession(o RunOpts) (string, error) {
 		if action == actExec {
 			return name, nil
 		}
-		if err := exec.Command(o.Engine, "start", name).Run(); err != nil {
+		if err := execx.Run(o.Engine, "start", name); err != nil {
 			return "", fmt.Errorf("start session %s: %w", name, err)
 		}
 		return name, nil
@@ -365,7 +366,7 @@ func recreateSession(o RunOpts, name, hash string) (string, error) {
 	// Announced: on a wedged engine `rm -f` can take a long time, and silence
 	// here reads as a hang.
 	notice(o.Stderr, "removing the old session container…")
-	if err := exec.Command(o.Engine, "rm", "-f", name).Run(); err != nil {
+	if err := execx.Run(o.Engine, "rm", "-f", name); err != nil {
 		return "", fmt.Errorf("remove stale session %s: %w", name, err)
 	}
 	return createSession(o, name, hash)
@@ -437,7 +438,7 @@ func ExecSession(o RunOpts, name string, cmdArgs []string) (int, error) {
 func StopSession(engine, slug, baseDir string) error {
 	name := SessionName(slug, baseDir)
 	if InspectSession(engine, name).Exists {
-		if err := exec.Command(engine, "stop", name).Run(); err != nil {
+		if err := execx.Run(engine, "stop", name); err != nil {
 			return fmt.Errorf("stop session %s: %w", name, err)
 		}
 	}
@@ -458,7 +459,7 @@ func RemoveSession(engine, slug, baseDir string) error {
 
 func removeSessionByName(engine, name string) error {
 	if InspectSession(engine, name).Exists {
-		if err := exec.Command(engine, "rm", "-f", name).Run(); err != nil {
+		if err := execx.Run(engine, "rm", "-f", name); err != nil {
 			return fmt.Errorf("remove session %s: %w", name, err)
 		}
 	}
@@ -484,14 +485,14 @@ func RemoveAllSessions(engine, baseDir string) error {
 // sessionNames lists the names of every sandboxer-managed session container
 // created from baseDir, via the labels stamped at create time.
 func sessionNames(engine, baseDir string) ([]string, error) {
-	out, err := exec.Command(engine, "ps", "-a",
+	out, err := execx.Output(engine, "ps", "-a",
 		"--filter", "label="+LabelManaged+"=true",
 		"--filter", "label="+LabelBase+"="+baseDir,
-		"--format", "{{.Names}}").Output()
+		"--format", "{{.Names}}")
 	if err != nil {
 		return nil, fmt.Errorf("list sessions: %w", err)
 	}
-	return strings.Fields(string(out)), nil // container names contain no whitespace
+	return strings.Fields(out), nil // container names contain no whitespace
 }
 
 // SessionStates maps each of baseDir's session slugs to its container status
@@ -511,11 +512,11 @@ func SessionStates(engine, baseDir string) (map[string]string, error) {
 	args := []string{"container", "inspect", "--format",
 		`{{.State.Status}} {{index .Config.Labels "` + LabelSlug + `"}}`}
 	args = append(args, names...)
-	out, err := exec.Command(engine, args...).Output()
+	out, err := execx.Output(engine, args...)
 	if err != nil {
 		return nil, fmt.Errorf("inspect sessions: %w", err)
 	}
-	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+	for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
 		// Status first: it never contains a space, while a raw slug may.
 		status, slug, ok := strings.Cut(line, " ")
 		if !ok || slug == "" {
@@ -532,13 +533,13 @@ func SessionStates(engine, baseDir string) (map[string]string, error) {
 // nothing will ever match them again. Reported by doctor with a removal hint;
 // sandboxer itself never auto-removes them.
 func OrphanSessions(engine string) ([]string, error) {
-	out, err := exec.Command(engine, "ps", "-a",
+	out, err := execx.Output(engine, "ps", "-a",
 		"--filter", "label="+LabelManaged+"=true",
-		"--format", "{{.Names}}").Output()
+		"--format", "{{.Names}}")
 	if err != nil {
 		return nil, fmt.Errorf("list sessions: %w", err)
 	}
-	names := strings.Fields(string(out))
+	names := strings.Fields(out)
 	if len(names) == 0 {
 		return nil, nil
 	}
@@ -548,11 +549,11 @@ func OrphanSessions(engine string) ([]string, error) {
 	args := []string{"container", "inspect", "--format",
 		`{{index .Config.Labels "` + LabelBase + `"}}`}
 	args = append(args, names...)
-	bout, err := exec.Command(engine, args...).Output()
+	bout, err := execx.Output(engine, args...)
 	if err != nil {
 		return nil, fmt.Errorf("inspect sessions: %w", err)
 	}
-	bases := strings.Split(strings.TrimRight(string(bout), "\n"), "\n")
+	bases := strings.Split(strings.TrimRight(bout, "\n"), "\n")
 	var orphans []string
 	for i, name := range names {
 		if i >= len(bases) {

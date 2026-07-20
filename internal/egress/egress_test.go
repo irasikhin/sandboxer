@@ -22,6 +22,7 @@ func fakeEngine(t *testing.T) (engine, logPath string) {
 	engine = filepath.Join(dir, "engine")
 	script := "#!/bin/sh\n" +
 		"printf '%s\\n' \"$*\" >> \"" + logPath + "\"\n" +
+		"[ -n \"$SBX_STDERR\" ] && printf '%s\\n' \"$SBX_STDERR\" >&2\n" +
 		"for a in \"$@\"; do [ \"$a\" = \"$SBX_FAIL_ON\" ] && [ -n \"$SBX_FAIL_ON\" ] && exit 1; done\n" +
 		"[ -n \"$SBX_STDOUT\" ] && printf '%s\\n' \"$SBX_STDOUT\"\n" +
 		"exit 0\n"
@@ -261,6 +262,23 @@ func TestUpProxyFailureTearsDown(t *testing.T) {
 	// The teardown removed the networks it had created.
 	if log := readLog(t, logPath); !strings.Contains(log, "network rm") {
 		t.Errorf("failed Up did not clean up networks:\n%s", log)
+	}
+}
+
+// TestUpProxyFailureReportsEngineStderr: a sidecar that will not start is the
+// symptom a user actually hits when the engine is unhealthy, and "exit status
+// 125" tells them nothing. The engine's own message must reach the error.
+func TestUpProxyFailureReportsEngineStderr(t *testing.T) {
+	engine, _ := fakeEngine(t)
+	t.Setenv("SBX_FAIL_ON", "run")
+	t.Setenv("SBX_STDERR", "Error: cannot set up namespace: no subuid ranges")
+
+	_, err := Up(engine, "slug", []string{"a.com"}, "", nil, t.TempDir(), io.Discard)
+	if err == nil {
+		t.Fatal("Up should fail when the proxy sidecar cannot start")
+	}
+	if !strings.Contains(err.Error(), "no subuid ranges") {
+		t.Errorf("error dropped the engine's diagnostic: %v", err)
 	}
 }
 
