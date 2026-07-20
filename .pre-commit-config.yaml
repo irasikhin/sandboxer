@@ -42,8 +42,15 @@ repos:
         language: system
         pass_filenames: false
         types: [go]
+      # examples/ is excluded on purpose: those files are DOCUMENTATION, and
+      # they teach the same compact one-liner form the scaffold emits
+      # (`{ src = "."; branch = "x"; }`). nixfmt expands every such attrset
+      # and list onto its own line, which would make the examples disagree
+      # with `sandboxer config init`. Everything nix that is actually built
+      # still gets checked.
       - id: nixfmt-check
         name: nixfmt-check
         entry: nixfmt --check
         language: system
         files: \.nix$
+        exclude: ^examples/

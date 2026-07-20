@@ -14,13 +14,8 @@
 
   egress = {
     allowedDomains = [
-      "api.openai.com"
-      "api.anthropic.com"
-      "registry.npmjs.org"
-      "pypi.org"
-      "repo.maven.apache.org"
-      "repo1.maven.org"
-      "central.sonatype.com"
+      "api.openai.com" "api.anthropic.com" "registry.npmjs.org" "pypi.org"
+      "repo.maven.apache.org" "repo1.maven.org" "central.sonatype.com"
     ];
   };
 
@@ -40,11 +35,7 @@
     {
       src = ".";
       branch = "devops/integ";
-      include = [
-        "/src/proto/"
-        "/shared/lib/"
-        "**/generated/"
-      ];
+      include = [ "/src/proto/" "/shared/lib/" "**/generated/" ];
     }
     # { src = "../other-repo"; branch = "devops/integ"; }  # a second repo, whole
     # { src = "https://github.com/org/proto"; branch = "main"; include = [ "/proto/" ]; } # remote → cloned
