@@ -204,11 +204,6 @@ named session in the same container.`,
 				return err
 			}
 			name := backend.SessionName(t.slug, t.base.Dir)
-			if persistent {
-				fmt.Fprintln(errOut, persistentEnterBanner(t.slug, engine, dest, name))
-			} else {
-				fmt.Fprintln(errOut, enterBanner(t.slug, engine, dest))
-			}
 			image, spec, err := resolveImage(t.profile, engine, errOut)
 			if err != nil {
 				return err
@@ -232,8 +227,14 @@ named session in the same container.`,
 				NoEgress: noEgress(),
 				Stdin:    cmd.InOrStdin(), Stdout: cmd.OutOrStdout(), Stderr: errOut,
 			}
-			var code int
-			var runErr error
+			// Decide the container shape BEFORE announcing it. The banner
+			// promises detach semantics, and the persistent path can still fall
+			// back to a one-shot container below — announcing first told the user
+			// "exiting keeps the container running" and then handed them a
+			// `run --rm` container, where detaching tmux exits the container's
+			// main process and takes the whole session with it.
+			useSession := false
+			oneShotWhy := ""
 			if persistent {
 				o.BaseDir = t.base.Dir
 				// Safety check: if the session is running with a stale config
@@ -245,33 +246,39 @@ named session in the same container.`,
 				// deletion bind-mounts the OLD directory — whatever runs inside
 				// sees a deleted tree, so converging (recreating) it loses
 				// nothing and is the only way the fresh worktrees get mounted.
-				forceRecreate := f.recreate || createdDest
-				if !forceRecreate {
+				useSession = f.recreate || createdDest
+				if !useSession {
 					if info := backendInspectSession(engine, name); info.Running {
-						if info.Hash != backendWantHash(o) {
-							fmt.Fprintf(errOut,
-								"sandboxer: session %s is stale (profile changed) — running one-shot; use --recreate to rebuild\n", name)
-						} else if !backend.ImageFresh(info.ImageID, backendImageID(engine, o.Image)) {
-							fmt.Fprintf(errOut,
-								"sandboxer: session %s is stale (image rebuilt) — running one-shot; use --recreate to rebuild\n", name)
-						} else {
-							forceRecreate = true // fresh → proceed to EnsureSession
+						switch {
+						case info.Hash != backendWantHash(o):
+							oneShotWhy = fmt.Sprintf("session %s is stale (profile changed)", name)
+						case !backend.ImageFresh(info.ImageID, backendImageID(engine, o.Image)):
+							oneShotWhy = fmt.Sprintf("session %s is stale (image rebuilt)", name)
+						default:
+							useSession = true // fresh → proceed to EnsureSession
 						}
 					} else {
-						forceRecreate = true // not running → safe to converge
+						useSession = true // not running → safe to converge
 					}
 				}
-				if forceRecreate {
-					if _, err := backendEnsureSession(o); err != nil {
-						// EnsureSession's message IS the diagnostic (busy session, egress
-						// failure, …) — print it here; the tail then returns silently.
-						fmt.Fprintln(errOut, "sandboxer:", err)
-						runErr = err
-					} else {
-						code, runErr = backendExecSession(o, name, tmuxEnterArgs(sessionName))
-					}
+			} else {
+				oneShotWhy = ephemeralWhy(f, t.profile)
+			}
+			if useSession {
+				fmt.Fprintln(errOut, persistentEnterBanner(t.slug, engine, dest, name))
+			} else {
+				fmt.Fprintln(errOut, oneShotEnterBanner(t.slug, engine, dest, oneShotWhy, persistent))
+			}
+			var code int
+			var runErr error
+			if useSession {
+				if _, err := backendEnsureSession(o); err != nil {
+					// EnsureSession's message IS the diagnostic (busy session, egress
+					// failure, …) — print it here; the tail then returns silently.
+					fmt.Fprintln(errOut, "sandboxer:", err)
+					runErr = err
 				} else {
-					code, runErr = backendRun(o)
+					code, runErr = backendExecSession(o, name, tmuxEnterArgs(sessionName))
 				}
 			} else {
 				code, runErr = backendRun(o)
@@ -531,27 +538,54 @@ func validateSessionName(name string) error {
 	return nil
 }
 
-// enterBanner is the orientation notice printed to stderr when an interactive
-// shell opens: which sandbox, the engine and the working directory. The
-// agent's work stays on its sandbox branch — there is no copy-back. The
-// backend/egress facts are already on the configLine printed just above, so
-// this only adds what that line does not. (The one-shot container still runs
-// tmux — mouse scrolling and panes — it just dies with the shell.)
-func enterBanner(slug, engine, dir string) string {
-	return fmt.Sprintf(
-		"sandboxer: interactive shell in %q (%s) — %s",
-		slug, engine, dir)
-}
-
 // persistentEnterBanner is enterBanner's persistent-session variant: it also
 // names the session container and spells out the exit semantics — detaching
 // or exiting keeps the container (and the in-container tmux with everything
-// in it) alive for a later re-enter.
+// in it) alive for a later re-enter. Only printed once the session container
+// is actually the thing about to run (see enter's useSession).
 func persistentEnterBanner(slug, engine, dir, container string) string {
 	return fmt.Sprintf(
 		"sandboxer: persistent session %s in %q (%s) — %s\n"+
 			"sandboxer: tmux inside (prefix Ctrl-Space) — Ctrl-Space d detaches, exiting keeps the container running; reattach: sandboxer enter %s",
 		container, slug, engine, dir, slug)
+}
+
+// oneShotEnterBanner is the honest banner for a `run --rm` container: there,
+// tmux is the container's MAIN process, so detaching (Ctrl-Space d) exits it
+// and the container — and the session — go with it. That is the opposite of
+// what the persistent banner promises, which is why the two are chosen only
+// after the mode is decided. why names the cause; wasPersistent distinguishes
+// "you asked for ephemeral" from "your persistent session was set aside", and
+// only the latter gets the how-to-get-it-back line.
+func oneShotEnterBanner(slug, engine, dir, why string, wasPersistent bool) string {
+	b := fmt.Sprintf("sandboxer: one-shot container in %q (%s) — %s\n", slug, engine, dir)
+	if why != "" {
+		b += "sandboxer: " + why + "\n"
+	}
+	b += "sandboxer: this container is --rm: Ctrl-Space d or exiting ENDS it and everything running in it" +
+		" (committed and uncommitted work in the source worktrees is on the host and survives)"
+	if wasPersistent {
+		b += fmt.Sprintf("\nsandboxer: to get the persistent session back: sandboxer stop %s && sandboxer enter %s"+
+			" (or: sandboxer enter %s --recreate)", slug, slug, slug)
+	}
+	return b
+}
+
+// ephemeralWhy names WHICH of the three ephemeral switches is in force, in the
+// precedence order config.ResolveRuntime applies (flag, then the env
+// kill-switch, then the profile). Without it a one-shot container is a silent
+// surprise when the switch lives somewhere the user is not looking — an
+// exported SANDBOXER_SESSION outranks the profile.
+func ephemeralWhy(f commonFlags, prof *config.Profile) string {
+	switch {
+	case f.ephemeral:
+		return "ephemeral mode (--ephemeral)"
+	case config.LoadDefaults().Session == config.SessionEphemeral:
+		return "ephemeral mode (SANDBOXER_SESSION=ephemeral in the environment)"
+	case prof != nil && prof.Session == config.SessionEphemeral:
+		return `ephemeral mode (session = "ephemeral" in the profile)`
+	}
+	return "ephemeral mode"
 }
 
 // backendRun is the container-run seam, overridable in tests so the setup

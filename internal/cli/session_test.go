@@ -451,3 +451,57 @@ func TestExecEphemeralSkipsInspect(t *testing.T) {
 		t.Errorf("calls: inspect=%d run=%d exec=%d, want 0/1/0", len(c.inspect), len(c.run), len(c.exec))
 	}
 }
+
+// TestEnterStaleSessionBannerIsHonest is the regression guard for a message
+// that actively misled: the persistent banner ("exiting keeps the container
+// running") used to be printed BEFORE enter decided whether it could use the
+// session at all. On a running-but-stale session it then fell back to a
+// `run --rm` container, where tmux is the main process — so Ctrl-Space d exited
+// it and destroyed the session the banner had just promised would survive.
+// The banner must now describe the container actually being run.
+func TestEnterStaleSessionBannerIsHonest(t *testing.T) {
+	project := sessionProject(t)
+	c := stubSessionSeams(t, backend.SessionInfo{Exists: true, Running: true, Hash: "h", ImageID: "old"}, "h")
+	backendImageID = func(engine, image string) string { return "new" }
+
+	code, _, errs := run("enter", "feat", "--src", project)
+	if code != 0 {
+		t.Fatalf("enter = %d, %s", code, errs)
+	}
+	if len(c.run) != 1 || len(c.exec) != 0 || len(c.ensure) != 0 {
+		t.Fatalf("calls: run=%d exec=%d ensure=%d, want a one-shot (1/0/0)", len(c.run), len(c.exec), len(c.ensure))
+	}
+	if strings.Contains(errs, "keeps the container running") {
+		t.Errorf("the one-shot fallback still promises persistence:\n%s", errs)
+	}
+	for _, want := range []string{
+		"one-shot", "stale (image rebuilt)", "ENDS it", "survives",
+		"sandboxer stop feat && sandboxer enter feat",
+	} {
+		if !strings.Contains(errs, want) {
+			t.Errorf("stale-fallback output missing %q:\n%s", want, errs)
+		}
+	}
+}
+
+// TestEnterEphemeralBannerNamesTheSwitch: a deliberate one-shot run still has
+// to warn that detaching ends it, and say WHICH switch chose ephemeral — the
+// env kill-switch outranks the profile, so the cause is often somewhere the
+// user is not looking.
+func TestEnterEphemeralBannerNamesTheSwitch(t *testing.T) {
+	project := sessionProject(t)
+	stubSessionSeams(t, backend.SessionInfo{}, "h")
+
+	code, _, errs := run("enter", "feat", "--src", project, "--ephemeral")
+	if code != 0 {
+		t.Fatalf("enter --ephemeral = %d, %s", code, errs)
+	}
+	for _, want := range []string{"one-shot", "--ephemeral", "ENDS it"} {
+		if !strings.Contains(errs, want) {
+			t.Errorf("ephemeral output missing %q:\n%s", want, errs)
+		}
+	}
+	if strings.Contains(errs, "sandboxer stop feat") {
+		t.Errorf("an explicitly ephemeral run should not offer a way back:\n%s", errs)
+	}
+}
