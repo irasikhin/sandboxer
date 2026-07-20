@@ -29,6 +29,13 @@ const (
 	// against the freshly computed hash means the desired configuration changed
 	// and the running session is stale.
 	LabelHash = "sandboxer.hash"
+	// LabelMounts records the individual source mounts' on-disk identities the
+	// session was created with (RunOpts.MountIDs). LabelHash says THAT the
+	// desired configuration moved; diffing this against a fresh resolve says
+	// what — which view directory appeared, which one a host-side checkout
+	// recreated, which one is gone. Empty on sessions created before it existed,
+	// which callers must treat as "unknown", never as "nothing was mounted".
+	LabelMounts = "sandboxer.mounts"
 )
 
 // SessionName returns the deterministic container name for slug's persistent
@@ -76,6 +83,7 @@ func createArgv(o RunOpts, egNet, egProxyURL, name, hash string) []string {
 		"--label", LabelSlug + "=" + o.Slug,
 		"--label", LabelBase + "=" + o.BaseDir,
 		"--label", LabelHash + "=" + hash,
+		"--label", LabelMounts + "=" + o.MountIDs,
 	}
 	args = append(args, commonArgs(o, egNet, egProxyURL)...)
 	args = append(args, o.Image, "sleep", "infinity")
@@ -88,7 +96,7 @@ func createArgv(o RunOpts, egNet, egProxyURL, name, hash string) []string {
 // render correctly (exec does not inherit the caller's terminal environment).
 func execArgv(o RunOpts, name string, cmdArgs []string) []string {
 	args := []string{"exec", "-i"}
-	if isTerminal(o.Stdin) && isTerminal(o.Stdout) {
+	if IsTerminal(o.Stdin) && IsTerminal(o.Stdout) {
 		args = append(args, "-t")
 	}
 	args = append(args, "-w", o.Dest)
@@ -188,12 +196,16 @@ func SessionWantHash(o RunOpts) string {
 // ConfigHash it was created with (from the LabelHash label; "" when the label
 // is missing, which compares as stale against any wanted hash), and the ID of
 // the image it runs (normalized without the "sha256:" prefix; "" when
-// unreadable, which skips the image-freshness check).
+// unreadable, which skips the image-freshness check), and the encoded mount
+// identities it was created with (from LabelMounts; "" on a session created
+// before that label existed, or one whose set was over the encoder's size cap
+// — "unknown", never "nothing was mounted").
 type SessionInfo struct {
 	Exists  bool
 	Running bool
 	Hash    string
 	ImageID string
+	Mounts  string
 }
 
 // InspectSession reads the session container's running state, recorded config
@@ -201,14 +213,17 @@ type SessionInfo struct {
 // the container does not exist: the zero SessionInfo.
 func InspectSession(engine, name string) SessionInfo {
 	out, err := exec.Command(engine, "container", "inspect", "--format",
-		`{{.State.Running}} {{index .Config.Labels "`+LabelHash+`"}} {{.Image}}`, name).Output()
+		`{{.State.Running}} {{index .Config.Labels "`+LabelHash+`"}} {{.Image}} {{index .Config.Labels "`+LabelMounts+`"}}`, name).Output()
 	if err != nil {
 		return SessionInfo{}
 	}
 	info := SessionInfo{Exists: true}
 	// Single-space split, NOT strings.Fields: a missing hash label renders as
 	// an empty middle field that must keep its slot, or the trailing image ID
-	// would shift into the hash position.
+	// would shift into the hash position. The mounts label goes LAST and is
+	// base64url by construction (sandbox.EncodeMountIDs) — no space can appear
+	// inside it, so it cannot shift anything either; when it is missing,
+	// TrimSpace drops the trailing separator and the field simply is not there.
 	fields := strings.Split(strings.TrimSpace(string(out)), " ")
 	info.Running = fields[0] == "true"
 	if len(fields) > 1 {
@@ -218,6 +233,9 @@ func InspectSession(engine, name string) SessionInfo {
 		// Docker reports the container's image as "sha256:<hex>", podman as
 		// bare hex — normalize so ImageFresh compares like with like.
 		info.ImageID = strings.TrimPrefix(fields[2], "sha256:")
+	}
+	if len(fields) > 3 {
+		info.Mounts = fields[3]
 	}
 	return info
 }

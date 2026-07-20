@@ -59,19 +59,23 @@ type target struct {
 }
 
 // mounts returns the sandbox's source bind mounts, whether its <slug>/ root is
-// one of them, and the mounts' inode fingerprint (RunOpts.MountGen). All three
-// are ALWAYS derived together (see sandbox.Mounts / MountFingerprint): mounting
-// the root while a source is narrowed would expose every excluded file, and the
-// fingerprint must cover exactly the mounts that end up in the argv, so the
-// triple must never be assembled field by field at a call site. It errors when
+// one of them, the mounts' inode fingerprint (RunOpts.MountGen) and the same
+// identities encoded for the session label (RunOpts.MountIDs). All four are
+// ALWAYS derived together (see sandbox.Mounts / MountIdentities): mounting the
+// root while a source is narrowed would expose every excluded file, and both
+// the fingerprint and the recorded identities must cover exactly the mounts
+// that end up in the argv, so the tuple must never be assembled field by field
+// at a call site — a fingerprint and a label describing different mount sets
+// would make the drift diagnosis lie. One stat pass feeds both. It errors when
 // an include pattern resolves to nothing (or the worktree cannot be walked) —
 // fail closed rather than launch a sandbox with a silently empty view.
-func (t *target) mounts() (mountDest bool, srcMounts []string, mountGen string, err error) {
+func (t *target) mounts() (mountDest bool, srcMounts []string, mountGen, mountIDs string, err error) {
 	mountDest, srcMounts, err = sandbox.Mounts(t.base.Srcs(t.slug))
 	if err != nil {
-		return false, nil, "", err
+		return false, nil, "", "", err
 	}
-	return mountDest, srcMounts, sandbox.MountFingerprint(srcMounts), nil
+	ids := sandbox.MountIdentities(srcMounts)
+	return mountDest, srcMounts, sandbox.FingerprintIDs(ids), sandbox.EncodeMountIDs(ids), nil
 }
 
 // resolveProfileFile selects the profile file and returns it together with

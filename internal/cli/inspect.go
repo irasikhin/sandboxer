@@ -221,7 +221,7 @@ func sessionHashOpts(t *target, rt config.Runtime, engine string) (backend.RunOp
 	if err != nil {
 		return backend.RunOpts{}, false
 	}
-	mountDest, srcMounts, mountGen, err := t.mounts()
+	mountDest, srcMounts, mountGen, mountIDs, err := t.mounts()
 	if err != nil {
 		return backend.RunOpts{}, false
 	}
@@ -230,6 +230,7 @@ func sessionHashOpts(t *target, rt config.Runtime, engine string) (backend.RunOp
 		Dest: t.base.SandboxDir(t.slug), Slug: t.slug, BaseDir: t.base.Dir,
 		MountDest: mountDest,
 		MountGen:  mountGen,
+		MountIDs:  mountIDs,
 		SrcMounts: srcMounts,
 		HomeDir:   t.base.HomeDir(t.slug),
 		DestGen:   t.base.Gen(t.slug),

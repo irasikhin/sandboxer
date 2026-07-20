@@ -62,7 +62,7 @@ equivalent — its purpose is "run it with your own tooling".`,
 			if err != nil {
 				return err
 			}
-			mountDest, srcMounts, mountGen, err := t.mounts()
+			mountDest, srcMounts, mountGen, mountIDs, err := t.mounts()
 			if err != nil {
 				return err
 			}
@@ -73,6 +73,7 @@ equivalent — its purpose is "run it with your own tooling".`,
 				Dest:            t.base.SandboxDir(t.slug),
 				MountDest:       mountDest,
 				MountGen:        mountGen,
+				MountIDs:        mountIDs,
 				SrcMounts:       srcMounts,
 				Slug:            t.slug,
 				BaseDir:         t.base.Dir,

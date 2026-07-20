@@ -208,7 +208,7 @@ named session in the same container.`,
 			if err != nil {
 				return err
 			}
-			mountDest, srcMounts, mountGen, err := t.mounts()
+			mountDest, srcMounts, mountGen, mountIDs, err := t.mounts()
 			if err != nil {
 				return err
 			}
@@ -216,6 +216,7 @@ named session in the same container.`,
 				Engine: engine, Image: image, Spec: spec, Dest: dest, Slug: t.slug,
 				MountDest: mountDest,
 				MountGen:  mountGen,
+				MountIDs:  mountIDs,
 				SrcMounts: srcMounts,
 				HomeDir:   t.base.HomeDir(t.slug),
 				DestGen:   t.base.Gen(t.slug),
@@ -256,20 +257,32 @@ named session in the same container.`,
 				useSession = f.recreate || createdDest
 				if !useSession {
 					info := backendInspectSession(engine, name)
+					drift := false
 					switch {
 					case !info.Running:
 						useSession = true // not running → safe to converge
 					case info.Hash != backendWantHash(o):
-						staleWhy = "profile changed"
+						staleWhy, drift = mountDriftWhy(o, info, mountIDs)
 					case !backend.ImageFresh(info.ImageID, backendImageID(engine, o.Image)):
 						staleWhy = "image rebuilt"
 					default:
 						useSession = true // fresh → proceed to EnsureSession
 					}
-					if staleWhy != "" && backendSessionIdle(engine, name) {
+					switch {
+					case staleWhy == "":
+					case backendSessionIdle(engine, name):
 						// Holds no tmux session: converge it now (EnsureSession
 						// recreates and says so) instead of stranding it forever.
 						staleWhy, useSession = "", true
+					case drift && backendIsTerminal(o.Stdin):
+						// Busy AND the mounts moved — the one stale shape where
+						// attaching as-is is not merely a postponement: the bind
+						// mounts name directories the host has replaced, so what
+						// is running in there is already reading the wrong tree.
+						// Offer the rebuild rather than deciding for the user.
+						if confirmRecreate(o.Stdin, errOut, t.slug, staleWhy) {
+							staleWhy, useSession = "", true
+						}
 					}
 				}
 			} else {
@@ -388,7 +401,7 @@ func newExecCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			mountDest, srcMounts, mountGen, err := t.mounts()
+			mountDest, srcMounts, mountGen, mountIDs, err := t.mounts()
 			if err != nil {
 				return err
 			}
@@ -396,6 +409,7 @@ func newExecCmd() *cobra.Command {
 				Engine: engine, Image: image, Spec: spec, Dest: dest, Slug: t.slug,
 				MountDest: mountDest,
 				MountGen:  mountGen,
+				MountIDs:  mountIDs,
 				SrcMounts: srcMounts,
 				HomeDir:   t.base.HomeDir(t.slug),
 				DestGen:   t.base.Gen(t.slug),
@@ -419,7 +433,11 @@ func newExecCmd() *cobra.Command {
 				if info := backendInspectSession(engine, name); info.Running {
 					switch {
 					case info.Hash != backendWantHash(o):
-						fmt.Fprintln(cmd.ErrOrStderr(), staleExecNotice(name, "profile changed", t.slug))
+						// Same accurate diagnosis as enter, never the prompt: a
+						// one-shot already runs against the current mounts, and
+						// exec has no terminal contract to ask on.
+						why, _ := mountDriftWhy(o, info, mountIDs)
+						fmt.Fprintln(cmd.ErrOrStderr(), staleExecNotice(name, why, t.slug))
 					case !backend.ImageFresh(info.ImageID, backendImageID(engine, o.Image)):
 						fmt.Fprintln(cmd.ErrOrStderr(), staleExecNotice(name, "image rebuilt", t.slug))
 					default:
@@ -645,6 +663,12 @@ var (
 	backendSessionIdle    = backend.SessionIdle
 	backendWantHash       = backend.SessionWantHash
 	backendImageID        = backend.ImageID
+	// backendIsTerminal gates the one interactive prompt (confirmRecreate).
+	// A seam because the alternative is a pty: the real check wants an
+	// *os.File whose mode says character device, and the tests' stdin is a
+	// string reader — which is exactly the "never ask" case, so without the
+	// seam the prompt's ANSWER paths could not be exercised at all.
+	backendIsTerminal = backend.IsTerminal
 )
 
 // runSetup runs the profile's one-time `setup:` script inside the sandbox before
@@ -670,7 +694,7 @@ func runSetup(t *target, rt config.Runtime, engine string, noSetup bool, errOut 
 		return rerr
 	}
 	fmt.Fprintf(errOut, "sandboxer: running setup for %q…\n", t.slug)
-	mountDest, srcMounts, mountGen, merr := t.mounts()
+	mountDest, srcMounts, mountGen, mountIDs, merr := t.mounts()
 	if merr != nil {
 		return merr
 	}
@@ -679,6 +703,7 @@ func runSetup(t *target, rt config.Runtime, engine string, noSetup bool, errOut 
 		Dest: t.base.SandboxDir(t.slug), Slug: t.slug,
 		MountDest:       mountDest,
 		MountGen:        mountGen,
+		MountIDs:        mountIDs,
 		SrcMounts:       srcMounts,
 		HomeDir:         t.base.HomeDir(t.slug),
 		DestGen:         t.base.Gen(t.slug),

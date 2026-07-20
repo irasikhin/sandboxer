@@ -906,8 +906,10 @@ func ViewDirs(s Source) ([]string, error) {
 //
 // Include patterns are expanded against the live worktree on every call, so
 // the resolved set — and with it the argv and the session hash — tracks the
-// host: a directory created on the host that matches a pattern rebuilds the
-// session on the next enter, exactly like MountFingerprint tracks inode moves.
+// host: a directory created on the host that matches a pattern makes the
+// session read as stale on the next enter, exactly like MountFingerprint
+// tracks inode moves. Whether that stale verdict rebuilds the session or
+// merely reports itself is the CLI's call, not this one (sessions-design D3).
 // Only the narrowed branch can error (pattern matching nothing, unreadable
 // worktree); adopted and unnarrowed sources are literal paths.
 func Mounts(srcs []Source) (mountDest bool, mounts []string, err error) {
@@ -959,15 +961,12 @@ func sortedUnique(paths []string) []string {
 // fingerprint, and the empty value keeps its argv, and session hash, unchanged.
 // A path that cannot be stat'd contributes a sentinel rather than being
 // skipped, so a directory vanishing also flips the hash.
+//
+// Split in two (MountIdentities + FingerprintIDs) so the identities themselves
+// can be recorded on the session and diffed later — the hash alone says THAT
+// something moved, never what. See mountid.go.
 func MountFingerprint(mounts []string) string {
-	if len(mounts) == 0 {
-		return ""
-	}
-	h := sha256.New()
-	for _, m := range mounts {
-		fmt.Fprintf(h, "%s\x00%s\x00", m, inodeID(m))
-	}
-	return hex.EncodeToString(h.Sum(nil))[:16]
+	return FingerprintIDs(MountIdentities(mounts))
 }
 
 // inodeID returns a string identifying the file OBJECT at path (see

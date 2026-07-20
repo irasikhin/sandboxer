@@ -63,6 +63,7 @@ func TestCreateArgv(t *testing.T) {
 		"--label", "sandboxer.slug=s",
 		"--label", "sandboxer.base=/b",
 		"--label", "sandboxer.hash=abc123",
+		"--label", "sandboxer.mounts=",
 		"--user", userns, "--cap-drop=ALL", "--security-opt", "no-new-privileges",
 		"--workdir", "/d", "--volume", "/d:/d:rw",
 		"--env", "SANDBOXER_IN_CONTAINER=1",
@@ -178,6 +179,12 @@ func TestConfigHash(t *testing.T) {
 			o.AuthEnv = []string{"CLAUDE_CODE_OAUTH_TOKEN=t2"}
 			return o
 		}()},
+		// Mount IDs are stamped as a LABEL only — MountGen already carries the
+		// same identity into the hash. If this ever leaked into commonArgs it
+		// would double-count, and worse: every session in existence would read
+		// as stale the moment the field shipped, which is precisely the
+		// mass-rebuild the label was designed to avoid.
+		{"mount IDs", func() RunOpts { o := base; o.MountIDs = "cGF0aAAxCg"; return o }()},
 	}
 	for _, tc := range same {
 		if g := ConfigHash(tc.o, "", ""); g != h {
@@ -472,6 +479,11 @@ func TestInspectSession(t *testing.T) {
 		"true abc123":     {Exists: true, Running: true, Hash: "abc123"}, // image field absent
 		"true":            {Exists: true, Running: true},                 // hash + image absent
 		"":                {Exists: true},                                // unparseable output tolerated
+		// The mounts label rides LAST. It is base64url by construction, so it
+		// can never contain a space and never shifts a field; absent (the
+		// trailing separator eaten by TrimSpace) it simply is not read.
+		"true abc123 sha256:i1 QUJD": {Exists: true, Running: true, Hash: "abc123", ImageID: "i1", Mounts: "QUJD"},
+		"true  i1 QUJD":              {Exists: true, Running: true, ImageID: "i1", Mounts: "QUJD"},
 	} {
 		t.Setenv("SBX_INSPECT_OUT", out)
 		if got := InspectSession(engine, "n"); got != want {
@@ -480,8 +492,8 @@ func TestInspectSession(t *testing.T) {
 	}
 
 	// One inspect call per InspectSession, reading state + hash label + image
-	// ID together.
-	want := `container inspect --format {{.State.Running}} {{index .Config.Labels "sandboxer.hash"}} {{.Image}} n`
+	// ID + mounts label together.
+	want := `container inspect --format {{.State.Running}} {{index .Config.Labels "sandboxer.hash"}} {{.Image}} {{index .Config.Labels "sandboxer.mounts"}} n`
 	if lines := engineLog(t, logPath); !hasLine(lines, want) {
 		t.Errorf("engine log missing %q:\n%s", want, strings.Join(lines, "\n"))
 	}

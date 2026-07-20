@@ -73,10 +73,16 @@ keep this safe:
 
 - **Zero matches is a hard error**, exactly like a missing literal dir — a
   pattern that matches nothing must not come up as a silently empty sandbox.
-- **The resolved set is host-driven only.** It lands in the `--volume` argv and
-  thus the session `ConfigHash`, so a new matching directory created on the
-  host rebuilds the session on the next enter — and since an unmatched location
-  is not mounted, nothing the *container* writes can widen its own wall.
+- **The resolved set is host-driven.** It lands in the `--volume` argv and thus
+  the session `ConfigHash`, so a new matching directory created on the host
+  makes the session read as stale on the next enter. What happens then is
+  `docs/sessions-design.md` D3's table, not an unconditional rebuild: an idle
+  session converges, a busy one is attached with the drift named and the
+  rebuild offered (D3a). "Host-driven" is about *authority*, not about the
+  container being passive — an agent writing through a mounted path creates a
+  host directory like anyone else, and a pattern can match it on the next
+  resolve. What it cannot do is escape: an unmatched location is not mounted,
+  and `checkViewDirs`' prefix and realpath checks still bound every candidate.
 
 `ValidateInclude` refuses the remaining shapes (negation, unanchored non-`**`
 paths, malformed brackets) with the form to use instead, at `config validate`
@@ -166,8 +172,13 @@ gated by the GitHub build.
   any adopted worktree — are exactly what a checkout can recreate, so they get
   the same treatment: `MountFingerprint` folds their device+inode into
   `RunOpts.MountGen`, a `SANDBOXER_MOUNT_GEN` env var that enters the session
-  `ConfigHash`. A recreate flips the fingerprint, flips the hash, and the next
-  enter rebuilds against the fresh directory. Empty for a sandbox with no
+  `ConfigHash`. A recreate flips the fingerprint and flips the hash; what the
+  next enter does with that is D3's table (`docs/sessions-design.md`) — an idle
+  session is rebuilt against the fresh directory, a busy one is where the
+  orphaning actually bites, since something is reading the dead inode right
+  now, so it is told which path moved and offered the rebuild instead of having
+  its agent killed for it (D3a). Naming the path is why the identities are
+  recorded in the `sandboxer.mounts` label and not only hashed. Empty for a sandbox with no
   individual mounts (the common one-managed-source case), so that argv — and its
   session hash — is unchanged and nothing rebuilds on upgrade. The orphaning
   hazard itself is demonstrated on a real engine

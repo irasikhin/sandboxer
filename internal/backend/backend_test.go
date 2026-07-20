@@ -48,7 +48,7 @@ func TestExitCode(t *testing.T) {
 }
 
 func TestIsTerminal(t *testing.T) {
-	if isTerminal(&bytes.Buffer{}) {
+	if IsTerminal(&bytes.Buffer{}) {
 		t.Error("a *bytes.Buffer is not a terminal")
 	}
 	f, err := os.CreateTemp(t.TempDir(), "f")
@@ -56,7 +56,7 @@ func TestIsTerminal(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer f.Close()
-	if isTerminal(f) {
+	if IsTerminal(f) {
 		t.Error("a regular file is not a terminal")
 	}
 }

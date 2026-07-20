@@ -10,6 +10,7 @@ import (
 	"github.com/irasikhin/sandboxer/internal/backend"
 	"github.com/irasikhin/sandboxer/internal/config"
 	"github.com/irasikhin/sandboxer/internal/registry"
+	"github.com/irasikhin/sandboxer/internal/sandbox"
 )
 
 // sessionCalls records what the stubbed backend seams were asked to do.
@@ -37,11 +38,11 @@ func stubSessionSeams(t *testing.T, info backend.SessionInfo, wantHash string) *
 	c := &sessionCalls{}
 	oldEnsure, oldExec, oldRun := backendEnsureSession, backendExecSession, backendRun
 	oldInspect, oldHash, oldImageID := backendInspectSession, backendWantHash, backendImageID
-	oldIdle := backendSessionIdle
+	oldIdle, oldTTY := backendSessionIdle, backendIsTerminal
 	t.Cleanup(func() {
 		backendEnsureSession, backendExecSession, backendRun = oldEnsure, oldExec, oldRun
 		backendInspectSession, backendWantHash, backendImageID = oldInspect, oldHash, oldImageID
-		backendSessionIdle = oldIdle
+		backendSessionIdle, backendIsTerminal = oldIdle, oldTTY
 	})
 	// Default: the session holds a live tmux session. The destructive verdict
 	// is the one a test must ask for explicitly.
@@ -558,5 +559,165 @@ func TestEnterEphemeralBannerNamesTheSwitch(t *testing.T) {
 	}
 	if strings.Contains(errs, "sandboxer stop feat") {
 		t.Errorf("an explicitly ephemeral run should not offer a way back:\n%s", errs)
+	}
+}
+
+// --- mount drift -------------------------------------------------------------
+
+// driftIDs is a recorded mount set naming a directory the current resolve does
+// not produce — the sandboxes under test are unnarrowed, so their current set
+// is empty and every recorded path reads as gone. That is a real drift shape
+// (a view dir the host deleted), and it drives the same mountDriftWhy path as
+// an added or recreated one; the per-kind matrix is pinned in the sandbox
+// package, where it needs no engine at all.
+var driftIDs = sandbox.EncodeMountIDs([]sandbox.MountID{{Path: "/p/services/api", ID: "8:1:42"}})
+
+// mountAwareHash makes the stubbed want-hash seam behave like the real one for
+// the purpose of the "was it ONLY the mounts?" discriminator: the hash the
+// session recorded is reproduced exactly when the recorded mount identities are
+// substituted back in, and differs otherwise.
+func mountAwareHash(c *sessionCalls, recorded string) func(backend.RunOpts) string {
+	return func(o backend.RunOpts) string {
+		c.hash = append(c.hash, o)
+		if o.MountIDs == recorded {
+			return "old" // the hash the session recorded, reproduced exactly
+		}
+		return "new"
+	}
+}
+
+// TestEnterStaleBusySessionNamesMountDrift: the whole point of recording the
+// mount identities. A narrowed sandbox re-expands its includes against the live
+// worktree on every enter, so the mount set moves when the HOST moves — and
+// reporting that as "profile changed" told the user to look at a file they
+// never touched. Name what actually moved instead.
+func TestEnterStaleBusySessionNamesMountDrift(t *testing.T) {
+	project := sessionProject(t)
+	c := stubSessionSeams(t, backend.SessionInfo{Exists: true, Running: true, Hash: "old", Mounts: driftIDs}, "new")
+	backendWantHash = mountAwareHash(c, driftIDs)
+
+	code, _, errs := run("enter", "feat", "--src", project)
+	if code != 0 {
+		t.Fatalf("enter = %d, %s", code, errs)
+	}
+	if !strings.Contains(errs, "mounts moved: - /p/services/api (gone)") {
+		t.Errorf("output does not name the drift:\n%s", errs)
+	}
+	if strings.Contains(errs, "profile changed") {
+		t.Errorf("a pure mount drift must not be blamed on the profile:\n%s", errs)
+	}
+	if len(c.exec) != 1 || len(c.ensure) != 0 {
+		t.Errorf("calls: exec=%d ensure=%d, want an attach (1/0)", len(c.exec), len(c.ensure))
+	}
+}
+
+// TestEnterMountDriftAlsoNamesProfileChange: the mount set and the profile can
+// move together, and naming only the mounts would be a fresh instance of the
+// bug being fixed. The discriminator rehashes with the RECORDED identities
+// substituted back in — a still-mismatched hash means something else moved too.
+func TestEnterMountDriftAlsoNamesProfileChange(t *testing.T) {
+	project := sessionProject(t)
+	stubSessionSeams(t, backend.SessionInfo{Exists: true, Running: true, Hash: "old", Mounts: driftIDs}, "new")
+	// Never reproduces the recorded hash: the profile moved as well.
+	backendWantHash = func(o backend.RunOpts) string { return "new" }
+
+	_, _, errs := run("enter", "feat", "--src", project)
+	for _, want := range []string{"mounts moved:", "the profile also changed"} {
+		if !strings.Contains(errs, want) {
+			t.Errorf("output missing %q:\n%s", want, errs)
+		}
+	}
+}
+
+// TestEnterStaleBusySessionUnknownMountsFallsBack: a session created before the
+// mounts label existed has no baseline. It must degrade to the honest old
+// answer, never invent a diff from an absent one.
+func TestEnterStaleBusySessionUnknownMountsFallsBack(t *testing.T) {
+	project := sessionProject(t)
+	stubSessionSeams(t, backend.SessionInfo{Exists: true, Running: true, Hash: "old"}, "new")
+
+	_, _, errs := run("enter", "feat", "--src", project)
+	if !strings.Contains(errs, "profile changed") {
+		t.Errorf("no baseline should read as a profile change:\n%s", errs)
+	}
+	if strings.Contains(errs, "mounts moved") {
+		t.Errorf("a diff was invented from an absent baseline:\n%s", errs)
+	}
+}
+
+// TestEnterMountDriftPromptRecreates: a busy session whose mounts moved is the
+// one stale shape that is already broken — its bind mounts name directories the
+// host replaced. Answering yes rebuilds it.
+func TestEnterMountDriftPromptRecreates(t *testing.T) {
+	project := sessionProject(t)
+	c := stubSessionSeams(t, backend.SessionInfo{Exists: true, Running: true, Hash: "old", Mounts: driftIDs}, "new")
+	backendWantHash = mountAwareHash(c, driftIDs)
+	backendIsTerminal = func(any) bool { return true }
+
+	code, _, errs := runIn("y\n", "enter", "feat", "--src", project)
+	if code != 0 {
+		t.Fatalf("enter = %d, %s", code, errs)
+	}
+	if !strings.Contains(errs, "Rebuild the session now?") {
+		t.Errorf("no prompt was shown:\n%s", errs)
+	}
+	if len(c.ensure) != 1 || len(c.exec) != 1 {
+		t.Fatalf("calls: ensure=%d exec=%d, want a converge (1/1)", len(c.ensure), len(c.exec))
+	}
+	if strings.Contains(errs, "attaching as-is") {
+		t.Errorf("accepted the rebuild but still attached as-is:\n%s", errs)
+	}
+}
+
+// TestEnterMountDriftPromptDeclined: anything but yes changes nothing — enter
+// attaches exactly as it did before the prompt existed.
+func TestEnterMountDriftPromptDeclined(t *testing.T) {
+	project := sessionProject(t)
+	c := stubSessionSeams(t, backend.SessionInfo{Exists: true, Running: true, Hash: "old", Mounts: driftIDs}, "new")
+	backendWantHash = mountAwareHash(c, driftIDs)
+	backendIsTerminal = func(any) bool { return true }
+
+	_, _, errs := runIn("n\n", "enter", "feat", "--src", project)
+	if len(c.ensure) != 0 || len(c.exec) != 1 {
+		t.Fatalf("calls: ensure=%d exec=%d, want an attach (0/1)", len(c.ensure), len(c.exec))
+	}
+	if !strings.Contains(errs, "attaching as-is") {
+		t.Errorf("declining should attach as-is:\n%s", errs)
+	}
+}
+
+// TestEnterMountDriftNonTTYNeverPrompts: a scripted enter must never block on a
+// question nobody is there to read. --recreate stays the non-interactive answer.
+func TestEnterMountDriftNonTTYNeverPrompts(t *testing.T) {
+	project := sessionProject(t)
+	c := stubSessionSeams(t, backend.SessionInfo{Exists: true, Running: true, Hash: "old", Mounts: driftIDs}, "new")
+	backendWantHash = mountAwareHash(c, driftIDs)
+
+	_, _, errs := runIn("y\n", "enter", "feat", "--src", project)
+	if strings.Contains(errs, "Rebuild the session now?") {
+		t.Errorf("prompted without a terminal:\n%s", errs)
+	}
+	if len(c.ensure) != 0 || len(c.exec) != 1 {
+		t.Errorf("calls: ensure=%d exec=%d, want an attach (0/1)", len(c.ensure), len(c.exec))
+	}
+}
+
+// TestExecStaleSessionNamesMountDrift: exec gets the same accurate diagnosis
+// and never the prompt — its one-shot already runs against the current mounts.
+func TestExecStaleSessionNamesMountDrift(t *testing.T) {
+	project := sessionProject(t)
+	c := stubSessionSeams(t, backend.SessionInfo{Exists: true, Running: true, Hash: "old", Mounts: driftIDs}, "new")
+	backendWantHash = mountAwareHash(c, driftIDs)
+	backendIsTerminal = func(any) bool { return true }
+
+	_, _, errs := runIn("y\n", "exec", "feat", "--src", project, "--", "true")
+	if !strings.Contains(errs, "mounts moved: - /p/services/api (gone)") {
+		t.Errorf("exec does not name the drift:\n%s", errs)
+	}
+	if strings.Contains(errs, "Rebuild the session now?") {
+		t.Errorf("exec must never prompt:\n%s", errs)
+	}
+	if len(c.run) != 1 {
+		t.Errorf("exec should have fallen back to one-shot, run=%d", len(c.run))
 	}
 }

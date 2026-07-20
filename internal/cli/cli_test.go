@@ -245,8 +245,16 @@ func TestResolveProfileFileUsesRoot(t *testing.T) {
 // --- end-to-end through Run() ----------------------------------------------
 
 func run(args ...string) (int, string, string) {
+	return runIn("", args...)
+}
+
+// runIn is run with something on stdin — for the paths that read from it (the
+// mount-drift rebuild prompt). The reader is a plain string reader, so
+// backend.IsTerminal says "not a terminal" and nothing prompts unless a test
+// stubs backendIsTerminal too.
+func runIn(stdin string, args ...string) (int, string, string) {
 	var out, errb bytes.Buffer
-	code := Run(args, strings.NewReader(""), &out, &errb)
+	code := Run(args, strings.NewReader(stdin), &out, &errb)
 	return code, out.String(), errb.String()
 }
 

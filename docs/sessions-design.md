@@ -55,7 +55,7 @@ over a repo's committed `session:` choice.
 No metadata file. The session container carries a deterministic name
 (`sandboxer-<slug>-<8-hex sha256 of the state base dir>` — same-named
 sandboxes in different projects never collide) and discovery labels
-(`sandboxer.managed/slug/base/hash`). Everything — list's STATE column,
+(`sandboxer.managed/slug/base/hash/mounts`). Everything — list's STATE column,
 doctor's orphan report, `clean`'s sweep — is an engine query. A state file
 would have to be kept in sync with reality the engine already owns; after an
 `rm -rf` of the project it would also be gone, while the labels still let
@@ -101,6 +101,37 @@ nothing converges it the same thing happens on every later enter. Attaching
 keeps detach semantics uniform — enter always lands in the session container —
 and the banner names the pending config plus the one command that applies it
 (`stop` + `enter`); `--recreate` still forces the rebuild.
+
+### D3a — announce WHAT went stale, and offer the rebuild when it is damage
+
+One hash cannot say what moved, and "profile changed" was wrong most of the
+time it mattered. A narrowed sandbox re-expands its `include` patterns against
+the live worktree on every enter, so its mount set tracks the **host**: a
+directory that now matches a pattern, or one a checkout or a build removed and
+recreated. Told their profile changed, a user who never touched it has no
+reason to act.
+
+So the mount identities themselves are recorded, in `sandboxer.mounts`
+(`sandbox.EncodeMountIDs` — base64url, so it can never contain a space and
+shift `InspectSession`'s field split). A fresh resolve diffs against them and
+the banner says `mounts moved: ~ /…/services/api (recreated on the host)`.
+Deliberately label-only: `MountGen` already carries the same identity into the
+hash, and putting it in the argv too would flip the hash of every session that
+exists the moment the field shipped. Two things stay honest — an absent label
+(a session predating it) degrades to the old "profile changed" rather than
+reporting every mount as new, and because both can move at once, the reason is
+re-derived with the *recorded* identities substituted back in, appending "the
+profile also changed" only when that still does not reproduce the stored hash.
+
+Mount drift is also the one stale shape where attaching as-is is not a
+postponement but a defect: a bind mount is pinned to an inode, so a session
+whose mounted directory was recreated is *already* reading a tree the host
+threw away. Rebuilding fixes it and destroys the running agent; neither is safe
+to choose for the user, so on a terminal enter asks, once, and treats anything
+but yes as "attach, as before". Never asked without a terminal — a scripted
+enter must not block on a question nobody will read, and `--recreate` is that
+answer. This is the CLI's only interactive prompt, and the asymmetry of the two
+losses is the whole justification.
 
 `exec` rides a running fresh session but **never** creates or replaces the
 daemon container (that is enter's job); anything else falls back to a one-shot

@@ -83,6 +83,20 @@ type RunOpts struct {
 	// case: one managed source, no include, whose <slug>/ root mount is itself
 	// inode-stable), keeping that argv — and its session hash — unchanged.
 	MountGen string
+	// MountIDs is the same identity material MountGen hashes, encoded for the
+	// sandboxer.mounts label (sandbox.EncodeMountIDs). MountGen makes a moved
+	// mount set read as stale; this makes it EXPLAINABLE — diffed against a
+	// fresh resolve it names which directory appeared, which one the host
+	// recreated under a live session's feet, and which one is gone, instead of
+	// reporting every drift as the "profile changed" it usually is not.
+	//
+	// Deliberately absent from commonArgs, and therefore from ConfigHash: it is
+	// stamped as a LABEL only (createArgv), and labels are excluded from the
+	// hash by construction. MountGen already carries this identity into the
+	// hash — putting the same material in twice would double-count it and, worse,
+	// flip the hash of every session that exists today the moment this field
+	// ships. TestConfigHash's "mount IDs" case pins that.
+	MountIDs string
 	// AuthEnv is the agents' auth environment ("KEY=value" entries, sorted by
 	// the caller), collected by the CLI from the HOST environment when the
 	// profile opts into hostConfigs: long-lived tokens like
@@ -179,7 +193,7 @@ func runArgs(o RunOpts, egNet, egProxyURL string) ([]string, error) {
 	if o.Interactive {
 		args = append(args, "-i")
 		// -t only with a real TTY (docker errors "not a TTY" in pipes/CI).
-		if isTerminal(o.Stdin) && isTerminal(o.Stdout) {
+		if IsTerminal(o.Stdin) && IsTerminal(o.Stdout) {
 			args = append(args, "-t")
 		}
 	}
@@ -490,7 +504,7 @@ func cpusFromQuota(s string) string {
 	return s
 }
 
-func isTerminal(v any) bool {
+func IsTerminal(v any) bool {
 	f, ok := v.(*os.File)
 	if !ok {
 		return false
