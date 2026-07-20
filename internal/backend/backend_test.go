@@ -61,6 +61,28 @@ func TestIsTerminal(t *testing.T) {
 	}
 }
 
+// TestIsInteractiveTerminalRejectsDevNull is the reason the stricter check
+// exists. /dev/null IS a character device, so IsTerminal answers yes for it —
+// harmless when choosing the engine's -t flag, and not harmless for a blocking
+// prompt: `sandboxer enter < /dev/null` printed a question into the void.
+// Observed on a real engine before this split.
+func TestIsInteractiveTerminalRejectsDevNull(t *testing.T) {
+	devnull, err := os.Open(os.DevNull)
+	if err != nil {
+		t.Skipf("no %s: %v", os.DevNull, err)
+	}
+	defer devnull.Close()
+	if !IsTerminal(devnull) {
+		t.Skip("this platform does not report /dev/null as a character device")
+	}
+	if IsInteractiveTerminal(devnull) {
+		t.Error("/dev/null must never read as a terminal a user can answer on")
+	}
+	if IsInteractiveTerminal(&bytes.Buffer{}) {
+		t.Error("a *bytes.Buffer is not a terminal")
+	}
+}
+
 func TestPathExists(t *testing.T) {
 	f := filepath.Join(t.TempDir(), "f")
 	if pathExists(f) {

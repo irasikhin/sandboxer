@@ -504,6 +504,14 @@ func cpusFromQuota(s string) string {
 	return s
 }
 
+// IsInteractiveTerminal reports whether v is a terminal a person could answer
+// a prompt on — stricter than IsTerminal, which only asks for a character
+// device (/dev/null is one). See isInteractiveTerminal.
+func IsInteractiveTerminal(v any) bool {
+	f, ok := v.(*os.File)
+	return ok && isInteractiveTerminal(f)
+}
+
 func IsTerminal(v any) bool {
 	f, ok := v.(*os.File)
 	if !ok {

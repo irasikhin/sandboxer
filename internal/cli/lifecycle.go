@@ -258,11 +258,12 @@ named session in the same container.`,
 				if !useSession {
 					info := backendInspectSession(engine, name)
 					drift := false
+					driftDetail := ""
 					switch {
 					case !info.Running:
 						useSession = true // not running → safe to converge
 					case info.Hash != backendWantHash(o):
-						staleWhy, drift = mountDriftWhy(o, info, mountIDs)
+						staleWhy, driftDetail, drift = mountDriftWhy(o, info, mountIDs)
 					case !backend.ImageFresh(info.ImageID, backendImageID(engine, o.Image)):
 						staleWhy = "image rebuilt"
 					default:
@@ -274,13 +275,16 @@ named session in the same container.`,
 						// Holds no tmux session: converge it now (EnsureSession
 						// recreates and says so) instead of stranding it forever.
 						staleWhy, useSession = "", true
-					case drift && backendIsTerminal(o.Stdin):
+					case drift:
 						// Busy AND the mounts moved — the one stale shape where
 						// attaching as-is is not merely a postponement: the bind
 						// mounts name directories the host has replaced, so what
 						// is running in there is already reading the wrong tree.
-						// Offer the rebuild rather than deciding for the user.
-						if confirmRecreate(o.Stdin, errOut, t.slug, staleWhy) {
+						// Say which paths, once; then offer the rebuild rather
+						// than deciding for the user — but only to a user who is
+						// there to answer.
+						fmt.Fprintln(errOut, driftDetail)
+						if backendIsTerminal(o.Stdin) && confirmRecreate(o.Stdin, errOut, t.slug) {
 							staleWhy, useSession = "", true
 						}
 					}
@@ -436,7 +440,10 @@ func newExecCmd() *cobra.Command {
 						// Same accurate diagnosis as enter, never the prompt: a
 						// one-shot already runs against the current mounts, and
 						// exec has no terminal contract to ask on.
-						why, _ := mountDriftWhy(o, info, mountIDs)
+						why, detail, drift := mountDriftWhy(o, info, mountIDs)
+						if drift {
+							fmt.Fprintln(cmd.ErrOrStderr(), detail)
+						}
 						fmt.Fprintln(cmd.ErrOrStderr(), staleExecNotice(name, why, t.slug))
 					case !backend.ImageFresh(info.ImageID, backendImageID(engine, o.Image)):
 						fmt.Fprintln(cmd.ErrOrStderr(), staleExecNotice(name, "image rebuilt", t.slug))
@@ -668,7 +675,7 @@ var (
 	// *os.File whose mode says character device, and the tests' stdin is a
 	// string reader — which is exactly the "never ask" case, so without the
 	// seam the prompt's ANSWER paths could not be exercised at all.
-	backendIsTerminal = backend.IsTerminal
+	backendIsTerminal = backend.IsInteractiveTerminal
 )
 
 // runSetup runs the profile's one-time `setup:` script inside the sandbox before

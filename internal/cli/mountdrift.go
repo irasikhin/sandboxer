@@ -25,13 +25,19 @@ import (
 // have no baseline — a session created before the label existed, or one whose
 // set was over the encoder's size cap — get the honest old answer rather than
 // a fabricated "everything is new".
-func mountDriftWhy(o backend.RunOpts, info backend.SessionInfo, currentIDs string) (why string, drift bool) {
+// The reason comes back in two pieces on purpose. why is short enough to read
+// inside a banner sentence ("the session is stale (…)"); detail is the
+// per-path diff, printed once on its own line. Folding the diff into why made
+// the banner a paragraph and, when the prompt showed it too, printed the same
+// list of paths twice in one screen.
+func mountDriftWhy(o backend.RunOpts, info backend.SessionInfo, currentIDs string) (why, detail string, drift bool) {
 	recorded := sandbox.DecodeMountIDs(info.Mounts)
 	changes := sandbox.DiffMounts(recorded, sandbox.DecodeMountIDs(currentIDs))
 	if len(changes) == 0 {
-		return "profile changed", false
+		return "profile changed", "", false
 	}
-	why = "mounts moved: " + sandbox.DescribeMountChanges(changes)
+	why = "mounts moved"
+	detail = "sandboxer: mounts moved: " + sandbox.DescribeMountChanges(changes)
 	// The mount set and the profile can move in the same breath, and naming
 	// only the mounts would be a fresh instance of the very bug this fixes.
 	// Rebuild the hash the session WOULD have if only the mounts had changed:
@@ -43,7 +49,7 @@ func mountDriftWhy(o backend.RunOpts, info backend.SessionInfo, currentIDs strin
 	if backendWantHash(was) != info.Hash {
 		why += "; the profile also changed"
 	}
-	return why, true
+	return why, detail, true
 }
 
 // confirmRecreate asks whether to rebuild a stale-but-busy session whose source
@@ -57,8 +63,7 @@ func mountDriftWhy(o backend.RunOpts, info backend.SessionInfo, currentIDs strin
 // it did before. `--recreate` remains the non-interactive answer, which is why
 // this is never asked when stdin is not a terminal — a scripted enter must
 // never block on a question nobody is there to read.
-func confirmRecreate(in io.Reader, out io.Writer, slug, why string) bool {
-	fmt.Fprintf(out, "sandboxer: %s\n", why)
+func confirmRecreate(in io.Reader, out io.Writer, slug string) bool {
 	fmt.Fprintf(out, "sandboxer: this session's mounts point at directories the host has replaced — what runs in there sees the old ones.\n")
 	fmt.Fprintf(out, "sandboxer: rebuilding fixes that and DESTROYS the running tmux session (its work in %s survives on the host).\n", slug)
 	fmt.Fprint(out, "Rebuild the session now? [y/N] ")
