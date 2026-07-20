@@ -6,6 +6,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.54.0] — 2026-07-20
+
+### Added
+
+- ant-style directory patterns in include (18b22b6)
+
+### Docs
+
+- include patterns — design rationale, README, examples (763f113)
+
+
 ## [0.53.2] — 2026-07-19
 
 ### Fixed
@@ -577,3 +588,4 @@ isolated, containerized dev sandbox, on a local Linux machine:
 [0.53.0]: https://github.com/irasikhin/sandboxer/compare/v0.52.3...v0.53.0
 [0.53.1]: https://github.com/irasikhin/sandboxer/compare/v0.53.0...v0.53.1
 [0.53.2]: https://github.com/irasikhin/sandboxer/compare/v0.53.1...v0.53.2
+[0.54.0]: https://github.com/irasikhin/sandboxer/compare/v0.53.2...v0.54.0
