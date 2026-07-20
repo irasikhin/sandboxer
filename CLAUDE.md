@@ -72,10 +72,12 @@ was extracted from:
   already checked out elsewhere (incl. the main checkout) is ADOPTED — except a set-aside `_detached/` checkout
   (re-attached to its managed path instead) or a stale registration whose dir was hand-deleted (pruned, checked
   out fresh — `rm -rf ./sandboxes` self-heals on the next enter; `_meta/<slug>.gen` flips the session hash so
-  the pre-deletion session container is rebuilt, not reused with dead mounts). Trees are narrowed by gitignore-style
-  `include` — a list of DIRECTORIES that narrows the container's MOUNT SET, never the worktree (the host tree
-  is always a complete checkout, so an IDE can open it; globs/negations are rejected — a mount names a path,
-  not a file set; see `docs/view-mounts-design.md`). srcs is ALWAYS explicit — an empty list is rejected;
+  the pre-deletion session container is rebuilt, not reused with dead mounts). Trees are narrowed by
+  `include` — a list of DIRECTORIES (literal anchored paths or ant-style directory patterns: `/services/*/`,
+  `**/proto/` — a whole `**` segment matches any depth, expanded on disk per mount computation, zero matches =
+  error) that narrows the container's MOUNT SET, never the worktree (the host tree is always a complete
+  checkout, so an IDE can open it; negations/unanchored paths are rejected, and patterns match directories
+  only, never files — a mount names a path, not a file set; see `docs/view-mounts-design.md`). srcs is ALWAYS explicit — an empty list is rejected;
   the scaffolded config seeds `srcs = [{src = "."; branch = "feat/<name>";}]`. Relative src paths
   resolve against the PROJECT ROOT (not the profile file's dir). **Git never enters the container**: no git-dir mounts, no `GIT_CONFIG_*` — the
   MOUNT SET is the wall (`sandbox.Mounts` decides it): unnarrowed = one stable rw mount of `<slug>/` (plus

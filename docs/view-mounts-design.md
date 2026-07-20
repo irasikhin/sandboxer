@@ -49,22 +49,41 @@ carries the decision into the argv, and two tests pin it — one on the argv
 is broken (a mutation forcing the root mount trips the argv test, and trips the
 engine test with "WALL BREACHED: serviceB visible").
 
-## Why `include` is directories only
+## Why `include` selects directories only
 
-A mount names a path, so a pattern must resolve to exactly one directory.
+A mount names a path, so every include entry must resolve to directories.
 gitignore semantics cannot survive the move:
 
-- a **glob** (`*.md`, `**/x`) or a **negation** (`!/vendor/`) selects a file
+- a **file-selecting glob** or a **negation** (`!/vendor/`) selects a file
   *set* only a matcher can evaluate. Expanding it means one mount per matched
   file, and a file-granular bind mount **breaks atomic saves**: write-temp +
   rename over the mountpoint fails with `EBUSY`, which is how editors and agents
   write files.
 - a **bare file** (`/go.mod`) hits the same problem — name its directory.
 
-So `ValidateInclude` refuses those shapes with the directory form to use
-instead, and refuses them at `config validate` time. `resolveSrcs` validates too,
-because `create` materializes the sandbox *before* it resolves the runtime, so
-the config-level check alone would fire too late.
+Directory *patterns* do not hit it, so they are allowed: an entry may be
+ant-style (`/services/*/`, `**/proto/` — segments matched against directory
+names with `path.Match`, a whole `**` segment meaning any depth).
+`sandbox.expandInclude` resolves a pattern against the worktree **on disk at
+every mount computation**, yielding only real directories — never files, never
+symlinks, never anything under a `.git` — and pruning below a match (the mount
+covers the subtree). File mounts therefore remain impossible by construction:
+`**/*.md` can only ever select a *directory* named like `*.md`. Two properties
+keep this safe:
+
+- **Zero matches is a hard error**, exactly like a missing literal dir — a
+  pattern that matches nothing must not come up as a silently empty sandbox.
+- **The resolved set is host-driven only.** It lands in the `--volume` argv and
+  thus the session `ConfigHash`, so a new matching directory created on the
+  host rebuilds the session on the next enter — and since an unmatched location
+  is not mounted, nothing the *container* writes can widen its own wall.
+
+`ValidateInclude` refuses the remaining shapes (negation, unanchored non-`**`
+paths, malformed brackets) with the form to use instead, at `config validate`
+time. `resolveSrcs` validates too, because `create` materializes the sandbox
+*before* it resolves the runtime, so the config-level check alone would fire
+too late; a pattern's *zero-match* error necessarily fires after
+materialization — the expansion needs the tree on disk.
 
 An include naming a path that is not a directory on the branch is a hard error,
 not a warning: an engine asked to bind-mount a missing source **creates it**,
@@ -134,8 +153,9 @@ gated by the GitHub build.
 
 ## Costs accepted
 
-- **`include` loses gitignore expressiveness.** Directories only. Every
-  documented example was already directory-shaped.
+- **`include` loses gitignore FILE expressiveness.** Directories only — though
+  ant-style directory patterns (`/services/*/`, `**/proto/`) restore the
+  any-depth case. Every documented example was already directory-shaped.
 - **The mount list is in the argv**, so it is part of the session `ConfigHash`:
   changing `include` rebuilds the session. Correct, and cheap.
 - **A bind mount is pinned to an inode.** If a host-side `git checkout` or build
@@ -171,5 +191,6 @@ this change — the argv it generates is byte-identical to before.
 
 Automatic and in place. A worktree narrowed by an older sandboxer is widened on
 the next sync (`worktree.Unsparse` disables sparse-checkout), keeping the branch
-and any uncommitted work — no recreate. A config carrying a glob or negation
-starts failing `config validate` with the directory form to use.
+and any uncommitted work — no recreate. A config carrying a negation or an
+unanchored path starts failing `config validate` with the form to use;
+directory patterns (`**/x/`, `/services/*/`) are valid and expand on disk.

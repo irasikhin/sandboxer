@@ -25,14 +25,17 @@
   # worktree's branch AND its directory (./sandboxes/<name>/<repo>/<branch>);
   # include lists the DIRECTORIES the container may see — anchored at the repo
   # root, trailing slash optional (omit include entirely for the whole repo).
-  # Globs and negations ("*.md", "!/vendor/") are refused: a mount names a path,
-  # not a file set.
+  # Ant-style directory patterns work too: "/services/*/" (direct children),
+  # "**/proto/" (a proto/ dir at ANY depth — a whole "**" segment recurses).
+  # Patterns select directories, never files; one that matches nothing is an
+  # error. Negations ("!/vendor/") and unanchored paths are refused: a mount
+  # names a path, not a file set.
   # A branch already checked out somewhere is adopted as-is.
   srcs = [
     {
       src = ".";
       branch = "devops/integ";
-      include = [ "/src/proto/" "/shared/lib/" ];
+      include = [ "/src/proto/" "/shared/lib/" "**/generated/" ];
     }
     # { src = "../other-repo"; branch = "devops/integ"; }  # a second repo, whole
     # { src = "../protolib"; branch = "feat/proto-v2"; } # adopt an existing branch/worktree

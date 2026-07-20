@@ -42,8 +42,8 @@ is copied.
   repo root — relative to the project root, so other repos work too), a
   REQUIRED `branch:` (the branch the worktree lives on — it also names the
   worktree's directory; a branch already checked out elsewhere is adopted
-  as-is) and an optional `include:` (gitignore-style patterns — only matching
-  files exist in the sandbox). The scaffold seeds
+  as-is) and an optional `include:` (directory paths or patterns — only the
+  selected directories exist in the container). The scaffold seeds
   `srcs = [ { src = "."; branch = "feat/<name>"; } ]` — this repo, whole.
   Editing srcs applies on the next `enter`/`exec` — a running session sees the
   change live, no recreate.
@@ -245,7 +245,9 @@ profiles live in one file under a `profiles` attrset. See `examples/config.nix`,
 
 Each `srcs` entry is a repo (`src` — `.` or a path to another repo's root)
 narrowed by `include` — **a list of directories** (`/src/proto`, `/shared/lib`;
-anchored at the repo root, trailing slash optional; omit for the whole repo) — and
+anchored at the repo root, trailing slash optional; omit for the whole repo —
+or an ant-style directory pattern: `/services/*/`, `**/proto/`, where a whole
+`**` segment matches any depth) — and
 optionally pinned with `branch` — naming a branch whose worktree already
 exists (even your main checkout) **adopts** it instead of creating one. Editing
 `srcs` applies on the next `enter`/`exec` and is visible to a **running**
@@ -255,11 +257,14 @@ session immediately. To bring in **non-git** trees, use `extraMounts`.
 worktree is always a complete checkout, so your IDE opens the branch and
 indexes it normally. The narrowing is enforced by bind-mounting only the listed
 directories into the container — what is not listed is not mounted, and
-therefore does not exist inside. This is why `include` takes directories rather
-than gitignore patterns: a glob (`*.md`, `!/vendor/`) selects a file *set*,
-which a mount cannot express — mounting files one by one would break atomic
-saves (write-temp + rename over a mountpoint fails). A glob is refused by
-`sandboxer config validate` with the directory form to use instead.
+therefore does not exist inside. This is why `include` selects directories
+rather than files: a file set is something a mount cannot express — mounting
+files one by one would break atomic saves (write-temp + rename over a
+mountpoint fails). Patterns are matched against *directory names only*
+(`**/proto/` means every `proto/` directory at any depth; a pattern matching
+nothing is an error), so file-granular mounts stay impossible; a negation
+(`!/vendor/`) or unanchored path is refused by `sandboxer config validate`
+with the form to use instead.
 
 `setup` is a one-time shell script (`bash -lc`) run inside the sandbox before
 you take over — e.g. `npm ci`, a build, a DB seed. It runs on the first
