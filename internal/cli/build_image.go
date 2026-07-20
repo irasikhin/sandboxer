@@ -43,7 +43,21 @@ and only --refresh re-resolves it.
 
 Clean by default: the builder container is removed, the nixos/nix image is dropped
 again unless it was already present (or --keep-builder), and no persistent volume
-is left behind. Use --cache to keep a nix-store volume for faster rebuilds.`,
+is left behind. Use --cache to keep a nix-store volume for faster rebuilds.
+
+Behind a proxy: the builder inherits the host's http_proxy/https_proxy/all_proxy/
+no_proxy, rewriting a localhost proxy to the host gateway. For a proxy bound to
+loopback only (a SOCKS5 tunnel client, say) give the builder the host's network
+instead — then localhost really is localhost:
+
+  sandboxer image build --cache --builder-arg=--network=host
+
+If a substituter is reachable but crawling (the build stalls on repeated
+"Timeout was reached ... less than 1 bytes/sec" warnings), cap the retries so nix
+gives up on it and builds from source instead:
+
+  sandboxer image build --cache \
+    --builder-arg=--env --builder-arg='NIX_CONFIG=download-attempts = 1'`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			prof, err := buildImageProfile(configPath, posArg(args))

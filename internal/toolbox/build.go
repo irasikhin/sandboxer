@@ -248,10 +248,53 @@ func builderArgv(o BuildOpts, ctxDir, outDir, cacheVol string) []string {
 	if cacheVol != "" {
 		args = append(args, "--volume", cacheVol+":/nix")
 	}
+	// Inherit the host's proxy. The builder is a container, so it starts with
+	// an EMPTY environment — without this it cannot reach the network on a
+	// machine whose access goes through a proxy, and the failure is nasty
+	// rather than obvious: the llm-agents binary cache is unreachable, nix
+	// dutifully falls back (fallback true) to building every agent FROM
+	// SOURCE, and each source build then curls a release tarball straight at
+	// the internet until a five-minute timeout. Ten-plus minutes to fail at
+	// fetching something the cache would have served. A localhost proxy is
+	// rewritten to the host gateway (the user means "on my host"), which is
+	// why the aliases go in too. Never logged — a proxy URL may carry
+	// credentials.
+	// …unless the user put the builder on the host's own network, where
+	// localhost already IS the host: rewriting there would aim a working proxy
+	// at the bridge gateway, which a loopback-bound proxy is not listening on.
+	// That is the sane way to reach a SOCKS5 proxy on your machine.
+	hostNet := hasHostNetwork(o.ExtraArgs)
+	if proxyEnv := config.HostProxyEnv(!hostNet); len(proxyEnv) > 0 {
+		for _, kv := range proxyEnv {
+			args = append(args, "--env", kv)
+		}
+		if !hostNet {
+			args = append(args, config.HostGatewayArgs()...)
+		}
+	}
+	// Last, so an explicit --builder-arg overrides anything chosen above.
 	args = append(args, o.ExtraArgs...)
 	args = append(args, o.NixImage, "sh", "-lc",
 		builderScript(o.Refresh, o.Spec.NixpkgsRev, o.Spec.LLMAgentsRev))
 	return args
+}
+
+// hasHostNetwork reports whether the user's --builder-arg escape hatch put the
+// builder on the host's network namespace, in either engine's spelling and in
+// both the joined (--network=host) and split (--network host) forms. It only
+// changes whether a localhost proxy URL is rewritten — see builderArgv.
+func hasHostNetwork(extra []string) bool {
+	for i, a := range extra {
+		switch a {
+		case "--network=host", "--net=host":
+			return true
+		case "--network", "--net":
+			if i+1 < len(extra) && extra[i+1] == "host" {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // builderScript is the in-container shell run by the nix builder: build the
@@ -263,7 +306,12 @@ func builderArgv(o BuildOpts, ctxDir, outDir, cacheVol string) []string {
 // stalled-download-timeout fail an unreachable or stalling substituter fast
 // (nix's defaults hang for minutes on a geo-blocked mirror), and fallback
 // lets nix carry on via cache.nixos.org or a source build instead of
-// aborting. `--no-write-lock-file` keeps the read-only /src untouched. A rev override
+// aborting. Note the LIMIT of that guard: both are substituter settings. The
+// curl inside a fixed-output derivation — fetchurl pulling an agent's release
+// tarball, which is exactly where a fallback-to-source build ends up — obeys
+// nixpkgs' own 300s-with-retries instead, so an unreachable network still
+// costs minutes there. Reaching the cache at all is the real fix; see the
+// proxy passthrough in builderArgv. `--no-write-lock-file` keeps the read-only /src untouched. A rev override
 // becomes an --override-input flag only when it differs from the embedded pin
 // — when the effective rev IS the pin the script stays byte-identical to a
 // stock build, so nix's eval cache is shared. Revs are full 40-hex commits

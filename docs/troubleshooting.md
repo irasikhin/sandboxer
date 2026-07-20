@@ -60,6 +60,30 @@ package install almost always means the host isn't allowed.
   banner's `egress:` line shows what's actually in effect (`on→proxy
   (N domains)` when chained).
 
+## `sandboxer image build` fails or crawls behind a proxy
+
+The image is built inside an ephemeral `nixos/nix` container, and a container
+starts with an EMPTY environment — so on a machine whose access goes through a
+proxy the builder used to reach nothing at all. sandboxer now passes the host's
+`http_proxy`/`https_proxy`/`all_proxy`/`no_proxy` into it and rewrites a
+localhost proxy to the host gateway.
+
+- **Proxy bound to loopback only** (a SOCKS5 tunnel client is usually like
+  this): the gateway address is not where it listens, and a host firewall often
+  drops bridge traffic anyway. Give the builder the host's network, where
+  localhost really is localhost — sandboxer then passes the URL through
+  unrewritten: `sandboxer image build --cache --builder-arg=--network=host`.
+- **Symptom without any of this:** `curl: (28) Connection timed out` fetching an
+  agent's release tarball from GitHub, after ~5 minutes. The binary cache was
+  unreachable, so nix fell back to building every agent from source.
+- **A substituter that answers but crawls** — repeated
+  `Timeout was reached ... Less than 1 bytes/sec transferred the last 30 seconds`
+  — is worse than one that is down, because nix retries each path. Cap the
+  attempts so it gives up and builds from source instead:
+  `--builder-arg=--env --builder-arg='NIX_CONFIG=download-attempts = 1'`.
+- Always pass `--cache` while debugging this: it keeps the nix-store volume, so
+  a retry resumes instead of re-downloading everything.
+
 ## Setup hook failed
 
 `setup:` is a one-time `bash -lc` script run inside the sandbox before you take

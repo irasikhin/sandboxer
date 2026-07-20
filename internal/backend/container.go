@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net/url"
 	"os"
 	"os/exec"
 	"strconv"
@@ -16,40 +15,12 @@ import (
 	"github.com/irasikhin/sandboxer/internal/toolbox"
 )
 
-// hostGatewayAlias is the hostname that resolves to the host from inside a
-// container on either engine (commonArgs maps it via --add-host=host-gateway).
-// A proxy a user runs "on localhost" is really on the host, which is NOT the
-// container's own loopback — so ContainerProxyURL rewrites a localhost proxy to
-// this name and the egress sidecar gets the same --add-host (see egress.Up).
-const hostGatewayAlias = "host.docker.internal"
-
 // ContainerProxyURL adapts a configured proxy URL for use from inside a
-// container: a host of localhost / 127.0.0.1 / ::1 is rewritten to the host
-// gateway (hostGatewayAlias), since the user means "a proxy on my host", not the
-// container's own loopback. Any other host (a real hostname or LAN IP) is left
-// untouched. An empty or unparseable URL is returned unchanged.
-func ContainerProxyURL(raw string) string {
-	if raw == "" {
-		return ""
-	}
-	u, err := url.Parse(raw)
-	if err != nil || u.Host == "" {
-		return raw
-	}
-	host := u.Hostname()
-	switch host {
-	case "localhost", "127.0.0.1", "::1":
-		port := u.Port()
-		newHost := hostGatewayAlias
-		if port != "" {
-			newHost += ":" + port
-		}
-		u.Host = newHost
-		return u.String()
-	default:
-		return raw
-	}
-}
+// container. The rewrite itself lives in config so the sandbox container, the
+// egress sidecar and the image builder all share one implementation (toolbox
+// cannot import backend — backend imports toolbox for the auto-build); this
+// stays as the name backend's own call sites read naturally.
+func ContainerProxyURL(raw string) string { return config.ContainerProxyURL(raw) }
 
 // containerRoutes adapts a profile's proxy routes for use from inside the
 // container: each route's proxy gets the same localhost→host-gateway rewrite as
@@ -277,15 +248,10 @@ func commonArgs(o RunOpts, egNet, egProxyURL string) []string {
 		args = append(args, "--userns=keep-id")
 	}
 	args = append(args, nestedContainerArgs(o.Profile)...)
-	// Map both engines' host-gateway alias so a single hostname reaches a
-	// host-running service (e.g. a user's own proxy) from inside the container,
-	// regardless of engine: podman provides host.containers.internal and Docker
-	// Desktop provides host.docker.internal, but Linux Docker resolves neither
-	// without this. Harmless on the --internal egress network (the name just
-	// resolves to an unreachable gateway). Requires podman >= 4 / docker >= 20.10.
-	args = append(args,
-		"--add-host=host.docker.internal:host-gateway",
-		"--add-host=host.containers.internal:host-gateway")
+	// Both engines' host-gateway aliases, so a host-running service (e.g. a
+	// user's own proxy) is reachable from inside the container regardless of
+	// engine — see config.HostGatewayArgs.
+	args = append(args, config.HostGatewayArgs()...)
 	// Resource limits (the banner advertises these on every backend).
 	if o.Mem != "" {
 		args = append(args, "--memory", o.Mem)

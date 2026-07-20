@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/irasikhin/sandboxer/internal/config"
 )
 
 func TestRenderNixList(t *testing.T) {
@@ -34,6 +36,7 @@ func TestImageAgentPackages(t *testing.T) {
 }
 
 func TestBuilderArgv(t *testing.T) {
+	clearProxyEnv(t) // a developer's own proxy must not change the expected argv
 	o := BuildOpts{Engine: "podman", NixImage: "docker.io/nixos/nix:2.31.2"}
 	got := builderArgv(o, "/ctx", "/out", "")
 	s := strings.Join(got, " ")
@@ -429,4 +432,92 @@ func readFile(t *testing.T, p string) string {
 		t.Fatal(err)
 	}
 	return string(b)
+}
+
+// clearProxyEnv unsets every proxy variable HostProxyEnv looks at, so an argv
+// assertion does not depend on whether the machine running the tests is behind
+// a proxy.
+func clearProxyEnv(t *testing.T) {
+	t.Helper()
+	for _, n := range []string{
+		"http_proxy", "https_proxy", "ftp_proxy", "all_proxy", "no_proxy",
+		"HTTP_PROXY", "HTTPS_PROXY", "FTP_PROXY", "ALL_PROXY", "NO_PROXY",
+	} {
+		t.Setenv(n, "")
+	}
+}
+
+// TestBuilderArgvCarriesHostProxy: the builder is a container and starts with
+// an empty environment, so on a proxied machine it could reach nothing —
+// including the llm-agents binary cache, which made nix fall back to compiling
+// every agent from source and then time out fetching release tarballs. A
+// localhost proxy must arrive rewritten to the host gateway (the user means
+// "on my host", not the container's own loopback), with the gateway aliases
+// mapped so that name resolves, and an explicit --builder-arg must still win.
+func TestBuilderArgvCarriesHostProxy(t *testing.T) {
+	clearProxyEnv(t)
+	t.Setenv("http_proxy", "http://127.0.0.1:8888")
+	t.Setenv("no_proxy", "localhost,.corp")
+
+	argv := builderArgv(BuildOpts{Engine: "podman", NixImage: "n"}, "/ctx", "/out", "")
+	s := strings.Join(argv, " ")
+	for _, want := range []string{
+		"--env http_proxy=http://" + config.HostGatewayAlias + ":8888",
+		"--env no_proxy=localhost,.corp",
+		"--add-host=" + config.HostGatewayAlias + ":host-gateway",
+	} {
+		if !strings.Contains(s, want) {
+			t.Errorf("builderArgv missing %q in:\n%s", want, s)
+		}
+	}
+	// Still before the builder image, like every other run flag.
+	if envIdx, imgIdx := indexOf(argv, "http_proxy=http://"+config.HostGatewayAlias+":8888"), indexOf(argv, "n"); envIdx < 0 || envIdx > imgIdx {
+		t.Errorf("proxy env must precede the builder image: %v", argv)
+	}
+
+	// A user's own --builder-arg is appended last, so it overrides.
+	over := builderArgv(BuildOpts{Engine: "podman", NixImage: "n",
+		ExtraArgs: []string{"--env", "http_proxy=http://other:1"}}, "/ctx", "/out", "")
+	ours, theirs := indexOf(over, "http_proxy=http://"+config.HostGatewayAlias+":8888"), indexOf(over, "http_proxy=http://other:1")
+	if theirs < 0 || theirs < ours {
+		t.Errorf("--builder-arg must come after the inherited proxy env: %v", over)
+	}
+}
+
+// TestBuilderArgvCleanWithoutProxy: a machine with no proxy gets exactly the
+// argv it got before this feature — no stray --env, no --add-host.
+func TestBuilderArgvCleanWithoutProxy(t *testing.T) {
+	clearProxyEnv(t)
+	s := strings.Join(builderArgv(BuildOpts{Engine: "podman", NixImage: "n"}, "/ctx", "/out", ""), " ")
+	if strings.Contains(s, "--env") || strings.Contains(s, "--add-host") {
+		t.Errorf("no proxy on the host should leave the argv untouched:\n%s", s)
+	}
+}
+
+// TestBuilderArgvHostNetworkKeepsLocalhost: with --builder-arg=--network=host
+// the container shares the host's netns, so localhost already IS the host. The
+// proxy URL must be passed through untouched and the gateway aliases dropped —
+// rewriting would point a working SOCKS5/HTTP proxy at the bridge gateway,
+// which a loopback-bound proxy does not listen on.
+func TestBuilderArgvHostNetworkKeepsLocalhost(t *testing.T) {
+	clearProxyEnv(t)
+	t.Setenv("all_proxy", "socks5h://127.0.0.1:1080")
+
+	for _, spelling := range [][]string{
+		{"--network=host"}, {"--net=host"}, {"--network", "host"}, {"--net", "host"},
+	} {
+		s := strings.Join(builderArgv(BuildOpts{Engine: "podman", NixImage: "n", ExtraArgs: spelling}, "/c", "/o", ""), " ")
+		if !strings.Contains(s, "--env all_proxy=socks5h://127.0.0.1:1080") {
+			t.Errorf("%v: proxy was rewritten under host networking:\n%s", spelling, s)
+		}
+		if strings.Contains(s, "--add-host") {
+			t.Errorf("%v: gateway aliases are pointless under host networking:\n%s", spelling, s)
+		}
+	}
+
+	// Without host networking the rewrite still applies.
+	s := strings.Join(builderArgv(BuildOpts{Engine: "podman", NixImage: "n"}, "/c", "/o", ""), " ")
+	if !strings.Contains(s, "--env all_proxy=socks5h://"+config.HostGatewayAlias+":1080") {
+		t.Errorf("bridge networking should rewrite localhost:\n%s", s)
+	}
 }
