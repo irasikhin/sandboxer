@@ -844,6 +844,43 @@ func TestExecSession(t *testing.T) {
 	}
 }
 
+// TestSessionIdle pins the probe that decides whether a stale-but-running
+// session may be rebuilt: it must answer "idle" ONLY on a positive finding
+// (an empty listing, or tmux reporting no server). Every other outcome —
+// engine error, no tmux in the image — has to read as busy, because a wrong
+// "idle" destroys a running agent while a wrong "busy" only postpones a
+// config change.
+func TestSessionIdle(t *testing.T) {
+	requireExec(t, "sh")
+	engine, logPath := sessionEngine(t)
+
+	t.Setenv("SBX_EXEC_OUT", "")
+	if !SessionIdle(engine, "n") {
+		t.Error("an empty listing must read as idle")
+	}
+	if lines := engineLog(t, logPath); !hasLine(lines, "exec n tmux -L sandboxer list-sessions") {
+		t.Errorf("probe argv wrong:\n%s", strings.Join(lines, "\n"))
+	}
+
+	t.Setenv("SBX_EXEC_OUT", "main: 1 windows (created ...) (attached)")
+	if SessionIdle(engine, "n") {
+		t.Error("a listed tmux session must read as busy")
+	}
+
+	// tmux's own "nothing is running" answer is a non-zero exit, not a failure.
+	t.Setenv("SBX_FAIL_ON", "exec")
+	t.Setenv("SBX_STDERR", "no server running on /tmp/tmux-1000/sandboxer")
+	if !SessionIdle(engine, "n") {
+		t.Error("tmux reporting no server must read as idle")
+	}
+
+	// Anything else that fails is NOT evidence of emptiness.
+	t.Setenv("SBX_STDERR", `exec: "tmux": executable file not found in $PATH`)
+	if SessionIdle(engine, "n") {
+		t.Error("an unexplained engine failure must read as busy, never idle")
+	}
+}
+
 func TestStopSession(t *testing.T) {
 	requireExec(t, "sh")
 	name := SessionName("s", "/b")

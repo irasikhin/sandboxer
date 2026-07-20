@@ -212,9 +212,12 @@ Yanks travel to the host clipboard over OSC 52, and `escape-time` is 10ms so
 ESC stays instant inside vim and the agent TUIs. `exec` reuses a running session;
 `stop` parks the container for a later resume; `rm` removes it along with the
 sandbox. `list`'s STATE column shows `running`/`stopped`/`-` per sandbox. When
-the profile changes or the toolbox image is rebuilt, the next `enter`
-recreates the session (announced — anything still running inside is gone, so
-finish or park long jobs first).
+the profile changes or the toolbox image is rebuilt, the next `enter` recreates
+the session (announced) — unless that session is still holding a tmux session,
+in which case `enter` attaches to it as-is rather than rebuilding it under
+whatever is running, and says so. The new configuration then lands on the next
+`enter` after that session is empty, or right away with
+`sandboxer stop <slug> && sandboxer enter <slug>`.
 
 Escape hatches back to one-shot containers: `--ephemeral` (enter/exec),
 `session: ephemeral` in the profile, or `SANDBOXER_SESSION=ephemeral` (the env

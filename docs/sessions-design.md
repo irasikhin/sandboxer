@@ -73,14 +73,31 @@ decision table (`planSession`):
     stopped + stale         → recreate
     running + fresh         → exec
     running + stale + idle  → recreate
-    running + stale + busy  → refuse (detach others, or --ephemeral)
+    running + stale + busy  → attach as-is, announce the pending config
 
-"Idle" = no clients on the in-container tmux server — an informed guess, not a
-lock. `exec` rides a running fresh session but **never** creates or replaces
-the daemon container (that is enter's job); anything else falls back to a
-one-shot run (with a notice when a running session is stale; a missing or
-stopped session falls back silently — that is exec's normal pre-session
-behavior, nothing surprising to flag), so scripts keep working.
+"Idle" means the in-container tmux server holds **no session** (`SessionIdle`
+= `tmux -L sandboxer list-sessions`), and it is a *positive* finding: an
+engine error, or no tmux in the image, reads as busy. Deliberately NOT "no
+clients attached" — a detached session is precisely the case where an agent is
+running unattended, and treating it as idle would destroy the thing sessions
+exist to protect.
+
+A stale **busy** session is attached, never sidestepped. Handing the user a
+one-shot `run --rm` container instead (as enter did for a while) is the worst
+of both: tmux is that container's main process, so Ctrl-Space d destroys
+everything in it, the real session stays running and unreachable, and since
+nothing converges it the same thing happens on every later enter. Attaching
+keeps detach semantics uniform — enter always lands in the session container —
+and the banner names the pending config plus the one command that applies it
+(`stop` + `enter`); `--recreate` still forces the rebuild.
+
+`exec` rides a running fresh session but **never** creates or replaces the
+daemon container (that is enter's job); anything else falls back to a one-shot
+run (with a notice when a running session is stale; a missing or stopped
+session falls back silently — that is exec's normal pre-session behavior,
+nothing surprising to flag), so scripts keep working. A one-shot for a single
+command is safe — it costs no session, and it runs with the configuration the
+user just asked for.
 
 Addendum (image customization work): freshness now also compares the
 container's **image ID** against the engine's current one for the same tag, so
@@ -107,8 +124,8 @@ uses the session name as the ID (`<name>-int/-ext/-proxy`, `egress.UpNamed` /
 container **and** the proxy but keeps the networks and the sandbox files
 (resume = plain start); `rm`/`clean` sweep container, proxy and networks. A
 fresh-looking session whose proxy died is treated as stale and rebuilt rather
-than left without an outbound path — under D3's busy guard: a running session
-with clients attached refuses instead of being torn down under them.
+than left without an outbound path — under D3's busy guard: a session holding a
+tmux session is attached as-is instead of being torn down under it.
 
 ## The honest limitation
 

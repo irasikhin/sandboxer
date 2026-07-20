@@ -214,6 +214,31 @@ func InspectSession(engine, name string) SessionInfo {
 	return info
 }
 
+// SessionIdle reports whether the session container holds NOTHING worth
+// preserving: its in-container tmux server (the one `enter` attaches, socket
+// "sandboxer") runs no session at all. It is the deciding fact when a running
+// session's configuration went stale — an idle one can be converged on the
+// spot, a busy one holds the user's agent and must be attached instead.
+//
+// Idleness is a POSITIVE finding, never an assumption: only a clean listing
+// that came back empty, or tmux itself reporting no server, counts. Every
+// other outcome (engine error, no tmux in the image, an unreadable container)
+// answers "not idle", because the cost of being wrong is asymmetric — a false
+// "busy" merely postpones a config change to the next stop/enter, while a
+// false "idle" destroys a running agent.
+func SessionIdle(engine, name string) bool {
+	cmd := exec.Command(engine, "exec", name, "tmux", "-L", "sandboxer", "list-sessions")
+	var errb strings.Builder
+	cmd.Stderr = &errb
+	out, err := cmd.Output()
+	if err == nil {
+		return strings.TrimSpace(string(out)) == ""
+	}
+	// tmux exits non-zero when its server is not running at all — that is the
+	// definitive "there is nothing in there" answer, not a failure.
+	return strings.Contains(errb.String(), "no server running")
+}
+
 // ImageFresh reports whether the session container's image (got, from
 // SessionInfo.ImageID) still is the image the engine would run today (want,
 // from ImageID). Either side unknown ("") skips the check — freshness then

@@ -44,26 +44,39 @@ func TestValidateSessionName(t *testing.T) {
 
 // TestOneShotEnterBanner: the one-shot banner must say the OPPOSITE of the
 // persistent one — in a `run --rm` container tmux is the main process, so a
-// detach ends it. It also has to reassure that the work is not lost, and offer
-// the way back only when a persistent session was set aside (an ephemeral run
-// is what the user asked for).
+// detach ends it. It also has to reassure that the work is not lost, and name
+// which ephemeral switch chose this shape. Only a deliberately ephemeral run
+// reaches it now: a stale persistent session is converged or attached.
 func TestOneShotEnterBanner(t *testing.T) {
-	stale := oneShotEnterBanner("feat", "podman", "/p/feat", "session sandboxer-feat-cafe is stale (image rebuilt)", true)
+	eph := oneShotEnterBanner("feat", "podman", "/p/feat", "ephemeral mode (--ephemeral)")
 	for _, want := range []string{
-		`"feat"`, "podman", "/p/feat", "one-shot", "image rebuilt",
-		"ENDS it", "survives", "sandboxer stop feat && sandboxer enter feat", "--recreate",
+		`"feat"`, "podman", "/p/feat", "one-shot", "--ephemeral", "ENDS it", "survives",
 	} {
-		if !strings.Contains(stale, want) {
-			t.Errorf("stale-fallback banner missing %q:\n%s", want, stale)
+		if !strings.Contains(eph, want) {
+			t.Errorf("one-shot banner missing %q:\n%s", want, eph)
 		}
 	}
-	if strings.Contains(stale, "keeps the container running") {
-		t.Errorf("one-shot banner promises persistence:\n%s", stale)
+	if strings.Contains(eph, "keeps the container running") {
+		t.Errorf("one-shot banner promises persistence:\n%s", eph)
 	}
+}
 
-	eph := oneShotEnterBanner("feat", "podman", "/p/feat", "ephemeral mode (--ephemeral)", false)
-	if !strings.Contains(eph, "ENDS it") || strings.Contains(eph, "sandboxer stop") {
-		t.Errorf("a deliberate ephemeral run should warn but not offer a way back:\n%s", eph)
+// TestStaleSessionEnterBanner: attaching to a stale-but-busy session keeps the
+// PERSISTENT detach semantics (the user is in their real session), while
+// stating that the config change has not landed and the one command that
+// applies it — otherwise an edit that silently does nothing is a mystery.
+func TestStaleSessionEnterBanner(t *testing.T) {
+	b := staleSessionEnterBanner("feat", "podman", "/p/feat", "sandboxer-feat-cafe", "profile changed")
+	for _, want := range []string{
+		"sandboxer-feat-cafe", `"feat"`, "podman", "/p/feat", "attaching as-is",
+		"profile changed", "Ctrl-Space d DETACHES", "sandboxer stop feat && sandboxer enter feat",
+	} {
+		if !strings.Contains(b, want) {
+			t.Errorf("stale-attach banner missing %q:\n%s", want, b)
+		}
+	}
+	if strings.Contains(b, "one-shot") || strings.Contains(b, "--rm") {
+		t.Errorf("the stale-attach banner must not describe a one-shot container:\n%s", b)
 	}
 }
 

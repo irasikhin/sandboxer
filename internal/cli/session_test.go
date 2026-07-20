@@ -21,6 +21,7 @@ type sessionCalls struct {
 	inspect []string          // names inspected
 	hash    []backend.RunOpts // opts per SessionWantHash call
 	imageID []string          // images whose ID was queried
+	idle    []string          // names probed for tmux idleness
 }
 
 // stubSessionSeams replaces the persistent-session seams (and backendRun) with
@@ -36,10 +37,18 @@ func stubSessionSeams(t *testing.T, info backend.SessionInfo, wantHash string) *
 	c := &sessionCalls{}
 	oldEnsure, oldExec, oldRun := backendEnsureSession, backendExecSession, backendRun
 	oldInspect, oldHash, oldImageID := backendInspectSession, backendWantHash, backendImageID
+	oldIdle := backendSessionIdle
 	t.Cleanup(func() {
 		backendEnsureSession, backendExecSession, backendRun = oldEnsure, oldExec, oldRun
 		backendInspectSession, backendWantHash, backendImageID = oldInspect, oldHash, oldImageID
+		backendSessionIdle = oldIdle
 	})
+	// Default: the session holds a live tmux session. The destructive verdict
+	// is the one a test must ask for explicitly.
+	backendSessionIdle = func(engine, name string) bool {
+		c.idle = append(c.idle, name)
+		return false
+	}
 	backendEnsureSession = func(o backend.RunOpts) (string, error) {
 		c.ensure = append(c.ensure, o)
 		return backend.SessionName(o.Slug, o.BaseDir), nil
@@ -452,14 +461,15 @@ func TestExecEphemeralSkipsInspect(t *testing.T) {
 	}
 }
 
-// TestEnterStaleSessionBannerIsHonest is the regression guard for a message
-// that actively misled: the persistent banner ("exiting keeps the container
-// running") used to be printed BEFORE enter decided whether it could use the
-// session at all. On a running-but-stale session it then fell back to a
-// `run --rm` container, where tmux is the main process — so Ctrl-Space d exited
-// it and destroyed the session the banner had just promised would survive.
-// The banner must now describe the container actually being run.
-func TestEnterStaleSessionBannerIsHonest(t *testing.T) {
+// TestEnterStaleBusySessionAttaches is the regression guard for the session
+// loss this whole path exists to prevent. A running-but-stale session used to
+// be sidestepped into a `run --rm` container, where tmux is the main process —
+// so Ctrl-Space d destroyed everything in it — while the real session stayed
+// running and unreachable, and NOTHING ever converged it, so every later enter
+// did the same. When the session holds a tmux session, enter must attach to it
+// (exec, no ensure — ensure would recreate the stale container) and print the
+// persistent detach semantics plus how to apply the pending config.
+func TestEnterStaleBusySessionAttaches(t *testing.T) {
 	project := sessionProject(t)
 	c := stubSessionSeams(t, backend.SessionInfo{Exists: true, Running: true, Hash: "h", ImageID: "old"}, "h")
 	backendImageID = func(engine, image string) string { return "new" }
@@ -468,19 +478,64 @@ func TestEnterStaleSessionBannerIsHonest(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("enter = %d, %s", code, errs)
 	}
-	if len(c.run) != 1 || len(c.exec) != 0 || len(c.ensure) != 0 {
-		t.Fatalf("calls: run=%d exec=%d ensure=%d, want a one-shot (1/0/0)", len(c.run), len(c.exec), len(c.ensure))
+	if len(c.exec) != 1 || len(c.run) != 0 || len(c.ensure) != 0 {
+		t.Fatalf("calls: exec=%d run=%d ensure=%d, want an attach (1/0/0)", len(c.exec), len(c.run), len(c.ensure))
 	}
-	if strings.Contains(errs, "keeps the container running") {
-		t.Errorf("the one-shot fallback still promises persistence:\n%s", errs)
+	if c.execTo[0] != backend.SessionName("feat", config.StateDir(project)) {
+		t.Errorf("attached to %q, want the session container", c.execTo[0])
+	}
+	if strings.Contains(errs, "one-shot") || strings.Contains(errs, "--rm") {
+		t.Errorf("a stale busy session must never be sidestepped into a one-shot:\n%s", errs)
 	}
 	for _, want := range []string{
-		"one-shot", "stale (image rebuilt)", "ENDS it", "survives",
+		"attaching as-is", "image rebuilt", "DETACHES",
 		"sandboxer stop feat && sandboxer enter feat",
 	} {
 		if !strings.Contains(errs, want) {
-			t.Errorf("stale-fallback output missing %q:\n%s", want, errs)
+			t.Errorf("stale-attach output missing %q:\n%s", want, errs)
 		}
+	}
+}
+
+// TestEnterStaleIdleSessionConverges: the other half of the same policy. A
+// stale session that holds no tmux session has nothing to lose, so enter
+// converges it (EnsureSession recreates) instead of leaving it stale forever —
+// without this the config change never lands and the trap is permanent.
+func TestEnterStaleIdleSessionConverges(t *testing.T) {
+	project := sessionProject(t)
+	c := stubSessionSeams(t, backend.SessionInfo{Exists: true, Running: true, Hash: "old"}, "want")
+	backendSessionIdle = func(engine, name string) bool {
+		c.idle = append(c.idle, name)
+		return true
+	}
+
+	code, _, errs := run("enter", "feat", "--src", project)
+	if code != 0 {
+		t.Fatalf("enter = %d, %s", code, errs)
+	}
+	if len(c.ensure) != 1 || len(c.exec) != 1 || len(c.run) != 0 {
+		t.Fatalf("calls: ensure=%d exec=%d run=%d, want a converge (1/1/0)", len(c.ensure), len(c.exec), len(c.run))
+	}
+	if len(c.idle) != 1 {
+		t.Errorf("idleness probed %d times, want exactly 1", len(c.idle))
+	}
+	if strings.Contains(errs, "attaching as-is") || strings.Contains(errs, "one-shot") {
+		t.Errorf("an idle stale session should be converged silently:\n%s", errs)
+	}
+}
+
+// TestEnterFreshSessionSkipsIdleProbe: the probe is an engine round-trip and
+// only the stale verdict needs it — a fresh (or absent) session must not pay
+// for it.
+func TestEnterFreshSessionSkipsIdleProbe(t *testing.T) {
+	project := sessionProject(t)
+	c := stubSessionSeams(t, backend.SessionInfo{Exists: true, Running: true, Hash: "h"}, "h")
+
+	if code, _, errs := run("enter", "feat", "--src", project); code != 0 {
+		t.Fatalf("enter = %d, %s", code, errs)
+	}
+	if len(c.idle) != 0 {
+		t.Errorf("idleness probed for a fresh session: %v", c.idle)
 	}
 }
 
