@@ -1,7 +1,8 @@
-# CI gate: lint + test (engine-free 90% coverage gate) and a nix flake check.
+# CI gate: lint + test (engine-free 90% coverage gate), a real-engine
+# integration slice, a vulnerability scan, and a nix flake check.
 #
-# Triggers on every push to main and every pull request. The `test`, `lint`,
-# and `nix` jobs run in parallel.
+# Triggers on every push to main and every pull request. All jobs run in
+# parallel.
 name: ci
 
 on:
@@ -42,6 +43,50 @@ jobs:
           awk -v t="$total" 'BEGIN { exit (t+0 >= 90.0) ? 0 : 1 }' \
             || { echo "ERROR: total coverage ${total}% is below the 90% gate" >&2; exit 1; }
       - run: go vet ./...
+
+  # Real-engine integration slice. The full suite needs the toolbox image (a
+  # multi-minute nix-in-container build) and runs on the maintainer's Jenkins;
+  # this job takes the part that does NOT — the wall, mount and egress
+  # guarantees, which need only a small pre-pulled image — so those stop
+  # depending on somebody remembering to run them.
+  #
+  # This exists because they DID rot: an integration test asserting host auth
+  # passthrough had been failing for ~8 releases, unnoticed, because nothing in
+  # GitHub CI ever compiled or ran `-tags integration`. Everything the toolbox
+  # image gates still skips cleanly here.
+  itest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      # The config layer shells out to nix-instantiate, same as the unit tests.
+      - uses: cachix/install-nix-action@v31
+      # itest.SmokeImage deliberately NEVER pulls (the suite stays offline-safe),
+      # so the image has to be here before the tests look for it.
+      - run: docker pull alpine:latest
+      # Compile the WHOLE suite even though only a slice is run: a build tag
+      # nothing ever compiles is where bit-rot starts.
+      - run: go vet -tags integration ./...
+      - name: integration (engine-level, no toolbox image)
+        env:
+          SANDBOXER_ITEST_ENGINE: docker
+        run: go test -tags integration -count=1 -timeout 20m ./internal/backend/... ./internal/egress/...
+
+  # Reachability-based vulnerability scan. govulncheck reports only what the
+  # code actually CALLS, so it stays quiet about the long tail of advisories in
+  # required-but-unreached modules and fails when one is genuinely on a path we
+  # execute.
+  vuln:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - run: go install golang.org/x/vuln/cmd/govulncheck@latest
+      - run: govulncheck ./...
 
   lint:
     runs-on: ubuntu-latest
