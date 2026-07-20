@@ -6,6 +6,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.56.0] — 2026-07-20
+
+### Added
+
+- a Catppuccin status bar and tmux defaults that fit agent TUIs (061121a)
+- support remote git repos as sources (src = "<url>") (142ff78)
+
+### Fixed
+
+- surface the engine's stderr on failure (30d00bd)
+
+### Build
+
+- scope the nixfmt hook away from examples/ (803106a)
+
+### Chores
+
+- repo-wide cleanup — doc drift, dead code, hygiene (b15e333)
+
+
 ## [0.55.0] — 2026-07-20
 
 ### Added
@@ -597,3 +617,4 @@ isolated, containerized dev sandbox, on a local Linux machine:
 [0.53.2]: https://github.com/irasikhin/sandboxer/compare/v0.53.1...v0.53.2
 [0.54.0]: https://github.com/irasikhin/sandboxer/compare/v0.53.2...v0.54.0
 [0.55.0]: https://github.com/irasikhin/sandboxer/compare/v0.54.0...v0.55.0
+[0.56.0]: https://github.com/irasikhin/sandboxer/compare/v0.55.0...v0.56.0
