@@ -538,15 +538,19 @@ func validateSessionName(name string) error {
 	return nil
 }
 
-// persistentEnterBanner is enterBanner's persistent-session variant: it also
-// names the session container and spells out the exit semantics — detaching
-// or exiting keeps the container (and the in-container tmux with everything
-// in it) alive for a later re-enter. Only printed once the session container
-// is actually the thing about to run (see enter's useSession).
+// persistentEnterBanner names the session container and separates the two
+// ways out, because they are NOT equivalent and conflating them cost a user
+// their session: detaching leaves the tmux session running, while exiting the
+// shell closes its last pane — which ends the tmux session, and with tmux's
+// default exit-empty the whole in-container server. The CONTAINER survives
+// either way, which is what the old one-liner said, and that half-truth read
+// as "exiting is safe too". Only printed once the session container is
+// actually the thing about to run (see enter's useSession).
 func persistentEnterBanner(slug, engine, dir, container string) string {
 	return fmt.Sprintf(
 		"sandboxer: persistent session %s in %q (%s) — %s\n"+
-			"sandboxer: tmux inside (prefix Ctrl-Space) — Ctrl-Space d detaches, exiting keeps the container running; reattach: sandboxer enter %s",
+			"sandboxer: Ctrl-Space d DETACHES — the tmux session and everything in it keep running; reattach: sandboxer enter %s\n"+
+			"sandboxer: exiting the shell ENDS that tmux session (the container itself stays) — the next enter opens a fresh one",
 		container, slug, engine, dir, slug)
 }
 

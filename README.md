@@ -191,10 +191,14 @@ hood — the manual equivalent is always available via `sandboxer path`.
 By default `enter` attaches a **tmux session inside a persistent session
 container** (`tmux -L sandboxer`, mouse scrolling on, sandboxer prompt in
 every pane; the prefix is `Ctrl-Space`, so `Ctrl-Space c` opens a new window):
-`Ctrl-Space d` detaches, exiting keeps the container running, and a
-later `sandboxer enter feat` drops straight back in; a second terminal
-attaches the same session in parallel (`--session <name>` opens a separate
-one in the same container). The status bar names the sandbox you are in and
+**`Ctrl-Space d` detaches** — the tmux session and whatever is running in it
+keep going, and a later `sandboxer enter feat` drops straight back in; a second
+terminal attaches the same session in parallel (`--session <name>` opens a
+separate one in the same container). **Exiting the shell is not the same
+thing**: it closes the session's last pane, which ends the tmux session (and,
+with tmux's default `exit-empty`, the in-container server), so the next `enter`
+opens a fresh one. The container survives either way — it is the tmux session
+that does not. Detach when you want to come back to a running agent. The status bar names the sandbox you are in and
 flips to `PREFIX` while the prefix is armed:
 
 ```text

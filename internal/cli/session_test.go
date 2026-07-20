@@ -109,7 +109,7 @@ func TestEnterPersistentByDefault(t *testing.T) {
 		t.Errorf("exec argv = %v, want the tmux attach launcher", argv)
 	}
 	for _, want := range []string{
-		name, "keeps the container running", "sandboxer enter feat", "sandboxer: done in",
+		name, "DETACHES", "ENDS that tmux session", "sandboxer enter feat", "sandboxer: done in",
 		"sandboxer: src ", "feat/feat", // the connected-repos lines: repo → branch (path)
 	} {
 		if !strings.Contains(errs, want) {

@@ -85,17 +85,23 @@ func TestEphemeralWhy(t *testing.T) {
 	}
 }
 
-// TestPersistentEnterBanner: the persistent variant additionally names the
-// session container and the detach/exit/reattach semantics of the attached
-// tmux.
+// TestPersistentEnterBanner: the persistent variant names the session
+// container AND keeps detach and exit apart. They are not equivalent — exiting
+// the shell closes the last pane, which ends the tmux session (and with
+// exit-empty the server), while only the container survives. Saying just
+// "exiting keeps the container running" read as "exiting is safe" and cost a
+// user their session.
 func TestPersistentEnterBanner(t *testing.T) {
 	b := persistentEnterBanner("feat", "podman", "/p/.sandboxer/feat", "sandboxer-feat-cafe0123")
 	for _, want := range []string{
 		"sandboxer-feat-cafe0123", `"feat"`, "podman", "/p/.sandboxer/feat",
-		"keeps the container running", "sandboxer enter feat", "Ctrl-Space d",
+		"sandboxer enter feat", "Ctrl-Space d", "DETACHES", "ENDS that tmux session",
 	} {
 		if !strings.Contains(b, want) {
 			t.Errorf("banner missing %q:\n%s", want, b)
 		}
+	}
+	if strings.Contains(b, "exiting keeps the container running") {
+		t.Errorf("the banner still implies exiting preserves the session:\n%s", b)
 	}
 }
