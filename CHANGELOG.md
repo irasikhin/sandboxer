@@ -6,6 +6,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.57.0] — 2026-07-20
+
+### Added
+
+- name what moved in a stale session, and offer the rebuild (aee8c3f)
+
+### Fixed
+
+- attach to a stale running session instead of a one-shot container (6adf38d)
+- scope auth env to the process, not the session container (b9002bc)
+- never prompt without a real terminal, and say the diff once (af64d10)
+
+### Tests
+
+- fix the bit-rotted agent auth-env integration test (eac3995)
+
+
 ## [0.56.3] — 2026-07-20
 
 ### Fixed
@@ -642,3 +659,4 @@ isolated, containerized dev sandbox, on a local Linux machine:
 [0.56.1]: https://github.com/irasikhin/sandboxer/compare/v0.56.0...v0.56.1
 [0.56.2]: https://github.com/irasikhin/sandboxer/compare/v0.56.1...v0.56.2
 [0.56.3]: https://github.com/irasikhin/sandboxer/compare/v0.56.2...v0.56.3
+[0.57.0]: https://github.com/irasikhin/sandboxer/compare/v0.56.3...v0.57.0
