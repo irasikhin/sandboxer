@@ -57,7 +57,7 @@ func TestPersistentEnterBanner(t *testing.T) {
 	b := persistentEnterBanner("feat", "podman", "/p/.sandboxer/feat", "sandboxer-feat-cafe0123")
 	for _, want := range []string{
 		"sandboxer-feat-cafe0123", `"feat"`, "podman", "/p/.sandboxer/feat",
-		"keeps the container running", "sandboxer enter feat", "Ctrl-b d",
+		"keeps the container running", "sandboxer enter feat", "Ctrl-Space d",
 	} {
 		if !strings.Contains(b, want) {
 			t.Errorf("banner missing %q:\n%s", want, b)

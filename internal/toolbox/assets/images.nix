@@ -125,6 +125,12 @@ let
     set -g default-terminal "tmux-256color"
     set -g history-limit 10000
     set -g mouse on
+    # Prefix is Ctrl-Space, not the default Ctrl-b — it does not clash with
+    # bash's Ctrl-a (beginning of line). e.g. Ctrl-Space c = new window,
+    # Ctrl-Space d = detach, Ctrl-Space " / % = split panes.
+    set -g prefix C-Space
+    unbind C-b
+    bind C-Space send-prefix
     set -g status-left '[sbx #{session_name}] '
   '';
 in

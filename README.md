@@ -181,7 +181,8 @@ hood — the manual equivalent is always available via `sandboxer path`.
 
 By default `enter` attaches a **tmux session inside a persistent session
 container** (`tmux -L sandboxer`, mouse scrolling on, sandboxer prompt in
-every pane): `Ctrl-b d` detaches, exiting keeps the container running, and a
+every pane; the prefix is `Ctrl-Space`, so `Ctrl-Space c` opens a new window):
+`Ctrl-Space d` detaches, exiting keeps the container running, and a
 later `sandboxer enter feat` drops straight back in; a second terminal
 attaches the same session in parallel (`--session <name>` opens a separate
 one in the same container). `exec` reuses a running session;

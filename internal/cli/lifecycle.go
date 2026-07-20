@@ -111,15 +111,16 @@ func newEnterCmd() *cobra.Command {
 		Use:   "enter [slug|profile|file.nix]",
 		Short: "Open an interactive shell inside the sandbox",
 		Long: `Open a shell inside the sandbox, attached to an in-container tmux
-session (detach: Ctrl-b d; the session and anything running in it keep going
+session (detach: Ctrl-Space d; the session and anything running in it keep going
 — a later enter drops straight back in, and a second terminal can attach the
 same session in parallel). By default the shell runs in the persistent
 session container; --ephemeral runs a one-shot container instead. A sandbox
 that doesn't exist yet is created first.
 
 The tmux server lives INSIDE the container (tmux -L sandboxer, system
-/etc/tmux.conf: mouse on, sandboxer prompt in every pane). --session opens a
-separate named session in the same container.`,
+/etc/tmux.conf: mouse on, sandboxer prompt in every pane; the prefix is
+Ctrl-Space, so Ctrl-Space c opens a new window). --session opens a separate
+named session in the same container.`,
 		Example: `  # enter the active sandbox (see: sandboxer use)
   sandboxer enter
 
@@ -549,7 +550,7 @@ func enterBanner(slug, engine, dir string) string {
 func persistentEnterBanner(slug, engine, dir, container string) string {
 	return fmt.Sprintf(
 		"sandboxer: persistent session %s in %q (%s) — %s\n"+
-			"sandboxer: tmux inside — Ctrl-b d detaches, exiting keeps the container running; reattach: sandboxer enter %s",
+			"sandboxer: tmux inside (prefix Ctrl-Space) — Ctrl-Space d detaches, exiting keeps the container running; reattach: sandboxer enter %s",
 		container, slug, engine, dir, slug)
 }
 
