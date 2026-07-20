@@ -111,13 +111,14 @@ func starterProfile(name string, d config.Defaults) string {
   # default. Each entry becomes a git worktree on the host, checked out on
   # the branch YOU name — branch is REQUIRED and also names the worktree's
   # directory (./sandboxes/<name>/<repo>/<branch>). ONLY the
-  # selected files are visible inside the container (git itself never is;
-  # review and commit on the host). include uses gitignore-style patterns;
-  # srcs edits apply on the next enter/exec — even a running session sees
-  # them live.
+  # selected directories are visible inside the container (git itself never
+  # is; review and commit on the host). include lists directories: literal
+  # anchored paths ("/services/api/") or patterns ("/services/*/",
+  # "**/proto/" — a whole "**" segment matches any depth). srcs edits apply
+  # on the next enter/exec — even a running session sees them live.
   srcs = [
     { src = "."; branch = "feat/%[1]s"; } # this repo, whole — rename the branch your way
-    # { src = "."; branch = "devops/thing"; include = [ "/services/api/" "*.md" ]; }
+    # { src = "."; branch = "devops/thing"; include = [ "/services/api/" "**/proto/" ]; }
     # { src = "../shared-lib"; branch = "devops/thing"; }   # another repo, whole
     # { src = "../proto"; branch = "feat/proto-v2"; }       # adopt an existing branch/worktree
   ];

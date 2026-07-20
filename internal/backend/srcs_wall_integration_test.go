@@ -70,7 +70,10 @@ func narrowedSandbox(t *testing.T, repo string) (*sandbox.Base, string, string) 
 // and combined output.
 func runInSandbox(t *testing.T, engine, image string, b *sandbox.Base, slug, script string) (int, string) {
 	t.Helper()
-	mountDest, srcMounts := sandbox.Mounts(b.Srcs(slug))
+	mountDest, srcMounts, err := sandbox.Mounts(b.Srcs(slug))
+	if err != nil {
+		t.Fatal(err)
+	}
 	if mountDest {
 		t.Fatal("a narrowed sandbox asked to mount its root — the wall is gone before the container even starts")
 	}
@@ -236,7 +239,10 @@ func TestRun_RealEngine_UnnarrowedMountsWholeTree(t *testing.T) {
 	}
 	wt := b.Srcs(slug)[0].Path
 
-	mountDest, srcMounts := sandbox.Mounts(b.Srcs(slug))
+	mountDest, srcMounts, err := sandbox.Mounts(b.Srcs(slug))
+	if err != nil {
+		t.Fatal(err)
+	}
 	if !mountDest {
 		t.Fatal("an unnarrowed sandbox does not mount its root — it would see nothing")
 	}
@@ -390,7 +396,10 @@ func TestRun_RealEngine_NestedInclude(t *testing.T) {
 	}
 	wt := b.Srcs(slug)[0].Path
 
-	mountDest, srcMounts := sandbox.Mounts(b.Srcs(slug))
+	mountDest, srcMounts, err := sandbox.Mounts(b.Srcs(slug))
+	if err != nil {
+		t.Fatal(err)
+	}
 	if mountDest {
 		t.Fatal("nested-include sandbox asked to mount its root")
 	}

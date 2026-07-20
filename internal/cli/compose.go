@@ -62,7 +62,10 @@ equivalent — its purpose is "run it with your own tooling".`,
 			if err != nil {
 				return err
 			}
-			mountDest, srcMounts, mountGen := t.mounts()
+			mountDest, srcMounts, mountGen, err := t.mounts()
+			if err != nil {
+				return err
+			}
 			opts := backend.RunOpts{
 				Engine:          engine,
 				Image:           image,

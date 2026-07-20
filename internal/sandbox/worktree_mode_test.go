@@ -90,8 +90,8 @@ func TestMakeSandboxDotSrcFull(t *testing.T) {
 		t.Errorf("worktree not clean:\n%s", st)
 	}
 	// and: an unnarrowed sandbox mounts its <slug>/ root and nothing else
-	if mountDest, m := Mounts(srcs); !mountDest || len(m) != 0 {
-		t.Errorf("Mounts = (%v, %v), want (true, none) — managed lives under <slug>/", mountDest, m)
+	if mountDest, m, err := Mounts(srcs); err != nil || !mountDest || len(m) != 0 {
+		t.Errorf("Mounts = (%v, %v, %v), want (true, none, nil) — managed lives under <slug>/", mountDest, m, err)
 	}
 	// and: the in-project ./sandboxes root was git-ignored, exactly once even
 	// after a re-sync.
@@ -149,7 +149,10 @@ func TestMakeSandboxIncludeKeepsHostTreeWhole(t *testing.T) {
 
 	// and: the container gets ONLY serviceA, mounted directly — the root, which
 	// holds serviceB and CLAUDE.md, is not mounted at all.
-	mountDest, mounts := Mounts(b.Srcs("narrow"))
+	mountDest, mounts, err := Mounts(b.Srcs("narrow"))
+	if err != nil {
+		t.Fatal(err)
+	}
 	if mountDest {
 		t.Fatal("narrowed sandbox mounts its root — serviceB and CLAUDE.md would be exposed")
 	}
@@ -255,8 +258,8 @@ func TestSrcsAdoptExistingWorktree(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(repo, "serviceB", "f.txt")); err != nil {
 		t.Errorf("adopted checkout was narrowed: %v", err)
 	}
-	if mountDest, m := Mounts(srcs); !mountDest || len(m) != 1 || m[0] != repo {
-		t.Errorf("Mounts = (%v, %v), want (true, [adopted path])", mountDest, m)
+	if mountDest, m, err := Mounts(srcs); err != nil || !mountDest || len(m) != 1 || m[0] != repo {
+		t.Errorf("Mounts = (%v, %v, %v), want (true, [adopted path], nil)", mountDest, m, err)
 	}
 	// teardown never touches an adopted worktree
 	b.RemoveState("adopt", false)
@@ -868,7 +871,10 @@ func TestSyncSrcsReattachSetAside(t *testing.T) {
 		t.Errorf("_detached survived the re-attach (err=%v)", err)
 	}
 	// The source is narrowed, so it is mounted by view — never via the root.
-	mountDest, m := Mounts(srcs)
+	mountDest, m, err := Mounts(srcs)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if mountDest {
 		t.Error("Mounts mounts the root for a narrowed source — the whole repo would be exposed")
 	}

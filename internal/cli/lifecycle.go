@@ -212,7 +212,10 @@ separate named session in the same container.`,
 			if err != nil {
 				return err
 			}
-			mountDest, srcMounts, mountGen := t.mounts()
+			mountDest, srcMounts, mountGen, err := t.mounts()
+			if err != nil {
+				return err
+			}
 			o := backend.RunOpts{
 				Engine: engine, Image: image, Spec: spec, Dest: dest, Slug: t.slug,
 				MountDest: mountDest,
@@ -358,7 +361,10 @@ func newExecCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			mountDest, srcMounts, mountGen := t.mounts()
+			mountDest, srcMounts, mountGen, err := t.mounts()
+			if err != nil {
+				return err
+			}
 			o := backend.RunOpts{
 				Engine: engine, Image: image, Spec: spec, Dest: dest, Slug: t.slug,
 				MountDest: mountDest,
@@ -584,7 +590,10 @@ func runSetup(t *target, rt config.Runtime, engine string, noSetup bool, errOut 
 		return rerr
 	}
 	fmt.Fprintf(errOut, "sandboxer: running setup for %q…\n", t.slug)
-	mountDest, srcMounts, mountGen := t.mounts()
+	mountDest, srcMounts, mountGen, merr := t.mounts()
+	if merr != nil {
+		return merr
+	}
 	code, err := backendRun(backend.RunOpts{
 		Engine: engine, Image: image, Spec: spec,
 		Dest: t.base.SandboxDir(t.slug), Slug: t.slug,

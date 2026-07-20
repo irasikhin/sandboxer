@@ -16,6 +16,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"path"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -41,12 +42,13 @@ type Src struct {
 	// lives (project root or an explicit -f path).
 	Src string `json:"src"`
 	// Include narrows what the CONTAINER sees of this source to the listed
-	// directories — each an anchored repo-relative path ("/services/api",
-	// trailing slash optional). Empty (or ["**"]) means the whole repo. The host's
-	// worktree is complete either way: narrowing is enforced by mounting only
-	// these directories into the container, so an IDE on the host still sees a
-	// full tree. Directories only — see ValidateInclude for why a glob cannot
-	// be honored by a mount.
+	// directories — each a literal anchored repo-relative path ("/services/api",
+	// trailing slash optional) or an ant-style directory pattern ("/services/*/",
+	// "**/proto/" — a whole "**" segment matches any depth). Empty (or ["**"])
+	// means the whole repo. The host's worktree is complete either way:
+	// narrowing is enforced by mounting only the selected directories into the
+	// container, so an IDE on the host still sees a full tree. Directories only
+	// — see ValidateInclude for why an entry can never select files.
 	Include []string `json:"include,omitempty"`
 	// Branch names the branch the source is checked out on. It is REQUIRED —
 	// there is no default naming — and it also names the worktree's directory
@@ -171,26 +173,30 @@ func WholeRepo(include []string) bool {
 	return len(include) == 0 || (len(include) == 1 && include[0] == "**")
 }
 
-// ValidateInclude rejects an include pattern a container mount cannot honor.
+// ValidateInclude rejects an include entry a container mount cannot honor.
 //
 // Narrowing is enforced by bind-mounting ONLY the selected directories into the
-// container (the host worktree stays complete, so an IDE can open it). A mount
-// names a path, so a pattern must resolve to exactly one directory: an anchored,
-// glob-free repo-relative path. A trailing slash is optional ("/api" and "/api/"
-// are the same). The rejected shapes each have a concrete reason, not a stylistic
-// one:
-//   - a glob ("*.md", "**/x") or a negation ("!/vendor/") selects a FILE SET
-//     that only a matcher can evaluate — it would have to expand to one mount
-//     per matched file, and a file-granular bind mount breaks atomic saves
-//     (write-temp + rename over the mountpoint fails with EBUSY), which is how
-//     editors and agents write files;
-//   - an unanchored path ("src/proto") is ambiguous under gitignore semantics
-//     (any depth), and a mount cannot be ambiguous.
+// container (the host worktree stays complete, so an IDE can open it). An entry
+// is either a literal anchored repo-relative directory path ("/src/proto/",
+// trailing slash optional) or an ant-style DIRECTORY pattern: segments may use
+// *, ? and [...] (path.Match syntax, matched against directory names), and a
+// whole "**" segment matches any number of directories, including zero — so
+// "/**/proto/" selects every proto/ directory at any depth. "**/proto/"
+// (first segment "**") is accepted as shorthand for that; any other unanchored
+// entry stays rejected — under gitignore semantics it would mean "any depth",
+// and that now has an explicit spelling. Only a WHOLE "**" segment recurses:
+// "a**" inside a segment is an ordinary glob (same as "a*").
 //
-// Whether the path is actually a directory (not a file) is NOT checked here —
-// that needs the repo on disk and lives in sandbox.checkViewDirs, which stats it
-// and rejects a file with an actionable message. Requiring a trailing slash was
-// no substitute: "/go.mod/" is still a file. So this stays pure syntax.
+// A mount names directories, never files: the expansion (sandbox.expandInclude)
+// walks directories only, so a pattern can never select a file set — a
+// file-granular bind mount breaks atomic saves (write-temp + rename over the
+// mountpoint fails with EBUSY), which is how editors and agents write files.
+// A negation ("!/vendor/") has no meaning for a mount set, so it stays rejected.
+//
+// Whether a literal path is actually a directory, and whether a pattern matches
+// anything, is NOT checked here — that needs the repo on disk and lives in
+// sandbox.checkViewDirs / the expansion, which reject with an actionable
+// message. So this stays pure syntax.
 func ValidateInclude(include []string) error {
 	if WholeRepo(include) {
 		return nil
@@ -202,18 +208,31 @@ func ValidateInclude(include []string) error {
 		case strings.HasPrefix(p, "!"):
 			return fmt.Errorf("srcs include %q: negation is not supported — narrowing mounts the listed "+
 				"directories, so list what to EXPOSE rather than what to exclude", p)
-		case strings.ContainsAny(p, "*?["):
-			return fmt.Errorf("srcs include %q: globs are not supported — name a directory like \"/src/proto/\" "+
-				"(a glob selects a file set, and mounting files one by one breaks atomic saves)", p)
-		case !strings.HasPrefix(p, "/"):
-			return fmt.Errorf("srcs include %q: must be anchored at the repo root — write \"/%s\"", p, p)
 		case p == "/" || p == "//":
 			return errors.New("srcs include \"/\": that is the whole repo — drop include entirely instead")
 		}
-		for _, seg := range strings.Split(strings.Trim(p, "/"), "/") {
-			if seg == "" || seg == "." || seg == ".." {
+		segs := strings.Split(strings.Trim(p, "/"), "/")
+		if !strings.HasPrefix(p, "/") && segs[0] != "**" {
+			return fmt.Errorf("srcs include %q: must be anchored at the repo root — write \"/%s\" "+
+				"(or \"**/%s\" to match the directory at any depth)", p, p, p)
+		}
+		if len(segs) == 1 && segs[0] == "**" {
+			// "/**", "/**/", "**/" — a lone "**" entry is WholeRepo and never
+			// gets here, so this only trips alongside other entries.
+			return fmt.Errorf("srcs include %q: that is the whole repo — drop include entirely instead", p)
+		}
+		for _, seg := range segs {
+			switch {
+			case seg == "" || seg == "." || seg == "..":
 				return fmt.Errorf("srcs include %q: must be a plain repo-relative directory path "+
 					"(no empty, \".\" or \"..\" segments)", p)
+			case seg == "**":
+				// the recursive wildcard — any number of directories, incl. zero
+			case strings.ContainsAny(seg, `*?[\`):
+				if _, err := path.Match(seg, "x"); err != nil {
+					return fmt.Errorf("srcs include %q: bad pattern segment %q — segments may use *, ? and "+
+						"[...] (or a whole \"**\" segment); close the bracket or name the directory literally", p, seg)
+				}
 			}
 		}
 	}
@@ -378,7 +397,7 @@ var removedKeys = map[string]string{
 	"extraPkgs":  "renamed — image.packages (same nixpkgs attr names; overlay-defined attrs may be listed too)",
 	"hook":       "removed — put static customization in image.{packages,files,env}; anything needing pkgs is a plain nixpkgs overlay file: image.overlay = \"./overlay.nix\"",
 	"nix":        "replaced by image.overlay — a file with a PLAIN nixpkgs overlay (final: prev: { … }); expose computed packages/files as overlay attrs and list them in image.packages",
-	"deps":       "replaced by srcs — e.g. srcs = [ { src = \".\"; include = [ \"/some/dir/\" ]; } ] (src = path to a repo; include = gitignore-style patterns; empty include = the whole repo)",
+	"deps":       "replaced by srcs — e.g. srcs = [ { src = \".\"; include = [ \"/some/dir/\" ]; } ] (src = path to a repo; include = directory paths/patterns; empty include = the whole repo)",
 	"defaults":   "removed — profiles are self-contained; share between them with ordinary nix (let base = { ... }; in { profiles.web = base // { ... }; })",
 }
 

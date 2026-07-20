@@ -139,8 +139,9 @@ explicitly, and its directory is named after it. The container
 sees ONLY the files the srcs select — git metadata never enters it — so the
 agent edits files while your working tree, branches and git stay untouched;
 you review and commit the result with plain git on the host. srcs entries can
-narrow a repo with gitignore-style include patterns, span several repos, or
-pin an existing branch/worktree; other trees come in via extraMounts.
+narrow a repo with directory include patterns ("/src/", "**/generated/"),
+span several repos, or pin an existing branch/worktree; other trees come in
+via extraMounts.
 
 The agent runs inside a podman/docker container built from the toolbox image
 (the agents baked in — see 'sandboxer agents'); each sandbox has its own

@@ -24,7 +24,7 @@ type Source struct {
 	RepoRoot string   `json:"repoRoot"`          // abs toplevel of the source repository
 	Path     string   `json:"path"`              // abs worktree dir exposed to the container
 	Branch   string   `json:"branch"`            // branch the worktree is on
-	Include  []string `json:"include,omitempty"` // gitignore-style narrowing patterns
+	Include  []string `json:"include,omitempty"` // narrowing directory paths/patterns (see config.ValidateInclude)
 	// Managed marks a worktree sandboxer created under <slug>/ and may tear
 	// down. An adopted worktree (a srcs entry whose branch: was already
 	// checked out somewhere, including the repo's main checkout) is never
@@ -501,29 +501,36 @@ func checkViewDirs(s Source) error {
 	if err != nil {
 		return fmt.Errorf("srcs %s: %w", name, err)
 	}
-	for i, dir := range ViewDirs(s) {
-		// ValidateInclude already rejects ".."-style patterns; this lexical belt
-		// guarantees no include-derived mount PATH leaves the worktree.
-		if !strings.HasPrefix(dir, s.Path+sep) {
-			return fmt.Errorf("srcs %s: include %q escapes the worktree", name, s.Include[i])
+	detailed, err := viewDirsDetailed(s)
+	if err != nil {
+		return err
+	}
+	for _, v := range detailed {
+		// ValidateInclude already rejects ".."-style entries; this lexical belt
+		// guarantees no include-derived mount PATH leaves the worktree. For
+		// expanded pattern dirs the existence/containment checks are a TOCTOU
+		// belt — the walker only yields real dirs under the worktree, but the
+		// engine mounts them later, so they must still hold NOW.
+		if !strings.HasPrefix(v.dir, s.Path+sep) {
+			return fmt.Errorf("srcs %s: include %q escapes the worktree", name, v.pattern)
 		}
-		if !dirExists(dir) {
+		if !dirExists(v.dir) {
 			return fmt.Errorf("srcs %s: include %q is not a directory on branch %s — "+
 				"check the path (sandboxer config edit); only directories that exist can be exposed",
-				name, s.Include[i], s.Branch)
+				name, v.pattern, s.Branch)
 		}
 		// Real-path belt: a symlinked view dir (or a symlinked component) must
 		// not resolve OUTSIDE the worktree — otherwise the engine bind-mounts the
 		// host target past the wall. Symlinks INSIDE the mounted content are fine:
 		// the container dereferences those in its own namespace.
-		real, err := filepath.EvalSymlinks(dir)
+		real, err := filepath.EvalSymlinks(v.dir)
 		if err != nil {
-			return fmt.Errorf("srcs %s: include %q: %w", name, s.Include[i], err)
+			return fmt.Errorf("srcs %s: include %q: %w", name, v.pattern, err)
 		}
 		if real != root && !strings.HasPrefix(real, root+sep) {
 			return fmt.Errorf("srcs %s: include %q resolves to %q, outside the worktree — a symlinked "+
 				"include would bind-mount host files past the sandbox boundary; expose a real directory",
-				name, s.Include[i], real)
+				name, v.pattern, real)
 		}
 	}
 	return nil
@@ -722,20 +729,65 @@ func Narrowed(srcs []Source) bool {
 	return false
 }
 
-// ViewDirs returns the absolute host directories of s the container may see:
-// the include directories for a narrowed source, else the worktree itself.
-// These are bind-mounted at their own paths, so what is NOT listed is not
-// mounted and therefore does not exist inside the container — the host tree
-// stays complete regardless (that is the point: an IDE can open it).
-func ViewDirs(s Source) []string {
-	if config.WholeRepo(s.Include) {
-		return []string{s.Path}
-	}
-	out := make([]string, 0, len(s.Include))
+// viewDir pairs a resolved view directory with the include entry that produced
+// it, so a diagnostic can name what the user actually wrote (a pattern may
+// resolve to many directories, so an index into Include no longer works).
+type viewDir struct {
+	pattern string // the raw include entry
+	dir     string // abs host directory under s.Path
+}
+
+// viewDirsDetailed resolves a narrowed source's include entries to concrete
+// host directories. A literal entry maps lexically — no disk access, exactly
+// the pre-pattern behavior (existence is checkViewDirs' job, with its original
+// message). A pattern entry is expanded against the worktree on disk and must
+// select at least one directory: fail closed — a pattern matching nothing
+// would otherwise come up as a silently empty sandbox, the very failure mode
+// checkViewDirs exists to prevent.
+func viewDirsDetailed(s Source) ([]viewDir, error) {
+	name := filepath.Base(s.RepoRoot)
+	out := make([]viewDir, 0, len(s.Include))
 	for _, p := range s.Include {
-		out = append(out, filepath.Join(s.Path, filepath.FromSlash(strings.Trim(p, "/"))))
+		if !includeIsPattern(p) {
+			out = append(out, viewDir{pattern: p, dir: filepath.Join(s.Path, filepath.FromSlash(strings.Trim(p, "/")))})
+			continue
+		}
+		dirs, err := expandInclude(s.Path, p)
+		if err != nil {
+			return nil, fmt.Errorf("srcs %s: include %q: %w", name, p, err)
+		}
+		if len(dirs) == 0 {
+			return nil, fmt.Errorf("srcs %s: include %q matches no directory on branch %s — patterns select "+
+				"directories, never files (a file cannot be mounted alone); check it with: sandboxer config edit",
+				name, p, s.Branch)
+		}
+		for _, d := range dirs {
+			out = append(out, viewDir{pattern: p, dir: d})
+		}
 	}
-	return out
+	return out, nil
+}
+
+// ViewDirs returns the absolute host directories of s the container may see:
+// the include directories (patterns expanded against the worktree on disk) for
+// a narrowed source, else the worktree itself. These are bind-mounted at their
+// own paths, so what is NOT listed is not mounted and therefore does not exist
+// inside the container — the host tree stays complete regardless (that is the
+// point: an IDE can open it). It errors when a pattern matches nothing or the
+// worktree cannot be walked.
+func ViewDirs(s Source) ([]string, error) {
+	if config.WholeRepo(s.Include) {
+		return []string{s.Path}, nil
+	}
+	detailed, err := viewDirsDetailed(s)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]string, len(detailed))
+	for i, v := range detailed {
+		out[i] = v.dir
+	}
+	return out, nil
 }
 
 // Mounts returns the container's source bind mounts and whether the sandbox's
@@ -754,19 +806,30 @@ func ViewDirs(s Source) []string {
 // depends on it): an exact-duplicate include (or a child listed twice) must not
 // emit the same --volume twice — a nested parent+child stays as two DISTINCT
 // paths, only literal repeats collapse.
-func Mounts(srcs []Source) (mountDest bool, mounts []string) {
+//
+// Include patterns are expanded against the live worktree on every call, so
+// the resolved set — and with it the argv and the session hash — tracks the
+// host: a directory created on the host that matches a pattern rebuilds the
+// session on the next enter, exactly like MountFingerprint tracks inode moves.
+// Only the narrowed branch can error (pattern matching nothing, unreadable
+// worktree); adopted and unnarrowed sources are literal paths.
+func Mounts(srcs []Source) (mountDest bool, mounts []string, err error) {
 	if !Narrowed(srcs) {
 		for _, s := range srcs {
 			if !s.Managed { // adopted worktrees live outside <slug>/
 				mounts = append(mounts, s.Path)
 			}
 		}
-		return true, sortedUnique(mounts)
+		return true, sortedUnique(mounts), nil
 	}
 	for _, s := range srcs {
-		mounts = append(mounts, ViewDirs(s)...)
+		dirs, err := ViewDirs(s)
+		if err != nil {
+			return false, nil, err
+		}
+		mounts = append(mounts, dirs...)
 	}
-	return false, sortedUnique(mounts)
+	return false, sortedUnique(mounts), nil
 }
 
 // sortedUnique sorts paths and drops exact duplicates (nil in → nil out).

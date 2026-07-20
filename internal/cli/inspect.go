@@ -213,13 +213,18 @@ func printSessionBlock(out io.Writer, t *target, rt config.Runtime) {
 // image resolve gets NO engine on purpose: show is read-only, so a cold
 // "latest" pin must never launch a resolver container or stamp the pins cache
 // from here — a warm stamp still resolves, a cold one just skips the
-// freshness verdict.
+// freshness verdict. A failed mount resolve (include pattern matching
+// nothing) degrades the same way: show stays read-only and diagnostic, the
+// hard error belongs to enter/exec.
 func sessionHashOpts(t *target, rt config.Runtime, engine string) (backend.RunOpts, bool) {
 	image, spec, err := resolveImage(t.profile, "", io.Discard)
 	if err != nil {
 		return backend.RunOpts{}, false
 	}
-	mountDest, srcMounts, mountGen := t.mounts()
+	mountDest, srcMounts, mountGen, err := t.mounts()
+	if err != nil {
+		return backend.RunOpts{}, false
+	}
 	return backend.RunOpts{
 		Engine: engine, Image: image, Spec: spec,
 		Dest: t.base.SandboxDir(t.slug), Slug: t.slug, BaseDir: t.base.Dir,

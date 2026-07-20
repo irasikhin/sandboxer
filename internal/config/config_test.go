@@ -400,19 +400,34 @@ func TestValidateInclude(t *testing.T) {
 		// exposes the child. sandbox.Mounts turns both into nested bind mounts.
 		{name: "parent and child (redundant, allowed)", include: []string{"/src/", "/src/proto/"}},
 
-		{name: "glob", include: []string{"**/*.md"}, wantErr: "globs are not supported"},
-		{name: "star", include: []string{"/src/*.go"}, wantErr: "globs are not supported"},
-		{name: "question mark", include: []string{"/src?/"}, wantErr: "globs are not supported"},
-		{name: "bracket", include: []string{"/src[ab]/"}, wantErr: "globs are not supported"},
+		// Ant-style directory patterns: *, ? and [...] within a segment
+		// (path.Match against directory names) and a whole "**" segment for any
+		// depth. They can only ever select DIRECTORIES — whether anything
+		// matches is decided against the worktree on disk, not here.
+		{name: "star segment", include: []string{"/services/*/"}},
+		{name: "question mark segment", include: []string{"/src?/"}},
+		{name: "bracket segment", include: []string{"/src[ab]/"}},
+		{name: "any-depth directory", include: []string{"/**/proto/"}},
+		{name: "unanchored double-star sugar", include: []string{"**/proto/"}},
+		{name: "glob leaf (matches dirs only, never files)", include: []string{"**/*.md"}},
+		{name: "trailing double-star (same as the parent alone)", include: []string{"/a/**"}},
+		{name: "redundant double-double-star", include: []string{"/**/**/x/"}},
+		{name: "star inside a segment is not recursive", include: []string{"/a**/"}},
+		{name: "pattern among literals", include: []string{"/ok/", "**/*.md"}},
+
+		{name: "unclosed bracket", include: []string{"/src[ab/"}, wantErr: "bad pattern segment"},
+		{name: "double-star alone among entries", include: []string{"/ok/", "/**/"}, wantErr: "the whole repo"},
+		{name: "anchored bare double-star", include: []string{"/ok/", "/**"}, wantErr: "the whole repo"},
 		{name: "negation", include: []string{"!/vendor/"}, wantErr: "negation is not supported"},
 		{name: "unanchored", include: []string{"src/proto/"}, wantErr: "must be anchored"},
 		{name: "unanchored no slash", include: []string{"api"}, wantErr: "must be anchored"},
+		{name: "unanchored glob", include: []string{"*.md"}, wantErr: "must be anchored"},
 		{name: "root", include: []string{"/"}, wantErr: "the whole repo"},
 		{name: "empty pattern", include: []string{""}, wantErr: "empty pattern"},
 		{name: "parent escape", include: []string{"/../etc/"}, wantErr: "plain repo-relative"},
 		{name: "dot segment", include: []string{"/a/./b/"}, wantErr: "plain repo-relative"},
 		{name: "double slash", include: []string{"/a//b/"}, wantErr: "plain repo-relative"},
-		{name: "one bad among good", include: []string{"/ok/", "**/*.md"}, wantErr: "globs are not supported"},
+		{name: "one bad among good", include: []string{"/ok/", "src/x/"}, wantErr: "must be anchored"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			err := ValidateInclude(tc.include)
@@ -456,7 +471,7 @@ func TestWholeRepo(t *testing.T) {
 func TestResolveRuntimeValidatesSrcs(t *testing.T) {
 	p := &Profile{Srcs: []Src{{Src: ".", Branch: "feat/x", Include: []string{"*.md"}}}}
 	if _, err := ResolveRuntime(p, Defaults{}, "", Overrides{}); err == nil ||
-		!strings.Contains(err.Error(), "globs are not supported") {
-		t.Errorf("ResolveRuntime = %v, want a glob refusal", err)
+		!strings.Contains(err.Error(), "must be anchored") {
+		t.Errorf("ResolveRuntime = %v, want an unanchored-include refusal", err)
 	}
 }

@@ -182,10 +182,36 @@ func TestSourcesIncludeScope(t *testing.T) {
 	}
 }
 
-// TestIncludeRejectsGlob: a glob cannot be honored by a mount, so it is refused
-// at config time with a message naming the directory form — not silently
-// half-applied.
-func TestIncludeRejectsGlob(t *testing.T) {
+// TestIncludeSyntaxErrorCreatesNothing: a syntactically bad include (here:
+// unanchored) is refused at config time — before any sandbox tree is
+// materialized — with a message naming the accepted forms.
+func TestIncludeSyntaxErrorCreatesNothing(t *testing.T) {
+	project := newProject(t)
+	cfg := filepath.Join(t.TempDir(), "bad.nix")
+	body := "{ name = \"bad\"; srcs = [ { src = \".\"; branch = \"feat/bad\"; include = [ \"*.md\" ]; } ]; }\n"
+	if err := os.WriteFile(cfg, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	code, _, errs := run("create", "--src", project, "--config", cfg)
+	if code == 0 {
+		t.Fatal("create accepted an unanchored include, want a refusal")
+	}
+	if !strings.Contains(errs, "must be anchored") {
+		t.Errorf("error does not explain the accepted forms: %q", errs)
+	}
+	// and: nothing was created before the refusal
+	if _, err := os.Stat(filepath.Join(project, "sandboxes")); !os.IsNotExist(err) {
+		t.Errorf("a sandbox tree was materialized despite the bad include (err=%v)", err)
+	}
+}
+
+// TestIncludePatternMatchesNoDirectory: an include pattern is valid syntax but
+// must select at least one directory on the branch — a pattern matching
+// nothing (here: "**/*.md" only matches a DIRECTORY named like *.md, and files
+// never match) fails the create, fail-closed, naming the pattern and branch.
+// Unlike a syntax error this fires AFTER the worktree is materialized: the
+// expansion needs the tree on disk.
+func TestIncludePatternMatchesNoDirectory(t *testing.T) {
 	project := newProject(t)
 	cfg := filepath.Join(t.TempDir(), "glob.nix")
 	body := "{ name = \"glob\"; srcs = [ { src = \".\"; branch = \"feat/glob\"; include = [ \"**/*.md\" ]; } ]; }\n"
@@ -194,14 +220,55 @@ func TestIncludeRejectsGlob(t *testing.T) {
 	}
 	code, _, errs := run("create", "--src", project, "--config", cfg)
 	if code == 0 {
-		t.Fatal("create accepted a glob include, want a refusal")
+		t.Fatal("create accepted a pattern matching nothing, want a refusal")
 	}
-	if !strings.Contains(errs, "globs are not supported") || !strings.Contains(errs, "/src/proto/") {
-		t.Errorf("error does not explain the directory form: %q", errs)
+	if !strings.Contains(errs, "matches no directory") ||
+		!strings.Contains(errs, "**/*.md") || !strings.Contains(errs, "feat/glob") {
+		t.Errorf("error does not name the pattern and branch: %q", errs)
 	}
-	// and: nothing was created before the refusal
-	if _, err := os.Stat(filepath.Join(project, "sandboxes")); !os.IsNotExist(err) {
-		t.Errorf("a sandbox tree was materialized despite the bad include (err=%v)", err)
+}
+
+// TestIncludePatternVanishedMatches: patterns resolve against the live
+// worktree at every mount computation, so a matched directory deleted on the
+// host AFTER create fails the next mount assembly (compose/enter/exec) with
+// the zero-match refusal — while `show`, which is read-only, degrades to
+// skipping the freshness verdict instead of erroring.
+func TestIncludePatternVanishedMatches(t *testing.T) {
+	project := newProject(t)
+	cfg := filepath.Join(t.TempDir(), "pat.nix")
+	body := "{ name = \"pat\"; srcs = [ { src = \".\"; branch = \"feat/pat\"; include = [ \"**/proto/\" ]; } ]; }\n"
+	if err := os.WriteFile(cfg, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(project, "lib", "proto"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(project, "lib", "proto", "a.proto"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for _, args := range [][]string{{"add", "-A"}, {"commit", "-qm", "proto"}} {
+		if out, err := exec.Command("git", append([]string{"-C", project}, args...)...).CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v (%s)", args, err, out)
+		}
+	}
+	if code, _, errs := run("create", "--src", project, "--config", cfg); code != 0 {
+		t.Fatalf("create: %d %s", code, errs)
+	}
+	wt := pathLines(t, "pat", "--src", project)[0]
+	if err := os.RemoveAll(filepath.Join(wt, "lib", "proto")); err != nil {
+		t.Fatal(err)
+	}
+
+	code, _, errs := run("compose", "pat", "--src", project, "--backend", "podman")
+	if code == 0 {
+		t.Fatal("compose resolved mounts for a pattern matching nothing, want a refusal")
+	}
+	if !strings.Contains(errs, "matches no directory") {
+		t.Errorf("compose error = %q, want the zero-match refusal", errs)
+	}
+
+	if code, _, errs := run("show", "pat", "--src", project); code != 0 {
+		t.Errorf("show = %d (%s), want it to degrade gracefully, not fail", code, errs)
 	}
 }
 

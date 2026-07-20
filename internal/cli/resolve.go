@@ -53,10 +53,15 @@ type target struct {
 // are ALWAYS derived together (see sandbox.Mounts / MountFingerprint): mounting
 // the root while a source is narrowed would expose every excluded file, and the
 // fingerprint must cover exactly the mounts that end up in the argv, so the
-// triple must never be assembled field by field at a call site.
-func (t *target) mounts() (mountDest bool, srcMounts []string, mountGen string) {
-	mountDest, srcMounts = sandbox.Mounts(t.base.Srcs(t.slug))
-	return mountDest, srcMounts, sandbox.MountFingerprint(srcMounts)
+// triple must never be assembled field by field at a call site. It errors when
+// an include pattern resolves to nothing (or the worktree cannot be walked) —
+// fail closed rather than launch a sandbox with a silently empty view.
+func (t *target) mounts() (mountDest bool, srcMounts []string, mountGen string, err error) {
+	mountDest, srcMounts, err = sandbox.Mounts(t.base.Srcs(t.slug))
+	if err != nil {
+		return false, nil, "", err
+	}
+	return mountDest, srcMounts, sandbox.MountFingerprint(srcMounts), nil
 }
 
 // resolveProfileFile selects the profile file and returns it together with
