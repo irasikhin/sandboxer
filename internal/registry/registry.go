@@ -10,7 +10,8 @@ package registry
 import (
 	"encoding/json"
 	"fmt"
-	"sort"
+	"maps"
+	"slices"
 
 	_ "embed"
 )
@@ -54,12 +55,7 @@ func init() {
 
 // Names returns the agent names, sorted.
 func Names() []string {
-	names := make([]string, 0, len(catalog))
-	for n := range catalog {
-		names = append(names, n)
-	}
-	sort.Strings(names)
-	return names
+	return slices.Sorted(maps.Keys(catalog))
 }
 
 // Get returns the agent with the given name.

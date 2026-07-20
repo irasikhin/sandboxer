@@ -4,8 +4,9 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"maps"
 	"os"
-	"sort"
+	"slices"
 	"strings"
 
 	"github.com/irasikhin/sandboxer/internal/config"
@@ -63,7 +64,7 @@ func ResolveSpec(p *config.Profile) (Spec, error) {
 			attrs = append(attrs, a)
 		}
 	}
-	sort.Strings(attrs)
+	slices.Sort(attrs)
 	if err := config.ValidateImageSpec(p.Image); err != nil {
 		return Spec{}, err
 	}
@@ -123,13 +124,8 @@ func (s Spec) Tag() string {
 
 // joinSortedKV serializes a string map deterministically for hashing.
 func joinSortedKV(m map[string]string) string {
-	keys := make([]string, 0, len(m))
-	for k := range m {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
 	var b strings.Builder
-	for _, k := range keys {
+	for _, k := range slices.Sorted(maps.Keys(m)) {
 		b.WriteString(k)
 		b.WriteByte(0)
 		b.WriteString(m[k])

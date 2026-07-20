@@ -136,7 +136,9 @@ anything is reset, so one dirty source never leaves you half-reset.`,
 			return nil
 		},
 	}
-	bindExisting(cmd, &f)
+	// reset never starts a container — it fetches and re-bases the host
+	// worktrees — so it takes the resolution flags only.
+	bindTarget(cmd, &f)
 	cmd.Flags().StringVar(&onto, "onto", "", "base ref to reset onto (default: origin/main)")
 	cmd.Flags().BoolVar(&force, "force", false, "reset even with uncommitted changes or un-merged commits (discards them)")
 	cmd.Flags().BoolVar(&noFetch, "no-fetch", false, "skip 'git fetch' (use already-fetched refs)")

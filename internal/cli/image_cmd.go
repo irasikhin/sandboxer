@@ -28,8 +28,8 @@ func newImageCmd() *cobra.Command {
   sandboxer image build   build it (in a builder container)
   sandboxer image rm      remove a built image
 
-Customize it from the config: image.extraPkgs, or the inline image.hook
-(edit with 'sandboxer config edit').`,
+Customize it from the config: image.packages/files/env, or a nixpkgs overlay
+file via image.overlay (edit with 'sandboxer config edit').`,
 	}
 	cmd.AddCommand(newImageBuildCmd(), newImageRmCmd())
 	return cmd

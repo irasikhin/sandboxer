@@ -14,11 +14,8 @@ package itest
 
 import (
 	"os"
-	"os/exec"
-	"path/filepath"
 	"strconv"
 	"sync/atomic"
-	"testing"
 )
 
 var counter atomic.Int64
@@ -28,32 +25,4 @@ var counter atomic.Int64
 // sbx-<slug>-<pid> scheme, so any leaked container/network is easy to spot.
 func Slug(prefix string) string {
 	return prefix + "-" + strconv.Itoa(os.Getpid()) + "-" + strconv.FormatInt(counter.Add(1), 10)
-}
-
-// WriteStub writes an executable #!/bin/sh script at dir/name and returns its
-// path. Used for stub agents and in-container probes.
-func WriteStub(t *testing.T, dir, name, body string) string {
-	t.Helper()
-	p := filepath.Join(dir, name)
-	if err := os.WriteFile(p, []byte("#!/bin/sh\n"+body), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	return p
-}
-
-// BuildBinary compiles a static sandboxer binary (CGO disabled, so it runs on a
-// musl smoke image such as alpine) and returns its path. It skips the test when
-// `go` is not available to build with.
-func BuildBinary(t *testing.T) string {
-	t.Helper()
-	if _, err := exec.LookPath("go"); err != nil {
-		t.Skip("go not on PATH — cannot build the sandboxer binary for the in-container proxy")
-	}
-	out := filepath.Join(t.TempDir(), "sandboxer")
-	cmd := exec.Command("go", "build", "-o", out, "github.com/irasikhin/sandboxer/cmd/sandboxer")
-	cmd.Env = append(os.Environ(), "CGO_ENABLED=0")
-	if b, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("build sandboxer: %v\n%s", err, b)
-	}
-	return out
 }

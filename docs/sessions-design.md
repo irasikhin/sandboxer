@@ -22,8 +22,8 @@ A detached, named, labeled session container (`run -d --init … sleep
 infinity`) is created on the first persistent `enter` and reused by every
 later `enter`/`exec`; attaching means `exec`-ing a tmux client against a tmux
 server that lives *inside* that container (`tmux -L sandboxer`). Detach
-(Ctrl-q) only kills the client — the server, and whatever the agent is doing,
-keeps running.
+(Ctrl-Space d) only kills the client — the server, and whatever the agent is
+doing, keeps running.
 
 Rejected alternatives:
 
@@ -56,7 +56,7 @@ No metadata file. The session container carries a deterministic name
 (`sandboxer-<slug>-<8-hex sha256 of the state base dir>` — same-named
 sandboxes in different projects never collide) and discovery labels
 (`sandboxer.managed/slug/base/hash`). Everything — list's STATE column,
-doctor's orphan report, `rm-all`'s sweep — is an engine query. A state file
+doctor's orphan report, `clean`'s sweep — is an engine query. A state file
 would have to be kept in sync with reality the engine already owns; after an
 `rm -rf` of the project it would also be gone, while the labels still let
 `doctor` find the orphaned container.
@@ -92,7 +92,8 @@ engine doesn't have yet reads as unknown and skips the check.
 
 tmux (+ ncurses terminfo) is baked into the image; the server runs as `tmux -L
 sandboxer` under `/etc/sandboxer/tmux.conf` (every window goes through the
-rc.sh launcher; Ctrl-q detaches; mouse + deep scrollback). `--session <name>`
+rc.sh launcher; the prefix is Ctrl-Space, so Ctrl-Space d detaches; mouse +
+deep scrollback). `--session <name>`
 attaches/creates a named tmux session inside the same container, so several
 terminals can share one sandbox. Same stale-image convention as the rc itself:
 an image built before tmux degrades to the plain rc shell with a rebuild hint.
@@ -104,7 +105,7 @@ session's egress must be *rediscoverable* by a later CLI invocation, so it
 uses the session name as the ID (`<name>-int/-ext/-proxy`, `egress.UpNamed` /
 `Lookup`). Fail-closed is unchanged — no proxy, no session. `stop` parks the
 container **and** the proxy but keeps the networks and the sandbox files
-(resume = plain start); `rm`/`rm-all` sweep container, proxy and networks. A
+(resume = plain start); `rm`/`clean` sweep container, proxy and networks. A
 fresh-looking session whose proxy died is treated as stale and rebuilt rather
 than left without an outbound path — under D3's busy guard: a running session
 with clients attached refuses instead of being torn down under them.
@@ -112,7 +113,7 @@ with clients attached refuses instead of being torn down under them.
 ## The honest limitation
 
 A persistent session survives **client disconnect** — closing the terminal,
-dropping SSH, Ctrl-q. It does **not** survive a container stop, a host reboot,
+dropping SSH, Ctrl-Space d. It does **not** survive a container stop, a host reboot,
 or an engine restart: `sleep infinity` and the tmux server are processes, and
 the processes inside the container die with it (the container itself and its
 filesystem are kept and restarted by the next enter). Resuming the *agent's

@@ -2,8 +2,9 @@ package backend
 
 import (
 	"fmt"
+	"maps"
 	"os"
-	"sort"
+	"slices"
 
 	"github.com/irasikhin/sandboxer/internal/config"
 )
@@ -23,12 +24,7 @@ func extraMountsAndEnv(p *config.Profile) []string {
 	}
 	// Sorted keys: the argv is fingerprinted (ConfigHash) and shown (compose),
 	// so map iteration order must not leak into it.
-	keys := make([]string, 0, len(p.Env))
-	for k := range p.Env {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	for _, k := range keys {
+	for _, k := range slices.Sorted(maps.Keys(p.Env)) {
 		out = append(out, "--env", k+"="+p.Env[k])
 	}
 	return out

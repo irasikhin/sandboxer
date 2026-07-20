@@ -9,7 +9,9 @@ and lay the extensibility primitives a "plugin" would be built from. Sequenced a
 four incremental PRs (T1 → T2 → T3) plus two deferred milestones.
 
 The copy-in "pushes rw deps" language in the sketches below predates the
-v0.27.0 git-worktree migration — there is no push-back today.
+v0.27.0 git-worktree migration — there is no push-back today. The `.sandboxer/`
+paths in them predate the config/data split: runtime state now lives under
+`$XDG_STATE_HOME/sandboxer/<project-id>` and the worktrees under `./sandboxes/`.
 
 This is a decisions-and-why record (an RFC), not a mirror of code
 (`proc-doc-as-code`): it captures the mechanism choices and the alternatives

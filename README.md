@@ -103,7 +103,7 @@ completions) — `sb create`, `sb enter`, `sb exec …` all work exactly like
 ```bash
 sandboxer config init                     # scaffold a commented sandboxer.nix to edit (optional)
 sandboxer create feat                     # create a sandbox named "feat" (worktree on branch feat/feat)
-sandboxer enter  feat                     # attach a shell (persistent session; Ctrl-q detaches)
+sandboxer enter  feat                     # attach a shell (persistent session; Ctrl-Space d detaches)
 sandboxer exec   feat -- claude           # run an agent/command inside it
 git log feat/feat                      # the work is an ordinary branch (commit it on the host)
 sandboxer stop   feat                     # park the session container (enter resumes it)
@@ -111,18 +111,20 @@ sandboxer list                            # status of all sandboxes (alias: sand
 sandboxer rm     feat                     # delete the sandbox and its session (keeps the branch)
 ```
 
-A profile is optional (empty = the whole repo). To narrow the sandbox or add
+A config file is optional — one is scaffolded on first use, seeding the whole
+repo as the single source (`srcs` itself is never implicit: an empty list is an
+error). To narrow the sandbox or add
 setup/tools/env, edit the `sandboxer.nix` in the cwd (auto-discovered) or pass
 another file with `-f`; several profiles live in ONE file under a `profiles`
 attrset and are picked by name (`create <name>`). The sandbox slug comes from
 the profile's `name`.
 
-Commands group into three activities (also shown that way in `--help`): forming
-the **image** (`sandboxer image build|rm`) and **config**
-(`sandboxer config init|edit|validate`, plus
-`sandboxer profile list|use` for picking one), managing **state** (`clean`),
-and **entering/working** in the sandbox
-(`create` / `enter` / `exec` / `stop` / `reset` / `rm` / `list` / `use`).
+Commands fall into four `--help` groups: forming the **image**
+(`sandboxer image build|rm`) and **config** (`sandboxer config
+init|edit|validate`, plus `sandboxer profile list|use` for picking one),
+**entering/working** in the sandbox (`create` / `enter` / `exec` / `stop` /
+`recreate` / `reset` / `rm` / `list` / `use`), inspecting **data** (`clean` /
+`show` / `path`), and the rest (`compose` / `agents` / `doctor`).
 
 ## Config vs data
 
@@ -235,7 +237,7 @@ profiles live in one file under a `profiles` attrset. See `examples/config.nix`,
   backend = "docker";
   egress.allowedDomains = [ "api.anthropic.com" "registry.npmjs.org" "github.com" ];
   srcs = [                  # the sources the sandbox sees (this repo, narrowed)
-    { src = "."; include = [ "/src/lib/" "/shared/proto/" ]; }
+    { src = "."; branch = "feat/feature-x"; include = [ "/src/lib/" "/shared/proto/" ]; }
   ];
   setup = ''                # one-time prep, run once inside the sandbox
     npm ci
@@ -248,9 +250,9 @@ Each `srcs` entry is a repo (`src` — `.` or a path to another repo's root)
 narrowed by `include` — **a list of directories** (`/src/proto`, `/shared/lib`;
 anchored at the repo root, trailing slash optional; omit for the whole repo —
 or an ant-style directory pattern: `/services/*/`, `**/proto/`, where a whole
-`**` segment matches any depth) — and
-optionally pinned with `branch` — naming a branch whose worktree already
-exists (even your main checkout) **adopts** it instead of creating one. Editing
+`**` segment matches any depth) — and pinned to a **required** `branch` —
+naming a branch whose worktree already exists (even your main checkout)
+**adopts** it instead of creating one. Editing
 `srcs` applies on the next `enter`/`exec` and is visible to a **running**
 session immediately. To bring in **non-git** trees, use `extraMounts`.
 
@@ -396,7 +398,7 @@ let
   api = {
     backend = "docker";
     egress.allowedDomains = [ "api.anthropic.com" "github.com" ];
-    srcs = [ { src = "."; include = [ "/shared/proto/" ]; } ];
+    srcs = [ { src = "."; branch = "feat/api"; include = [ "/shared/proto/" ]; } ];
   };
 in {
   profiles = {
@@ -476,9 +478,8 @@ or, with the bundled [direnv](https://direnv.net) helper (copy
 use sandboxer
 ```
 
-`use sandboxer` also watches the active-sandbox marker (under the project's XDG
-state dir), so direnv reloads the moment you switch the active sandbox with
-`sandboxer use <slug>`.
+Run `direnv reload` after `sandboxer use <slug>`: the active-sandbox marker
+lives in the XDG state dir OUTSIDE the repo, so direnv cannot watch it.
 
 What gets exported (only when a sandbox is active):
 

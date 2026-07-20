@@ -3,7 +3,8 @@ package cli
 import (
 	"fmt"
 	"io"
-	"sort"
+	"maps"
+	"slices"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -95,12 +96,7 @@ func emitDirenv(w io.Writer, root string) error {
 		vars["SANDBOXER_ALLOW_DOMAINS"] = base.Domains
 	}
 
-	keys := make([]string, 0, len(vars))
-	for k := range vars {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	for _, k := range keys {
+	for _, k := range slices.Sorted(maps.Keys(vars)) {
 		fmt.Fprintf(w, "export %s=%s\n", k, shellQuote(vars[k]))
 	}
 	return nil

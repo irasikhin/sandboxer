@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # sandboxer macOS diagnostic — run this ON A MAC with Docker Desktop (or `podman
-# machine start`) running, from a clone of the sandboxer repo on the
-# `hardening-and-cleanup` branch. It builds the binary, exercises the container
-# path, and reports exactly where the Linux-first uid / bind-mount / egress
-# assumptions break. Paste the whole output back.
+# machine start`) running, from a clone of the sandboxer repo on main. It builds
+# the binary, exercises the container path, and reports exactly where the
+# Linux-first uid / bind-mount / egress assumptions break. Paste the whole
+# output back.
 #
 #   bash macos-diagnose.sh 2>&1 | tee macos-report.txt
 set -uo pipefail
@@ -60,7 +60,7 @@ say "egress smoke (needs the proxy image; skips cleanly if absent)"
 "$SBX" exec smoke --src "$T" --allow-domains example.com -- sh -c 'echo egress-path-built' 2>&1 | sed 's/^/[egress] /' | head -8
 
 say "cleanup"
-"$SBX" clean --src "$T" --force 2>&1 | sed 's/^/[clean] /' | head -3
+"$SBX" clean "$T" --force 2>&1 | sed 's/^/[clean] /' | head -3
 cd /; rm -rf "$T"
 echo
 echo "DONE. Key questions answered above: (1) does a bind mount honour --user on your"

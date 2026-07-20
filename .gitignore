@@ -4,6 +4,7 @@
 /result
 /result-*
 /dist
+/coverage.out
 
 # Cache & tools
 /.direnv
@@ -13,6 +14,17 @@
 # Editor / tooling state
 /.claude/
 /.praxis/
+.idea/
+*.iml
+/.vscode/
+*.swp
+.DS_Store
 
-# sandboxer's own state dir
+# sandboxer dogfooding itself: the worktrees it creates here (the tool appends
+# this line on first run — declaring it keeps a tracked file from going dirty),
+# and the per-developer config, which names host paths and so is never shared.
+/sandboxes/
+/sandboxer.nix
+
+# Legacy state dir (pre-XDG); current state lives under $XDG_STATE_HOME
 /.sandboxer/

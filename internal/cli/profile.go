@@ -8,9 +8,9 @@ func init() { register(newProfileCmd) }
 
 // newProfileCmd groups the profile-selection verbs under `sandboxer profile`:
 // picking the active sandbox and listing the profiles a sandbox can be
-// created from. The config FILE verbs (init/edit/validate/get/set/unset)
-// live under `sandboxer config`; the old `profile init|edit|validate`
-// spellings remain as hidden deprecated aliases for one release.
+// created from. The config FILE verbs (init/edit/validate) live under
+// `sandboxer config`; the old `profile init|edit|validate` spellings remain
+// as hidden deprecated aliases for one release.
 func newProfileCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "profile",
@@ -22,7 +22,7 @@ func newProfileCmd() *cobra.Command {
   sandboxer profile list         list the config file's profiles
 
 The config file itself is managed by 'sandboxer config'
-(init/edit/validate/get/set/unset).`,
+(init/edit/validate).`,
 	}
 	cmd.AddCommand(
 		newUseCmd(),

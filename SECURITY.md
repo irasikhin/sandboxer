@@ -102,11 +102,11 @@ important — where it stops.
 - **Clean container environment.** The agent runs in a podman/docker container
   from a clean, explicit environment: it does **not** inherit your host shell, so
   an `AWS_*` / `GITHUB_*` / `*_TOKEN` left in your environment is invisible to it
-  unless you wire it in. One such wire-in is the config itself: `sandboxer.nix`
-  is evaluated under a restricted — but **not** *pure* — nix eval, so
-  `builtins.getEnv` can read a host variable into the resolved profile. That is
-  one more reason an untrusted repo's config is code you read before running
-  (see "The config is code" below).
+  unless you wire it in. The config cannot wire one in behind your back:
+  `sandboxer.nix` is evaluated with `restrict-eval` and an empty `NIX_PATH`, and
+  under that setting `builtins.getEnv` returns `""` — a host variable cannot be
+  read into the resolved profile. The config is still code you read before
+  running an untrusted repo's copy (see "The config is code" below).
 
 - **Unprivileged container + resource caps.** The backend runs the agent
   `--user` (non-root), `--cap-drop=ALL`, `--security-opt no-new-privileges`, and
@@ -150,9 +150,9 @@ important — where it stops.
 - **The config is code.** `sandboxer.nix` is EVALUATED on the host — under a
   restricted eval (no network access, imports/reads only inside the config's
   own directory), so it cannot exfiltrate or fetch, but it is still a program.
-  Beyond that, `setup` is a shell script run in the sandbox and the image hook
-  (`image.hook`/`image.nix`) executes nix code at image-build time inside the
-  builder container. A committed `sandboxer.nix` therefore carries
+  Beyond that, `setup` is a shell script run in the sandbox and the image
+  overlay (`image.overlay`, a plain nixpkgs overlay file) executes nix code at
+  image-build time inside the builder container. A committed `sandboxer.nix` therefore carries
   **executable content** on three levels — treat it as code and read an
   untrusted repo's config before `create`/`enter`.
 

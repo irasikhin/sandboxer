@@ -43,11 +43,11 @@ func newCreateCmd() *cobra.Command {
   # from a profile file — slug comes from the profile's name:
   sandboxer create ./sandboxer.nix
 
-  # from a named profile in the store (~/.config/sandboxer/profiles)
+  # a named section of the project config (profiles = { web = {...}; })
   sandboxer create web
 
-  # pick a profile out of a directory
-  sandboxer create web -f ./envs`,
+  # the same, from another config file
+  sandboxer create web -f ./envs.nix`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if err := maybeAutoScaffold(cmd, &f, posArg(args)); err != nil {

@@ -5,7 +5,7 @@
 # Format:          type(scope)!: subject       (scope and ! optional)
 # Special cases:   merges and reverts produced by git itself bypass the rules.
 #
-# To install:   ./scripts/install-hooks.sh
+# To install:   pre-commit install --hook-type commit-msg   (see CONTRIBUTING.md)
 # To bypass:    git commit --no-verify   (avoid; CI will reject anyway)
 set -euo pipefail
 

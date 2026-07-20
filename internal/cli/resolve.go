@@ -29,13 +29,23 @@ type commonFlags struct {
 	recreate  bool // --recreate: force session rebuild even if running (enter only)
 }
 
-// bindExisting registers the flags shared by commands that operate on an
-// existing sandbox (enter/exec/show/stop/recreate/rm/compose).
-func bindExisting(cmd *cobra.Command, f *commonFlags) {
+// bindTarget registers the flags that only RESOLVE which sandbox to act on —
+// everything resolveTarget reads. Commands that never build a container
+// (reset works on the host worktrees) take these alone: binding runtime flags
+// they cannot honour would accept them silently.
+func bindTarget(cmd *cobra.Command, f *commonFlags) {
 	fl := cmd.Flags()
 	fl.StringVar(&f.src, "src", "", "project root (default: cwd)")
 	fl.StringVarP(&f.config, "config", "f", "", "profile file (default: the project sandboxer.nix; pick a profiles section by name)")
 	fl.StringVarP(&f.sandbox, "sandbox", "S", "", "sandbox slug")
+}
+
+// bindExisting registers the flags shared by commands that operate on an
+// existing sandbox AND resolve its runtime (enter/exec/show/stop/recreate/rm/
+// compose) — the resolution flags plus the runtime overrides.
+func bindExisting(cmd *cobra.Command, f *commonFlags) {
+	bindTarget(cmd, f)
+	fl := cmd.Flags()
 	fl.StringVar(&f.backend, "backend", "", "backend: docker | podman")
 	fl.StringVar(&f.domains, "allow-domains", "", "egress allowlist, csv (e.g. api.anthropic.com,github.com)")
 }

@@ -122,8 +122,8 @@ image is built **without nix on the host** (`internal/toolbox`):
         ▼
   host docker/podman ── runs ──► ephemeral nixos/nix:<pinned> container
         │                               │
-        │   inject sandboxer binary     │ realizes the embedded flake
-        │   into the build context      │ (assets/flake.nix):
+        │   write flake + agents/       │ realizes the embedded flake
+        │   tools/overlay into the ctx  │ (assets/flake.nix):
         │                               │   • agents.nix     → the agents
         │                               │   • dockerTools.buildLayeredImage
         │                               ▼
@@ -137,11 +137,11 @@ image is built **without nix on the host** (`internal/toolbox`):
 ```
 
 Per-profile customization is **content-addressed**. A profile's `image:` section
-(extra packages, a user `nix:` hook, input-pin overrides) produces a variant
-tagged `sandboxer-toolbox:var-<12-hex>`, hashed over the effective input pins,
-the package set (`tools` packs + `image.packages`), files, env and the overlay's content
-(`internal/toolbox/spec.go`). Any change — a package, the hook's bytes, a pin —
-is a new tag; identical profiles share one variant; the stock `:latest` is
+(extra packages, files/env, a nixpkgs overlay, input-pin overrides) produces a
+variant tagged `sandboxer-toolbox:var-<12-hex>`, hashed over the effective input
+pins, the package set (`tools` packs + `image.packages`), files, env and the
+overlay's content (`internal/toolbox/spec.go`). Any change — a package, the
+overlay's bytes, a pin — is a new tag; identical profiles share one variant; the stock `:latest` is
 untouched. `create`/`enter`/`exec` auto-build a missing image (stock or
 variant) on first use.
 
@@ -198,7 +198,8 @@ both **embedded in the binary** (via `go:embed`) and **read by the nix flake**
 ```
 
 Each entry declares only the agent's binary name (`bin`), the env vars it reads
-for auth (`authEnv` — informational; nothing is passed through from the host),
+for auth (`authEnv` — passed through from the host when the profile sets
+`hostConfigs = true`),
 whether it ships in the image (`image`), and the `nixPackage` used to bake it
 in. **Adding an agent
 is one JSON entry** — never duplicate the catalog. `sandboxer agents` prints it.

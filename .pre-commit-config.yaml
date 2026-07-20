@@ -47,8 +47,3 @@ repos:
         entry: nixfmt --check
         language: system
         files: \.nix$
-      - id: markdownlint
-        name: markdownlint
-        entry: markdownlint
-        language: system
-        files: \.md$

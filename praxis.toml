@@ -1,4 +1,4 @@
-skills = ["arch-go-cli", "lang-go", "build-go", "ci-github-binary-release", "proc-conventional-commits", "proc-branch-pr-workflow", "proc-repo-hygiene", "proc-doc-as-code", "proc-security-posture", "proc-skill-single-source", "flow-incremental-pr", "flow-root-cause"]
+skills = ["arch-go-cli", "lang-go-style", "lang-go-error-handling", "lang-go-testing", "build-go-tooling", "ci-github-binary-release", "proc-conventional-commits", "proc-branch-pr-workflow", "proc-repo-hygiene", "proc-doc-as-code", "proc-security-posture", "proc-skill-single-source", "flow-incremental-pr", "flow-root-cause"]
 
 [source]
   repo = ""

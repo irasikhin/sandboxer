@@ -53,10 +53,12 @@ package install almost always means the host isn't allowed.
   mode a configured `proxy` *replaces* the allowlist — then the proxy's own policy
   decides what's reachable. In the default allowlist mode, the proxy is chained
   through the allowlist, which still applies.)
-- Proxy not taking effect after editing the config? A **persistent** session
-  reuses its container, so proxy/egress changes only apply to a fresh one — run
-  `sandboxer recreate`. The banner's `egress:` line shows what's actually in
-  effect (`on→proxy (N domains)` when chained).
+- Proxy not taking effect after editing the config? The egress settings are part
+  of the session's config hash, so an edit marks a **persistent** session stale
+  and the next `enter` recreates it automatically — except while another client
+  is attached, when it refuses (detach or `sandboxer stop <slug>` first). The
+  banner's `egress:` line shows what's actually in effect (`on→proxy
+  (N domains)` when chained).
 
 ## Setup hook failed
 
@@ -82,7 +84,7 @@ client disconnects but **not** a host/engine restart.
   conversation is the agent's job (e.g. `claude --continue`).
 - If reattach refuses because the **profile changed or the image was rebuilt**,
   the next `enter` recreates an idle session — but it refuses while another client
-  is still attached. Detach the other client (Ctrl-q) or `sandboxer stop <slug>`
+  is still attached. Detach the other client (Ctrl-Space d) or `sandboxer stop <slug>`
   first.
 - Force a clean slate: `sandboxer stop <slug>` then `enter`, or `rm <slug>` and
   re-`create`.
@@ -99,8 +101,9 @@ sidecar, http:// only; off = the agent talks to it directly, http/https,
 `egress.proxy` — squid's internal name for the peer it forwards to. See "An agent
 can't reach a host" above for the behavior.
 
-**Which platforms are supported?** Linux only. There is no macOS or Windows
-build — sandboxer relies on a Linux container engine (docker/podman) on the host.
+**Which platforms are supported?** Linux is the supported platform; macOS is
+experimental — see [macos.md](./macos.md). There is no Windows build —
+sandboxer relies on a container engine (docker/podman) reachable from the host.
 
 **Does it need Kubernetes / a cloud?** No. It is container-only and entirely
 local: a docker/podman container per sandbox on your own machine. No
@@ -122,6 +125,7 @@ one-off command in it; `sandboxer enter <slug>` drops you into an interactive
 shell. From there you have the same view the agent does — check the state dir's
 `_logs/` for captured output. To review the agent's pending work use ordinary
 git ON THE HOST (the container has no git access): uncommitted edits sit in the
-source worktrees under `../<project>-sandboxes/<slug>/`, committed work on
+source worktrees under `./sandboxes/<slug>/<repo>/<branch>/` (or wherever the
+profile's `worktreesDir` points), committed work on
 each source's configured branch (`git log <branch>`,
 `git diff main...<branch>`).

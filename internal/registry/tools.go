@@ -3,7 +3,8 @@ package registry
 import (
 	"encoding/json"
 	"fmt"
-	"sort"
+	"maps"
+	"slices"
 
 	_ "embed"
 )
@@ -26,12 +27,7 @@ func init() {
 
 // ToolNames returns the available tool-pack names, sorted.
 func ToolNames() []string {
-	names := make([]string, 0, len(toolCatalog))
-	for n := range toolCatalog {
-		names = append(names, n)
-	}
-	sort.Strings(names)
-	return names
+	return slices.Sorted(maps.Keys(toolCatalog))
 }
 
 // ResolveTools maps a profile's friendly tool-pack names to the sorted, unique
@@ -53,6 +49,6 @@ func ResolveTools(names []string) ([]string, error) {
 			}
 		}
 	}
-	sort.Strings(attrs)
+	slices.Sort(attrs)
 	return attrs, nil
 }

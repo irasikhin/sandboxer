@@ -37,7 +37,7 @@ buildGoModule {
 
   # Runtime deps kept on PATH via --prefix (host PATH is preserved too, so a
   # host-installed `claude` and podman/docker stay reachable). No node/gost: the
-  # config is native Go and the egress proxy is the binary itself (_proxy mode).
+  # egress proxy is a squid sidecar image, never the binary itself.
   postInstall = ''
     wrapProgram $out/bin/sandboxer \
       --prefix PATH : ${

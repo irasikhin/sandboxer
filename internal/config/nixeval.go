@@ -19,12 +19,12 @@ import (
 // may only touch paths under the config's own directory (NIX_PATH is cleared
 // and re-seeded with just that directory), and all network access
 // (builtins.fetchurl & co) is forbidden — so a cloned repo's config cannot read
-// files outside its own directory or fetch from the network at eval time. It is
-// NOT a *pure* eval, though: builtins.getEnv still reads the host environment
-// (restrict-eval does not gate it), so a config can pull a host env var into its
-// output. That is consistent with the "config is code" model — a sandboxer.nix
-// is trusted to the same degree as its setup script and extraMounts; read an
-// untrusted repo's config before create/enter. See SECURITY.md.
+// files outside its own directory or fetch from the network at eval time.
+// restrict-eval also gates builtins.getEnv: with NIX_PATH cleared it returns
+// "", so a config cannot pull a host env var into its output either. The config
+// is still code — a sandboxer.nix is trusted to the same degree as its setup
+// script and extraMounts; read an untrusted repo's config before create/enter.
+// See SECURITY.md.
 func EvalConfig(file string) ([]byte, error) {
 	abs, err := filepath.Abs(file)
 	if err != nil {

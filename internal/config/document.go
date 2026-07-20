@@ -3,8 +3,9 @@ package config
 import (
 	"encoding/json"
 	"fmt"
+	"maps"
 	"path/filepath"
-	"sort"
+	"slices"
 	"strings"
 )
 
@@ -133,12 +134,7 @@ func (d *Document) Select(name string) (*Profile, error) {
 
 // names renders the sorted profile names for an error message.
 func (d *Document) names() string {
-	out := make([]string, 0, len(d.Profiles))
-	for k := range d.Profiles {
-		out = append(out, k)
-	}
-	sort.Strings(out)
-	return strings.Join(out, ", ")
+	return strings.Join(slices.Sorted(maps.Keys(d.Profiles)), ", ")
 }
 
 // FileHasProfile reports whether file defines a profile named name, in either

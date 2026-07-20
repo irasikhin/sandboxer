@@ -4,9 +4,10 @@
 // embedded in this package, then the host engine loads the resulting tarball.
 //
 // The embedded flake (assets/flake.nix) references only public inputs (nixpkgs,
-// llm-agents); the sandboxer binary is injected by copying the running
-// executable into the build context, so the build never needs the sandboxer
-// repo or a local checkout.
+// llm-agents) and is written into the build context together with the
+// generated agents.nix/tools.nix/overlay.nix and the files/env JSON, so the
+// build never needs the sandboxer repo or a local checkout. The sandboxer
+// binary is NOT part of the image — it is a host tool (see writeContext).
 package toolbox
 
 import (
