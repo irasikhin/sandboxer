@@ -121,17 +121,88 @@ let
   # see cli tmuxEnterArgs), and a manual `tmux` works the same way:
   # panes reuse the rc.sh launcher for the sandboxer prompt/aliases.
   tmuxConf = pkgs.writeTextDir "etc/tmux.conf" ''
+    # ── behaviour ────────────────────────────────────────────────────────
     set -g default-command "bash -c 'test -r /etc/sandboxer/rc.sh && exec bash --rcfile /etc/sandboxer/rc.sh -i || exec bash -i'"
     set -g default-terminal "tmux-256color"
-    set -g history-limit 10000
+    # True colour: the palette below is 24-bit, and without this tmux
+    # quantizes every hex to the nearest xterm-256 slot (muddy, banded).
+    set -as terminal-features ",*:RGB"
+    set -ga terminal-overrides ",*256col*:Tc"
+    set -g history-limit 50000
     set -g mouse on
+    set -g base-index 1
+    setw -g pane-base-index 1
+    set -g renumber-windows on
+    set -g focus-events on
+    # ESC must be ESC, not the head of a maybe-escape-sequence: the default
+    # 500ms wait makes vim/agent TUIs feel broken inside tmux.
+    set -sg escape-time 10
+    # Let the inner program talk to the OUTER terminal: OSC 52 puts a yank
+    # from inside the sandbox on the host clipboard, and passthrough lets
+    # image/hyperlink sequences survive the multiplexer.
+    set -g set-clipboard on
+    set -g allow-passthrough on
+    set -g display-time 2000
+    set -g status-interval 5
     # Prefix is Ctrl-Space, not the default Ctrl-b — it does not clash with
     # bash's Ctrl-a (beginning of line). e.g. Ctrl-Space c = new window,
     # Ctrl-Space d = detach, Ctrl-Space " / % = split panes.
     set -g prefix C-Space
     unbind C-b
     bind C-Space send-prefix
-    set -g status-left '[sbx #{session_name}] '
+    # Reload without leaving the sandbox.
+    bind r source-file /etc/tmux.conf \; display-message "tmux.conf reloaded"
+
+    # Hoist the sandbox slug into a tmux user option ONCE at server start.
+    # run-shell inherits the server's environment (a status-bar #() does
+    # NOT — it runs detached from it), and doing it here costs one fork
+    # instead of one per status refresh, per client, forever.
+    run-shell 'tmux set -g @sbx "''${SANDBOXER_SLUG:-sandbox}"'
+
+    # ── look: Catppuccin Mocha, flat ─────────────────────────────────────
+    # Deliberately NO powerline separators. Those glyphs (U+E0B0 and
+    # friends) live in the Unicode Private Use Area, so they only render
+    # with a patched Nerd Font — and the HOST terminal's font is not ours
+    # to choose. Everything drawn here is Block Elements or ASCII, which
+    # every monospace font ships, so the bar looks the same everywhere
+    # instead of degrading into a row of tofu boxes.
+    set -g status on
+    set -g status-position bottom
+    set -g status-justify left
+    set -g status-style "bg=#181825,fg=#a6adc8"
+    set -g status-left-length 60
+    set -g status-right-length 60
+
+    # Left: WHICH SANDBOX you are in — the one fact a shell in here must
+    # never leave ambiguous — and a prefix indicator, so Ctrl-Space is
+    # never a guess: the block flips to peach the moment the prefix is
+    # armed and back on the next key.
+    set -g status-left "#{?client_prefix,#[bg=#fab387]#[fg=#11111b]#[bold] ▌ PREFIX ,#[bg=#cba6f7]#[fg=#11111b]#[bold] ▌ sbx #{@sbx} }#[bg=#181825]#[fg=#585b70,none] #{session_name} "
+
+    # Windows: the current one carries the lavender bar, the rest recede.
+    set -g window-status-separator ""
+    set -g window-status-format "#[fg=#6c7086,bg=#181825] #{window_index}·#{window_name} "
+    set -g window-status-current-format "#[fg=#11111b,bg=#b4befe,bold] #{window_index}·#{window_name} "
+    set -g window-status-activity-style "fg=#f9e2af,bg=#181825,none"
+    set -g window-status-bell-style "fg=#f38ba8,bg=#181825,bold"
+
+    # Right: clock only. No battery/CPU/network widgets — each one is a
+    # shell-out every few seconds inside somebody's sandbox, and none of
+    # them tells you anything the host's own bar does not.
+    set -g status-right "#[fg=#585b70] %H:%M #[fg=#11111b,bg=#89b4fa,bold] %d %b "
+
+    # Panes: the active border glows, the idle ones sink into the bg.
+    set -g pane-border-style "fg=#313244"
+    set -g pane-active-border-style "fg=#b4befe"
+    set -g pane-border-lines heavy
+
+    set -g message-style "bg=#cba6f7,fg=#11111b,bold"
+    set -g message-command-style "bg=#313244,fg=#cdd6f4"
+    set -g mode-style "bg=#b4befe,fg=#11111b,bold"
+    set -g display-panes-active-colour "#cba6f7"
+    set -g display-panes-colour "#585b70"
+    set -g set-titles on
+    set -g set-titles-string "sbx #{@sbx} · #{window_name}"
   '';
 in
 {
@@ -172,11 +243,13 @@ in
         # batteries every glue script reaches for (click CLIs, YAML
         # config, jinja2 templating); the nixpkgs attr is pyyaml, the
         # import is `yaml`.
-        (python3.withPackages (ps: with ps; [
-          click
-          pyyaml
-          jinja2
-        ]))
+        (python3.withPackages (
+          ps: with ps; [
+            click
+            pyyaml
+            jinja2
+          ]
+        ))
         nodejs
         jdk25
         (maven.override { jdk_headless = jdk25; })

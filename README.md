@@ -187,7 +187,18 @@ every pane; the prefix is `Ctrl-Space`, so `Ctrl-Space c` opens a new window):
 `Ctrl-Space d` detaches, exiting keeps the container running, and a
 later `sandboxer enter feat` drops straight back in; a second terminal
 attaches the same session in parallel (`--session <name>` opens a separate
-one in the same container). `exec` reuses a running session;
+one in the same container). The status bar names the sandbox you are in and
+flips to `PREFIX` while the prefix is armed:
+
+```text
+ ▌ sbx feat-auth   main   1·claude  2·shell                     14:32   20 Jul
+```
+
+It is a Catppuccin Mocha bar drawn with Block Elements only — no powerline
+separators, because those glyphs need a patched Nerd Font on *your* terminal
+and degrade to tofu boxes without one. `Ctrl-Space r` reloads the config.
+Yanks travel to the host clipboard over OSC 52, and `escape-time` is 10ms so
+ESC stays instant inside vim and the agent TUIs. `exec` reuses a running session;
 `stop` parks the container for a later resume; `rm` removes it along with the
 sandbox. `list`'s STATE column shows `running`/`stopped`/`-` per sandbox. When
 the profile changes or the toolbox image is rebuilt, the next `enter`
