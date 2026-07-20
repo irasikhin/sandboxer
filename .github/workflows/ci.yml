@@ -95,12 +95,18 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
-      # .golangci.yml is golangci-lint v2 config; pin the binary at v2.1.6.
-      # golangci-lint-action v8 supports golangci-lint >= v2.1.0 and accepts a
-      # full patch version in its default binary install mode.
+      # .golangci.yml is golangci-lint v2 config; golangci-lint-action v8
+      # supports golangci-lint >= v2.1.0 and accepts a full patch version.
+      #
+      # The pin must be built with a Go at least as new as go.mod's floor:
+      # golangci-lint refuses to run when "the Go language version used to
+      # build golangci-lint is lower than the targeted Go version", so raising
+      # the floor to 1.25.8 broke the v2.1.6 pin (built with go1.24.2). v2.12.2
+      # is built with go1.26 and is also what the nix devShell provides, so a
+      # local run and this job now agree.
       - uses: golangci/golangci-lint-action@v8
         with:
-          version: v2.1.6
+          version: v2.12.2
 
   nix:
     runs-on: ubuntu-latest
