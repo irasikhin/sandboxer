@@ -90,7 +90,11 @@ important — where it stops.
   claude's rotating OAuth pair is excluded — a copy breaks on refresh
   rotation and could hijack the host session), and the agents' auth env vars
   set on the host (API keys, a `claude setup-token` long-lived token) are
-  passed into the container env. The trade is explicit: code
+  passed into the environment of the process that needs them — the one-shot
+  run, or each session `exec` — and never baked into the long-lived session
+  container, so they are not sitting in its inspectable environment and a
+  rotated token reaches the next shell without a rebuild. The trade is
+  explicit: code
   running in that sandbox can read those copied credentials, and its egress
   allowlist is the wall between them and an exfiltration attempt — but it
   still cannot touch the host's real config (a hook written into the

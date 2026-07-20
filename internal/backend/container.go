@@ -84,13 +84,23 @@ type RunOpts struct {
 	// inode-stable), keeping that argv — and its session hash — unchanged.
 	MountGen string
 	// AuthEnv is the agents' auth environment ("KEY=value" entries, sorted by
-	// the caller — the order is part of the ConfigHash contract), collected by
-	// the CLI from the HOST environment when the profile opts into hostConfigs:
-	// long-lived tokens like CLAUDE_CODE_OAUTH_TOKEN (`claude setup-token`) or
-	// plain API keys. Env is the sanctioned channel for these — unlike a copied
-	// OAuth credentials FILE, whose rotating refresh chain dies (or hijacks the
-	// host's session) on the next refresh either side performs. The profile's
-	// own env is appended later, so it still overrides per key.
+	// the caller), collected by the CLI from the HOST environment when the
+	// profile opts into hostConfigs: long-lived tokens like
+	// CLAUDE_CODE_OAUTH_TOKEN (`claude setup-token`) or plain API keys. Env is
+	// the sanctioned channel for these — unlike a copied OAuth credentials
+	// FILE, whose rotating refresh chain dies (or hijacks the host's session)
+	// on the next refresh either side performs. The profile's own env is
+	// appended after it, so it still overrides per key.
+	//
+	// It is set on the PROCESS, never on the session container: `run` bakes it
+	// (the agent is that container's main process) while a session shell gets
+	// it per `exec`. Two reasons. It keeps credentials out of the long-lived
+	// container's inspectable environment; and, decisively, it keeps them out
+	// of ConfigHash — which fingerprints the create argv. A hash that moved
+	// with a token value made every rotation, and every terminal that happened
+	// not to export the var, read as "profile changed", so a session went
+	// permanently stale from ambient shell state rather than from the config.
+	// Each new shell picks up the current value with no rebuild at all.
 	AuthEnv         []string
 	RT              config.Runtime
 	Profile         *config.Profile
@@ -173,10 +183,24 @@ func runArgs(o RunOpts, egNet, egProxyURL string) ([]string, error) {
 			args = append(args, "-t")
 		}
 	}
+	// Auth env belongs to the PROCESS, not the container (see RunOpts.AuthEnv):
+	// here the agent IS the container's main process, so it is set at run time.
+	// Before commonArgs so the profile's own env — appended at its tail — still
+	// wins per key, exactly as when this lived inside commonArgs.
+	args = append(args, authEnvArgs(o)...)
 	args = append(args, commonArgs(o, egNet, egProxyURL)...)
 	args = append(args, o.Image)
 	args = append(args, o.Args...)
 	return args, nil
+}
+
+// authEnvArgs renders the agents' auth environment as engine --env flags.
+func authEnvArgs(o RunOpts) []string {
+	args := make([]string, 0, 2*len(o.AuthEnv))
+	for _, kv := range o.AuthEnv {
+		args = append(args, "--env", kv)
+	}
+	return args
 }
 
 // commonArgs assembles every engine flag shared by the one-shot `run` and the
@@ -220,11 +244,10 @@ func commonArgs(o RunOpts, egNet, egProxyURL string) []string {
 	if o.MountGen != "" {
 		args = append(args, "--env", "SANDBOXER_MOUNT_GEN="+o.MountGen)
 	}
-	// Host auth env (see RunOpts.AuthEnv) — pre-sorted; a changed token flips
-	// the session hash, so a stale session is rebuilt with the fresh one.
-	for _, kv := range o.AuthEnv {
-		args = append(args, "--env", kv)
-	}
+	// NO auth env here: it is scoped to the process that needs it (runArgs for
+	// a one-shot, execArgv for a session shell), never baked into the session
+	// container. See RunOpts.AuthEnv for why.
+	//
 	// $HOME is the sandbox-private agent home, bound at its own host path. It is
 	// isolated per sandbox (see sandbox.Base.HomeDir): the host's real home is
 	// never mounted, so no host config leaks in and the agent's atomic config

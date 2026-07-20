@@ -95,6 +95,11 @@ func execArgv(o RunOpts, name string, cmdArgs []string) []string {
 	if term := os.Getenv("TERM"); term != "" {
 		args = append(args, "--env", "TERM="+term)
 	}
+	// Auth env travels per exec, not baked into the container (RunOpts.AuthEnv):
+	// every shell gets the token the host has RIGHT NOW, so a rotation reaches
+	// the sandbox without rebuilding the session — and the session's own
+	// environment never holds a credential.
+	args = append(args, authEnvArgs(o)...)
 	args = append(args, name)
 	args = append(args, cmdArgs...)
 	return args
@@ -103,7 +108,10 @@ func execArgv(o RunOpts, name string, cmdArgs []string) []string {
 // ConfigHash fingerprints the session's create configuration: a sha256 over
 // the canonical create argv EXCLUDING the container name and labels, so
 // renaming or relabeling a session never flips the hash, while any change to
-// the image, mounts, env, proxies or resource limits does. The result is
+// the image, mounts, env, proxies or resource limits does. Auth env is absent
+// by construction — it is never part of the create argv (RunOpts.AuthEnv) —
+// so a rotated token, or a terminal that does not export one, no longer reads
+// as a changed profile. The result is
 // stored in the LabelHash label and compared on re-enter to decide whether the
 // running session still matches the desired configuration.
 //

@@ -65,7 +65,18 @@ would have to be kept in sync with reality the engine already owns; after an
 
 `ConfigHash` fingerprints the canonical create argv (image, mounts, env,
 proxies, limits — excluding the name/labels), is stamped into
-`sandboxer.hash` at create time and recomputed on every enter. The pure
+`sandboxer.hash` at create time and recomputed on every enter.
+
+What is fingerprinted must be *configuration*, not ambient shell state. The
+agents' auth env used to be in the create argv, so a rotated token — or simply
+entering from a terminal that had not exported one — read as "profile
+changed". That is not a config change, and paid for as one it made a session
+permanently stale. Credentials are now scoped to the process that needs them
+(`run` for a one-shot, each `exec` for a session shell), which keeps them out
+of the hash *and* out of the long-lived container's environment, and lets a
+rotation reach the next shell with no rebuild at all. Everything left in the
+hash genuinely cannot change without a new container: image, mounts and their
+generations, limits, proxy/egress wiring. The pure
 decision table (`planSession`):
 
     not found               → create

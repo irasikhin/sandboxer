@@ -100,6 +100,46 @@ func TestExecArgv(t *testing.T) {
 	}
 }
 
+// TestAuthEnvIsProcessScoped pins where credentials may appear: on the exec
+// that starts a shell (so every shell gets the CURRENT host token, with no
+// rebuild), never on the session container's create argv — which would both
+// park the token in a long-lived container's environment and, through
+// ConfigHash, make a rotation look like a changed profile.
+func TestAuthEnvIsProcessScoped(t *testing.T) {
+	o := RunOpts{
+		MountDest: true, Engine: "docker", Image: "img:1", Dest: "/d", Slug: "s", BaseDir: "/b",
+		AuthEnv: []string{"ANTHROPIC_API_KEY=k", "CLAUDE_CODE_OAUTH_TOKEN=t"},
+		Stdin:   strings.NewReader(""), Stdout: &bytes.Buffer{},
+	}
+	t.Setenv("TERM", "")
+
+	create := strings.Join(CreateArgv(o, "n", "h"), " ")
+	for _, kv := range o.AuthEnv {
+		if strings.Contains(create, kv) {
+			t.Errorf("create argv carries %q — the session container must hold no credential", kv)
+		}
+	}
+
+	got := ExecArgv(o, "n", []string{"sh"})
+	want := []string{"exec", "-i", "-w", "/d",
+		"--env", "ANTHROPIC_API_KEY=k", "--env", "CLAUDE_CODE_OAUTH_TOKEN=t", "n", "sh"}
+	if !slices.Equal(got, want) {
+		t.Errorf("ExecArgv =\n%q\nwant\n%q", got, want)
+	}
+
+	// A one-shot run still bakes them: there the agent IS the main process,
+	// and the container dies with it. The profile's env comes later in the
+	// argv, so it keeps overriding per key (last --env wins).
+	run, err := RunArgv(o)
+	if err != nil {
+		t.Fatal(err)
+	}
+	authAt, profileEnvAt := slices.Index(run, "ANTHROPIC_API_KEY=k"), slices.Index(run, "LANG=C.UTF-8")
+	if authAt < 0 || authAt > profileEnvAt {
+		t.Errorf("run argv must carry the auth env, ahead of the profile's own:\n%q", run)
+	}
+}
+
 func TestConfigHash(t *testing.T) {
 	base := RunOpts{
 		MountDest: true, Engine: "docker", Image: "img:1", Dest: "/d", Slug: "s", BaseDir: "/b",
@@ -123,6 +163,21 @@ func TestConfigHash(t *testing.T) {
 		o    RunOpts
 	}{
 		{"different BaseDir", func() RunOpts { o := base; o.BaseDir = "/elsewhere"; return o }()},
+		// Auth env is scoped to the process, not the container, so it is not in
+		// the create argv at all. This is load-bearing: a hash that tracked a
+		// token value went stale on every rotation AND in every terminal that
+		// did not export the var, which made a session permanently stale from
+		// ambient shell state. Each exec carries the current value instead.
+		{"auth env present", func() RunOpts {
+			o := base
+			o.AuthEnv = []string{"CLAUDE_CODE_OAUTH_TOKEN=t1"}
+			return o
+		}()},
+		{"auth env rotated", func() RunOpts {
+			o := base
+			o.AuthEnv = []string{"CLAUDE_CODE_OAUTH_TOKEN=t2"}
+			return o
+		}()},
 	}
 	for _, tc := range same {
 		if g := ConfigHash(tc.o, "", ""); g != h {
@@ -155,13 +210,6 @@ func TestConfigHash(t *testing.T) {
 		// A bumped sandbox-dir generation must invalidate the session: its bind
 		// mounts hold the pre-deletion directory (see RunOpts.DestGen).
 		{"dest generation", func() RunOpts { o := base; o.DestGen = "2"; return o }(), [2]string{"", ""}},
-		// A new/rotated host auth token must invalidate the session too — the
-		// old container keeps serving the stale token otherwise.
-		{"auth env", func() RunOpts {
-			o := base
-			o.AuthEnv = []string{"CLAUDE_CODE_OAUTH_TOKEN=t1"}
-			return o
-		}(), [2]string{"", ""}},
 	}
 	for _, tc := range diff {
 		if g := ConfigHash(tc.o, tc.eg[0], tc.eg[1]); g == h {
