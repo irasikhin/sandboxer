@@ -84,9 +84,9 @@ func TestTmuxRestoreScript_RebuildsGuardedAndAttaches(t *testing.T) {
 	s := TmuxRestoreScript(sessions, "main")
 
 	for _, want := range []string{
-		"B=$(tmux -L 'sandboxer' show-options -gv base-index",
 		"if ! tmux -L 'sandboxer' has-session -t '=main' 2>/dev/null; then",
 		"tmux -L 'sandboxer' new-session -d -s 'main' -c '/work/a'",
+		"B=$(tmux -L 'sandboxer' display-message -p -t 'main' '#{window_index}' 2>/dev/null); B=${B:-0}",
 		"tmux -L 'sandboxer' rename-window -t 'main':$((B+0)) 'edit'",
 		"tmux -L 'sandboxer' split-window -t 'main':$((B+0)) -c '/work/b'",
 		"tmux -L 'sandboxer' select-layout -t 'main':$((B+0)) 'L0'",

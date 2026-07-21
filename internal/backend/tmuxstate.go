@@ -49,8 +49,10 @@ type TmuxPane struct {
 }
 
 // tmuxSocket is the in-container server socket enter attaches (see D4 /
-// tmuxEnterArgs): every capture/restore command targets `tmux -L sandboxer`.
-const tmuxSocket = "sandboxer"
+// tmuxEnterArgs): every capture/restore command targets `tmux -L sandboxer`. A
+// var, not a const, ONLY so a real-tmux round-trip test can redirect it to a
+// throwaway socket instead of a live session; it is never reassigned at runtime.
+var tmuxSocket = "sandboxer"
 
 // captureFormat lists one line per pane across every session and window on the
 // server, tab-separated so each field keeps its slot even when empty. The order
@@ -177,11 +179,13 @@ func TmuxRestoreScript(sessions []TmuxSession, attach string) string {
 	}
 
 	var b strings.Builder
-	// Honor the image's base-index rather than assuming 0, so window targets line
-	// up with how the server actually numbers them. No `set -e`/`set -u`: a
-	// restore is best-effort — a failed tmux command must never stop the script
-	// short of the final attach, which always yields a working session.
-	b.WriteString("B=$(" + tmux + "show-options -gv base-index 2>/dev/null || echo 0)\n")
+	// No `set -e`/`set -u`: a restore is best-effort — a failed tmux command must
+	// never stop the script short of the final attach, which always yields a
+	// working session. The base-index (B) is read PER SESSION from the window
+	// new-session just created, NOT up front: the server — and the base-index its
+	// config sets — does not exist until the first new-session, so an early
+	// `show-options` (or `start-server`) reads 0 and every window target would
+	// miss on a base-index-1 image (the toolbox's default). Real tmux caught this.
 
 	for _, s := range sessions {
 		if s.Name == "" || len(s.Windows) == 0 {
@@ -193,6 +197,9 @@ func TmuxRestoreScript(sessions []TmuxSession, attach string) string {
 			target := name + ":$((B+" + strconv.Itoa(wi) + "))"
 			if wi == 0 {
 				b.WriteString("  " + tmux + "new-session -d -s " + name + cflag(firstPath(w)) + "\n")
+				// Read the ACTUAL base-index from the window new-session just made
+				// (the server, and its config, did not exist until this line).
+				b.WriteString("  B=$(" + tmux + "display-message -p -t " + name + " '#{window_index}' 2>/dev/null); B=${B:-0}\n")
 				if w.Name != "" {
 					b.WriteString("  " + tmux + "rename-window -t " + target + " " + shquote(w.Name) + "\n")
 				}
