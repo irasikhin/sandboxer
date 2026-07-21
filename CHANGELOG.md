@@ -6,6 +6,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.58.1] — 2026-07-21
+
+### Fixed
+
+- read tmux base-index from the created window, not up front (27e46fb)
+
+
 ## [0.58.0] — 2026-07-21
 
 ### Added
@@ -678,3 +685,4 @@ isolated, containerized dev sandbox, on a local Linux machine:
 [0.56.3]: https://github.com/irasikhin/sandboxer/compare/v0.56.2...v0.56.3
 [0.57.0]: https://github.com/irasikhin/sandboxer/compare/v0.56.3...v0.57.0
 [0.58.0]: https://github.com/irasikhin/sandboxer/compare/v0.57.0...v0.58.0
+[0.58.1]: https://github.com/irasikhin/sandboxer/compare/v0.58.0...v0.58.1
