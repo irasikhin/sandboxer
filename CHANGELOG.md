@@ -6,6 +6,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.58.0] — 2026-07-21
+
+### Added
+
+- survive container replacement — capture and restore the tmux layout (4410d10)
+
+### Fixed
+
+- raise the Go floor to 1.25.8 for two reachable stdlib CVEs (5526560)
+
+### CI
+
+- gate the engine-level integration tests and scan for vulnerabilities (96fdec8)
+- take the deployment specifics out of a public file (66b40bb)
+- pin golangci-lint to a build newer than the Go floor (31ca375)
+
+
 ## [0.57.0] — 2026-07-20
 
 ### Added
@@ -660,3 +677,4 @@ isolated, containerized dev sandbox, on a local Linux machine:
 [0.56.2]: https://github.com/irasikhin/sandboxer/compare/v0.56.1...v0.56.2
 [0.56.3]: https://github.com/irasikhin/sandboxer/compare/v0.56.2...v0.56.3
 [0.57.0]: https://github.com/irasikhin/sandboxer/compare/v0.56.3...v0.57.0
+[0.58.0]: https://github.com/irasikhin/sandboxer/compare/v0.57.0...v0.58.0
