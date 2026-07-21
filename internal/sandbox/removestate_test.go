@@ -43,3 +43,24 @@ func TestRemoveStateKeepsHome(t *testing.T) {
 		t.Error("keepHome=false must remove the agent home")
 	}
 }
+
+// TestRemoveStateSessionLayout: the saved tmux layout survives a routine
+// recreate (keepHome) so the next attach restores it, but a full removal
+// (rm/clean/recreate --full) discards it — the session dies only on rm.
+func TestRemoveStateSessionLayout(t *testing.T) {
+	b, err := ResolveBase(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, b.SessionStatePath("s"), "[]")
+
+	b.RemoveState("s", true)
+	if _, err := os.Stat(b.SessionStatePath("s")); err != nil {
+		t.Error("keepHome=true (recreate) must preserve the saved session layout")
+	}
+
+	b.RemoveState("s", false)
+	if _, err := os.Stat(b.SessionStatePath("s")); !os.IsNotExist(err) {
+		t.Error("keepHome=false (rm) must delete the saved session layout")
+	}
+}

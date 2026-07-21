@@ -214,14 +214,15 @@ named session in the same container.`,
 			}
 			o := backend.RunOpts{
 				Engine: engine, Image: image, Spec: spec, Dest: dest, Slug: t.slug,
-				MountDest: mountDest,
-				MountGen:  mountGen,
-				MountIDs:  mountIDs,
-				SrcMounts: srcMounts,
-				HomeDir:   t.base.HomeDir(t.slug),
-				DestGen:   t.base.Gen(t.slug),
-				AuthEnv:   hostAuthEnv(t.profile),
-				RT:        rt, Profile: t.profile,
+				MountDest:        mountDest,
+				MountGen:         mountGen,
+				MountIDs:         mountIDs,
+				SrcMounts:        srcMounts,
+				HomeDir:          t.base.HomeDir(t.slug),
+				SessionStatePath: t.base.SessionStatePath(t.slug),
+				DestGen:          t.base.Gen(t.slug),
+				AuthEnv:          hostAuthEnv(t.profile),
+				RT:               rt, Profile: t.profile,
 				ProfileJSONPath: t.base.ProfileJSONPath(t.slug),
 				Mem:             rt.Mem, CPU: rt.CPU, Pids: rt.Pids,
 				Interactive: true, Args: tmuxEnterArgs(sessionName),
@@ -314,7 +315,7 @@ named session in the same container.`,
 					fmt.Fprintln(errOut, "sandboxer:", err)
 					runErr = err
 				} else {
-					code, runErr = backendExecSession(o, name, tmuxEnterArgs(sessionName))
+					code, runErr = backendExecSession(o, name, tmuxRestoreArgs(sessionName, o.SessionStatePath))
 				}
 			default:
 				code, runErr = backendRun(o)
@@ -547,22 +548,42 @@ func warnOpenNetwork(w io.Writer, rt config.Runtime, prof *config.Profile) {
 	fmt.Fprintln(w, msg)
 }
 
-// tmuxEnterArgs is the in-container command for `enter`: attach to (or
-// create) the named session on the in-container `tmux -L sandboxer` server —
-// the system /etc/tmux.conf routes every pane through the rc.sh launcher
-// (sandbox-aware prompt, aliases) and turns the mouse on, so wheel scrolling
-// works regardless of what TERM made it into the container. The guard
-// tolerates an older cached toolbox image without tmux — degrading to the
-// plain rc shell with a rebuild hint instead of stranding the user. The
-// session name is interpolated into the script, so callers must vet it with
-// validateSessionName first.
-func tmuxEnterArgs(session string) []string {
+// tmuxLaunch wraps an in-container launch command (the then-branch) with the
+// tmux-presence guard and the plain-shell fallback, so both a fresh attach and
+// a layout restore degrade identically on an older cached toolbox image that
+// predates tmux — the system /etc/tmux.conf routes every pane through the rc.sh
+// launcher (sandbox-aware prompt, aliases, mouse on) when tmux is there, and the
+// rc shell with a rebuild hint when it is not. primary must NOT end in a newline
+// (it is spliced in before `; else`), and any value interpolated into it must be
+// shell-safe — callers vet a session name with validateSessionName first.
+func tmuxLaunch(primary string) []string {
 	return []string{"bash", "-c",
-		"if command -v tmux >/dev/null; then " +
-			"exec tmux -L sandboxer new-session -A -s " + session + "; " +
-			"else " +
+		"if command -v tmux >/dev/null; then " + primary + "; else " +
 			"echo 'sandboxer: tmux not in image — plain shell (rebuild: sandboxer image build)' >&2; " +
 			"test -r /etc/sandboxer/rc.sh && exec bash --rcfile /etc/sandboxer/rc.sh -i || exec bash -i; fi"}
+}
+
+// tmuxEnterArgs is the in-container command for `enter`: attach to (or create)
+// the named session on the in-container `tmux -L sandboxer` server.
+func tmuxEnterArgs(session string) []string {
+	return tmuxLaunch("exec tmux -L sandboxer new-session -A -s " + session)
+}
+
+// tmuxRestoreArgs is tmuxEnterArgs plus a one-time layout restore: when a saved
+// session state exists at statePath (written before this container replaced the
+// last one), the attach first rebuilds the recorded windows/panes and then
+// attaches. The rebuild is idempotent — a live session is left untouched by the
+// `has-session` guard baked into the script — so with no saved state it is
+// exactly tmuxEnterArgs, and callers use it unconditionally. The saved state is
+// NOT consumed here (it is deleted only by rm/clean): a fresh container has no
+// live session, so it rebuilds; a re-enter into a live one skips straight to the
+// attach.
+func tmuxRestoreArgs(session, statePath string) []string {
+	saved := backend.ReadTmuxState(statePath)
+	if len(saved) == 0 {
+		return tmuxEnterArgs(session)
+	}
+	return tmuxLaunch(backend.TmuxRestoreScript(saved, session))
 }
 
 // sessionNameRe pins --session to characters that are safe to splice into the

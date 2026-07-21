@@ -414,6 +414,13 @@ func reviveEgress(engine, name string, action sessionAction) bool {
 // pre-cleans; the no-egress path Downs leftovers), after the container — which
 // may still be attached to the old network — is gone.
 func recreateSession(o RunOpts, name, hash string) (string, error) {
+	// The container is about to be replaced, taking its in-container tmux — and
+	// the user's windows — with it. Save the layout first, while it still runs,
+	// so the next attach restores it: a mount change no longer costs a session.
+	if SaveSessionState(o.Engine, name, o.SessionStatePath) {
+		notice(o.Stderr, "saved your session layout — restoring it on attach "+
+			"(running programs are interrupted; agents resume with --continue)")
+	}
 	// Announced: on a wedged engine `rm -f` can take a long time, and silence
 	// here reads as a hang.
 	notice(o.Stderr, "removing the old session container…")

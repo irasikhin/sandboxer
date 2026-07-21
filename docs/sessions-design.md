@@ -2,7 +2,8 @@
 
 Status: **implemented** (v0.21 line) — session naming/hash, stable-ID egress
 sidecar, tmux in the toolbox image, the lifecycle state machine, persistent
-`enter`/`exec`, `stop`, session-aware `rm`/`list`/`show`/`doctor`/`compose`.
+`enter`/`exec`, `stop`, session-aware `rm`/`list`/`show`/`doctor`/`compose`, and
+tmux-layout capture/restore across a container replacement (D6).
 
 This is a decisions-and-why record (an RFC), not a mirror of code
 (`proc-doc-as-code`): it captures the mechanism choices and the alternatives
@@ -169,16 +170,48 @@ fresh-looking session whose proxy died is treated as stale and rebuilt rather
 than left without an outbound path — under D3's busy guard: a session holding a
 tmux session is attached as-is instead of being torn down under it.
 
+### D6 — the session outlives its container: layout capture + restore
+
+A mount change (a new `include` match, a recreated view directory) forces a new
+container, and the container is where the user's tmux — and agent — live.
+Destroying the session as a side effect of a config change is exactly the loss
+`docs/live-view-design.md` set out to remove; a host-side FUSE view would remove
+the replace entirely but is Linux-only and heavier, so it stays deferred. The
+cheaper, portable half is to decouple "the session" from "the container": capture
+the session's user-facing SHAPE to the host before any replacement and replay it
+on the next attach.
+
+- **Captured** (`backend.CaptureTmuxState` → `_meta/<slug>.session.json`): the
+  tmux sessions, their windows and panes, each window's `window_layout` and each
+  pane's working directory. Recorded before a container is replaced
+  (`recreateSession`) or parked (`stop`, `recreate`), and only when there is a
+  live layout to save — an idle capture never overwrites an earlier one.
+- **Restored** (`TmuxRestoreScript`, run by the attach in place of a bare
+  `new-session`): windows/panes/layout/cwd are rebuilt, then attached. Idempotent
+  by a `has-session` guard, so a second terminal or a re-enter into a live
+  session skips straight to the attach and never clobbers running work.
+- **NOT restored**: the live process in a pane. A running program cannot be
+  migrated across a container it is a process of (CRIU cannot tolerate the
+  changed mount set that motivated the replace), so a pane returns as a shell in
+  its old directory. The agent's *conversation* resumes on its own —
+  `claude --continue` — because its state lives under the per-sandbox `$HOME`, a
+  host mount that outlives every container.
+- **Lifecycle**: the saved layout IS the user's session, discarded only by an
+  explicit `rm`/`clean` (or `recreate --full`, the reset that also drops the
+  home). A routine recreate/stop keeps it.
+
 ## The honest limitation
 
 A persistent session survives **client disconnect** — closing the terminal,
-dropping SSH, Ctrl-Space d. It does **not** survive a container stop, a host reboot,
-or an engine restart: `sleep infinity` and the tmux server are processes, and
-the processes inside the container die with it (the container itself and its
-filesystem are kept and restarted by the next enter). Resuming the *agent's
-conversation* after that is the agent's own job — e.g. `claude --continue` —
-sandboxer only guarantees the place it runs in (container fs, sandbox dir,
-per-sandbox `$HOME`) is still there.
+dropping SSH, Ctrl-Space d — with the container and everything in it untouched.
+Across a container **replacement** (a recreate for a config/mount change, or a
+stop/start) the session's *layout* now survives too (D6), but the *live
+processes* do not: `sleep infinity` and the tmux server are processes that die
+with the container, so a restored pane is a fresh shell in its old directory, and
+resuming the agent's conversation is the agent's own job — e.g. `claude
+--continue`. A host reboot or engine restart is the same: the container fs,
+sandbox dir and per-sandbox `$HOME` are kept, and the layout is restored on the
+next enter.
 
 > **Historical note:** the detach-time deps push described below was removed in
 > v0.27.0 when sandboxes became git worktrees — work lands on each source's

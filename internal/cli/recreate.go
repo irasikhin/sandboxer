@@ -64,6 +64,13 @@ full reset.`,
 			// Remove clears the active marker.
 			storedJSON, _ := os.ReadFile(t.base.ProfileJSONPath(t.slug))
 			wasCurrent := t.base.Current() == t.slug
+			// A normal recreate keeps the sandbox (and its session), so save the
+			// live tmux layout first — the rebuilt session restores it on the next
+			// enter. A --full reset drops it with the home (RemoveState below), so
+			// skip the capture there.
+			if !full {
+				saveSessionLayout(t, f)
+			}
 			// The session container goes first, while the engine labels still match
 			// an existing base dir; best-effort — an engine-less host must still get
 			// its sandbox rebuilt.

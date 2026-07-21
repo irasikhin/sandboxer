@@ -197,6 +197,15 @@ func (b *Base) genPath(slug string) string {
 func (b *Base) ProfileJSONPath(slug string) string {
 	return filepath.Join(b.metaDir(), slug+".profile.json")
 }
+
+// SessionStatePath is the host file holding the sandbox's saved tmux layout
+// (backend.TmuxSession JSON), captured before a container is replaced and
+// replayed on the next attach. Under _meta like the other per-sandbox state;
+// deleted only by a full RemoveState (rm/clean/recreate --full), never by a
+// routine recreate — the session is the user's, discarded only on explicit rm.
+func (b *Base) SessionStatePath(slug string) string {
+	return filepath.Join(b.metaDir(), slug+".session.json")
+}
 func (b *Base) MetaFilePath(slug string) string {
 	return filepath.Join(b.metaDir(), slug+".meta")
 }
@@ -397,7 +406,10 @@ func (b *Base) RemoveState(slug string, keepHome bool) {
 		b.genPath(slug),
 	}
 	if !keepHome {
-		paths = append(paths, b.HomeDir(slug))
+		// A full removal (rm/clean/recreate --full) discards the saved session
+		// layout too; a routine recreate (keepHome) keeps it so the next attach
+		// restores it — the session dies only on an explicit rm.
+		paths = append(paths, b.HomeDir(slug), b.SessionStatePath(slug))
 	}
 	for _, p := range paths {
 		_ = os.RemoveAll(p)

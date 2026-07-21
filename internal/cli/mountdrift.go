@@ -55,9 +55,10 @@ func mountDriftWhy(o backend.RunOpts, info backend.SessionInfo, currentIDs strin
 // confirmRecreate asks whether to rebuild a stale-but-busy session whose source
 // mounts moved. It is the one interactive prompt in the CLI, and it earns that
 // exception: the session is ALREADY broken (its bind mounts name directories
-// the host has moved on from), but rebuilding it destroys whatever the tmux
-// session is running — an unattended agent, most of the time. Neither outcome
-// is safe to pick on the user's behalf, and only they can weigh the two.
+// the host has moved on from), but rebuilding it interrupts whatever the tmux
+// session is running — an unattended agent, most of the time — even though its
+// windows and layout are now saved and restored across the rebuild. Neither
+// outcome is safe to pick on the user's behalf, and only they can weigh the two.
 //
 // Answer anything but yes and nothing happens: enter attaches as-is, exactly as
 // it did before. `--recreate` remains the non-interactive answer, which is why
@@ -65,7 +66,7 @@ func mountDriftWhy(o backend.RunOpts, info backend.SessionInfo, currentIDs strin
 // never block on a question nobody is there to read.
 func confirmRecreate(in io.Reader, out io.Writer, slug string) bool {
 	fmt.Fprintf(out, "sandboxer: this session's mounts point at directories the host has replaced — what runs in there sees the old ones.\n")
-	fmt.Fprintf(out, "sandboxer: rebuilding fixes that and DESTROYS the running tmux session (its work in %s survives on the host).\n", slug)
+	fmt.Fprintf(out, "sandboxer: rebuilding fixes that; your windows and layout are saved and restored, but the running program in each pane is interrupted (an agent resumes with --continue; work in %s is on the host).\n", slug)
 	fmt.Fprint(out, "Rebuild the session now? [y/N] ")
 	line, err := readLine(in)
 	if err != nil {

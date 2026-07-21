@@ -41,6 +41,10 @@ to remove the sandbox (and its session) entirely.`,
 			if err != nil {
 				return err
 			}
+			// Save the live tmux layout before the stop kills the container's
+			// processes, so the next enter's start restores it — a stop parks the
+			// session, it never discards it (only rm does).
+			backend.SaveSessionState(engine, backend.SessionName(t.slug, t.base.Dir), t.base.SessionStatePath(t.slug))
 			// StopSession is idempotent: a missing or already-stopped session
 			// succeeds, so stop is always safe to run.
 			if err := backendStopSession(engine, t.slug, t.base.Dir); err != nil {

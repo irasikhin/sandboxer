@@ -61,7 +61,13 @@ type RunOpts struct {
 	SrcMounts []string
 	Slug      string
 	BaseDir   string // host state dir (config.StateDir); names/labels the persistent session (zero value fine for one-shot runs)
-	HomeDir   string // sandbox-private agent home, mounted as $HOME (isolated per sandbox)
+	// SessionStatePath is the host file where the session's tmux layout is saved
+	// (backend.SaveSessionState) before this container is replaced, so the next
+	// attach can restore it. Empty disables capture (one-shot runs, exec). NEVER
+	// part of commonArgs/ConfigHash — it changes nothing the container runs with,
+	// so setting it can never flip a session's hash.
+	SessionStatePath string
+	HomeDir          string // sandbox-private agent home, mounted as $HOME (isolated per sandbox)
 	// DestGen is the sandbox directory's generation (sandbox.Base.Gen) — bumped
 	// whenever the dir at Dest had to be created from nothing. It travels as a
 	// container env var, which folds it into the session ConfigHash: a session

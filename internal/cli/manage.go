@@ -86,6 +86,23 @@ func removeSessionBestEffort(t *target, f commonFlags, errOut io.Writer) {
 	}
 }
 
+// saveSessionLayout best-effort captures the sandbox's live tmux layout to the
+// host (backend.SaveSessionState) so a teardown that KEEPS the sandbox —
+// recreate, stop — can restore it on the next attach. Silent on any engine
+// problem: a missing layout must never block the operation. NOT called by
+// rm/clean, which discard the sandbox and its saved layout on purpose.
+func saveSessionLayout(t *target, f commonFlags) {
+	rt, err := t.runtime(f)
+	if err != nil {
+		return
+	}
+	engine, err := backend.ResolveEngine(rt.Backend, config.LoadDefaults())
+	if err != nil {
+		return
+	}
+	backend.SaveSessionState(engine, backend.SessionName(t.slug, t.base.Dir), t.base.SessionStatePath(t.slug))
+}
+
 func newUseCmd() *cobra.Command {
 	var src string
 	var clear bool
