@@ -27,6 +27,12 @@ type Agent struct {
 	// Image reports whether the agent is baked into the toolbox image. A nil
 	// pointer means yes (default); only codex sets it false.
 	Image *bool `json:"image,omitempty"`
+	// Resume is the argv that relaunches the agent's previous conversation in a
+	// restored pane (claude → ["claude","--continue"]). Empty = no known resume
+	// command; the pane restores as a plain shell. An argv, not a shell string:
+	// the backend renders it into the tmux restore script and owns the quoting,
+	// so the registry stays declarative data. The Nix flake ignores this field.
+	Resume []string `json:"resume,omitempty"`
 	// Seed lists the agent's config locations in the HOST home — credentials,
 	// settings, global memory — copied into a sandbox's private home when the
 	// profile opts in with hostConfigs, so the agent starts already
@@ -65,4 +71,27 @@ func Get(name string) (Agent, error) {
 		return Agent{}, fmt.Errorf("unknown agent: %s (see `sandboxer agents`)", name)
 	}
 	return a, nil
+}
+
+// Bins maps each agent's binary name to its catalog name — the lookup the
+// session-restore capture uses to recognize an agent process in a tmux pane.
+func Bins() map[string]string {
+	out := make(map[string]string, len(catalog))
+	for name, a := range catalog {
+		out[a.Bin] = name
+	}
+	return out
+}
+
+// ResumeMap returns agent name → resume argv for every agent that declares
+// one — the catalog projection the session restore feeds into the backend's
+// TmuxRestoreScript.
+func ResumeMap() map[string][]string {
+	out := map[string][]string{}
+	for name, a := range catalog {
+		if len(a.Resume) > 0 {
+			out[name] = a.Resume
+		}
+	}
+	return out
 }

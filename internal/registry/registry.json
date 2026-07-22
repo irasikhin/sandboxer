@@ -3,6 +3,7 @@
     "bin": "claude",
     "authEnv": ["ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_BASE_URL"],
     "nixPackage": "claude-code",
+    "resume": ["claude", "--continue"],
     "seed": [
       { "path": ".claude", "skip": [".credentials.json", "projects", "todos", "statsig", "shell-snapshots", "downloads", "cache"] },
       { "path": ".claude.json" }

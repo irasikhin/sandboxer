@@ -8,34 +8,34 @@ import (
 	"testing"
 )
 
-// line assembles one captureFormat row (9 tab-separated fields) the way tmux
+// line assembles one captureFormat row (10 tab-separated fields) the way tmux
 // would emit it, so the parser tests read as the real output shape.
-func line(sess, win, wname, wactive, layout, pidx, pactive, path, cmd string) string {
-	return strings.Join([]string{sess, win, wname, wactive, layout, pidx, pactive, path, cmd}, "\t")
+func line(sess, win, wname, wactive, layout, pidx, pactive, path, cmd, pid string) string {
+	return strings.Join([]string{sess, win, wname, wactive, layout, pidx, pactive, path, cmd, pid}, "\t")
 }
 
 func TestParseTmuxState_GroupsSessionsWindowsPanes(t *testing.T) {
 	out := strings.Join([]string{
-		line("main", "0", "edit", "1", "layoutA", "0", "1", "/work/a", "nvim"),
-		line("main", "0", "edit", "1", "layoutA", "1", "0", "/work/b", "bash"),
-		line("main", "1", "logs", "0", "layoutB", "0", "1", "/work", "less"),
-		line("side", "0", "sh", "1", "layoutC", "0", "1", "/tmp", "bash"),
+		line("main", "0", "edit", "1", "layoutA", "0", "1", "/work/a", "nvim", "101"),
+		line("main", "0", "edit", "1", "layoutA", "1", "0", "/work/b", "bash", "102"),
+		line("main", "1", "logs", "0", "layoutB", "0", "1", "/work", "less", "103"),
+		line("side", "0", "sh", "1", "layoutC", "0", "1", "/tmp", "bash", "104"),
 	}, "\n") + "\n"
 
 	got := parseTmuxState(out)
 	want := []TmuxSession{
 		{Name: "main", Windows: []TmuxWindow{
 			{Name: "edit", Layout: "layoutA", Active: true, Panes: []TmuxPane{
-				{Path: "/work/a", Command: "nvim", Active: true},
-				{Path: "/work/b", Command: "bash", Active: false},
+				{Path: "/work/a", Command: "nvim", Active: true, pid: 101},
+				{Path: "/work/b", Command: "bash", Active: false, pid: 102},
 			}},
 			{Name: "logs", Layout: "layoutB", Active: false, Panes: []TmuxPane{
-				{Path: "/work", Command: "less", Active: true},
+				{Path: "/work", Command: "less", Active: true, pid: 103},
 			}},
 		}},
 		{Name: "side", Windows: []TmuxWindow{
 			{Name: "sh", Layout: "layoutC", Active: true, Panes: []TmuxPane{
-				{Path: "/tmp", Command: "bash", Active: true},
+				{Path: "/tmp", Command: "bash", Active: true, pid: 104},
 			}},
 		}},
 	}
@@ -44,9 +44,23 @@ func TestParseTmuxState_GroupsSessionsWindowsPanes(t *testing.T) {
 	}
 }
 
+// TestParseTmuxState_NineFieldFloor: a row without the trailing pane_pid (an
+// older tmux, or a pre-pid capture replayed through the parser) still parses —
+// the pid is simply zero and agent detection is skipped for that pane.
+func TestParseTmuxState_NineFieldFloor(t *testing.T) {
+	out := strings.Join([]string{"main", "0", "w", "1", "L", "0", "1", "/x", "bash"}, "\t") + "\n"
+	got := parseTmuxState(out)
+	if len(got) != 1 || len(got[0].Windows[0].Panes) != 1 {
+		t.Fatalf("nine-field row should parse, got %#v", got)
+	}
+	if p := got[0].Windows[0].Panes[0]; p.Path != "/x" || p.pid != 0 {
+		t.Fatalf("nine-field pane = %#v, want /x with pid 0", p)
+	}
+}
+
 func TestParseTmuxState_SkipsMalformedAndEmpty(t *testing.T) {
 	out := "\n" + "too\tfew\tfields\n" +
-		line("main", "0", "w", "1", "L", "0", "1", "/x", "bash") + "\n"
+		line("main", "0", "w", "1", "L", "0", "1", "/x", "bash", "9") + "\n"
 	got := parseTmuxState(out)
 	if len(got) != 1 || len(got[0].Windows) != 1 || len(got[0].Windows[0].Panes) != 1 {
 		t.Fatalf("expected one clean session past the malformed rows, got %#v", got)
@@ -63,7 +77,7 @@ func TestParseTmuxState_Empty(t *testing.T) {
 }
 
 func TestTmuxRestoreScript_EmptyIsPlainAttach(t *testing.T) {
-	got := TmuxRestoreScript(nil, "main")
+	got := TmuxRestoreScript(nil, "main", nil)
 	want := "exec tmux -L 'sandboxer' new-session -A -s 'main'"
 	if got != want {
 		t.Fatalf("empty restore should be the plain attach:\n got %q\nwant %q", got, want)
@@ -81,7 +95,7 @@ func TestTmuxRestoreScript_RebuildsGuardedAndAttaches(t *testing.T) {
 			}},
 		}},
 	}
-	s := TmuxRestoreScript(sessions, "main")
+	s := TmuxRestoreScript(sessions, "main", nil)
 
 	for _, want := range []string{
 		"if ! tmux -L 'sandboxer' has-session -t '=main' 2>/dev/null; then",
@@ -102,6 +116,104 @@ func TestTmuxRestoreScript_RebuildsGuardedAndAttaches(t *testing.T) {
 	if strings.Contains(s, "select-layout -t 'main':$((B+1))") {
 		t.Fatalf("select-layout emitted for a lone-pane window:\n%s", s)
 	}
+	// With no resume map, the script types nothing into any pane.
+	if strings.Contains(s, "send-keys") {
+		t.Fatalf("nil resume map must not emit send-keys:\n%s", s)
+	}
+}
+
+// TestTmuxRestoreScript_ResumesRecordedAgents: a pane whose Agent has a resume
+// argv gets the command TYPED into it — a literal send-keys plus a separate
+// Enter — right after the pane is created (before select-layout, targeting the
+// window while the new pane is still its active one). Panes without a recorded
+// agent, and agents absent from the map, stay plain shells.
+func TestTmuxRestoreScript_ResumesRecordedAgents(t *testing.T) {
+	sessions := []TmuxSession{
+		{Name: "main", Windows: []TmuxWindow{
+			{Name: "edit", Layout: "L0", Panes: []TmuxPane{
+				{Path: "/work/a", Agent: "claude"},
+				{Path: "/work/b"}, // plain shell — no send-keys
+			}},
+			{Name: "side", Panes: []TmuxPane{
+				{Path: "/work/c", Agent: "codex"}, // not in the map — no send-keys
+			}},
+		}},
+	}
+	resume := map[string][]string{"claude": {"claude", "--continue"}}
+	s := TmuxRestoreScript(sessions, "main", resume)
+
+	wantType := "tmux -L 'sandboxer' send-keys -t 'main':$((B+0)) -l 'claude --continue'"
+	wantEnter := "tmux -L 'sandboxer' send-keys -t 'main':$((B+0)) Enter"
+	for _, want := range []string{wantType, wantEnter} {
+		if !strings.Contains(s, want) {
+			t.Fatalf("restore script missing %q in:\n%s", want, s)
+		}
+	}
+	// Exactly one resumed pane → exactly two send-keys commands.
+	if got := strings.Count(s, "send-keys"); got != 2 {
+		t.Fatalf("send-keys emitted %d times, want 2:\n%s", got, s)
+	}
+	// The relaunch happens after the agent pane is created and before the
+	// window's layout replay, while the new pane is the active one.
+	create := strings.Index(s, "new-session -d -s 'main' -c '/work/a'")
+	typed := strings.Index(s, wantType)
+	layout := strings.Index(s, "select-layout -t 'main':$((B+0))")
+	if create >= typed || typed >= layout {
+		t.Fatalf("send-keys must land between pane creation and select-layout:\n%s", s)
+	}
+}
+
+// TestTmuxRestoreScript_ResumeInSplitPane: an agent recorded in a NON-first
+// pane is typed right after its split-window, not into pane 0.
+func TestTmuxRestoreScript_ResumeInSplitPane(t *testing.T) {
+	sessions := []TmuxSession{
+		{Name: "main", Windows: []TmuxWindow{
+			{Name: "edit", Layout: "L0", Panes: []TmuxPane{
+				{Path: "/work/a"},
+				{Path: "/work/b", Agent: "claude"},
+			}},
+		}},
+	}
+	s := TmuxRestoreScript(sessions, "main", map[string][]string{"claude": {"claude", "--continue"}})
+	split := strings.Index(s, "split-window -t 'main':$((B+0)) -c '/work/b'")
+	typed := strings.Index(s, "send-keys -t 'main':$((B+0)) -l 'claude --continue'")
+	layout := strings.Index(s, "select-layout")
+	if split < 0 || split >= typed || typed >= layout {
+		t.Fatalf("split-pane resume must follow its split-window and precede select-layout:\n%s", s)
+	}
+}
+
+// TestTmuxRestoreScript_HostileResumeQuoted: a resume word outside the bare
+// alphabet is quoted per word by shjoin AND the whole typed line stays one
+// safely-quoted script word — it can never break out of the generated bash.
+func TestTmuxRestoreScript_HostileResumeQuoted(t *testing.T) {
+	sessions := []TmuxSession{
+		{Name: "main", Windows: []TmuxWindow{
+			{Panes: []TmuxPane{{Path: "/x", Agent: "evil"}}},
+		}},
+	}
+	resume := map[string][]string{"evil": {"agent", "--note", "it's; rm -rf /"}}
+	s := TmuxRestoreScript(sessions, "main", resume)
+	want := `send-keys -t 'main':$((B+0)) -l 'agent --note '\''it'\''\'\'''\''s; rm -rf /'\'''`
+	if !strings.Contains(s, want) {
+		t.Fatalf("hostile resume not double-quoted, want %q in:\n%s", want, s)
+	}
+}
+
+func TestShjoin(t *testing.T) {
+	for _, tc := range []struct {
+		in   []string
+		want string
+	}{
+		{[]string{"claude", "--continue"}, "claude --continue"},
+		{[]string{"codex", "resume", "--last"}, "codex resume --last"},
+		{[]string{"a b", "it's"}, `'a b' 'it'\''s'`},
+		{[]string{}, ""},
+	} {
+		if got := shjoin(tc.in); got != tc.want {
+			t.Errorf("shjoin(%q) = %q, want %q", tc.in, got, tc.want)
+		}
+	}
 }
 
 func TestTmuxRestoreScript_QuotesHostileNamesAndPaths(t *testing.T) {
@@ -110,7 +222,7 @@ func TestTmuxRestoreScript_QuotesHostileNamesAndPaths(t *testing.T) {
 			{Name: "w", Panes: []TmuxPane{{Path: "/has space/and'quote"}}},
 		}},
 	}
-	s := TmuxRestoreScript(sessions, "main")
+	s := TmuxRestoreScript(sessions, "main", nil)
 	// The single quote in the name must be broken out, never left to open a word.
 	if !strings.Contains(s, `'a'\''b; rm -rf /'`) {
 		t.Fatalf("session name not shell-escaped:\n%s", s)
@@ -138,7 +250,9 @@ func TestTmuxStateRoundTrip(t *testing.T) {
 	path := filepath.Join(dir, "s.session.json")
 	want := []TmuxSession{
 		{Name: "main", Windows: []TmuxWindow{
-			{Name: "w", Layout: "L", Active: true, Panes: []TmuxPane{{Path: "/x", Command: "bash", Active: true}}},
+			{Name: "w", Layout: "L", Active: true, Panes: []TmuxPane{
+				{Path: "/x", Command: "claude", Active: true, Agent: "claude"},
+			}},
 		}},
 	}
 	if err := WriteTmuxState(path, want); err != nil {
@@ -147,6 +261,142 @@ func TestTmuxStateRoundTrip(t *testing.T) {
 	if got := ReadTmuxState(path); !reflect.DeepEqual(got, want) {
 		t.Fatalf("round trip mismatch:\n got %#v\nwant %#v", got, want)
 	}
+	// The transient capture pid never reaches disk.
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(data), "pid") {
+		t.Fatalf("pane pid must not be persisted:\n%s", data)
+	}
+}
+
+// TestReadTmuxState_OldSchemaCompat: a session.json written before the agent
+// field existed still reads and restores — the pane simply has no Agent.
+func TestReadTmuxState_OldSchemaCompat(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "s.session.json")
+	old := `[{"name":"main","windows":[{"name":"w","layout":"L","active":true,` +
+		`"panes":[{"path":"/x","command":"bash","active":true}]}]}]`
+	if err := os.WriteFile(path, []byte(old), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got := ReadTmuxState(path)
+	if len(got) != 1 || got[0].Windows[0].Panes[0].Agent != "" {
+		t.Fatalf("old-schema state should read with empty Agent, got %#v", got)
+	}
+	if s := TmuxRestoreScript(got, "main", map[string][]string{"claude": {"claude", "--continue"}}); strings.Contains(s, "send-keys") {
+		t.Fatalf("old-schema pane must restore as a plain shell:\n%s", s)
+	}
+}
+
+func TestParsePS(t *testing.T) {
+	out := "    1     0 /sbin/init\n" +
+		"  100     1 -bash\n" +
+		"  200   100 /nix/store/aaa/bin/node /nix/store/bbb/bin/claude --continue\n" +
+		"garbage line\n" +
+		"  x     1 bad pid\n" +
+		"\n"
+	got := parsePS(out)
+	if len(got) != 3 {
+		t.Fatalf("parsePS kept %d rows, want 3: %#v", len(got), got)
+	}
+	want200 := proc{pid: 200, ppid: 100, argv: []string{"/nix/store/aaa/bin/node", "/nix/store/bbb/bin/claude", "--continue"}}
+	if !reflect.DeepEqual(got[200], want200) {
+		t.Fatalf("parsePS[200] = %#v, want %#v", got[200], want200)
+	}
+	if got[100].ppid != 1 || got[100].argv[0] != "-bash" {
+		t.Fatalf("parsePS[100] = %#v", got[100])
+	}
+}
+
+// TestMatchAgent pins the deliberately narrow matching rule: argv[0] basename,
+// or an interpreter's argv[1] basename — never "any argv word", because a false
+// match auto-runs a command in the user's shell.
+func TestMatchAgent(t *testing.T) {
+	bins := map[string]string{"claude": "claude", "codex": "codex"}
+	for _, tc := range []struct {
+		desc string
+		argv []string
+		want string
+	}{
+		{"compiled agent", []string{"codex", "exec"}, "codex"},
+		{"title rewritten to bin", []string{"claude", "--continue"}, "claude"},
+		{"nix shebang shape", []string{"/nix/store/aaa/bin/node", "/nix/store/bbb/bin/claude"}, "claude"},
+		{"bun shebang shape", []string{"bun", "/usr/local/bin/codex"}, "codex"},
+		{"python interpreter", []string{"python3.12", "/opt/bin/claude"}, "claude"},
+		{"raw script path", []string{"node", "/nix/store/bbb/cli.js"}, ""},
+		{"pager on a file named claude", []string{"less", "claude"}, ""},
+		{"git arg named claude", []string{"git", "log", "--", "claude"}, ""},
+		{"plain shell", []string{"-bash"}, ""},
+		{"empty argv", nil, ""},
+	} {
+		if got := matchAgent(proc{argv: tc.argv}, bins); got != tc.want {
+			t.Errorf("%s: matchAgent(%q) = %q, want %q", tc.desc, tc.argv, got, tc.want)
+		}
+	}
+}
+
+// TestResolveAgents pins the tree walk: nearest match to the pane wins (the
+// process the user launched, not the agent's own children), `exec claude`
+// (pane pid IS the agent) matches at level zero, and a dead/unknown pid or a
+// cyclic ppid snapshot degrades to no agent.
+func TestResolveAgents(t *testing.T) {
+	bins := map[string]string{"claude": "claude", "codex": "codex"}
+	sessions := func(pids ...int) []TmuxSession {
+		panes := make([]TmuxPane, len(pids))
+		for i, pid := range pids {
+			panes[i] = TmuxPane{pid: pid}
+		}
+		return []TmuxSession{{Name: "m", Windows: []TmuxWindow{{Panes: panes}}}}
+	}
+
+	t.Run("shell child, agent children ignored", func(t *testing.T) {
+		procs := map[int]proc{
+			100: {pid: 100, ppid: 1, argv: []string{"-bash"}},
+			200: {pid: 200, ppid: 100, argv: []string{"node", "/nix/store/x/bin/claude"}},
+			// claude's own helper children — deeper, must not shadow it even
+			// though one of them would match another agent.
+			300: {pid: 300, ppid: 200, argv: []string{"node", "/mcp/server.js"}},
+			310: {pid: 310, ppid: 200, argv: []string{"codex", "mcp"}},
+		}
+		s := sessions(100)
+		resolveAgents(s, procs, bins)
+		if got := s[0].Windows[0].Panes[0].Agent; got != "claude" {
+			t.Fatalf("Agent = %q, want claude", got)
+		}
+	})
+
+	t.Run("exec'd agent is the pane pid", func(t *testing.T) {
+		procs := map[int]proc{100: {pid: 100, ppid: 1, argv: []string{"claude"}}}
+		s := sessions(100)
+		resolveAgents(s, procs, bins)
+		if got := s[0].Windows[0].Panes[0].Agent; got != "claude" {
+			t.Fatalf("Agent = %q, want claude", got)
+		}
+	})
+
+	t.Run("plain shell and dead pid stay empty", func(t *testing.T) {
+		procs := map[int]proc{100: {pid: 100, ppid: 1, argv: []string{"-bash"}}}
+		s := sessions(100, 999)
+		resolveAgents(s, procs, bins)
+		for i, p := range s[0].Windows[0].Panes {
+			if p.Agent != "" {
+				t.Errorf("pane %d Agent = %q, want empty", i, p.Agent)
+			}
+		}
+	})
+
+	t.Run("cyclic ppid snapshot terminates empty", func(t *testing.T) {
+		procs := map[int]proc{
+			100: {pid: 100, ppid: 200, argv: []string{"-bash"}},
+			200: {pid: 200, ppid: 100, argv: []string{"sh"}},
+		}
+		s := sessions(100)
+		resolveAgents(s, procs, bins)
+		if got := s[0].Windows[0].Panes[0].Agent; got != "" {
+			t.Fatalf("Agent = %q, want empty on a cycle", got)
+		}
+	})
 }
 
 func TestWriteTmuxState_NilWritesEmptyArray(t *testing.T) {
@@ -176,7 +426,7 @@ func TestReadTmuxState_AbsentIsNil(t *testing.T) {
 func TestTmuxRestoreScript_NoTrailingNewline(t *testing.T) {
 	s := TmuxRestoreScript([]TmuxSession{
 		{Name: "main", Windows: []TmuxWindow{{Panes: []TmuxPane{{Path: "/x"}}}}},
-	}, "main")
+	}, "main", nil)
 	if strings.HasSuffix(s, "\n") {
 		t.Fatalf("restore script must not end in a newline (it is spliced before `; else`):\n%q", s)
 	}
@@ -189,6 +439,128 @@ func TestCaptureTmuxState_EngineFailureIsNil(t *testing.T) {
 	if got := CaptureTmuxState("sandboxer-no-such-engine-xyz", "c"); got != nil {
 		t.Fatalf("a failing engine must capture nil, got %#v", got)
 	}
+}
+
+// TestCaptureTmuxState_TagsAgents: the capture resolves each pane's registry
+// agent from ONE extra ps listing — and a failed listing degrades to an
+// untagged layout, never to a lost capture.
+func TestCaptureTmuxState_TagsAgents(t *testing.T) {
+	requireExec(t, "sh")
+	panes := line("main", "0", "edit", "1", "L0", "0", "1", "/work", "node", "100") + "\n" +
+		line("main", "0", "edit", "1", "L0", "1", "0", "/work", "bash", "110")
+	ps := "  100     1 -bash\n" +
+		"  105   100 /nix/store/aaa/bin/node /nix/store/bbb/bin/claude\n" +
+		"  110     1 -bash"
+
+	t.Run("tags the claude pane only", func(t *testing.T) {
+		engine, logPath := sessionEngine(t)
+		t.Setenv("SBX_PANES_OUT", panes)
+		t.Setenv("SBX_PSEO_OUT", ps)
+		got := CaptureTmuxState(engine, "c")
+		if len(got) != 1 || len(got[0].Windows[0].Panes) != 2 {
+			t.Fatalf("capture = %#v", got)
+		}
+		if a := got[0].Windows[0].Panes[0].Agent; a != "claude" {
+			t.Errorf("pane 0 Agent = %q, want claude", a)
+		}
+		if a := got[0].Windows[0].Panes[1].Agent; a != "" {
+			t.Errorf("pane 1 Agent = %q, want empty", a)
+		}
+		if lines := engineLog(t, logPath); !hasLine(lines, "exec c ps -eo pid=,ppid=,args=") {
+			t.Errorf("missing the one ps listing:\n%s", strings.Join(lines, "\n"))
+		}
+	})
+
+	t.Run("ps failure keeps the layout untagged", func(t *testing.T) {
+		engine, _ := sessionEngine(t)
+		t.Setenv("SBX_PANES_OUT", panes)
+		t.Setenv("SBX_PSEO_FAIL", "1")
+		got := CaptureTmuxState(engine, "c")
+		if len(got) != 1 || len(got[0].Windows[0].Panes) != 2 {
+			t.Fatalf("layout must survive a ps failure: %#v", got)
+		}
+		for i, p := range got[0].Windows[0].Panes {
+			if p.Agent != "" {
+				t.Errorf("pane %d Agent = %q, want empty after ps failure", i, p.Agent)
+			}
+		}
+	})
+
+	t.Run("no pane pids skips the ps exec", func(t *testing.T) {
+		engine, logPath := sessionEngine(t)
+		t.Setenv("SBX_PANES_OUT", strings.Join([]string{"main", "0", "w", "1", "L", "0", "1", "/x", "bash"}, "\t"))
+		if got := CaptureTmuxState(engine, "c"); len(got) != 1 {
+			t.Fatalf("nine-field capture = %#v", got)
+		}
+		if lines := engineLog(t, logPath); findPrefixLine(lines, "exec c ps") != "" {
+			t.Errorf("pid-less capture must not run ps:\n%s", strings.Join(lines, "\n"))
+		}
+	})
+}
+
+// TestSyncSessionState pins the post-enter refresh semantics: a live layout is
+// saved, a POSITIVELY idle server resets the save to [] (the user ended every
+// session on purpose — the next enter must be fresh, as the exit banner
+// promises), and an unexplained engine failure keeps the last good save.
+func TestSyncSessionState(t *testing.T) {
+	requireExec(t, "sh")
+	seed := func(t *testing.T) string {
+		t.Helper()
+		path := filepath.Join(t.TempDir(), "s.session.json")
+		if err := WriteTmuxState(path, []TmuxSession{
+			{Name: "old", Windows: []TmuxWindow{{Panes: []TmuxPane{{Path: "/old"}}}}},
+		}); err != nil {
+			t.Fatal(err)
+		}
+		return path
+	}
+
+	t.Run("live layout refreshes the save", func(t *testing.T) {
+		engine, _ := sessionEngine(t)
+		path := seed(t)
+		t.Setenv("SBX_PANES_OUT", line("main", "0", "w", "1", "L", "0", "1", "/new", "bash", "0"))
+		SyncSessionState(engine, "c", path)
+		got := ReadTmuxState(path)
+		if len(got) != 1 || got[0].Name != "main" || got[0].Windows[0].Panes[0].Path != "/new" {
+			t.Fatalf("save not refreshed: %#v", got)
+		}
+	})
+
+	t.Run("positive idleness resets to empty", func(t *testing.T) {
+		engine, _ := sessionEngine(t)
+		path := seed(t)
+		// Every exec fails with tmux's own "no server" answer: the capture is
+		// empty AND the idleness probe positively confirms it.
+		t.Setenv("SBX_FAIL_ON", "exec")
+		t.Setenv("SBX_STDERR", "no server running on /tmp/tmux-1000/sandboxer")
+		SyncSessionState(engine, "c", path)
+		if got := ReadTmuxState(path); len(got) != 0 {
+			t.Fatalf("deliberate exit must reset the save, got %#v", got)
+		}
+		data, err := os.ReadFile(path)
+		if err != nil || strings.TrimSpace(string(data)) != "[]" {
+			t.Fatalf("reset must persist as [], got %q (%v)", data, err)
+		}
+	})
+
+	t.Run("unexplained failure keeps the last save", func(t *testing.T) {
+		engine, _ := sessionEngine(t)
+		path := seed(t)
+		t.Setenv("SBX_FAIL_ON", "exec")
+		t.Setenv("SBX_STDERR", "cannot connect to the engine")
+		SyncSessionState(engine, "c", path)
+		if got := ReadTmuxState(path); len(got) != 1 || got[0].Name != "old" {
+			t.Fatalf("engine failure must keep the last save, got %#v", got)
+		}
+	})
+
+	t.Run("empty statePath is a no-op", func(t *testing.T) {
+		engine, logPath := sessionEngine(t)
+		SyncSessionState(engine, "c", "")
+		if lines := engineLog(t, logPath); lines != nil {
+			t.Fatalf("no state path, no engine calls:\n%s", strings.Join(lines, "\n"))
+		}
+	})
 }
 
 func TestSaveSessionState(t *testing.T) {

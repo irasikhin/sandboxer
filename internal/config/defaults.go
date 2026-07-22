@@ -86,20 +86,25 @@ type Defaults struct {
 	NoProxy string // SANDBOXER_NO_PROXY — NO_PROXY for direct mode
 	Mem     string
 	CPU     string
+	// NoResume (SANDBOXER_NO_RESUME=1) is the operator kill-switch for the
+	// session restore's agent auto-resume — it wins over a profile's
+	// autoResume, like SANDBOXER_NO_EGRESS over egress.enabled.
+	NoResume bool
 }
 
 // LoadDefaults reads the SANDBOXER_* environment.
 func LoadDefaults() Defaults {
 	return Defaults{
-		Backend: envOr("SANDBOXER_BACKEND", "docker"),
-		Session: os.Getenv("SANDBOXER_SESSION"),
-		Domains: envOr("SANDBOXER_DOMAINS", DefaultDomains),
-		Image:   envOr("SANDBOXER_IMAGE", DefaultImage),
-		Engine:  os.Getenv("SANDBOXER_ENGINE"),
-		Proxy:   os.Getenv("SANDBOXER_PROXY"),
-		NoProxy: os.Getenv("SANDBOXER_NO_PROXY"),
-		Mem:     os.Getenv("SANDBOXER_MEM"),
-		CPU:     os.Getenv("SANDBOXER_CPU"),
+		Backend:  envOr("SANDBOXER_BACKEND", "docker"),
+		Session:  os.Getenv("SANDBOXER_SESSION"),
+		Domains:  envOr("SANDBOXER_DOMAINS", DefaultDomains),
+		Image:    envOr("SANDBOXER_IMAGE", DefaultImage),
+		Engine:   os.Getenv("SANDBOXER_ENGINE"),
+		Proxy:    os.Getenv("SANDBOXER_PROXY"),
+		NoProxy:  os.Getenv("SANDBOXER_NO_PROXY"),
+		Mem:      os.Getenv("SANDBOXER_MEM"),
+		CPU:      os.Getenv("SANDBOXER_CPU"),
+		NoResume: os.Getenv("SANDBOXER_NO_RESUME") == "1",
 	}
 }
 

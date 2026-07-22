@@ -252,6 +252,9 @@ func TestConfigHash(t *testing.T) {
 //	SBX_PROXY_RUNNING    `container inspect <…-proxy>` prints "true" when "1",
 //	                     exits 1 (proxy missing) otherwise
 //	SBX_EXEC_OUT         stdout of `exec` (the tmux list-clients idleness probe)
+//	SBX_PANES_OUT        stdout of the `exec … list-panes` layout capture
+//	SBX_PSEO_OUT         stdout of the `exec … ps -eo` agent-detection listing;
+//	                     SBX_PSEO_FAIL makes it exit 1
 //	SBX_IMAGE_ID         stdout of `image inspect` (the ImageID probe)
 //	SBX_PS_OUT           stdout of `ps`; SBX_PS_FAIL makes `ps` exit 1
 func sessionEngine(t *testing.T) (engine, logPath string) {
@@ -276,7 +279,14 @@ container)
     [ -n "$SBX_INSPECT_FAIL" ] && exit 1
     printf '%s\n' "$SBX_INSPECT_OUT" ;;
   esac ;;
-exec) printf '%s\n' "$SBX_EXEC_OUT" ;;
+exec)
+  case "$*" in
+  *list-panes*) printf '%s\n' "$SBX_PANES_OUT" ;;
+  *"ps -eo"*)
+    [ -n "$SBX_PSEO_FAIL" ] && exit 1
+    printf '%s\n' "$SBX_PSEO_OUT" ;;
+  *) printf '%s\n' "$SBX_EXEC_OUT" ;;
+  esac ;;
 image) printf '%s\n' "$SBX_IMAGE_ID" ;;
 ps)
   [ -n "$SBX_PS_FAIL" ] && exit 1

@@ -366,6 +366,12 @@ type Profile struct {
 	// default) keeps one detached session container running across invocations,
 	// "ephemeral" starts a fresh one-shot container per command.
 	Session string `json:"session,omitempty"`
+	// AutoResume relaunches a cataloged agent (its registry resume argv, e.g.
+	// `claude --continue`) in every restored pane that was running one when the
+	// session layout was captured. Default true; nil means true (the
+	// egress.enabled pattern). It never enters the container's create argv, so
+	// toggling it can NOT read as a changed profile and never rebuilds a session.
+	AutoResume *bool `json:"autoResume,omitempty"`
 	// Limits caps the sandbox container's memory/cpus/pids; empty fields inherit
 	// the SANDBOXER_MEM/SANDBOXER_CPU env defaults (memory/cpus) or stay uncapped.
 	Limits Limits `json:"limits,omitempty"`
@@ -445,6 +451,12 @@ func (p *Profile) JSON() ([]byte, error) {
 // talks to egress.proxy directly and that proxy polices egress).
 func (p *Profile) EgressEnabled() bool {
 	return p.Egress.Enabled == nil || *p.Egress.Enabled
+}
+
+// AutoResumeEnabled reports whether restored panes relaunch their recorded
+// agents. Default true; an explicit `autoResume = false` restores layout only.
+func (p *Profile) AutoResumeEnabled() bool {
+	return p.AutoResume == nil || *p.AutoResume
 }
 
 var sanitizeRe = regexp.MustCompile(`[^A-Za-z0-9_.-]+`)

@@ -29,6 +29,10 @@ type Runtime struct {
 	Mem  string
 	CPU  string
 	Pids int
+	// AutoResume relaunches recorded agents when a saved session layout is
+	// restored (profile autoResume, killed by SANDBOXER_NO_RESUME=1). Not part
+	// of the create argv, so it never affects the session ConfigHash.
+	AutoResume bool
 }
 
 // Session modes for Runtime.Session: a persistent detached container reused
@@ -94,6 +98,9 @@ func ResolveRuntime(p *Profile, d Defaults, baseDomains string, f Overrides) (Ru
 	// profile, because SANDBOXER_SESSION=ephemeral is an operator kill-switch
 	// that must win over a profile's `session:` choice.
 	rt.Session = firstNonEmpty(f.Session, d.Session, p.Session, SessionPersistent)
+	// Same shape for the restore's agent auto-resume: the env kill-switch
+	// (SANDBOXER_NO_RESUME=1) outranks the profile's autoResume.
+	rt.AutoResume = !d.NoResume && p.AutoResumeEnabled()
 
 	// Resource caps: a profile's limits: overrides the SANDBOXER_MEM/SANDBOXER_CPU
 	// env defaults; pids has no env default and comes straight from the profile.

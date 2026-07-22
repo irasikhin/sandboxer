@@ -182,10 +182,19 @@ the session's user-facing SHAPE to the host before any replacement and replay it
 on the next attach.
 
 - **Captured** (`backend.CaptureTmuxState` → `_meta/<slug>.session.json`): the
-  tmux sessions, their windows and panes, each window's `window_layout` and each
-  pane's working directory. Recorded before a container is replaced
-  (`recreateSession`) or parked (`stop`, `recreate`), and only when there is a
-  live layout to save — an idle capture never overwrites an earlier one.
+  tmux sessions, their windows and panes, each window's `window_layout`, each
+  pane's working directory — and which registry agent was running in it (D6a).
+  Recorded before a container is replaced (`recreateSession`) or parked
+  (`stop`, `recreate`), where an idle capture never overwrites an earlier one —
+  and refreshed after every attached `enter` returns
+  (`backend.SyncSessionState`), so the freshest layout is on disk even when the
+  container later dies with no teardown at all (host reboot, engine restart).
+  The post-enter refresh has one extra, deliberate case: an empty capture that
+  `SessionIdle` positively confirms is saved as `[]` — the user just exited
+  every session on purpose, and the next enter must open fresh, exactly as the
+  exit banner promises (before this, a stale save from an earlier stop would
+  resurrect on the next enter). An unexplained engine error still keeps the
+  last good save.
 - **Restored** (`TmuxRestoreScript`, run by the attach in place of a bare
   `new-session`): windows/panes/layout/cwd are rebuilt, then attached. Idempotent
   by a `has-session` guard, so a second terminal or a re-enter into a live
@@ -193,25 +202,64 @@ on the next attach.
 - **NOT restored**: the live process in a pane. A running program cannot be
   migrated across a container it is a process of (CRIU cannot tolerate the
   changed mount set that motivated the replace), so a pane returns as a shell in
-  its old directory. The agent's *conversation* resumes on its own —
-  `claude --continue` — because its state lives under the per-sandbox `$HOME`, a
-  host mount that outlives every container.
+  its old directory. What IS relaunched is a cataloged agent (D6a): its
+  *conversation* survives under the per-sandbox `$HOME`, a host mount that
+  outlives every container, so typing its resume command into the restored
+  pane picks it right back up.
 - **Lifecycle**: the saved layout IS the user's session, discarded only by an
   explicit `rm`/`clean` (or `recreate --full`, the reset that also drops the
   home). A routine recreate/stop keeps it.
+
+### D6a — the agent comes back too: recorded agents auto-resume
+
+Restoring empty shells still left the expensive half of the loss: the user had
+to remember which pane ran which agent and retype `claude --continue` in each.
+Every mainstream agent already persists its conversation under `$HOME` and
+exposes a resume command, so the restore finishes the job:
+
+- **Catalog** (`registry.json`): an agent may declare `resume`, the argv that
+  relaunches its previous conversation (`claude` → `["claude", "--continue"]`,
+  which resumes per-cwd — and restored panes reopen in their captured cwd, so
+  the pairing is exact). An argv, not a shell string: Go renders and quotes it
+  (`shjoin` + `shquote`), the registry stays declarative data, and the Nix
+  flake — which reads only `image`/`nixPackage` — ignores the key entirely.
+- **Detection at capture** (`tagAgents`): `pane_current_command` is NOT enough —
+  a node-based agent's foreground comm can read `node`. The capture format
+  carries `#{pane_pid}`, and ONE extra `exec ps -eo pid=,ppid=,args=` resolves
+  each pane: BFS from the pane pid down the child tree, nearest-first (the
+  process the user launched, not the agent's own MCP children), matching
+  argv[0]'s basename against the registry bins, or an interpreter's argv[1]
+  (the nix/npm shebang shape `…/bin/node …/bin/claude`). Deliberately never
+  "any argv word" — `less claude` must not trigger an auto-run. Best-effort:
+  a failed listing leaves panes untagged; degradation is a plain shell, never
+  a wrong relaunch.
+- **Relaunch at restore**: right after a tagged pane is created (it is the
+  window's active pane at that instant — no pane-index arithmetic), the script
+  emits `send-keys -l '<resume>'` plus a separate `send-keys Enter`. The
+  command is TYPED INTO the pane's shell, never made the pane's command, so
+  the shell survives the agent's exit exactly like a hand-typed run; `-l`
+  keeps a resume word from ever parsing as a tmux key name. The keys queue in
+  the pty buffer while the shell starts (the tmux-resurrect approach).
+- **Opt-out**: profile `autoResume = false`, or the operator kill-switch
+  `SANDBOXER_NO_RESUME=1` (env above profile, the `egress.enabled` /
+  `SANDBOXER_NO_EGRESS` shape). Neither enters the create argv, so toggling
+  never flips the session's ConfigHash — a preference change must not read as
+  "profile changed" and rebuild the container.
 
 ## The honest limitation
 
 A persistent session survives **client disconnect** — closing the terminal,
 dropping SSH, Ctrl-Space d — with the container and everything in it untouched.
 Across a container **replacement** (a recreate for a config/mount change, or a
-stop/start) the session's *layout* now survives too (D6), but the *live
-processes* do not: `sleep infinity` and the tmux server are processes that die
-with the container, so a restored pane is a fresh shell in its old directory, and
-resuming the agent's conversation is the agent's own job — e.g. `claude
---continue`. A host reboot or engine restart is the same: the container fs,
-sandbox dir and per-sandbox `$HOME` are kept, and the layout is restored on the
-next enter.
+stop/start) the session's *layout* survives (D6), but the *live processes* do
+not: `sleep infinity` and the tmux server are processes that die with the
+container, so a restored pane is a fresh shell in its old directory. The one
+process class that comes back is a cataloged agent (D6a): its conversation is
+durable state under the per-sandbox `$HOME`, so the restore relaunches it with
+its resume command and it continues where it stopped — anything else must be
+restarted by hand. A host reboot or engine restart is the same: the container
+fs, sandbox dir and per-sandbox `$HOME` are kept, and the layout — refreshed
+after every enter — is restored on the next one.
 
 > **Historical note:** the detach-time deps push described below was removed in
 > v0.27.0 when sandboxes became git worktrees — work lands on each source's

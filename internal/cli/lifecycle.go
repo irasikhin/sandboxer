@@ -120,7 +120,11 @@ that doesn't exist yet is created first.
 The tmux server lives INSIDE the container (tmux -L sandboxer, system
 /etc/tmux.conf: mouse on, sandboxer prompt in every pane; the prefix is
 Ctrl-Space, so Ctrl-Space c opens a new window). --session opens a separate
-named session in the same container.`,
+named session in the same container.
+
+When a replaced container's saved layout is restored, panes that were running
+a cataloged agent relaunch it with its resume command (claude --continue) —
+disable with autoResume = false in the profile, or SANDBOXER_NO_RESUME=1.`,
 		Example: `  # enter the active sandbox (see: sandboxer use)
   sandboxer enter
 
@@ -303,11 +307,13 @@ named session in the same container.`,
 			}
 			var code int
 			var runErr error
+			attached := false
 			switch {
 			case staleWhy != "":
 				// Attach to what is already running — deliberately NOT through
 				// EnsureSession, which would recreate the stale container.
 				code, runErr = backendExecSession(o, name, tmuxEnterArgs(sessionName))
+				attached = true
 			case useSession:
 				if _, err := backendEnsureSession(o); err != nil {
 					// EnsureSession's message IS the diagnostic (busy session, egress
@@ -315,10 +321,20 @@ named session in the same container.`,
 					fmt.Fprintln(errOut, "sandboxer:", err)
 					runErr = err
 				} else {
-					code, runErr = backendExecSession(o, name, tmuxRestoreArgs(sessionName, o.SessionStatePath))
+					code, runErr = backendExecSession(o, name, tmuxRestoreArgs(sessionName, o.SessionStatePath, resumeFor(rt)))
+					attached = true
 				}
 			default:
 				code, runErr = backendRun(o)
+			}
+			if attached {
+				// The attach returned — the user detached (session still live)
+				// or exited it. Refresh the saved layout NOW, not only at
+				// stop/recreate, so the freshest state survives an ungraceful
+				// container death (host reboot, engine restart) — and a
+				// deliberate full exit resets it, keeping the exit banner's
+				// "the next enter opens a fresh one" true.
+				backendSyncSessionState(engine, name, o.SessionStatePath)
 			}
 			for _, s := range t.base.Srcs(t.slug) {
 				fmt.Fprintf(errOut, "sandboxer: %s: work is in %s — commit/review on the host: git -C %s log %s\n",
@@ -577,13 +593,24 @@ func tmuxEnterArgs(session string) []string {
 // exactly tmuxEnterArgs, and callers use it unconditionally. The saved state is
 // NOT consumed here (it is deleted only by rm/clean): a fresh container has no
 // live session, so it rebuilds; a re-enter into a live one skips straight to the
-// attach.
-func tmuxRestoreArgs(session, statePath string) []string {
+// attach. resume maps a recorded pane agent to its relaunch argv (resumeFor);
+// nil restores layout only.
+func tmuxRestoreArgs(session, statePath string, resume map[string][]string) []string {
 	saved := backend.ReadTmuxState(statePath)
 	if len(saved) == 0 {
 		return tmuxEnterArgs(session)
 	}
-	return tmuxLaunch(backend.TmuxRestoreScript(saved, session))
+	return tmuxLaunch(backend.TmuxRestoreScript(saved, session, resume))
+}
+
+// resumeFor gates the registry's resume catalog on the resolved runtime: nil —
+// layout-only restore — when auto-resume is off (profile autoResume = false,
+// or the SANDBOXER_NO_RESUME=1 kill-switch).
+func resumeFor(rt config.Runtime) map[string][]string {
+	if !rt.AutoResume {
+		return nil
+	}
+	return registry.ResumeMap()
 }
 
 // sessionNameRe pins --session to characters that are safe to splice into the
@@ -685,12 +712,13 @@ var backendRun = backend.Run
 // Session seams beside backendRun, for the same reason: the persistent
 // enter/exec orchestration is exercised in tests without a real engine.
 var (
-	backendEnsureSession  = backend.EnsureSession
-	backendExecSession    = backend.ExecSession
-	backendInspectSession = backend.InspectSession
-	backendSessionIdle    = backend.SessionIdle
-	backendWantHash       = backend.SessionWantHash
-	backendImageID        = backend.ImageID
+	backendEnsureSession    = backend.EnsureSession
+	backendExecSession      = backend.ExecSession
+	backendInspectSession   = backend.InspectSession
+	backendSessionIdle      = backend.SessionIdle
+	backendSyncSessionState = backend.SyncSessionState
+	backendWantHash         = backend.SessionWantHash
+	backendImageID          = backend.ImageID
 	// backendIsTerminal gates the one interactive prompt (confirmRecreate).
 	// A seam because the alternative is a pty: the real check wants an
 	// *os.File whose mode says character device, and the tests' stdin is a

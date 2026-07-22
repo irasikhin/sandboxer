@@ -23,6 +23,7 @@ type sessionCalls struct {
 	hash    []backend.RunOpts // opts per SessionWantHash call
 	imageID []string          // images whose ID was queried
 	idle    []string          // names probed for tmux idleness
+	sync    []string          // names whose saved layout was refreshed post-attach
 }
 
 // stubSessionSeams replaces the persistent-session seams (and backendRun) with
@@ -38,12 +39,15 @@ func stubSessionSeams(t *testing.T, info backend.SessionInfo, wantHash string) *
 	c := &sessionCalls{}
 	oldEnsure, oldExec, oldRun := backendEnsureSession, backendExecSession, backendRun
 	oldInspect, oldHash, oldImageID := backendInspectSession, backendWantHash, backendImageID
-	oldIdle, oldTTY := backendSessionIdle, backendIsTerminal
+	oldIdle, oldTTY, oldSync := backendSessionIdle, backendIsTerminal, backendSyncSessionState
 	t.Cleanup(func() {
 		backendEnsureSession, backendExecSession, backendRun = oldEnsure, oldExec, oldRun
 		backendInspectSession, backendWantHash, backendImageID = oldInspect, oldHash, oldImageID
-		backendSessionIdle, backendIsTerminal = oldIdle, oldTTY
+		backendSessionIdle, backendIsTerminal, backendSyncSessionState = oldIdle, oldTTY, oldSync
 	})
+	backendSyncSessionState = func(engine, name, statePath string) {
+		c.sync = append(c.sync, name)
+	}
 	// Default: the session holds a live tmux session. The destructive verdict
 	// is the one a test must ask for explicitly.
 	backendSessionIdle = func(engine, name string) bool {
@@ -117,6 +121,10 @@ func TestEnterPersistentByDefault(t *testing.T) {
 	if len(argv) != 3 || argv[0] != "bash" || argv[1] != "-c" ||
 		!strings.Contains(argv[2], "tmux -L sandboxer new-session -A -s main") {
 		t.Errorf("exec argv = %v, want the tmux attach launcher", argv)
+	}
+	// The attach returned → the saved layout is refreshed (capture-on-detach).
+	if len(c.sync) != 1 || c.sync[0] != name {
+		t.Errorf("sync = %v, want one refresh of %q after the attach", c.sync, name)
 	}
 	for _, want := range []string{
 		name, "DETACHES", "ENDS that tmux session", "sandboxer enter feat", "sandboxer: done in",
@@ -217,6 +225,10 @@ func TestEnterEphemeralRouting(t *testing.T) {
 		if len(c.run) != 1 || len(c.ensure) != 0 || len(c.exec) != 0 {
 			t.Errorf("calls: run=%d ensure=%d exec=%d, want 1/0/0", len(c.run), len(c.ensure), len(c.exec))
 		}
+		// A one-shot container has no persistent session to record.
+		if len(c.sync) != 0 {
+			t.Errorf("sync = %v, want none on the one-shot path", c.sync)
+		}
 	})
 	t.Run("env", func(t *testing.T) {
 		project := sessionProject(t)
@@ -285,6 +297,9 @@ func TestEnterEnsureFailure(t *testing.T) {
 	}
 	if len(c.exec)+len(c.run) != 0 {
 		t.Error("nothing may attach after a failed ensure")
+	}
+	if len(c.sync) != 0 {
+		t.Error("no attach happened, so no layout refresh may happen")
 	}
 }
 
@@ -484,6 +499,10 @@ func TestEnterStaleBusySessionAttaches(t *testing.T) {
 	}
 	if c.execTo[0] != backend.SessionName("feat", config.StateDir(project)) {
 		t.Errorf("attached to %q, want the session container", c.execTo[0])
+	}
+	// The stale attach is still an attach: the layout is refreshed after it.
+	if len(c.sync) != 1 {
+		t.Errorf("sync = %v, want one refresh after the stale attach", c.sync)
 	}
 	if strings.Contains(errs, "one-shot") || strings.Contains(errs, "--rm") {
 		t.Errorf("a stale busy session must never be sidestepped into a one-shot:\n%s", errs)

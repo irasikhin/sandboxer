@@ -308,7 +308,8 @@ func gitInitProject(t *testing.T, dir string) {
 }
 
 func TestRunAgentsVersionHelp(t *testing.T) {
-	if code, out, _ := run("agents"); code != 0 || !strings.Contains(out, "claude") {
+	if code, out, _ := run("agents"); code != 0 || !strings.Contains(out, "claude") ||
+		!strings.Contains(out, "RESUME") || !strings.Contains(out, "claude --continue") {
 		t.Errorf("agents = (%d, %q)", code, out)
 	}
 	if code, out, _ := run("--version"); code != 0 || !strings.Contains(out, Version) {

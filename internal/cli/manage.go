@@ -168,15 +168,16 @@ INSIDE the sandbox (its private $HOME persists).`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			tw := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 2, ' ', 0)
-			fmt.Fprintln(tw, "AGENT\tBIN\tIMAGE\tENV")
+			fmt.Fprintln(tw, "AGENT\tBIN\tIMAGE\tRESUME\tENV")
 			for _, name := range registry.Names() {
 				a, _ := registry.Get(name)
 				image := "yes"
 				if a.Image != nil && !*a.Image {
 					image = "no"
 				}
-				fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n",
-					name, a.Bin, image, orDash(strings.Join(a.AuthEnv, ",")))
+				fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n",
+					name, a.Bin, image, orDash(strings.Join(a.Resume, " ")),
+					orDash(strings.Join(a.AuthEnv, ",")))
 			}
 			return tw.Flush()
 		},

@@ -419,7 +419,7 @@ func recreateSession(o RunOpts, name, hash string) (string, error) {
 	// so the next attach restores it: a mount change no longer costs a session.
 	if SaveSessionState(o.Engine, name, o.SessionStatePath) {
 		notice(o.Stderr, "saved your session layout — restoring it on attach "+
-			"(running programs are interrupted; agents resume with --continue)")
+			"(recorded agents relaunch and resume; other running programs are interrupted)")
 	}
 	// Announced: on a wedged engine `rm -f` can take a long time, and silence
 	// here reads as a hang.

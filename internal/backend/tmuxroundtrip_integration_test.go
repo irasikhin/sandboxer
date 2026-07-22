@@ -70,7 +70,7 @@ func TestTmuxRoundTrip_RealTmux(t *testing.T) {
 
 	// Tear the server down and rebuild it from the captured state alone.
 	kill()
-	script := TmuxRestoreScript(captured, "main")
+	script := TmuxRestoreScript(captured, "main", nil)
 	// The script ends in `new-session -A` (attach); with no TTY that final step
 	// fails, but the rebuild ran first — so ignore the exit and re-capture.
 	_ = exec.Command("bash", "-c", script).Run()

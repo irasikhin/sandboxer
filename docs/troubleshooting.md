@@ -101,11 +101,14 @@ over. A failed setup is **fatal by default**, so the `enter`/`exec` aborts.
 
 `enter` shells into a persistent session container; a later `enter`
 reattaches (full semantics: README "Persistent sessions"). A session survives
-client disconnects but **not** a host/engine restart.
+client disconnects; across a host/engine restart the container dies but the
+saved tmux layout comes back.
 
 - After a reboot or `docker`/`podman` restart, the session container is gone —
-  just `sandboxer enter <slug>` again to recreate it. Resuming the agent's own
-  conversation is the agent's job (e.g. `claude --continue`).
+  just `sandboxer enter <slug>` again: it recreates the container and restores
+  the saved layout, relaunching any pane's recorded agent with its resume
+  command (`claude --continue`); other programs must be restarted by hand.
+  Opt out with `autoResume = false` in the profile or `SANDBOXER_NO_RESUME=1`.
 - If reattach refuses because the **profile changed or the image was rebuilt**,
   the next `enter` recreates an idle session — but it refuses while another client
   is still attached. Detach the other client (Ctrl-Space d) or `sandboxer stop <slug>`

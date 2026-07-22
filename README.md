@@ -222,9 +222,14 @@ whatever is running, and says so. The new configuration then lands on the next
 Escape hatches back to one-shot containers: `--ephemeral` (enter/exec),
 `session: ephemeral` in the profile, or `SANDBOXER_SESSION=ephemeral` (the env
 wins over the profile — an operator kill-switch). A session survives client
-disconnects, **not** a host/engine restart — resuming the agent's conversation
-is the agent's job (e.g. `claude --continue`). Design notes:
-[docs/sessions-design.md](./docs/sessions-design.md).
+disconnects with everything in it running. Across a container **replacement**
+(profile change, image rebuild, host/engine restart) the tmux layout is saved
+to the host — after every `enter` and before any teardown — and restored on
+the next `enter`: panes come back as shells in their old directories, and a
+pane that was running a cataloged agent relaunches it with its resume command
+(`claude --continue`), which picks the conversation back up. Opt out of the
+relaunch with `autoResume = false` in the profile, or `SANDBOXER_NO_RESUME=1`.
+Design notes: [docs/sessions-design.md](./docs/sessions-design.md).
 
 ## Config
 
@@ -236,6 +241,7 @@ Scalars come from **flags** and `SANDBOXER_*` env vars:
 | session mode | `--ephemeral` | `SANDBOXER_SESSION` (default `persistent`; the env wins over a profile's `session:`) |
 | egress domains | `--allow-domains a,b` | `SANDBOXER_DOMAINS` |
 | disable egress | — | `SANDBOXER_NO_EGRESS=1` |
+| disable agent auto-resume | — | `SANDBOXER_NO_RESUME=1` (or `autoResume = false` in the profile) |
 | skip auto-scaffold | — | `SANDBOXER_NO_SCAFFOLD=1` (create/enter writes a default `sandboxer.nix` otherwise) |
 | container engine | — | `SANDBOXER_ENGINE` (default: auto-detect docker→podman) |
 | container user | — | `SANDBOXER_CONTAINER_USER` (default: host uid:gid; empty omits `--user` — macOS escape hatch, see [docs/macos.md](docs/macos.md)) |

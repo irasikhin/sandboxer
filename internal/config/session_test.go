@@ -68,6 +68,80 @@ func TestLoadDefaultsSession(t *testing.T) {
 	}
 }
 
+// TestResolveRuntimeAutoResume pins the restore auto-resume gate: default on,
+// profile `autoResume = false` turns it off, and the SANDBOXER_NO_RESUME=1
+// kill-switch (Defaults.NoResume) wins over a profile that turned it on —
+// the same env-above-profile shape as the session mode.
+func TestResolveRuntimeAutoResume(t *testing.T) {
+	on, off := true, false
+	cases := []struct {
+		name     string
+		profile  *bool
+		noResume bool
+		want     bool
+	}{
+		{"default on", nil, false, true},
+		{"profile off", &off, false, false},
+		{"profile on", &on, false, true},
+		{"env kills default", nil, true, false},
+		{"env kills profile on", &on, true, false},
+	}
+	for _, c := range cases {
+		rt, err := ResolveRuntime(&Profile{AutoResume: c.profile}, Defaults{NoResume: c.noResume}, "", Overrides{})
+		if err != nil {
+			t.Fatalf("%s: %v", c.name, err)
+		}
+		if rt.AutoResume != c.want {
+			t.Errorf("%s: AutoResume = %v, want %v", c.name, rt.AutoResume, c.want)
+		}
+	}
+}
+
+// TestAutoResumeEnabled mirrors EgressEnabled: nil means on.
+func TestAutoResumeEnabled(t *testing.T) {
+	on, off := true, false
+	if (&Profile{AutoResume: &off}).AutoResumeEnabled() {
+		t.Error("autoResume=false must disable")
+	}
+	if !(&Profile{}).AutoResumeEnabled() {
+		t.Error("nil autoResume must default on")
+	}
+	if !(&Profile{AutoResume: &on}).AutoResumeEnabled() {
+		t.Error("autoResume=true must enable")
+	}
+}
+
+// TestLoadDefaultsNoResume: the env kill-switch is read strictly as "1".
+func TestLoadDefaultsNoResume(t *testing.T) {
+	t.Setenv("SANDBOXER_NO_RESUME", "1")
+	if d := LoadDefaults(); !d.NoResume {
+		t.Error("SANDBOXER_NO_RESUME=1 must set NoResume")
+	}
+	t.Setenv("SANDBOXER_NO_RESUME", "")
+	if d := LoadDefaults(); d.NoResume {
+		t.Error("unset SANDBOXER_NO_RESUME must stay off")
+	}
+}
+
+// TestProfileAutoResumeDecode: the `autoResume` field survives the strict
+// decode and the JSON snapshot.
+func TestProfileAutoResumeDecode(t *testing.T) {
+	p, err := decodeProfileJSON([]byte(`{"name":"x","autoResume":false}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.AutoResumeEnabled() {
+		t.Error("decoded autoResume=false must disable")
+	}
+	data, err := p.JSON()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), `"autoResume": false`) {
+		t.Errorf("JSON snapshot missing autoResume field:\n%s", data)
+	}
+}
+
 // TestLoadDocumentFlatSession pins the full file path: a flat profile with
 // `session: ephemeral` keeps the field through LoadDocument + Select (the
 // route every file-based profile takes).

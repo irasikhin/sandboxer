@@ -80,6 +80,44 @@ func TestSeedPaths(t *testing.T) {
 	}
 }
 
+// TestResume pins the resume surface the session restore relies on: claude's
+// exact relaunch argv, ResumeMap carrying every declared argv (and only
+// those), and Bins mapping each binary back to its agent.
+func TestResume(t *testing.T) {
+	claude, _ := Get("claude")
+	if !slices.Equal(claude.Resume, []string{"claude", "--continue"}) {
+		t.Errorf("claude resume = %v, want [claude --continue]", claude.Resume)
+	}
+	rm := ResumeMap()
+	if !slices.Equal(rm["claude"], []string{"claude", "--continue"}) {
+		t.Errorf("ResumeMap[claude] = %v", rm["claude"])
+	}
+	for name, argv := range rm {
+		a, err := Get(name)
+		if err != nil {
+			t.Fatalf("ResumeMap names unknown agent %q", name)
+		}
+		if len(argv) == 0 {
+			t.Errorf("%s: empty resume argv in ResumeMap", name)
+		}
+		for _, w := range argv {
+			if w == "" {
+				t.Errorf("%s: resume argv %v carries an empty word", name, a.Resume)
+			}
+		}
+	}
+	bins := Bins()
+	if len(bins) != len(Names()) {
+		t.Fatalf("Bins has %d entries, want one per agent (%d) — a duplicated bin would shadow an agent", len(bins), len(Names()))
+	}
+	for _, name := range Names() {
+		a, _ := Get(name)
+		if bins[a.Bin] != name {
+			t.Errorf("Bins[%s] = %q, want %q", a.Bin, bins[a.Bin], name)
+		}
+	}
+}
+
 func TestCodexExcludedFromImage(t *testing.T) {
 	a, err := Get("codex")
 	if err != nil {

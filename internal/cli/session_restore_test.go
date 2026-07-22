@@ -9,15 +9,29 @@ import (
 	"testing"
 
 	"github.com/irasikhin/sandboxer/internal/backend"
+	"github.com/irasikhin/sandboxer/internal/config"
+	"github.com/irasikhin/sandboxer/internal/registry"
 )
 
 // TestTmuxRestoreArgs_NoStateIsPlainEnter: with no saved layout, restore args
 // are exactly the plain enter attach — so callers use them unconditionally.
 func TestTmuxRestoreArgs_NoStateIsPlainEnter(t *testing.T) {
-	got := tmuxRestoreArgs("main", filepath.Join(t.TempDir(), "absent.json"))
+	got := tmuxRestoreArgs("main", filepath.Join(t.TempDir(), "absent.json"), registry.ResumeMap())
 	want := tmuxEnterArgs("main")
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("no saved state should yield the plain enter attach:\n got %q\nwant %q", got, want)
+	}
+}
+
+// TestResumeFor: the runtime gate — auto-resume on yields the registry's
+// resume catalog (claude included), off yields nil (layout-only restore).
+func TestResumeFor(t *testing.T) {
+	got := resumeFor(config.Runtime{AutoResume: true})
+	if !reflect.DeepEqual(got["claude"], []string{"claude", "--continue"}) {
+		t.Fatalf("resumeFor(on) missing claude: %#v", got)
+	}
+	if resumeFor(config.Runtime{AutoResume: false}) != nil {
+		t.Fatal("resumeFor(off) must be nil")
 	}
 }
 
@@ -34,7 +48,9 @@ func TestTmuxRestoreArgs_RunsRebuildSequence(t *testing.T) {
 	statePath := filepath.Join(dir, "s.session.json")
 	if err := backend.WriteTmuxState(statePath, []backend.TmuxSession{
 		{Name: "main", Windows: []backend.TmuxWindow{
-			{Name: "edit", Layout: "L0", Panes: []backend.TmuxPane{{Path: "/work/a"}, {Path: "/work/b"}}},
+			{Name: "edit", Layout: "L0", Panes: []backend.TmuxPane{
+				{Path: "/work/a", Agent: "claude"}, {Path: "/work/b"},
+			}},
 			{Name: "logs", Active: true, Panes: []backend.TmuxPane{{Path: "/work"}}},
 		}},
 	}); err != nil {
@@ -52,7 +68,7 @@ func TestTmuxRestoreArgs_RunsRebuildSequence(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	args := tmuxRestoreArgs("main", statePath)
+	args := tmuxRestoreArgs("main", statePath, registry.ResumeMap())
 	if len(args) != 3 || args[0] != "bash" || args[1] != "-c" {
 		t.Fatalf("unexpected attach args: %q", args)
 	}
@@ -71,6 +87,8 @@ func TestTmuxRestoreArgs_RunsRebuildSequence(t *testing.T) {
 		"has-session -t =main",
 		"new-session -d -s main -c /work/a",
 		"rename-window -t main:0 edit",
+		"send-keys -t main:0 -l claude --continue", // the recorded agent relaunches…
+		"send-keys -t main:0 Enter",                // …with Enter sent separately
 		"split-window -t main:0 -c /work/b",
 		"select-layout -t main:0 L0",
 		"new-window -t main:1 -n logs -c /work",
@@ -80,6 +98,28 @@ func TestTmuxRestoreArgs_RunsRebuildSequence(t *testing.T) {
 		if !strings.Contains(calls, want) {
 			t.Errorf("expected the restore to call tmux with %q; full log:\n%s", want, calls)
 		}
+	}
+	// The plain-shell panes got nothing typed into them.
+	if got := strings.Count(calls, "send-keys"); got != 2 {
+		t.Errorf("send-keys should appear exactly twice, got %d; full log:\n%s", got, calls)
+	}
+
+	// The same restore with auto-resume off (nil map) types nothing at all.
+	if err := os.Remove(log); err != nil {
+		t.Fatal(err)
+	}
+	args = tmuxRestoreArgs("main", statePath, nil)
+	cmd = exec.Command(args[0], args[1], args[2])
+	cmd.Env = withPathPrepended(dir)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("layout-only restore failed to run: %v\n%s", err, out)
+	}
+	data, err = os.ReadFile(log)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(data), "send-keys") {
+		t.Errorf("nil resume map must not type anything; full log:\n%s", data)
 	}
 }
 
