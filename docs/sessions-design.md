@@ -240,6 +240,17 @@ exposes a resume command, so the restore finishes the job:
   the shell survives the agent's exit exactly like a hand-typed run; `-l`
   keeps a resume word from ever parsing as a tmux key name. The keys queue in
   the pty buffer while the shell starts (the tmux-resurrect approach).
+- **Ambiguity — several panes of one agent in one directory**: `resume`
+  (claude's `--continue`) reopens the LATEST conversation of the pane's cwd,
+  which is exact only while that cwd held a single such pane. Two claudes on
+  one worktree — in whatever windows or tmux sessions, which share the one
+  sandbox `$HOME` — would both reopen the same conversation. The specific
+  conversation cannot be recovered from outside the process (verified against
+  a live claude: the transcript fd is not held open and no session id is
+  exported), so crowded panes get the agent's `resumePick` command instead —
+  claude's bare `--resume`, the interactive picker listing exactly that
+  directory's conversations, one keystroke from the right one and never a
+  wrong auto-open. An agent without a declared picker falls back to `resume`.
 - **Opt-out**: profile `autoResume = false`, or the operator kill-switch
   `SANDBOXER_NO_RESUME=1` (env above profile, the `egress.enabled` /
   `SANDBOXER_NO_EGRESS` shape). Neither enters the create argv, so toggling

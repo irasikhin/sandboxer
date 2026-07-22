@@ -81,28 +81,31 @@ func TestSeedPaths(t *testing.T) {
 }
 
 // TestResume pins the resume surface the session restore relies on: claude's
-// exact relaunch argv, ResumeMap carrying every declared argv (and only
-// those), and Bins mapping each binary back to its agent.
+// exact relaunch and picker argvs, ResumeMap carrying every declared spec (and
+// only those), and Bins mapping each binary back to its agent.
 func TestResume(t *testing.T) {
 	claude, _ := Get("claude")
 	if !slices.Equal(claude.Resume, []string{"claude", "--continue"}) {
 		t.Errorf("claude resume = %v, want [claude --continue]", claude.Resume)
 	}
-	rm := ResumeMap()
-	if !slices.Equal(rm["claude"], []string{"claude", "--continue"}) {
-		t.Errorf("ResumeMap[claude] = %v", rm["claude"])
+	if !slices.Equal(claude.ResumePick, []string{"claude", "--resume"}) {
+		t.Errorf("claude resumePick = %v, want [claude --resume]", claude.ResumePick)
 	}
-	for name, argv := range rm {
-		a, err := Get(name)
-		if err != nil {
+	rm := ResumeMap()
+	if !slices.Equal(rm["claude"].Last, []string{"claude", "--continue"}) ||
+		!slices.Equal(rm["claude"].Pick, []string{"claude", "--resume"}) {
+		t.Errorf("ResumeMap[claude] = %+v", rm["claude"])
+	}
+	for name, spec := range rm {
+		if _, err := Get(name); err != nil {
 			t.Fatalf("ResumeMap names unknown agent %q", name)
 		}
-		if len(argv) == 0 {
-			t.Errorf("%s: empty resume argv in ResumeMap", name)
+		if len(spec.Last)+len(spec.Pick) == 0 {
+			t.Errorf("%s: empty resume spec in ResumeMap", name)
 		}
-		for _, w := range argv {
+		for _, w := range append(append([]string{}, spec.Last...), spec.Pick...) {
 			if w == "" {
-				t.Errorf("%s: resume argv %v carries an empty word", name, a.Resume)
+				t.Errorf("%s: resume spec %+v carries an empty word", name, spec)
 			}
 		}
 	}

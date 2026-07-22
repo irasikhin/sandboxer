@@ -593,9 +593,9 @@ func tmuxEnterArgs(session string) []string {
 // exactly tmuxEnterArgs, and callers use it unconditionally. The saved state is
 // NOT consumed here (it is deleted only by rm/clean): a fresh container has no
 // live session, so it rebuilds; a re-enter into a live one skips straight to the
-// attach. resume maps a recorded pane agent to its relaunch argv (resumeFor);
-// nil restores layout only.
-func tmuxRestoreArgs(session, statePath string, resume map[string][]string) []string {
+// attach. resume maps a recorded pane agent to its relaunch commands
+// (resumeFor); nil restores layout only.
+func tmuxRestoreArgs(session, statePath string, resume map[string]registry.ResumeSpec) []string {
 	saved := backend.ReadTmuxState(statePath)
 	if len(saved) == 0 {
 		return tmuxEnterArgs(session)
@@ -606,7 +606,7 @@ func tmuxRestoreArgs(session, statePath string, resume map[string][]string) []st
 // resumeFor gates the registry's resume catalog on the resolved runtime: nil —
 // layout-only restore — when auto-resume is off (profile autoResume = false,
 // or the SANDBOXER_NO_RESUME=1 kill-switch).
-func resumeFor(rt config.Runtime) map[string][]string {
+func resumeFor(rt config.Runtime) map[string]registry.ResumeSpec {
 	if !rt.AutoResume {
 		return nil
 	}

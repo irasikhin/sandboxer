@@ -227,7 +227,10 @@ disconnects with everything in it running. Across a container **replacement**
 to the host — after every `enter` and before any teardown — and restored on
 the next `enter`: panes come back as shells in their old directories, and a
 pane that was running a cataloged agent relaunches it with its resume command
-(`claude --continue`), which picks the conversation back up. Opt out of the
+(`claude --continue`), which picks the conversation back up. When several
+panes ran the same agent in the same directory, each gets the agent's
+conversation picker (`claude --resume`) instead — resuming "the latest" in
+all of them would open one conversation many times. Opt out of the
 relaunch with `autoResume = false` in the profile, or `SANDBOXER_NO_RESUME=1`.
 Design notes: [docs/sessions-design.md](./docs/sessions-design.md).
 

@@ -102,7 +102,8 @@ was extracted from:
   Disable with `SANDBOXER_NO_EGRESS=1`.
 - **Agent registry** (`internal/registry/registry.json`): the single-source catalog of agents — embedded in the
   binary AND consumed by the Nix flake (`llm-agents.nix`). Edit the JSON, never duplicate it. An agent may
-  declare `resume` (argv, e.g. `claude --continue`): the session restore relaunches it in panes that recorded
+  declare `resume` (argv, e.g. `claude --continue`) and `resumePick` (the interactive picker, used when
+  several panes ran the agent in one directory): the session restore relaunches it in panes that recorded
   the agent at capture (opt-out: profile `autoResume = false` / `SANDBOXER_NO_RESUME=1`). Each agent's
   `seed` entries name its host-home config paths (with skip lists for transcripts/caches): a profile with
   `hostConfigs = true` (scaffold default) COPIES those into the sandbox home as a per-file merge (missing

@@ -27,8 +27,9 @@ func TestTmuxRestoreArgs_NoStateIsPlainEnter(t *testing.T) {
 // resume catalog (claude included), off yields nil (layout-only restore).
 func TestResumeFor(t *testing.T) {
 	got := resumeFor(config.Runtime{AutoResume: true})
-	if !reflect.DeepEqual(got["claude"], []string{"claude", "--continue"}) {
-		t.Fatalf("resumeFor(on) missing claude: %#v", got)
+	want := registry.ResumeSpec{Last: []string{"claude", "--continue"}, Pick: []string{"claude", "--resume"}}
+	if !reflect.DeepEqual(got["claude"], want) {
+		t.Fatalf("resumeFor(on) claude = %#v, want %#v", got["claude"], want)
 	}
 	if resumeFor(config.Runtime{AutoResume: false}) != nil {
 		t.Fatal("resumeFor(off) must be nil")

@@ -6,7 +6,14 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/irasikhin/sandboxer/internal/registry"
 )
+
+// resumeOf is the test shorthand for a Last-only resume spec map.
+func resumeOf(agent string, last ...string) map[string]registry.ResumeSpec {
+	return map[string]registry.ResumeSpec{agent: {Last: last}}
+}
 
 // line assembles one captureFormat row (10 tab-separated fields) the way tmux
 // would emit it, so the parser tests read as the real output shape.
@@ -139,8 +146,7 @@ func TestTmuxRestoreScript_ResumesRecordedAgents(t *testing.T) {
 			}},
 		}},
 	}
-	resume := map[string][]string{"claude": {"claude", "--continue"}}
-	s := TmuxRestoreScript(sessions, "main", resume)
+	s := TmuxRestoreScript(sessions, "main", resumeOf("claude", "claude", "--continue"))
 
 	wantType := "tmux -L 'sandboxer' send-keys -t 'main':$((B+0)) -l 'claude --continue'"
 	wantEnter := "tmux -L 'sandboxer' send-keys -t 'main':$((B+0)) Enter"
@@ -174,7 +180,7 @@ func TestTmuxRestoreScript_ResumeInSplitPane(t *testing.T) {
 			}},
 		}},
 	}
-	s := TmuxRestoreScript(sessions, "main", map[string][]string{"claude": {"claude", "--continue"}})
+	s := TmuxRestoreScript(sessions, "main", resumeOf("claude", "claude", "--continue"))
 	split := strings.Index(s, "split-window -t 'main':$((B+0)) -c '/work/b'")
 	typed := strings.Index(s, "send-keys -t 'main':$((B+0)) -l 'claude --continue'")
 	layout := strings.Index(s, "select-layout")
@@ -192,11 +198,49 @@ func TestTmuxRestoreScript_HostileResumeQuoted(t *testing.T) {
 			{Panes: []TmuxPane{{Path: "/x", Agent: "evil"}}},
 		}},
 	}
-	resume := map[string][]string{"evil": {"agent", "--note", "it's; rm -rf /"}}
-	s := TmuxRestoreScript(sessions, "main", resume)
+	s := TmuxRestoreScript(sessions, "main", resumeOf("evil", "agent", "--note", "it's; rm -rf /"))
 	want := `send-keys -t 'main':$((B+0)) -l 'agent --note '\''it'\''\'\'''\''s; rm -rf /'\'''`
 	if !strings.Contains(s, want) {
 		t.Fatalf("hostile resume not double-quoted, want %q in:\n%s", want, s)
+	}
+}
+
+// TestTmuxRestoreScript_AmbiguousSameDirGetsPicker: several panes of one agent
+// in the SAME directory cannot each resume "the latest" conversation — they
+// would all open the same one. Those panes get the agent's picker command;
+// counting spans windows AND tmux sessions (one shared $HOME), while a pane of
+// the same agent in another directory keeps the exact Last command.
+func TestTmuxRestoreScript_AmbiguousSameDirGetsPicker(t *testing.T) {
+	sessions := []TmuxSession{
+		{Name: "main", Windows: []TmuxWindow{
+			{Name: "w1", Panes: []TmuxPane{{Path: "/work/a", Agent: "claude"}}},
+			{Name: "w2", Panes: []TmuxPane{{Path: "/work/b", Agent: "claude"}}},
+		}},
+		{Name: "side", Windows: []TmuxWindow{
+			// The same directory as main:w1 — in a DIFFERENT tmux session.
+			{Name: "w", Panes: []TmuxPane{{Path: "/work/a", Agent: "claude"}}},
+		}},
+	}
+	resume := map[string]registry.ResumeSpec{"claude": {
+		Last: []string{"claude", "--continue"},
+		Pick: []string{"claude", "--resume"},
+	}}
+	s := TmuxRestoreScript(sessions, "main", resume)
+
+	// The two /work/a panes are ambiguous → picker; the lone /work/b pane is
+	// exact → continue.
+	if got := strings.Count(s, "-l 'claude --resume'"); got != 2 {
+		t.Fatalf("picker typed %d times, want 2 (both /work/a panes):\n%s", got, s)
+	}
+	if got := strings.Count(s, "-l 'claude --continue'"); got != 1 {
+		t.Fatalf("continue typed %d times, want 1 (the /work/b pane):\n%s", got, s)
+	}
+
+	// Without a declared picker the ambiguous panes fall back to Last — the
+	// pre-picker degradation, never a silent shell.
+	s = TmuxRestoreScript(sessions, "main", resumeOf("claude", "claude", "--continue"))
+	if got := strings.Count(s, "-l 'claude --continue'"); got != 3 {
+		t.Fatalf("no picker declared: continue typed %d times, want 3:\n%s", got, s)
 	}
 }
 
@@ -284,7 +328,7 @@ func TestReadTmuxState_OldSchemaCompat(t *testing.T) {
 	if len(got) != 1 || got[0].Windows[0].Panes[0].Agent != "" {
 		t.Fatalf("old-schema state should read with empty Agent, got %#v", got)
 	}
-	if s := TmuxRestoreScript(got, "main", map[string][]string{"claude": {"claude", "--continue"}}); strings.Contains(s, "send-keys") {
+	if s := TmuxRestoreScript(got, "main", resumeOf("claude", "claude", "--continue")); strings.Contains(s, "send-keys") {
 		t.Fatalf("old-schema pane must restore as a plain shell:\n%s", s)
 	}
 }

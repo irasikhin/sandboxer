@@ -333,17 +333,27 @@ func ReadTmuxState(path string) []TmuxSession {
 // replays tmux's own layout string. select-layout is skipped for a lone pane
 // (the layout of one pane is a no-op and tmux rejects a mismatched count).
 //
-// resume maps a pane's recorded Agent to the argv that relaunches it: right
-// after such a pane is created (it is the window's active pane at that moment,
-// so no pane-index arithmetic), the script TYPES the command into the pane's
-// shell — send-keys -l plus a separate Enter — instead of making it the pane's
+// resume maps a pane's recorded Agent to its resume surface: right after such
+// a pane is created (it is the window's active pane at that moment, so no
+// pane-index arithmetic), the script TYPES the command into the pane's shell —
+// send-keys -l plus a separate Enter — instead of making it the pane's
 // command, so the shell survives the agent's exit exactly like a hand-typed
 // run. The keys queue in the pty buffer even before the shell finishes
 // startup (the tmux-resurrect approach). nil resume restores layout only.
 //
+// Which command is typed depends on ambiguity: an agent's Last command resumes
+// the latest conversation OF THE PANE'S DIRECTORY, which is exact while that
+// directory held one such pane — but when the capture recorded SEVERAL panes
+// of the same agent in the same directory (two claudes on one worktree, in
+// whatever windows or sessions), Last would open the same conversation in
+// every one of them. Those panes get the agent's Pick command instead — the
+// interactive picker listing exactly that directory's conversations — because
+// the specific conversation cannot be identified from outside the process
+// (claude neither keeps its transcript fd open nor exports a session id).
+//
 // nil/empty sessions yields the plain attach, so a caller can use this
 // unconditionally.
-func TmuxRestoreScript(sessions []TmuxSession, attach string, resume map[string][]string) string {
+func TmuxRestoreScript(sessions []TmuxSession, attach string, resume map[string]registry.ResumeSpec) string {
 	tmux := "tmux -L " + shquote(tmuxSocket) + " "
 	attachCmd := "exec " + tmux + "new-session -A -s " + shquote(attach)
 	if len(sessions) == 0 {
@@ -359,12 +369,37 @@ func TmuxRestoreScript(sessions []TmuxSession, attach string, resume map[string]
 	// `show-options` (or `start-server`) reads 0 and every window target would
 	// miss on a base-index-1 image (the toolbox's default). Real tmux caught this.
 
-	// sendResume types agent's resume argv into the window's just-created
+	// crowd counts, per (agent, directory), how many panes across the WHOLE
+	// capture ran that agent there — every tmux session shares the one sandbox
+	// $HOME, so ambiguity spans sessions and windows alike.
+	crowd := map[string]int{}
+	for _, s := range sessions {
+		for _, w := range s.Windows {
+			for _, p := range w.Panes {
+				if p.Agent != "" {
+					crowd[p.Agent+"\x00"+p.Path]++
+				}
+			}
+		}
+	}
+	// resumeArgv picks the command a pane gets typed into it: the picker when
+	// this agent+directory pair is crowded (and a picker exists), else Last.
+	resumeArgv := func(p TmuxPane) []string {
+		spec, ok := resume[p.Agent]
+		if p.Agent == "" || !ok {
+			return nil
+		}
+		if crowd[p.Agent+"\x00"+p.Path] > 1 && len(spec.Pick) > 0 {
+			return spec.Pick
+		}
+		return spec.Last
+	}
+	// sendResume types the pane's resume command into the window's just-created
 	// (= active) pane. -l sends the command literally — a resume word can never
 	// be read as a tmux key name — which is why Enter is its own send-keys.
 	sendResume := func(b *strings.Builder, tmux, target string, p TmuxPane) {
-		argv := resume[p.Agent]
-		if p.Agent == "" || len(argv) == 0 {
+		argv := resumeArgv(p)
+		if len(argv) == 0 {
 			return
 		}
 		b.WriteString("  " + tmux + "send-keys -t " + target + " -l " + shquote(shjoin(argv)) + "\n")

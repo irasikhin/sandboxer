@@ -33,6 +33,14 @@ type Agent struct {
 	// the backend renders it into the tmux restore script and owns the quoting,
 	// so the registry stays declarative data. The Nix flake ignores this field.
 	Resume []string `json:"resume,omitempty"`
+	// ResumePick is the argv that opens the agent's interactive conversation
+	// picker (claude → ["claude","--resume"]). Used instead of Resume when the
+	// capture holds SEVERAL panes of this agent in the SAME directory: their
+	// conversations cannot be told apart from outside the processes (verified:
+	// claude neither keeps its transcript fd open nor exports a session id), and
+	// Resume would open the same latest conversation in every one of them. The
+	// picker lists exactly that directory's conversations — one keystroke each.
+	ResumePick []string `json:"resumePick,omitempty"`
 	// Seed lists the agent's config locations in the HOST home — credentials,
 	// settings, global memory — copied into a sandbox's private home when the
 	// profile opts in with hostConfigs, so the agent starts already
@@ -83,14 +91,23 @@ func Bins() map[string]string {
 	return out
 }
 
-// ResumeMap returns agent name → resume argv for every agent that declares
+// ResumeSpec is one agent's resume surface: Last relaunches the latest
+// conversation of the pane's directory, Pick opens the interactive picker for
+// panes whose conversation is ambiguous (several panes of the same agent in
+// the same directory). The backend chooses per pane.
+type ResumeSpec struct {
+	Last []string
+	Pick []string
+}
+
+// ResumeMap returns agent name → resume spec for every agent that declares
 // one — the catalog projection the session restore feeds into the backend's
 // TmuxRestoreScript.
-func ResumeMap() map[string][]string {
-	out := map[string][]string{}
+func ResumeMap() map[string]ResumeSpec {
+	out := map[string]ResumeSpec{}
 	for name, a := range catalog {
-		if len(a.Resume) > 0 {
-			out[name] = a.Resume
+		if len(a.Resume) > 0 || len(a.ResumePick) > 0 {
+			out[name] = ResumeSpec{Last: a.Resume, Pick: a.ResumePick}
 		}
 	}
 	return out
