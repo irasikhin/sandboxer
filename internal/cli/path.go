@@ -29,7 +29,7 @@ entering anything, so they compose with your own tooling:
   git -C "$(sandboxer path)" diff   # review the agent's work on the host
 
 Give a source's name — its repo directory, the "<repo>" in
-sandboxes/<slug>/<repo>/<branch> — as a second argument to print just that one
+sandboxes/<slug>/<branch>/<repo> — as a second argument to print just that one
 source, so a multi-source sandbox composes into a single command:
 
   git -C "$(sandboxer path feat api)" fetch   # act on just the "api" source

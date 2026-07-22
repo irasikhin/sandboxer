@@ -10,7 +10,7 @@ import (
 )
 
 // TestSyncSrcsRemoteClone: a srcs entry whose src is a git URL is cloned into
-// the host-side _remotes cache and worktree'd under <slug>/<repo>/<branch>
+// the host-side _remotes cache and worktree'd under <slug>/<branch>/<repo>
 // exactly like a local repo — managed, with the clone recorded as Remote.
 func TestSyncSrcsRemoteClone(t *testing.T) {
 	origin := gitRepoWithCommit(t)
@@ -38,8 +38,8 @@ func TestSyncSrcsRemoteClone(t *testing.T) {
 	if s.Branch != "feat/rem" {
 		t.Errorf("branch = %q, want the named branch", s.Branch)
 	}
-	// Layout is the same as a local source: <slug>/<repo>/<branch>.
-	if want := filepath.Join(b.SandboxDir("rem"), filepath.Base(s.RepoRoot), "feat", "rem"); s.Path != want {
+	// Layout is the same as a local source: <slug>/<branch>/<repo>.
+	if want := filepath.Join(b.SandboxDir("rem"), "feat", "rem", filepath.Base(s.RepoRoot)); s.Path != want {
 		t.Errorf("worktree path = %q, want %q", s.Path, want)
 	}
 	if !strings.HasPrefix(s.RepoRoot, b.remotesDir()) {

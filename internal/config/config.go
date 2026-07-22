@@ -55,8 +55,8 @@ type Src struct {
 	// — see ValidateInclude for why an entry can never select files.
 	Include []string `json:"include,omitempty"`
 	// Branch names the branch the source is checked out on. It is REQUIRED —
-	// there is no default naming — and it also names the worktree's directory
-	// (sandboxes/<slug>/<repo>/<branch>). An existing worktree of that
+	// there is no default naming — and it also names the worktree's location
+	// (sandboxes/<slug>/<branch>/<repo>). An existing worktree of that
 	// branch (including the repo's main checkout) is adopted as-is; a missing
 	// branch is created off HEAD.
 	Branch string `json:"branch,omitempty"`
@@ -316,7 +316,7 @@ type Profile struct {
 	// ~-prefixed, or relative to the PROJECT ROOT; empty = the default
 	// ./sandboxes inside the project (auto-added to the project's
 	// .gitignore, as is any in-project override). The sandbox occupies
-	// <worktreesDir>/<name>/<repo>/<branch>. Set it before creating the
+	// <worktreesDir>/<name>/<branch>/<repo>. Set it before creating the
 	// sandbox — changing it on an existing sandbox is REFUSED (an in-place
 	// relocation would need a cross-filesystem worktree move); rebuild at the
 	// new location with `sandboxer recreate` instead, which keeps the branches.

@@ -5,15 +5,15 @@ import (
 	"testing"
 )
 
-// TestFindSource: a source is addressed by its name (the repo-level dir of
+// TestFindSource: a source is addressed by its name (the repo-level leaf of
 // its worktree) or, as a convenience, its repo basename; an unknown name
 // fails and lists the real sources rather than guessing.
 func TestFindSource(t *testing.T) {
 	srcs := []Source{
-		{RepoRoot: "/home/u/api", Path: "/sb/feat/api/devops/x", Branch: "devops/x", Managed: true},
-		{RepoRoot: "/home/u/web", Path: "/sb/feat/web/devops/x", Branch: "devops/x", Managed: true},
+		{RepoRoot: "/home/u/api", Path: "/sb/feat/devops/x/api", Branch: "devops/x", Managed: true},
+		{RepoRoot: "/home/u/web", Path: "/sb/feat/devops/x/web", Branch: "devops/x", Managed: true},
 	}
-	if s, err := FindSource(srcs, "api"); err != nil || s.Path != "/sb/feat/api/devops/x" {
+	if s, err := FindSource(srcs, "api"); err != nil || s.Path != "/sb/feat/devops/x/api" {
 		t.Fatalf("FindSource api = %+v, %v", s, err)
 	}
 	if s, err := FindSource(srcs, "web"); err != nil || s.RepoRoot != "/home/u/web" {
@@ -37,12 +37,12 @@ func TestFindSourceAdopted(t *testing.T) {
 }
 
 // TestFindSourceDeduped: two repos sharing a basename get distinct repo-level
-// dir names — each is reachable by its unique dir name, while the bare
+// leaf names — each is reachable by its unique leaf name, while the bare
 // basename is reported ambiguous rather than resolving to an arbitrary one.
 func TestFindSourceDeduped(t *testing.T) {
 	srcs := []Source{
-		{RepoRoot: "/a/api", Path: "/sb/feat/api/devops/x", Branch: "devops/x", Managed: true},
-		{RepoRoot: "/b/api", Path: "/sb/feat/api-1f2e/devops/x", Branch: "devops/x", Managed: true},
+		{RepoRoot: "/a/api", Path: "/sb/feat/devops/x/api", Branch: "devops/x", Managed: true},
+		{RepoRoot: "/b/api", Path: "/sb/feat/devops/x/api-1f2e", Branch: "devops/x", Managed: true},
 	}
 	if s, err := FindSource(srcs, "api-1f2e"); err != nil || s.RepoRoot != "/b/api" {
 		t.Fatalf("FindSource api-1f2e = %+v, %v", s, err)

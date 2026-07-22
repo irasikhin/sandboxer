@@ -370,7 +370,7 @@ func TestCleanDetachedFlag(t *testing.T) {
 	}
 	// A branch change on re-create sets the old worktree aside under _detached/
 	// (dirtied first — a clean worktree would just be removed).
-	wip := filepath.Join(sandboxDir(project, "feat", filepath.Base(project), "feat", "feat"), "wip.txt")
+	wip := filepath.Join(sandboxDir(project, "feat", "feat", "feat", filepath.Base(project)), "wip.txt")
 	if err := os.WriteFile(wip, []byte("precious"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -402,7 +402,7 @@ func TestCleanDetachedFlag(t *testing.T) {
 		t.Errorf("_detached survived clean --detached (err=%v)", err)
 	}
 	// The live sandbox worktree is untouched.
-	if _, err := os.Stat(sandboxDir(project, "feat", filepath.Base(project), "devops", "feat2")); err != nil {
+	if _, err := os.Stat(sandboxDir(project, "feat", "devops", "feat2", filepath.Base(project))); err != nil {
 		t.Errorf("live worktree touched by clean --detached: %v", err)
 	}
 	// A second sweep finds nothing and says so.

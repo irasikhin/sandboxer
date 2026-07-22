@@ -32,8 +32,17 @@ func runGit(t *testing.T, dir string, args ...string) string {
 // single commit, so a srcs entry can resolve it and branch off HEAD.
 func gitRepoWithCommit(t *testing.T) string {
 	t.Helper()
+	return gitRepoAt(t, t.TempDir())
+}
+
+// gitRepoAt builds the same repo at a fixed path, for tests that need a
+// controlled repo basename (the worktree layout's leaf name).
+func gitRepoAt(t *testing.T, repo string) string {
+	t.Helper()
 	requireGit(t)
-	repo := t.TempDir()
+	if err := os.MkdirAll(repo, 0o755); err != nil {
+		t.Fatal(err)
+	}
 	runGit(t, repo, "init", "-q")
 	runGit(t, repo, "config", "user.email", "t@example.com")
 	runGit(t, repo, "config", "user.name", "t")
@@ -69,9 +78,9 @@ func TestMakeSandboxDotSrcFull(t *testing.T) {
 	if !s.Managed || !s.AutoBranch || s.Branch != "feat/wt" || s.RepoRoot != repo {
 		t.Errorf("dot source wrong: %+v", s)
 	}
-	// then: the worktree lives UNDER <slug>/, grouped by repo and named by
-	// branch (…-sandboxes/wt/<repo>/feat/wt), every file present and clean.
-	want := filepath.Join(b.SandboxDir("wt"), filepath.Base(repo), "feat", "wt")
+	// then: the worktree lives UNDER <slug>/, grouped by branch with the repo
+	// as the leaf (…-sandboxes/wt/feat/wt/<repo>), every file present and clean.
+	want := filepath.Join(b.SandboxDir("wt"), "feat", "wt", filepath.Base(repo))
 	if s.Path != want {
 		t.Fatalf("worktree path %q, want %q", s.Path, want)
 	}
@@ -203,8 +212,8 @@ func TestSyncSrcsLiveRefresh(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(srcs[1].Path, "CLAUDE.md")); err != nil {
 		t.Errorf("second source not materialized: %v", err)
 	}
-	if srcs[1].Path != filepath.Join(b.SandboxDir("live"), filepath.Base(other), "feat", "live-other") {
-		t.Errorf("second source %q not at its repo/branch path", srcs[1].Path)
+	if srcs[1].Path != filepath.Join(b.SandboxDir("live"), "feat", "live-other", filepath.Base(other)) {
+		t.Errorf("second source %q not at its branch/repo path", srcs[1].Path)
 	}
 
 	// when: the second repo is dropped again, with uncommitted work inside
@@ -356,7 +365,7 @@ func TestSyncSrcsRejectsIncludeThatIsNotADirectory(t *testing.T) {
 		}
 	}
 	// Nothing was created on the host to satisfy the bad pattern.
-	if _, err := os.Stat(filepath.Join(b.SandboxDir("typo"), filepath.Base(repo), "feat", "typo", "no-such-dir")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(b.SandboxDir("typo"), "feat", "typo", filepath.Base(repo), "no-such-dir")); !os.IsNotExist(err) {
 		t.Errorf("the bad include path was materialized on the host (err=%v)", err)
 	}
 }
@@ -447,8 +456,8 @@ func TestSyncSrcsBranchChangeSetsAside(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// then: a fresh worktree at the repo/branch path, on the new branch
-	want := filepath.Join(b.SandboxDir("ren"), filepath.Base(repo), "devops", "ren2")
+	// then: a fresh worktree at the branch/repo path, on the new branch
+	want := filepath.Join(b.SandboxDir("ren"), "devops", "ren2", filepath.Base(repo))
 	if len(srcs) != 1 || srcs[0].Path != want || srcs[0].Branch != "devops/ren2" {
 		t.Fatalf("srcs after branch change = %+v, want path %q", srcs, want)
 	}
@@ -461,7 +470,7 @@ func TestSyncSrcsBranchChangeSetsAside(t *testing.T) {
 		t.Errorf("old worktree's work not preserved under _detached: %v (err=%v)", moved, err)
 	}
 	// and: the old branch's now-empty intermediate dirs were tidied away
-	if _, err := os.Stat(filepath.Join(b.SandboxDir("ren"), filepath.Base(repo), "feat")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(b.SandboxDir("ren"), "feat")); !os.IsNotExist(err) {
 		t.Errorf("empty intermediate dir of the old branch survived (err=%v)", err)
 	}
 }
@@ -523,8 +532,8 @@ func TestMissingBranchHintNamesRecorded(t *testing.T) {
 	}
 }
 
-// TestSameBranchTwoRepos: two sources on the SAME branch name live naturally
-// under their own repo dirs — <repo>/<branch> each.
+// TestSameBranchTwoRepos: two sources on the SAME branch name share one
+// branch dir, each repo as its own leaf — <branch>/<repo> each.
 func TestSameBranchTwoRepos(t *testing.T) {
 	repo := gitRepoWithCommit(t)
 	other := gitRepoWithCommit(t)
@@ -541,9 +550,9 @@ func TestSameBranchTwoRepos(t *testing.T) {
 	}
 	srcs := b.Srcs("two")
 	if len(srcs) != 2 ||
-		srcs[0].Path != filepath.Join(b.SandboxDir("two"), filepath.Base(repo), "devops", "x") ||
-		srcs[1].Path != filepath.Join(b.SandboxDir("two"), filepath.Base(other), "devops", "x") {
-		t.Fatalf("same-branch paths = %+v, want <repo>/devops/x each", srcs)
+		srcs[0].Path != filepath.Join(b.SandboxDir("two"), "devops", "x", filepath.Base(repo)) ||
+		srcs[1].Path != filepath.Join(b.SandboxDir("two"), "devops", "x", filepath.Base(other)) {
+		t.Fatalf("same-branch paths = %+v, want devops/x/<repo> each", srcs)
 	}
 	for _, s := range srcs {
 		if _, err := os.Stat(filepath.Join(s.Path, "CLAUDE.md")); err != nil {
@@ -653,7 +662,7 @@ func TestWorktreesDirOverride(t *testing.T) {
 		t.Fatalf("SandboxDir = %q, want %q", got, want)
 	}
 	s := b.Srcs("wd")[0]
-	if want := filepath.Join(custom, "wd", filepath.Base(repo), "feat", "wd"); s.Path != want {
+	if want := filepath.Join(custom, "wd", "feat", "wd", filepath.Base(repo)); s.Path != want {
 		t.Fatalf("worktree path %q, want %q", s.Path, want)
 	}
 	if _, err := os.Stat(filepath.Join(s.Path, "CLAUDE.md")); err != nil {
@@ -675,7 +684,7 @@ func TestWorktreesDirOverride(t *testing.T) {
 	if err := b.MakeSandbox("wd2", io.Discard); err != nil {
 		t.Fatal(err)
 	}
-	if got, want := b.Srcs("wd2")[0].Path, filepath.Join(repo, "sb", "wd2", filepath.Base(repo), "feat", "wd2"); got != want {
+	if got, want := b.Srcs("wd2")[0].Path, filepath.Join(repo, "sb", "wd2", "feat", "wd2", filepath.Base(repo)); got != want {
 		t.Fatalf("relative worktreesDir path %q, want %q", got, want)
 	}
 	if gi, err := os.ReadFile(filepath.Join(repo, ".gitignore")); err != nil || !strings.Contains(string(gi), "/sb/") {
@@ -857,7 +866,7 @@ func TestSyncSrcsReattachSetAside(t *testing.T) {
 	}
 	// then: the worktree is back at its managed path, work intact, include
 	// re-applied, nothing adopted and nothing left under _detached/.
-	want := filepath.Join(b.SandboxDir("ra"), filepath.Base(repo), "feat", "ra")
+	want := filepath.Join(b.SandboxDir("ra"), "feat", "ra", filepath.Base(repo))
 	if len(srcs) != 1 || !srcs[0].Managed || srcs[0].Path != want {
 		t.Fatalf("re-attached source = %+v, want managed at %q", srcs, want)
 	}

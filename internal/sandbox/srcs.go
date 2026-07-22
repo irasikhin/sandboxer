@@ -41,15 +41,12 @@ type Source struct {
 	Remote string `json:"remote,omitempty"`
 }
 
-// Name is the label this source is addressed by within its sandbox: the
-// repo-level directory of its worktree (<slug>/<NAME>/<branch> — deduped by
-// assignManagedPaths when two repos share a basename), or the checkout's own
-// dir name for an adopted source. Unique across a sandbox's managed sources.
-// `path <slug> <name>` selects one source by it.
+// Name is the label this source is addressed by within its sandbox: the last
+// path element of its worktree — the repo-level leaf for a managed source
+// (<slug>/<branch>/<NAME>, deduped by assignManagedPaths when two repos share
+// a basename), the checkout's own dir name for an adopted one. Unique across
+// a sandbox's managed sources. `path <slug> <name>` selects one source by it.
 func (s Source) Name() string {
-	if suffix := string(filepath.Separator) + filepath.FromSlash(s.Branch); s.Managed && strings.HasSuffix(s.Path, suffix) {
-		return filepath.Base(strings.TrimSuffix(s.Path, suffix))
-	}
 	return filepath.Base(s.Path)
 }
 
@@ -215,7 +212,7 @@ func (b *Base) profileWorktreesDir(slug string) string {
 // paths are validated (must exist, be a repo toplevel with at least one
 // commit, no repo twice), every entry names its branch EXPLICITLY (an entry
 // without branch: is an error — there is no default naming), and managed
-// worktrees are placed under <slug>/ named by their branch (see
+// worktrees are placed under <slug>/ grouped by their branch (see
 // assignManagedPaths). Entry order is preserved. An empty list is an error,
 // never an implicit "current directory": what a sandbox exposes is always
 // spelled out in the config.
@@ -364,12 +361,15 @@ func (b *Base) resolveSrcs(slug string, specs []config.Src, prev []Source, w io.
 }
 
 // assignManagedPaths places each managed source's worktree under root,
-// grouped by repo and named by branch — path = <root>/<repo>/<branch>, branch
-// slashes becoming directories — so the on-disk layout spells out repo and
-// branch (…/mybox/miko-java/feat/BDP-5291). Repos sharing a basename are
-// deduped with a short path hash. Within one repo branch names cannot nest
-// (git forbids such refs) and a repo appears once per sandbox, so paths never
-// collide.
+// grouped by branch with the repo as the leaf — path = <root>/<branch>/<repo>,
+// branch slashes becoming directories — so one branch spanning several repos
+// reads as a unit (…/mybox/feat/BDP-5291/miko-java). Repos sharing a basename
+// are deduped with a short path hash, which is also what keeps Source.Name
+// unique. Branch dirs of DIFFERENT repos share the namespace under root, so a
+// repo leaf can collide with another source's branch path (repo "x" on branch
+// "feat" vs any repo on branch "feat/x" — git's ref rules forbid that only
+// within one repo); the pairwise check below refuses a layout that would nest
+// one worktree inside another.
 func assignManagedPaths(root string, srcs []Source) error {
 	seenName := map[string]bool{}
 	sep := string(filepath.Separator)
@@ -382,13 +382,27 @@ func assignManagedPaths(root string, srcs []Source) error {
 			name = name + "-" + shortPathHash(srcs[i].RepoRoot)
 		}
 		seenName[name] = true
-		p := filepath.Join(root, name, filepath.FromSlash(srcs[i].Branch))
+		p := filepath.Join(root, filepath.FromSlash(srcs[i].Branch), name)
 		// ValidBranch already rejects ".."-style names; this is the belt that
 		// guarantees no branch-derived path ever leaves the sandbox dir.
 		if !strings.HasPrefix(p, root+sep) {
 			return fmt.Errorf("srcs branch %q escapes the sandbox directory", srcs[i].Branch)
 		}
 		srcs[i].Path = p
+	}
+	for i := range srcs {
+		if !srcs[i].Managed {
+			continue
+		}
+		for j := range srcs {
+			if j == i || !srcs[j].Managed {
+				continue
+			}
+			if strings.HasPrefix(srcs[j].Path, srcs[i].Path+sep) {
+				return fmt.Errorf("srcs collide: worktree %s (branch %q) would sit inside worktree %s (branch %q) — rename one of the branches",
+					srcs[j].Path, srcs[j].Branch, srcs[i].Path, srcs[i].Branch)
+			}
+		}
 	}
 	return nil
 }
@@ -401,10 +415,12 @@ func shortPathHash(p string) string {
 
 // SyncSrcs converges the sandbox's on-disk sources onto the stored profile:
 // it (re-)resolves srcs (every source names its branch explicitly — see
-// resolveSrcs), creates missing managed worktrees, widens any left narrow by a
-// pre-view-mounts sandboxer (Unsparse), sets aside managed worktrees whose
-// source was dropped (or whose branch: changed) under _detached/, and records
-// the result in
+// resolveSrcs), creates missing managed worktrees, moves a managed worktree
+// whose assigned path changed while source and branch did not (a layout
+// change across sandboxer versions, a dedup rename — see relocateSrc), widens
+// any left narrow by a pre-view-mounts sandboxer (Unsparse), sets aside
+// managed worktrees whose source was dropped (or whose branch: changed) under
+// _detached/, and records the result in
 // _meta/<slug>.srcs.json. It runs on create and on every enter/exec, so
 // editing srcs opens access without recreating anything: the container's one
 // stable mount is the <slug>/ dir this function populates, and a live session
@@ -455,11 +471,16 @@ func (b *Base) SyncSrcs(slug string, w io.Writer) ([]Source, error) {
 	}
 
 	// Set aside previously managed worktrees that no longer correspond to a
-	// resolved source (dropped from srcs, renamed, or switched branch).
-	want := map[string]string{} // managed path -> branch
+	// resolved source (dropped from srcs, renamed, or switched branch) — but
+	// first relocate one whose source is still wanted and only its managed
+	// path changed: a rename keeps uncommitted work and ignored build caches
+	// that a detach-and-recheckout would destroy.
+	want := map[string]string{}    // managed path -> branch
+	newHome := map[string]string{} // repoRoot\x00branch -> managed path
 	for _, s := range srcs {
 		if s.Managed {
 			want[s.Path] = s.Branch
+			newHome[s.RepoRoot+"\x00"+s.Branch] = s.Path
 		}
 	}
 	for _, p := range prev {
@@ -484,6 +505,26 @@ func (b *Base) SyncSrcs(slug string, w io.Writer) ([]Source, error) {
 						filepath.Base(p.RepoRoot))
 				}
 				continue
+			}
+		}
+		if to, ok := newHome[p.RepoRoot+"\x00"+p.Branch]; ok && to != p.Path && worktree.IsWorktree(p.Path) {
+			// Only a worktree still on its recorded branch moves — with detached
+			// HEAD counting as "still": "unknown" is not "switched", and leaving
+			// the tree at the old path would wedge Ensure on git's
+			// one-worktree-per-branch rule. A hand-switched worktree falls
+			// through to detachSrc, exactly like a branch: change.
+			if cur := worktree.CurrentBranch(p.Path); cur == p.Branch || cur == "" {
+				err := b.relocateSrc(slug, p, to, w)
+				if err == nil {
+					continue
+				}
+				// The target can legitimately still be occupied mid-migration
+				// (crossed repo/branch names, a dedup swap): set the tree aside
+				// instead — materializeSrc re-attaches it, work intact.
+				if w != nil {
+					fmt.Fprintf(w, "sandboxer: srcs %s: move to %s failed (%v) — setting the worktree aside instead\n",
+						filepath.Base(p.RepoRoot), to, err)
+				}
 			}
 		}
 		if err := b.detachSrc(slug, p, w); err != nil {
@@ -547,6 +588,27 @@ func (b *Base) reattachSrc(from string, s Source, w io.Writer) error {
 	}
 	_, err := worktree.Unsparse(s.Path, w)
 	return err
+}
+
+// relocateSrc moves a managed worktree to its newly assigned path — same
+// source, same branch, only the layout-derived location changed (a layout
+// change across sandboxer versions, a dedup rename). Old and new path share
+// the worktrees root, so the move is a same-filesystem rename: uncommitted
+// work AND git-ignored build caches survive, where a detach-and-recheckout
+// would destroy the caches (git considers an ignored-only tree clean).
+func (b *Base) relocateSrc(slug string, s Source, to string, w io.Writer) error {
+	if err := os.MkdirAll(filepath.Dir(to), 0o755); err != nil {
+		return err
+	}
+	if err := worktree.Move(s.RepoRoot, s.Path, to); err != nil {
+		return err
+	}
+	removeEmptyParents(s.Path, b.SandboxDir(slug))
+	if w != nil {
+		fmt.Fprintf(w, "sandboxer: srcs %s: worktree moved to %s (branch %s, work intact)\n",
+			filepath.Base(s.RepoRoot), to, s.Branch)
+	}
+	return nil
 }
 
 // isSetAside reports whether path lies under a _detached/ directory — a
@@ -694,9 +756,10 @@ func (b *Base) detachSrc(slug string, s Source, w io.Writer) error {
 }
 
 // removeEmptyParents removes the now-empty directories between path's parent
-// and root (exclusive) — the intermediates a branch-named worktree
-// (devops/branch1 → devops/) leaves behind when it moves out. os.Remove
-// refuses a non-empty dir, so the walk stops at the first one still in use.
+// and root (exclusive) — the branch-derived intermediates a worktree
+// (devops/branch1/repo → devops/branch1/ → devops/) leaves behind when it
+// moves out. os.Remove refuses a non-empty dir, so the walk stops at the
+// first one still in use.
 func removeEmptyParents(path, root string) {
 	for dir := filepath.Dir(path); strings.HasPrefix(dir, root+string(filepath.Separator)); dir = filepath.Dir(dir) {
 		if os.Remove(dir) != nil {

@@ -23,8 +23,8 @@ drives.
 ## How it works
 
 A **sandbox** exposes **sources**: git repos checked out into per-sandbox
-worktrees right in the project — `./sandboxes/<slug>/<repo>/<branch>`,
-grouped by repo with each worktree directory named after its branch, so your
+worktrees right in the project — `./sandboxes/<slug>/<branch>/<repo>`,
+grouped by branch with a directory per repo inside, so your
 sandboxes are ordinary folders you can browse. The dir is auto-added to the
 project's `.gitignore` (worktrees never land in a commit); relocate it with
 the profile's `worktreesDir` (absolute, `~`, or project-relative). Run sandboxer inside a repo and it just works — the
@@ -41,7 +41,7 @@ is copied.
 - **srcs** — the sources, always explicit: each entry is `src:` (path to a
   repo root — relative to the project root, so other repos work too — **or a
   git URL**), a REQUIRED `branch:` (the branch the worktree lives on — it also
-  names the worktree's directory; a branch already checked out elsewhere is
+  names the directory the worktree sits under; a branch already checked out elsewhere is
   adopted as-is) and an optional `include:` (directory paths or patterns — only
   the selected directories exist in the container). The scaffold seeds
   `srcs = [ { src = "."; branch = "feat/<name>"; } ]` — this repo, whole.

@@ -8,7 +8,7 @@
 // finds them without digging through XDG paths.
 //
 // A sandbox is a set of SOURCES (see srcs.go): per-repo git worktrees under
-// <slug>/, each named by its (explicitly configured) branch. The host worktree
+// <slug>/, grouped by their (explicitly configured) branch. The host worktree
 // is always a COMPLETE checkout; a source's `include` narrows what the CONTAINER
 // sees by mounting only the listed directories (see Mounts) — with no include,
 // <slug>/ is mounted whole. Git metadata is NEVER mounted either way, so the
@@ -146,9 +146,9 @@ func (b *Base) worktreesRoot(slug string) string {
 }
 
 // SandboxDir is the directory for a sandbox: <worktreesRoot>/<slug>. The
-// managed worktrees inside are grouped by repo and named by their branch
+// managed worktrees inside are grouped by branch with the repo as the leaf
 // (see srcs.go), so the on-disk path spells everything out:
-// sandboxes/<slug>/<repo>/<branch>.
+// sandboxes/<slug>/<branch>/<repo>.
 func (b *Base) SandboxDir(slug string) string {
 	return filepath.Join(b.worktreesRoot(slug), slug)
 }

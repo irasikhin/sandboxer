@@ -26,8 +26,8 @@ import (
 )
 
 // ValidBranch rejects a malformed git branch name via `git check-ref-format
-// --branch`. The branch also names the worktree's directory under the sandbox,
-// so a bad name is refused before any path is derived from it. An EXISTING
+// --branch`. The branch also names the directories the worktree sits under in
+// the sandbox, so a bad name is refused before any path is derived from it. An EXISTING
 // branch is deliberately reused — checked out into the managed worktree, or
 // adopted where it is already checked out; recreate --full only ever deletes
 // branches sandboxer itself created (recorded per source at first sync).
@@ -193,8 +193,16 @@ func HasWork(dest string) bool {
 
 // Move relocates a worktree's working directory (git worktree move), keeping
 // its checkout, branch and any uncommitted changes intact. Used to set a
-// dropped source aside under _detached/ instead of destroying its work.
+// dropped source aside under _detached/, to bring it back, and to relocate a
+// managed worktree whose assigned path changed. to must not exist: every
+// caller means "this exact path", while git's own mv semantics would move the
+// worktree INSIDE an existing directory — nesting one tree in another.
 func Move(repoToplevel, from, to string) error {
+	if _, err := os.Lstat(to); err == nil {
+		return fmt.Errorf("git worktree move: target %s already exists", to)
+	} else if !os.IsNotExist(err) {
+		return err
+	}
 	if _, err := run(repoToplevel, "worktree", "move", from, to); err != nil {
 		return fmt.Errorf("git worktree move: %w", err)
 	}

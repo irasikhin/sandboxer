@@ -112,8 +112,8 @@ func starterProfile(name string, d config.Defaults) string {
   # a URL is cloned once into a host-side cache and worktree'd from there
   # (recreate re-fetches; review/push its branch on the host). Each entry
   # becomes a git worktree on the host, checked out on the branch YOU name —
-  # branch is REQUIRED and also names the worktree's directory
-  # (./sandboxes/<name>/<repo>/<branch>). ONLY the selected directories are
+  # branch is REQUIRED and also names the worktree's on-disk location
+  # (./sandboxes/<name>/<branch>/<repo>). ONLY the selected directories are
   # visible inside the container (git itself never is; review and commit on
   # the host). include lists directories: literal anchored paths
   # ("/services/api/") or patterns ("/services/*/", "**/proto/" — a whole "**"

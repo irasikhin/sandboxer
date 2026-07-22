@@ -66,8 +66,11 @@ was extracted from:
   hash of the abs path) — the `_meta`/`_logs`/`_home/<slug>` dirs. Both are outside the repo, so
   credentials/scratch can never be committed. `sandboxer clean` wipes both (config stays).
 - **Sandbox backing = srcs** (`internal/worktree`, `internal/sandbox/srcs.go`): a sandbox exposes SOURCES —
-  `srcs: [{src, branch, include}]` — each a git worktree at `<sandboxesRoot>/<slug>/<repo>/<branch>/`
-  (grouped by repo, dir NAMED AFTER the branch; root relocatable per profile via `worktreesDir`). `branch:` is
+  `srcs: [{src, branch, include}]` — each a git worktree at `<sandboxesRoot>/<slug>/<branch>/<repo>/`
+  (grouped by BRANCH, repo basename as the leaf — deduped by a short hash, and a layout that would nest one
+  worktree inside another is refused; a managed worktree whose assigned path changed while (repo, branch) did
+  not is MOVED in place — `git worktree move`, uncommitted work and ignored caches kept, falling back to
+  detach when the target is occupied; root relocatable per profile via `worktreesDir`). `branch:` is
   REQUIRED — no default naming, a missing branch is an error (the error hints the recorded branch); a branch
   already checked out elsewhere (incl. the main checkout) is ADOPTED — except a set-aside `_detached/` checkout
   (re-attached to its managed path instead) or a stale registration whose dir was hand-deleted (pruned, checked

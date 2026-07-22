@@ -15,7 +15,7 @@
   # The sources the sandbox sees — always explicit (src = "." is this repo,
   # whole; relative paths resolve against the project root). branch is
   # REQUIRED: it names the worktree's branch and its on-disk directory
-  # (./sandboxes/<name>/<repo>/<branch>, auto-git-ignored; relocate the root
+  # (./sandboxes/<name>/<branch>/<repo>, auto-git-ignored; relocate the root
   # with worktreesDir). See with-srcs.nix for include patterns, extra repos
   # and branch adoption.
   srcs = [

@@ -21,8 +21,8 @@ tree:
 
 <project-root>/sandboxes/                   # the worktrees (auto-git-ignored)
 ├── <slug>/               # one per sandbox (relocatable: profile worktreesDir)
-│   └── <repo>/<branch>/  #   grouped by repo, dir named after the branch,
-│                         #   e.g. miko-java/feat/BDP-5291/
+│   └── <branch>/<repo>/  #   grouped by branch, a dir per repo inside,
+│                         #   e.g. feat/BDP-5291/miko-java/
 └── _detached/            # dropped sources with UNCOMMITTED work, set aside
                           #   (clean ones are just removed — the branch stays;
                           #   sweep: sandboxer clean --detached --force, or
@@ -48,9 +48,9 @@ $XDG_STATE_HOME/sandboxer/<project-id>/     # runtime state, outside the repo
 Key invariants (`internal/sandbox`, `internal/worktree`):
 
 - **`<slug>/` holds one git worktree per source** (`srcs` entry): each source
-  repo checked out **complete** at `<slug>/<repo>/<branch>/` — every entry names
+  repo checked out **complete** at `<slug>/<branch>/<repo>/` — every entry names
   its branch explicitly (no default naming; a missing `branch:` is an error) and
-  the worktree's directory is named after it. Editing `branch:` is the one way
+  the branch names the dirs the worktree sits under. Editing `branch:` is the one way
   to move a sandbox's worktree. What the CONTAINER sees is decided by the mount
   set, not by the tree (`sandbox.Mounts`): with no `include`, `<slug>/` is
   mounted whole; with `include`, `<slug>/` is **not mounted at all** and each
@@ -78,7 +78,7 @@ Key invariants (`internal/sandbox`, `internal/worktree`):
 ```
   init ──────────►  scaffold sandboxer.nix   [optional]
                     │
-  create <slug> ──► per srcs entry: full git worktree at <slug>/<repo>/<branch>/
+  create <slug> ──► per srcs entry: full git worktree at <slug>/<branch>/<repo>/
                     │   (include narrows the MOUNTS, not the tree); mkdir _home/<slug>; snapshot
                     │   profile.json + srcs.json; register slug
                     ▼

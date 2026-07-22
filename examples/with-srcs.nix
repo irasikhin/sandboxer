@@ -22,7 +22,7 @@
   # Srcs: the repos (and slices of them) the sandbox sees — ALWAYS explicit,
   # there is no implicit default. src is a path to a repo root (relative paths
   # resolve against the project root); branch is REQUIRED — it names the
-  # worktree's branch AND its directory (./sandboxes/<name>/<repo>/<branch>);
+  # worktree's branch AND its directory (./sandboxes/<name>/<branch>/<repo>);
   # include lists the DIRECTORIES the container may see — anchored at the repo
   # root, trailing slash optional (omit include entirely for the whole repo).
   # Ant-style directory patterns work too: "/services/*/" (direct children),

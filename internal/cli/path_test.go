@@ -41,8 +41,9 @@ func TestPathPrintsSourceWorktree(t *testing.T) {
 		t.Errorf("path = %q, want an absolute path", got)
 	}
 	// The single source is the project repo itself, materialized under <slug>/
-	// grouped by repo and named by branch (the scaffold seeds feat/<name>).
-	want := filepath.Join(sandboxDir(project, "feat"), filepath.Base(project), "feat", "feat")
+	// grouped by branch with the repo as the leaf (the scaffold seeds
+	// feat/<name>).
+	want := filepath.Join(sandboxDir(project, "feat"), "feat", "feat", filepath.Base(project))
 	if got != want {
 		t.Errorf("path = %q, want %q", got, want)
 	}
@@ -66,7 +67,7 @@ func TestPathSelectSource(t *testing.T) {
 	if len(lines) != 1 {
 		t.Fatalf("path feat %s lines = %d, want 1: %v", name, len(lines), lines)
 	}
-	if want := filepath.Join(sandboxDir(project, "feat"), name, "feat", "feat"); lines[0] != want {
+	if want := filepath.Join(sandboxDir(project, "feat"), "feat", "feat", name); lines[0] != want {
 		t.Errorf("path feat %s = %q, want %q", name, lines[0], want)
 	}
 
@@ -106,7 +107,7 @@ func TestPathActiveSandbox(t *testing.T) {
 	}
 
 	lines := pathLines(t, "--src", project)
-	if len(lines) != 1 || !strings.Contains(lines[0], filepath.Join("other", filepath.Base(project), "feat", "other")) {
+	if len(lines) != 1 || !strings.Contains(lines[0], filepath.Join("other", "feat", "other", filepath.Base(project))) {
 		t.Errorf("path (active) = %v, want the 'other' sandbox worktree", lines)
 	}
 }
