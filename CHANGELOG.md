@@ -6,6 +6,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.59.0] — 2026-07-23
+
+### Added
+
+- relaunch recorded agents when restoring a session (8b13d5d)
+- open the conversation picker for same-dir agent panes (51533e2)
+
+
 ## [0.58.1] — 2026-07-21
 
 ### Fixed
@@ -686,3 +694,4 @@ isolated, containerized dev sandbox, on a local Linux machine:
 [0.57.0]: https://github.com/irasikhin/sandboxer/compare/v0.56.3...v0.57.0
 [0.58.0]: https://github.com/irasikhin/sandboxer/compare/v0.57.0...v0.58.0
 [0.58.1]: https://github.com/irasikhin/sandboxer/compare/v0.58.0...v0.58.1
+[0.59.0]: https://github.com/irasikhin/sandboxer/compare/v0.58.1...v0.59.0
