@@ -83,12 +83,15 @@ equivalent — its purpose is "run it with your own tooling".`,
 				RT:              rt,
 				Profile:         t.profile,
 				ProfileJSONPath: t.base.ProfileJSONPath(t.slug),
-				Mem:             rt.Mem,
-				CPU:             rt.CPU,
-				Pids:            rt.Pids,
-				Interactive:     true,
-				Args:            []string{"bash", "-l"},
-				NoEgress:        noEgress(),
+				// Paths only, no generation — compose is a dry-run renderer;
+				// the mounts appear iff a prior enter generated the files.
+				NestedIDFiles: backend.NestedIDFiles(t.base.NestedIDFiles(t.slug)),
+				Mem:           rt.Mem,
+				CPU:           rt.CPU,
+				Pids:          rt.Pids,
+				Interactive:   true,
+				Args:          []string{"bash", "-l"},
+				NoEgress:      noEgress(),
 			}
 			argv, err := backend.RunArgv(opts)
 			if err != nil {
@@ -142,6 +145,8 @@ type composeService struct {
 	WorkingDir  string            `yaml:"working_dir,omitempty"`
 	User        string            `yaml:"user,omitempty"`
 	CapDrop     []string          `yaml:"cap_drop,omitempty"`
+	CapAdd      []string          `yaml:"cap_add,omitempty"`
+	Devices     []string          `yaml:"devices,omitempty"`
 	SecurityOpt []string          `yaml:"security_opt,omitempty"`
 	MemLimit    string            `yaml:"mem_limit,omitempty"`
 	CPUs        string            `yaml:"cpus,omitempty"`
@@ -203,7 +208,7 @@ func parseRunArgv(argv []string) composeService {
 			i++
 		case "--userns=keep-id":
 			i++ // podman host-id mapping; no portable compose equivalent
-		case "--user", "--workdir", "--security-opt",
+		case "--user", "--workdir", "--security-opt", "--cap-add", "--device",
 			"--memory", "--cpus", "--pids-limit", "--network", "--volume", "--env":
 			if i+1 >= len(argv) {
 				i++
@@ -217,6 +222,10 @@ func parseRunArgv(argv []string) composeService {
 				svc.WorkingDir = val
 			case "--security-opt":
 				svc.SecurityOpt = append(svc.SecurityOpt, val)
+			case "--cap-add":
+				svc.CapAdd = append(svc.CapAdd, val)
+			case "--device":
+				svc.Devices = append(svc.Devices, val)
 			case "--memory":
 				svc.MemLimit = val
 			case "--cpus":

@@ -19,6 +19,9 @@ func TestParseRunArgv(t *testing.T) {
 		"--security-opt", "no-new-privileges", "--userns=keep-id",
 		"--workdir", "/work", "--memory", "2G", "--cpus", "1.5",
 		"--network", "sbxnet", "--volume", "/a:/a:rw",
+		// The nestedContainers flags: --device/--cap-add treated as the image
+		// used to silently truncate everything after them.
+		"--device", "/dev/fuse", "--cap-add", "SETUID",
 		"--env", "HOME=/h", "--env", "BAD",
 		"img:latest", "bash", "-l",
 	}
@@ -34,6 +37,12 @@ func TestParseRunArgv(t *testing.T) {
 	}
 	if len(svc.CapDrop) != 1 || svc.CapDrop[0] != "ALL" {
 		t.Errorf("cap_drop = %v", svc.CapDrop)
+	}
+	if len(svc.Devices) != 1 || svc.Devices[0] != "/dev/fuse" {
+		t.Errorf("devices = %v", svc.Devices)
+	}
+	if len(svc.CapAdd) != 1 || svc.CapAdd[0] != "SETUID" {
+		t.Errorf("cap_add = %v", svc.CapAdd)
 	}
 	if svc.Environment["HOME"] != "/h" {
 		t.Errorf("env HOME = %q", svc.Environment["HOME"])
