@@ -135,11 +135,18 @@ important — where it stops.
   `CAP_SYS_ADMIN`. Opting in therefore passes `seccomp=unconfined` and
   `systempaths=unconfined` (the latter unmasks `/proc`, which the nested
   container's own `procfs` mount needs), plus `/dev/net/tun` and `/dev/fuse`.
-  What it does **not** do is hand over privilege: no `--privileged`, no
-  `--cap-add`, and `no-new-privileges` stays on, so the nested podman gets no
-  subordinate uid range and runs single-uid. Net effect: an escape no longer has
-  to get past a syscall allowlist. Leave it off unless the sandbox actually
-  builds or runs containers.
+  On a **podman** engine it also grants exactly **`--cap-add SETUID,SETGID`**:
+  podman puts added caps in the *ambient* set for a non-root user, which is
+  what lets `newuidmap`/`newgidmap` write the multi-uid mapping user-switching
+  images (postgres) need — with `no-new-privileges` still on and no setuid
+  binaries involved. The grant is real: a process in the sandbox can assume
+  any uid/gid of the sandbox's own user namespace (all of them the host
+  user's subordinate ids — never host root). What the opt-in still does
+  **not** do: no `--privileged`, no other capability, `--cap-drop=ALL` and
+  `no-new-privileges` stay; on a docker engine there is no capability grant at
+  all and the nested podman runs single-uid. Net effect: an escape no longer
+  has to get past a syscall allowlist. Leave it off unless the sandbox
+  actually builds or runs containers.
 
 - **The worktree's `.git` pointer file is writable.** Git metadata is not
   mounted (the whole hooks/config/object-store attack surface of earlier
@@ -168,7 +175,11 @@ important — where it stops.
   best-effort guardrail: domain-fronting, abuse of an already-allowed domain
   (e.g. exfiltration through a permitted API or git host), and DNS tricks can
   defeat it. `egress.routes` and `egress.proxy` change *where* allowed traffic
-  goes, not *what* is allowed.
+  goes, not *what* is allowed. Note the **default** list includes
+  `cloudfront.net` — registry blobs (docker.io for some regions, all of
+  `public.ecr.aws`) redirect there, but the entry admits *any* CloudFront
+  distribution, i.e. an exfiltration channel anyone can stand up; set
+  `egress.allowedDomains` without it if that outweighs registry pulls for you.
 
   > **`egress.enabled = false` replaces the allowlist.** An `egress.proxy` URL
   > with `egress.enabled = false` makes sandboxer treat that proxy as the

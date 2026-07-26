@@ -421,12 +421,30 @@ The cost is real: podman re-execs itself into a user namespace, and the engine's
 default seccomp profile denies that to an unprivileged container, so the opt-in
 runs the sandbox with **`seccomp=unconfined` and `/proc` unmasked** (plus
 `/dev/net/tun` and `/dev/fuse`). It does *not* hand over privilege — no
-`--privileged`, no `--cap-add`, `--cap-drop=ALL` and `no-new-privileges` stay —
-but the syscall filter is gone. See [SECURITY.md](./SECURITY.md).
+`--privileged`, `--cap-drop=ALL` and `no-new-privileges` stay; on a podman
+engine the opt-in additionally grants exactly **`SETUID`+`SETGID`** (as ambient
+capabilities, see below) — but the syscall filter is gone. See
+[SECURITY.md](./SECURITY.md).
 
-Because there is no subordinate uid range inside, the nested podman maps a
-single uid; the image's `storage.conf` sets `ignore_chown_errors` so ordinary
-images still unpack.
+**User-switching images work on a podman engine.** Images whose entrypoint
+drops to their own user (postgres, most databases) need the nested podman to
+map **more than one uid**. On a podman engine sandboxer makes that work:
+it generates `/etc/subuid`/`/etc/subgid` (plus a matching passwd/group) for
+the sandbox uid, mounts them read-only, and grants `SETUID`/`SETGID` so the
+image's `newuidmap` can write the multi-uid mapping — `no-new-privileges`
+stays on (the caps are *ambient*, they survive exec without any setuid
+binary). Prerequisite: the **host** user needs a subordinate range in
+`/etc/subuid`/`/etc/subgid` (standard on most distros; `usermod
+--add-subuids 100000-165535 --add-subgids 100000-165535 <you>` grants one —
+sandboxer warns when it is missing). If a sandbox already ran the nested
+podman before the multi-uid grant, run `podman system migrate` once inside it
+so the stored images adopt the new mapping.
+
+On a **docker** engine the nested podman stays **single-uid** (docker gives a
+non-root user no ambient capabilities, and lifting `no-new-privileges` is not
+a trade sandboxer makes): pulls still work — the image's `storage.conf` sets
+`ignore_chown_errors` so ordinary images unpack — but containers that switch
+user won't run.
 
 ### Multiple profiles in one file
 

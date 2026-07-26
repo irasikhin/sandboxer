@@ -46,6 +46,15 @@ package install almost always means the host isn't allowed.
   `--allow-domains a.com,b.com` for the run.
 - Remember transitive hosts: a package install often needs the registry **and** a
   CDN/mirror (e.g. `registry.npmjs.org` plus its CDN).
+- Container pulls are the classic case: the registry answers but the **blobs
+  redirect to a CDN** — docker.io sends some regions/accounts to
+  `*.cloudfront.net`, and `public.ecr.aws` sends *every* blob there, so a pull
+  that dies halfway with `Forbidden` usually means `cloudfront.net` is missing.
+  Current defaults include it (plus `public.ecr.aws`) — but a
+  `sandboxer config init` from an older release **froze the then-defaults into
+  your `sandboxer.nix`**, and `egress.allowedDomains` replaces the default set
+  wholesale: add `"public.ecr.aws" "cloudfront.net"` to the list (or delete the
+  attr to fall back to the current built-in defaults).
 - The one-time `setup:` hook runs under the **same** allowlist — a network step
   in `setup:` needs its domains allowed too.
 - To rule egress out while debugging, disable it deliberately:
@@ -96,6 +105,29 @@ over. A failed setup is **fatal by default**, so the `enter`/`exec` aborts.
   above and allow the domains the script needs.
 - The hook re-runs only when its **content changes** (a per-sandbox hash stamp,
   `_meta/<slug>.setup`). Edit the script and the next run re-triggers it.
+
+## Nested podman: an image that switches user fails (postgres, EINVAL)
+
+Inside a `nestedContainers = true` sandbox, `podman run … postgres` (or any
+image whose entrypoint drops to its own user) dying with
+`setresuid/setresgid …: Invalid argument` — or `newuidmap: write to uid_map
+failed: Operation not permitted` — means the nested podman only has a
+**single-uid mapping**, so no other uid exists to switch to.
+
+- **Podman engine:** this works out of the box (sandboxer generates
+  `/etc/subuid`/`/etc/subgid` and grants ambient `SETUID`/`SETGID`) — *if the
+  host user has a subordinate range*. `enter` warns when it is missing; grant
+  one on the host and re-enter:
+  `sudo usermod --add-subuids 100000-165535 --add-subgids 100000-165535 "$USER"`.
+- **Sandbox created before the multi-uid grant** (or first run after
+  upgrading): the nested podman's stored images in the persistent `$HOME` were
+  unpacked under the old single-uid mapping. Run `podman system migrate` once
+  inside the sandbox (or `podman system reset` to drop the stored images) and
+  pull again.
+- **Docker engine:** single-uid is a hard limit (docker grants a non-root user
+  no ambient capabilities). Pulls work; user-switching containers do not —
+  run that workload under a podman engine, or `--user 0:0` the nested
+  container when the image tolerates running as (namespaced) root.
 
 ## Persistent session won't reattach
 
