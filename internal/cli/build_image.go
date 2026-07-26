@@ -15,7 +15,7 @@ import (
 // from a flake embedded in the binary, then the engine loads it. It is the
 // `build` verb of the `image` command group (see image.go).
 func newImageBuildCmd() *cobra.Command {
-	var engineFlag, nixImage, configPath, llmAgentsRev, nixpkgsRev string
+	var engineFlag, backendFlag, nixImage, configPath, llmAgentsRev, nixpkgsRev string
 	var cache, keepBuilder, refresh bool
 	var builderArgs []string
 	cmd := &cobra.Command{
@@ -83,9 +83,28 @@ gives up on it and builds from source instead:
 				return err
 			}
 			d := config.LoadDefaults()
-			engine, err := backend.ResolveEngine(engineFlag, d)
+			backendName, engine, err := imageBackend(backendFlag, engineFlag, prof, d)
 			if err != nil {
 				return err
+			}
+			// A microvm profile builds the image IN a microVM and stores it where
+			// the microvm backend reads it (the tar store), not in a container
+			// engine's store — otherwise the build would land somewhere enter
+			// never looks. It shares nothing with the container path below.
+			if backendName == "microvm" {
+				image := d.Image
+				if !spec.Empty() {
+					// No container engine to resolve a "latest" rev against; PinSpec
+					// is a no-op for concrete/absent revs and errors clearly for a
+					// latest one.
+					if spec, err = toolbox.PinSpec(spec, "", "", refresh, cmd.ErrOrStderr()); err != nil {
+						return err
+					}
+					image = spec.Tag()
+				}
+				fmt.Fprintf(cmd.ErrOrStderr(), "sandboxer: building toolbox image %q in a microVM "+
+					"(several minutes on first run)…\n", image)
+				return backendBuildVMImage(image, spec, cmd.ErrOrStderr())
 			}
 			// Probe the builder image BEFORE pin resolution: resolving a
 			// "latest" rev runs it (the engine auto-pulls), and clean-by-default
@@ -132,7 +151,8 @@ gives up on it and builds from source instead:
 		},
 	}
 	fl := cmd.Flags()
-	fl.StringVar(&engineFlag, "engine", "", "container engine: docker | podman (default: auto-detect)")
+	fl.StringVar(&backendFlag, "backend", "", "backend: docker | podman | microvm (default: the profile's, else docker)")
+	fl.StringVar(&engineFlag, "engine", "", "container engine: docker | podman (default: auto-detect); ignored for --backend microvm")
 	fl.StringVarP(&configPath, "config", "f", "", "profile file (default: the project sandboxer.nix; pick a profiles section by name)")
 	fl.StringVar(&nixImage, "nix-image", "", "builder image (default: pinned "+toolbox.NixImage+")")
 	fl.BoolVar(&cache, "cache", false, "keep a persistent nix-store volume for faster rebuilds")
@@ -148,6 +168,33 @@ gives up on it and builds from source instead:
 // flag/pin orchestration can be exercised without a real engine — the
 // backendRun seam's sibling.
 var toolboxBuild = toolbox.BuildImage
+
+// backendBuildVMImage is the microVM image-build seam (built in a microVM,
+// stored in the tar store), overridable in tests.
+var backendBuildVMImage = backend.BuildVMImage
+
+// imageBackend resolves where `image build` / `image rm` act: the isolation
+// backend (flag > profile > default) and, for a container backend, the engine
+// binary (--engine wins, else the backend hint). For microvm the engine is
+// smolvm's identity (ResolveEngine errors if smolvm is absent). This is the fix
+// for image build/rm having only known --engine: without it an image built for
+// a `backend = "microvm"` profile went to a container engine's store, which the
+// microvm backend never reads.
+func imageBackend(backendFlag, engineFlag string, prof *config.Profile, d config.Defaults) (backendName, engine string, err error) {
+	backendName = backendFlag
+	if backendName == "" && prof != nil {
+		backendName = prof.Backend
+	}
+	if backendName == "" {
+		backendName = d.Backend
+	}
+	if backendName == "microvm" {
+		engine, err = backend.ResolveEngine("microvm", d)
+		return backendName, engine, err
+	}
+	engine, err = backend.ResolveEngine(firstNonEmpty(engineFlag, backendName), d)
+	return backendName, engine, err
+}
 
 // buildImageProfile resolves image build's optional profile — a profile file
 // (-f) or a section of the project's multi-profile config — through the same

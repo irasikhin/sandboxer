@@ -100,7 +100,7 @@ func newCreateCmd() *cobra.Command {
 	fl := cmd.Flags()
 	fl.StringVar(&f.src, "src", "", "project root")
 	fl.StringVarP(&f.config, "config", "f", "", "profile file (default: the project sandboxer.nix; pick a profiles section by name)")
-	fl.StringVar(&f.backend, "backend", "", "backend: docker | podman")
+	fl.StringVar(&f.backend, "backend", "", "backend: docker | podman | microvm")
 	fl.StringVar(&f.domains, "allow-domains", "", "egress allowlist (csv)")
 	return cmd
 }

@@ -43,17 +43,13 @@ var backendRemoveImage = backend.RemoveImage
 // with a profile — that profile's content-addressed variant tag. Idempotent:
 // an already-absent image is success.
 func newImageRmCmd() *cobra.Command {
-	var engineFlag, configPath string
+	var engineFlag, backendFlag, configPath string
 	cmd := &cobra.Command{
 		Use:   "rm [profile]",
 		Short: "Remove a built toolbox image (stock, or a profile's variant)",
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			d := config.LoadDefaults()
-			engine, err := backend.ResolveEngine(engineFlag, d)
-			if err != nil {
-				return err
-			}
 			image := d.Image
 			prof, err := buildImageProfile(configPath, posArg(args))
 			if err != nil {
@@ -68,6 +64,13 @@ func newImageRmCmd() *cobra.Command {
 					image = spec.Tag()
 				}
 			}
+			// Resolve the backend BEFORE removing: a microvm image lives in the
+			// tar store, not a container engine, and RemoveImage dispatches on the
+			// resolved engine ("smolvm" identity) to reach the right one.
+			_, engine, err := imageBackend(backendFlag, engineFlag, prof, d)
+			if err != nil {
+				return err
+			}
 			if err := backendRemoveImage(engine, image); err != nil {
 				return fmt.Errorf("remove image %s: %w", image, err)
 			}
@@ -76,7 +79,8 @@ func newImageRmCmd() *cobra.Command {
 		},
 	}
 	fl := cmd.Flags()
-	fl.StringVar(&engineFlag, "engine", "", "container engine: docker | podman (default: auto-detect)")
+	fl.StringVar(&backendFlag, "backend", "", "backend: docker | podman | microvm (default: the profile's, else docker)")
+	fl.StringVar(&engineFlag, "engine", "", "container engine: docker | podman (default: auto-detect); ignored for --backend microvm")
 	fl.StringVarP(&configPath, "config", "f", "", "profile whose image variant to remove")
 	return cmd
 }

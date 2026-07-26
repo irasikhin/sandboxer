@@ -137,6 +137,18 @@ func vmEnsureImage(o RunOpts) (string, error) {
 	return vmImagePath(o.Image), nil
 }
 
+// BuildVMImage builds the toolbox image in a microVM and stores it under the
+// image name — the explicit `sandboxer image build --backend microvm` entry
+// point, the counterpart of the enter-time auto-build (vmEnsureImage). It
+// rebuilds unconditionally (an explicit build always refreshes the store) and
+// errors up front if smolvm is unavailable, so the CLI never silently no-ops.
+func BuildVMImage(image string, spec toolbox.Spec, stderr io.Writer) error {
+	if _, err := resolveSmolvm(); err != nil {
+		return err
+	}
+	return vmBuildImageToStore(RunOpts{Image: image, Spec: spec, Stderr: stderr})
+}
+
 // vmBuildImageToStore builds the toolbox image inside a microVM (no container
 // engine anywhere) and stores the resulting tar. A package var so a test can
 // stand in for the minutes-long, network-bound real build.

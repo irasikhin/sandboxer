@@ -82,6 +82,23 @@ and a narrowed sandbox (`include`) shares only its listed directories — a
 sibling worktree on the same host filesystem is unreachable inside the guest,
 the same wall the container backend enforces.
 
+## Building the image
+
+The first `enter` builds the toolbox image in a microVM automatically. To build
+it ahead of time (or rebuild after a config change), the backend is taken from
+the profile, or an explicit flag:
+
+```console
+$ sandboxer image build --backend microvm            # stock image → the tar store
+$ sandboxer image build --backend microvm <profile>  # a profile's variant
+$ sandboxer image rm --backend microvm               # drop the stored image
+```
+
+The build runs a `nixos/nix` microVM (no docker/podman anywhere) and stores the
+result at `<state>/images/<tag>.tar`. A container-built image is **not** reused
+by the microVM backend — the two use separate stores. `--engine` is
+container-only and ignored here.
+
 ## Egress
 
 A smolvm machine has **no network route by default**, so egress is a

@@ -46,7 +46,7 @@ func bindTarget(cmd *cobra.Command, f *commonFlags) {
 func bindExisting(cmd *cobra.Command, f *commonFlags) {
 	bindTarget(cmd, f)
 	fl := cmd.Flags()
-	fl.StringVar(&f.backend, "backend", "", "backend: docker | podman")
+	fl.StringVar(&f.backend, "backend", "", "backend: docker | podman | microvm")
 	fl.StringVar(&f.domains, "allow-domains", "", "egress allowlist, csv (e.g. api.anthropic.com,github.com)")
 }
 
