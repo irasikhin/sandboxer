@@ -37,8 +37,21 @@ a clear error with an install hint.
 - **macOS:** macOS 11+ on **Apple Silicon** (Intel Macs are not a target).
 - Install from <https://smolmachines.com>; `SANDBOXER_SMOLVM=/path/to/smolvm`
   overrides the looked-up binary.
-- **NixOS:** the upstream release binary is a generic dynamically-linked ELF, so
-  it needs `nix-ld` (or `patchelf`) to run — it is not yet in nixpkgs.
+- **NixOS:** the upstream release binary is a generic dynamically-linked ELF and
+  will not run out of the box (stub-ld), so this repo ships a packaged smolvm
+  (autoPatchelf'd, sparse disk templates preserved). Use it directly:
+
+  ```console
+  $ nix run github:irasikhin/sandboxer#smolvm -- --version
+  # or in a checkout: nix run .#smolvm -- machine ls
+  # or drop into the devShell (smolvm is on PATH there): nix develop
+  ```
+
+  To install it system-wide, add the flake's `smolvm` package (via
+  `overlays.default`, which exposes `pkgs.smolvm`) to
+  `environment.systemPackages`. Alternatively, run the official install and rely
+  on `programs.nix-ld.enable = true` (with `programs.nix-ld.libraries = [
+  pkgs.stdenv.cc.cc.lib ]`). smolvm is not yet in nixpkgs.
 
 Check everything at once:
 

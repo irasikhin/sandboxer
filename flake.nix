@@ -33,6 +33,9 @@
     let
       overlay = final: prev: {
         sandboxer = final.callPackage ./nix/package.nix { };
+        # The microVM runtime for `backend = "microvm"` (repackaged upstream
+        # binary — not in nixpkgs, needs patching to run on NixOS).
+        smolvm = final.callPackage ./nix/smolvm.nix { };
       };
     in
     {
@@ -99,6 +102,7 @@
         packages = {
           default = pkgs.sandboxer;
           sandboxer = pkgs.sandboxer;
+          smolvm = pkgs.smolvm;
           inherit (images) image proxyImage;
           smokeImage = smokeImage;
         };
@@ -111,6 +115,15 @@
           sandboxer = {
             type = "app";
             program = "${pkgs.sandboxer}/bin/sandboxer";
+          };
+
+          # The microVM runtime, so `nix run .#smolvm -- machine ls` works
+          # without a system install (and `sandboxer --backend microvm` can point
+          # SANDBOXER_SMOLVM at the built path).
+          smolvm = {
+            type = "app";
+            meta.description = "smolvm microVM runtime (sandboxer's microvm backend)";
+            program = "${pkgs.smolvm}/bin/smolvm";
           };
 
           # Build the toolbox + egress-proxy images and load them into host
@@ -151,10 +164,12 @@
             bubblewrap
             jq
             podman
+            smolvm # microvm backend runtime (SANDBOXER_SMOLVM picks it up)
           ];
           shellHook = ''
             echo "sandboxer devShell — go toolchain + linters."
             echo "build:  go build ./cmd/sandboxer   image:  nix run .#build-image"
+            echo "microvm: smolvm on PATH (backend = \"microvm\")"
           '';
         };
 
