@@ -1,0 +1,83 @@
+# microVM end-to-end tests (smolvm + KVM).
+#
+# The container itest slice runs in ci.yml on every push; the microVM backend
+# needs a hypervisor, so its real-engine e2e runs here — nightly and on demand,
+# never on the push critical path. GitHub's standard ubuntu-latest runners
+# expose /dev/kvm (with a one-time udev step to grant the runner user access),
+# which is the only automatable leg: macOS (Apple forbids nested virt in a guest
+# VM) and Windows (WHP needs bare metal) have no hosted-CI story and are covered
+# by the manual docs/e2e-checklist.md instead.
+name: e2e
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 4 * * *" # nightly
+
+# The pinned smolvm release the e2e leg installs. Bump deliberately (a new
+# upstream may change CLI semantics the argv builders depend on).
+env:
+  SMOLVM_VERSION: "1.6.13"
+
+jobs:
+  microvm:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      # Standard runners ship /dev/kvm but the runner user is not in the kvm
+      # group; this udev rule opens it (the same step the Android emulator action
+      # uses). If a future image drops KVM the tests skip, they do not fail.
+      - name: enable /dev/kvm
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
+            | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+          ls -l /dev/kvm || echo "no /dev/kvm — the microvm tests will skip"
+
+      # Install the pinned smolvm release and verify its checksum before running
+      # it. The Linux x86_64 tarball is a normal glibc ELF (ubuntu runs it as-is;
+      # only NixOS needs patchelf/nix-ld).
+      - name: install smolvm
+        run: |
+          set -euo pipefail
+          base="https://github.com/smol-machines/smolvm/releases/download/v${SMOLVM_VERSION}"
+          curl -fsSLO "$base/smolvm-${SMOLVM_VERSION}-linux-x86_64.tar.gz"
+          curl -fsSLO "$base/checksums.sha256"
+          grep "linux-x86_64" checksums.sha256 | sha256sum -c -
+          tar xzf "smolvm-${SMOLVM_VERSION}-linux-x86_64.tar.gz"
+          echo "SANDBOXER_SMOLVM=$PWD/smolvm-${SMOLVM_VERSION}-linux-x86_64/smolvm" >> "$GITHUB_ENV"
+
+      - run: go vet -tags integration ./...
+
+      # The microVM e2e tests boot a small public image (smolvm pulls alpine);
+      # they skip cleanly if /dev/kvm is absent.
+      - name: microVM e2e (real smolvm)
+        run: go test -tags integration -count=1 -timeout 20m -run 'TestVM_.*_RealEngine' ./internal/backend/...
+
+  # A cheap canary that the pinned smolvm still installs and boots a machine —
+  # catches an upstream release breaking our assumptions before the full suite.
+  smolvm-canary:
+    runs-on: ubuntu-latest
+    steps:
+      - name: enable /dev/kvm
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
+            | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: install + smoke smolvm
+        run: |
+          set -euo pipefail
+          base="https://github.com/smol-machines/smolvm/releases/download/v${SMOLVM_VERSION}"
+          curl -fsSLO "$base/smolvm-${SMOLVM_VERSION}-linux-x86_64.tar.gz"
+          curl -fsSLO "$base/checksums.sha256"
+          grep "linux-x86_64" checksums.sha256 | sha256sum -c -
+          tar xzf "smolvm-${SMOLVM_VERSION}-linux-x86_64.tar.gz"
+          smolvm="$PWD/smolvm-${SMOLVM_VERSION}-linux-x86_64/smolvm"
+          "$smolvm" --version
+          "$smolvm" machine run -I alpine -- echo hello-from-the-canary

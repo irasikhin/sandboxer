@@ -3,6 +3,7 @@ package cli
 import (
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -175,12 +176,29 @@ func reportMicrovm(tw io.Writer, ok, warn *int) {
 		fmt.Fprintf(tw, "microvm (smolvm)\t⚠\tnot found — needed only for backend: microvm (install: https://smolmachines.com; SANDBOXER_SMOLVM overrides the path)\n")
 		*warn++
 	case !kvmOK:
-		fmt.Fprintf(tw, "microvm (smolvm)\t⚠\t%s present, but /dev/kvm is missing — the microvm backend needs KVM on Linux\n", version)
+		msg := "the microvm backend needs KVM on Linux"
+		if underWSL() {
+			msg = "under WSL2 — enable nested KVM: set nestedVirtualization=true in %UserProfile%\\.wslconfig, then `wsl --shutdown` (see docs/windows.md)"
+		}
+		fmt.Fprintf(tw, "microvm (smolvm)\t⚠\t%s present, but /dev/kvm is missing — %s\n", version, msg)
 		*warn++
 	default:
 		fmt.Fprintf(tw, "microvm (smolvm)\t✓\t%s available\n", version)
 		*ok++
 	}
+}
+
+// underWSL reports whether this process runs inside a WSL distro, so doctor can
+// point a missing-/dev/kvm microVM user at the nested-virtualization setting
+// rather than at a plain "install KVM". Best-effort: WSL marks itself in
+// /proc/version ("microsoft"/"WSL").
+func underWSL() bool {
+	data, err := os.ReadFile("/proc/version")
+	if err != nil {
+		return false
+	}
+	v := strings.ToLower(string(data))
+	return strings.Contains(v, "microsoft") || strings.Contains(v, "wsl")
 }
 
 // reportSessions adds doctor's persistent-session rows for one engine: a

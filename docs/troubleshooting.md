@@ -161,12 +161,16 @@ sidecar, http:// only; off = the agent talks to it directly, http/https,
 can't reach a host" above for the behavior.
 
 **Which platforms are supported?** Linux is the supported platform; macOS is
-experimental — see [macos.md](./macos.md). There is no Windows build —
-sandboxer relies on a container engine (docker/podman) reachable from the host.
+experimental — see [macos.md](./macos.md). Windows is supported **inside WSL2**
+(the Linux binary + a container engine or smolvm run there) — see
+[windows.md](./windows.md); there is no native Windows build. The default
+backend relies on a container engine (docker/podman) reachable from the host;
+the experimental microVM backend uses smolvm instead — see
+[microvm.md](./microvm.md).
 
-**Does it need Kubernetes / a cloud?** No. It is container-only and entirely
-local: a docker/podman container per sandbox on your own machine. No
-orchestrator, no daemon of its own, nothing in the cloud.
+**Does it need Kubernetes / a cloud?** No. It runs entirely locally: a
+docker/podman container (or a smolvm microVM) per sandbox on your own machine.
+No orchestrator, no daemon of its own, nothing in the cloud.
 
 **Are sessions shared across machines?** No — sessions are **per-host**. A
 persistent session is a container on the local engine; it does not follow you to

@@ -61,8 +61,10 @@ sandboxer is **git-only**: every `src` must be a git repo (a local one needs at
 least one commit — `git init && git add -A && git commit -m init`). Non-git
 trees come in via `extraMounts`.
 
-Isolation backend — a **docker / podman** container built from a toolbox image
-with the agents baked in (claude, opencode, crush, aider, pi, gemini) plus an
+Isolation backend — a **docker / podman** container built from a toolbox image,
+or (experimental, `backend = "microvm"`) a real **microVM** via smolvm/libkrun
+for a hardware-isolation boundary; see [docs/microvm.md](./docs/microvm.md). The
+image has the agents baked in (claude, opencode, crush, aider, pi, gemini) plus an
 everyday toolchain: python3, node/npm, jdk+maven, redocly, ripgrep/fd/jq/…,
 tmux (auto-attached by `enter`), and **rootless podman** for nested containers (never
 docker-in-docker — no engine socket is ever mounted; pulls go through the
@@ -240,7 +242,7 @@ Scalars come from **flags** and `SANDBOXER_*` env vars:
 
 | Setting | Flag | Env |
 |---------|------|-----|
-| backend | `--backend` | `SANDBOXER_BACKEND` (default `docker`; `docker\|podman` pins that engine when installed, else falls back to whichever is) |
+| backend | `--backend` | `SANDBOXER_BACKEND` (default `docker`; `docker\|podman` pins that engine when installed, else falls back to whichever is; `microvm` runs a smolvm microVM — [docs/microvm.md](./docs/microvm.md)) |
 | session mode | `--ephemeral` | `SANDBOXER_SESSION` (default `persistent`; the env wins over a profile's `session:`) |
 | egress domains | `--allow-domains a,b` | `SANDBOXER_DOMAINS` |
 | disable egress | — | `SANDBOXER_NO_EGRESS=1` |
