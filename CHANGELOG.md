@@ -6,6 +6,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.61.0] — 2026-07-26
+
+### Added
+
+- multi-uid nested podman on a podman engine (12ce65f)
+- allow registry CDN blobs by default (cloudfront.net, public.ecr.aws) (6af84b8)
+
+### Fixed
+
+- compose renders nestedContainers profiles correctly (3507be5)
+
+### Docs
+
+- multi-uid nested podman, registry CDN allowlist, migrate runbook (9d5b979)
+
+
 ## [0.60.0] — 2026-07-23
 
 ### Added
@@ -703,3 +719,4 @@ isolated, containerized dev sandbox, on a local Linux machine:
 [0.58.1]: https://github.com/irasikhin/sandboxer/compare/v0.58.0...v0.58.1
 [0.59.0]: https://github.com/irasikhin/sandboxer/compare/v0.58.1...v0.59.0
 [0.60.0]: https://github.com/irasikhin/sandboxer/compare/v0.59.0...v0.60.0
+[0.61.0]: https://github.com/irasikhin/sandboxer/compare/v0.60.0...v0.61.0
