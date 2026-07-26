@@ -5,6 +5,7 @@ import (
 	"math"
 	"os"
 	"slices"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -149,11 +150,60 @@ func vmCommonArgs(o RunOpts) []string {
 		args = append(args, "-v", m+":"+m)
 	}
 	args = append(args, "--mem", vmMemMiB(o.Mem), "--cpus", vmCPUs(o.CPU))
+	args = append(args, vmNetworkArgs(o)...)
 	if csv := o.RT.DomainsCSV(); csv != "" {
 		args = append(args, "-e", "SANDBOXER_ALLOW_DOMAINS="+csv)
 	}
 	args = append(args, vmExtraMountsAndEnv(o.Profile)...)
 	return args
+}
+
+// vmNetworkArgs renders the machine's outbound policy. A smolvm machine has NO
+// route by default, so the three states are:
+//
+//   - egress disabled (egress.enabled=false or SANDBOXER_NO_EGRESS) → --net, an
+//     open network — the operator asked for no allowlist;
+//   - egress on with an allowlist → --allow-host per domain (each implies --net),
+//     the fail-closed default: only the listed hosts resolve;
+//   - egress on with an EMPTY allowlist → no flag at all, a fully offline machine.
+//     This is a VALID state here, unlike the container path's errEmptyAllowlist —
+//     with no route by default, "allow nothing" is simply "reach nothing", not a
+//     misconfiguration that could fail open.
+//
+// The flags live in the create argv, so they fold into vmSessionWantHash: adding
+// a domain, or toggling egress, recreates the machine (the analogue of the
+// container ConfFingerprint).
+func vmNetworkArgs(o RunOpts) []string {
+	if !egressRequired(o) {
+		return []string{"--net"}
+	}
+	var args []string
+	for _, d := range vmAllowHosts(o.RT.Domains) {
+		args = append(args, "--allow-host", d)
+	}
+	return args
+}
+
+// vmAllowHosts normalizes the allowlist for smolvm's --allow-host, which resolves
+// each entry as a hostname at VM start: a leading dot (the squid subdomain-
+// wildcard grammar) is stripped so the name resolves, blanks and duplicates are
+// dropped, and the result is sorted for a stable machine hash. NOTE the semantic
+// narrowing this backend accepts — smolvm allows the exact host, not its
+// subdomains, so `.example.com` becomes `example.com` and no longer covers
+// `api.example.com`.
+func vmAllowHosts(domains []string) []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, d := range domains {
+		d = strings.TrimPrefix(strings.TrimSpace(d), ".")
+		if d == "" || seen[d] {
+			continue
+		}
+		seen[d] = true
+		out = append(out, d)
+	}
+	sort.Strings(out)
+	return out
 }
 
 // vmSecretEnvArgs renders the agents' auth env (RunOpts.AuthEnv, "KEY=value")

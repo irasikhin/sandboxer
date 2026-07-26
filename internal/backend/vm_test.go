@@ -28,7 +28,7 @@ func TestVMCreateArgv(t *testing.T) {
 		"-e", "SANDBOXER_SLUG=s", "-e", "SANDBOXER_SANDBOX_DIR=/d",
 		"-e", "LANG=C.UTF-8",
 		"-e", "HOME=/d/.home", "-v", "/d/.home:/d/.home",
-		"--mem", "2048", "--cpus", "2",
+		"--mem", "2048", "--cpus", "2", "--net",
 	}
 	if !slices.Equal(got, want) {
 		t.Errorf("vmCreateArgv =\n%q\nwant\n%q", got, want)
@@ -112,7 +112,7 @@ func TestVMRunArgv(t *testing.T) {
 		"-e", "SANDBOXER_IN_CONTAINER=1",
 		"-e", "SANDBOXER_SLUG=s", "-e", "SANDBOXER_SANDBOX_DIR=/d",
 		"-e", "LANG=C.UTF-8",
-		"--mem", "4096", "--cpus", "2",
+		"--mem", "4096", "--cpus", "2", "--net",
 		"--", "bash", "-l",
 	}
 	if !slices.Equal(got, want) {
@@ -194,6 +194,40 @@ func TestVMCPUs(t *testing.T) {
 		if got := vmCPUs(in); got != want {
 			t.Errorf("vmCPUs(%q) = %q, want %q", in, got, want)
 		}
+	}
+}
+
+// TestVMNetworkArgs pins the three outbound states and their fail-closed
+// default, and that the allowlist folds into the session hash.
+func TestVMNetworkArgs(t *testing.T) {
+	// egress on + allowlist → sorted --allow-host, subdomain dots stripped.
+	on := RunOpts{RT: config.Runtime{Egress: true, Domains: []string{".example.com", "api.test", "example.com"}}}
+	got := vmNetworkArgs(on)
+	want := []string{"--allow-host", "api.test", "--allow-host", "example.com"}
+	if !slices.Equal(got, want) {
+		t.Errorf("allowlist net = %q, want %q", got, want)
+	}
+
+	// egress on + empty allowlist → offline (no flag).
+	if g := vmNetworkArgs(RunOpts{RT: config.Runtime{Egress: true}}); len(g) != 0 {
+		t.Errorf("empty allowlist net = %q, want none (offline)", g)
+	}
+
+	// egress off → open network.
+	if g := vmNetworkArgs(RunOpts{RT: config.Runtime{Egress: false}}); !slices.Equal(g, []string{"--net"}) {
+		t.Errorf("egress-off net = %q, want [--net]", g)
+	}
+	// SANDBOXER_NO_EGRESS overrides an enabled allowlist → open network.
+	if g := vmNetworkArgs(RunOpts{NoEgress: true, RT: config.Runtime{Egress: true, Domains: []string{"x"}}}); !slices.Equal(g, []string{"--net"}) {
+		t.Errorf("NoEgress net = %q, want [--net]", g)
+	}
+
+	// The allowlist is inside the session hash: editing domains recreates.
+	base := RunOpts{Image: "i", Dest: "/d", RT: config.Runtime{Egress: true, Domains: []string{"a.com"}}}
+	more := base
+	more.RT.Domains = []string{"a.com", "b.com"}
+	if vmSessionWantHash(base) == vmSessionWantHash(more) {
+		t.Error("editing the allowlist did not change the session hash")
 	}
 }
 
