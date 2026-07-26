@@ -6,6 +6,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.62.1] — 2026-07-26
+
+### Fixed
+
+- image build/rm honor the profile's backend (microvm store) (1e7125b)
+
+
 ## [0.62.0] — 2026-07-26
 
 ### Added
@@ -749,3 +756,4 @@ isolated, containerized dev sandbox, on a local Linux machine:
 [0.60.0]: https://github.com/irasikhin/sandboxer/compare/v0.59.0...v0.60.0
 [0.61.0]: https://github.com/irasikhin/sandboxer/compare/v0.60.0...v0.61.0
 [0.62.0]: https://github.com/irasikhin/sandboxer/compare/v0.61.0...v0.62.0
+[0.62.1]: https://github.com/irasikhin/sandboxer/compare/v0.62.0...v0.62.1
