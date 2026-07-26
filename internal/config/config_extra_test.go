@@ -79,6 +79,23 @@ func TestValidateBackend(t *testing.T) {
 	}
 }
 
+func TestValidateBackendMicrovm(t *testing.T) {
+	// A plain microvm backend (optionally with an allowlist) is accepted.
+	if err := ValidateBackend(Runtime{Backend: "microvm", Egress: true, Domains: []string{"a.com"}}); err != nil {
+		t.Errorf("plain microvm should be allowed: %v", err)
+	}
+	// The squid-only egress features have no smolvm analogue → hard errors.
+	for _, rt := range []Runtime{
+		{Backend: "microvm", Proxy: "http://p:3128"},
+		{Backend: "microvm", NoProxy: "localhost"},
+		{Backend: "microvm", Routes: []Route{{}}},
+	} {
+		if err := ValidateBackend(rt); err == nil {
+			t.Errorf("microvm should reject %+v", rt)
+		}
+	}
+}
+
 func TestValidateDomains(t *testing.T) {
 	// Valid domains pass.
 	if err := ValidateDomains([]string{"api.anthropic.com", "github.com"}); err != nil {

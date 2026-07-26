@@ -167,19 +167,41 @@ func validateDomain(d string) error {
 }
 
 // ValidateBackend rejects an unsupported isolation backend. sandboxer runs every
-// agent inside a podman/docker container; an empty value means auto-detect the
-// engine. The native (host /sandbox) backend was removed — a stale
-// "backend: native" gets a clear migration error instead of silently running a
-// container.
+// agent inside a container (podman/docker) or a microVM (microvm, via smolvm);
+// an empty value means auto-detect the container engine. The native (host
+// /sandbox) backend was removed — a stale "backend: native" gets a clear
+// migration error instead of silently running a container.
 func ValidateBackend(rt Runtime) error {
 	switch rt.Backend {
 	case "", "auto", "podman", "docker":
 		return nil
+	case "microvm":
+		return validateMicrovm(rt)
 	case "native":
 		return fmt.Errorf("the native backend was removed — sandboxer is container-only now; use backend: docker or podman")
 	default:
-		return fmt.Errorf("unknown backend %q — use docker or podman", rt.Backend)
+		return fmt.Errorf("unknown backend %q — use docker, podman or microvm", rt.Backend)
 	}
+}
+
+// validateMicrovm rejects the egress features the microVM backend cannot honor.
+// Its allowlist is smolvm's built-in --allow-host, which has no upstream-proxy
+// or NO_PROXY concept — so egress.proxy, egress.noProxy and egress.routes (all
+// squid-sidecar features) are configuration errors under microvm rather than
+// silently ignored settings that would weaken the boundary the user configured.
+func validateMicrovm(rt Runtime) error {
+	switch {
+	case rt.Proxy != "":
+		return fmt.Errorf("egress.proxy is not supported by the microvm backend " +
+			"(smolvm has no upstream-proxy chaining); remove it or use a container backend")
+	case rt.NoProxy != "":
+		return fmt.Errorf("egress.noProxy is not supported by the microvm backend; " +
+			"remove it or use a container backend")
+	case len(rt.Routes) > 0:
+		return fmt.Errorf("egress.routes is not supported by the microvm backend " +
+			"(no per-domain upstream proxies); remove it or use a container backend")
+	}
+	return nil
 }
 
 // ValidateSession rejects an unknown session mode. The resolved value always

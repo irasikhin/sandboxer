@@ -249,6 +249,9 @@ func (t *target) runtime(f commonFlags) (config.Runtime, error) {
 // raw configured value, so the banner can never claim "docker" while podman
 // runs.
 func backendLabel(rt config.Runtime) string {
+	if rt.Backend == "microvm" {
+		return "microvm (smolvm)"
+	}
 	return backend.EngineLabel(rt.Backend, config.LoadDefaults())
 }
 

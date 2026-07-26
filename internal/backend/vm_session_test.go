@@ -15,6 +15,7 @@ import (
 // hypervisor, verifying the real argv wiring at the same time.
 const fakeSmolvm = `#!/usr/bin/env bash
 set -euo pipefail
+if [ "${1:-}" = "--version" ]; then echo "smolvm 9.9.9-fake"; exit 0; fi
 printf '%s\n' "$*" >> "$FAKE_LOG"
 [ "${1:-}" = machine ] || { echo "unexpected $*" >&2; exit 2; }
 cmd="$2"; shift 2
@@ -185,6 +186,21 @@ func TestVMSessionStatesAndOrphans(t *testing.T) {
 	}
 	if len(orphans) != 1 || orphans[0] != "m-orphan" {
 		t.Errorf("OrphanSessions = %v, want [m-orphan]", orphans)
+	}
+}
+
+// TestSmolvmStatus pins the doctor helper: the fake CLI is found and reports a
+// version, and a missing binary reads as not present.
+func TestSmolvmStatus(t *testing.T) {
+	setupFakeSmolvm(t)
+	present, version, _ := SmolvmStatus()
+	if !present || version != "smolvm 9.9.9-fake" {
+		t.Errorf("SmolvmStatus() = present=%v version=%q, want true / smolvm 9.9.9-fake", present, version)
+	}
+
+	t.Setenv("SANDBOXER_SMOLVM", "/nonexistent/smolvm-xyz")
+	if p, _, _ := SmolvmStatus(); p {
+		t.Error("a missing smolvm must read as not present")
 	}
 }
 

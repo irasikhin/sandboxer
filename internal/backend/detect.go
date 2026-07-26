@@ -7,6 +7,7 @@ import (
 	"errors"
 	"os"
 	"os/exec"
+	"strings"
 
 	"github.com/irasikhin/sandboxer/internal/config"
 )
@@ -108,6 +109,22 @@ func smolvmBin() string {
 		return b
 	}
 	return smolvmEngine
+}
+
+// SmolvmStatus reports the microVM backend's host readiness for `doctor`:
+// present is whether the smolvm binary is found (via smolvmBin), version is its
+// `--version` line when it runs, and kvmOK is whether /dev/kvm exists on Linux
+// (always true off Linux, where the platform hypervisor is used instead).
+func SmolvmStatus() (present bool, version string, kvmOK bool) {
+	kvmOK = devKVMPresent()
+	if !hasExec(smolvmBin()) {
+		return false, "", kvmOK
+	}
+	present = true
+	if out, err := exec.Command(smolvmBin(), "--version").Output(); err == nil {
+		version = strings.TrimSpace(string(out))
+	}
+	return present, version, kvmOK
 }
 
 func hasExec(name string) bool {

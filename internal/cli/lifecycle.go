@@ -84,6 +84,7 @@ func newCreateCmd() *cobra.Command {
 			fmt.Fprintln(cmd.ErrOrStderr(), configLine(rtCreate, t.slug, t.profile, backendLabel(rtCreate)))
 			warnIgnoredRoutes(cmd.ErrOrStderr(), rtCreate)
 			warnOpenNetwork(cmd.ErrOrStderr(), rtCreate, t.profile)
+			warnMicrovmIgnored(cmd.ErrOrStderr(), rtCreate, t.profile)
 			out := cmd.OutOrStdout()
 			fmt.Fprintf(out, "sandbox %q created: %s\n", t.slug, t.base.SandboxDir(t.slug))
 			fmt.Fprintf(out, "enter:  sandboxer enter %s\n", t.slug)
@@ -196,6 +197,7 @@ disable with autoResume = false in the profile, or SANDBOXER_NO_RESUME=1.`,
 			}
 			warnIgnoredRoutes(errOut, rt)
 			warnOpenNetwork(errOut, rt, t.profile)
+			warnMicrovmIgnored(errOut, rt, t.profile)
 			engine, err := backend.ResolveEngine(rt.Backend, config.LoadDefaults())
 			if err != nil {
 				return err
@@ -548,6 +550,23 @@ func warnIgnoredRoutes(w io.Writer, rt config.Runtime) {
 	if len(rt.Routes) > 0 && (!rt.Egress || noEgress()) {
 		fmt.Fprintln(w, "sandboxer: egress.routes ignored — egress is off (routes need the allowlist sidecar; "+
 			"in direct mode the agent talks to egress.proxy directly)")
+	}
+}
+
+// warnMicrovmIgnored notes the container-only knobs a microVM sandbox silently
+// drops: a PID cap (smolvm has no equivalent) and nestedContainers (a real VM
+// runs container engines natively, so the relaxations are moot). Egress
+// features microvm cannot honor are a hard config error (ValidateBackend), not
+// a warning.
+func warnMicrovmIgnored(w io.Writer, rt config.Runtime, prof *config.Profile) {
+	if rt.Backend != "microvm" {
+		return
+	}
+	if rt.Pids > 0 {
+		fmt.Fprintln(w, "sandboxer: limits.pids ignored — the microvm backend has no PID-count cap")
+	}
+	if prof != nil && prof.NestedContainers {
+		fmt.Fprintln(w, "sandboxer: nestedContainers ignored — a microVM runs container engines natively")
 	}
 }
 

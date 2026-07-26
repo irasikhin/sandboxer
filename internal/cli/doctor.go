@@ -88,6 +88,10 @@ Run this after a fresh install or when something isn't working.`,
 				}
 			}
 
+			// microVM backend (smolvm). Reported alongside the container engine so
+			// a host set up for `backend: microvm` gets the same at-a-glance check.
+			reportMicrovm(tw, &ok, &warn)
+
 			// Persistent sessions: this project's running/stopped tally, plus
 			// orphans whose project dir is gone (their containers survive a
 			// bare `rm -rf` of the project). Every installed engine is probed —
@@ -157,6 +161,26 @@ Run this after a fresh install or when something isn't working.`,
 		},
 	}
 	return cmd
+}
+
+// reportMicrovm adds doctor's microVM-backend row: whether smolvm is installed
+// (with its version), and on Linux whether /dev/kvm is present. A missing
+// smolvm is a warning, not an error — a host using only the container backend
+// does not need it — with an install hint; a present smolvm without KVM is
+// flagged because the backend cannot boot a machine there.
+func reportMicrovm(tw io.Writer, ok, warn *int) {
+	present, version, kvmOK := backend.SmolvmStatus()
+	switch {
+	case !present:
+		fmt.Fprintf(tw, "microvm (smolvm)\t⚠\tnot found — needed only for backend: microvm (install: https://smolmachines.com; SANDBOXER_SMOLVM overrides the path)\n")
+		*warn++
+	case !kvmOK:
+		fmt.Fprintf(tw, "microvm (smolvm)\t⚠\t%s present, but /dev/kvm is missing — the microvm backend needs KVM on Linux\n", version)
+		*warn++
+	default:
+		fmt.Fprintf(tw, "microvm (smolvm)\t✓\t%s available\n", version)
+		*ok++
+	}
 }
 
 // reportSessions adds doctor's persistent-session rows for one engine: a
