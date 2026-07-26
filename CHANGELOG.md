@@ -6,6 +6,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.62.0] — 2026-07-26
+
+### Added
+
+- smolvm argv builders for the microvm backend (991cce8)
+- microvm session lifecycle and state (0e02944)
+- microvm egress via the smolvm allowlist (b864878)
+- enable backend = "microvm" end to end (f31d9eb)
+- build the toolbox image inside a microVM + image store (b8115b8)
+
+### Refactored
+
+- extract session policy and a guest-exec seam (bc82aec)
+
+### Docs
+
+- backend guide, e2e checklist, Windows/WSL2, CI workflow (d9194ce)
+- microvm spike report (linux leg — GO) (34b9c84)
+
+### Tests
+
+- real microVM e2e suite (smolvm) (3a0d621)
+
+### Build
+
+- package smolvm and expose it from the flake (028eb49)
+
+
 ## [0.61.0] — 2026-07-26
 
 ### Added
@@ -720,3 +748,4 @@ isolated, containerized dev sandbox, on a local Linux machine:
 [0.59.0]: https://github.com/irasikhin/sandboxer/compare/v0.58.1...v0.59.0
 [0.60.0]: https://github.com/irasikhin/sandboxer/compare/v0.59.0...v0.60.0
 [0.61.0]: https://github.com/irasikhin/sandboxer/compare/v0.60.0...v0.61.0
+[0.62.0]: https://github.com/irasikhin/sandboxer/compare/v0.61.0...v0.62.0
