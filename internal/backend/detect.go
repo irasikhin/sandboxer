@@ -81,22 +81,33 @@ func EngineLabel(be string, d config.Defaults) string {
 	return be
 }
 
-// resolveSmolvm locates the smolvm CLI for the microVM backend: SANDBOXER_SMOLVM
-// overrides the binary/path, else "smolvm" on PATH. Like docker/podman it is a
-// preinstalled host requirement — an absent one is a clear error with an install
-// hint (never an autodownload, and never a silent fallback to a container engine,
-// which would quietly weaken isolation).
+// resolveSmolvm confirms the microVM backend can run and returns its ENGINE
+// IDENTITY, the constant "smolvm" — never the override path. That identity is
+// what flows through RunOpts.Engine and every (engine, name) call, so the
+// backend dispatch (engine == smolvmEngine) stays robust even when
+// SANDBOXER_SMOLVM points the actual binary somewhere off PATH; the real binary
+// is resolved separately at exec time (smolvmBin). Like docker/podman smolvm is
+// a preinstalled host requirement — an absent one is a clear error with an
+// install hint, never an autodownload, and never a silent fallback to a
+// container engine, which would quietly weaken isolation.
 func resolveSmolvm() (string, error) {
-	bin := os.Getenv("SANDBOXER_SMOLVM")
-	if bin == "" {
-		bin = smolvmEngine
-	}
-	if hasExec(bin) {
-		return bin, nil
+	if hasExec(smolvmBin()) {
+		return smolvmEngine, nil
 	}
 	return "", errors.New("the microvm backend needs smolvm on PATH " +
 		"(install: https://smolmachines.com — SANDBOXER_SMOLVM overrides the path; " +
 		"on NixOS the release binary is dynamically linked, run it via nix-ld or patchelf)")
+}
+
+// smolvmBin is the actual binary the microVM backend executes: the
+// SANDBOXER_SMOLVM override (a name or an absolute path), else "smolvm" resolved
+// on PATH. Distinct from the engine identity smolvmEngine, which is only ever
+// the constant "smolvm" (see resolveSmolvm).
+func smolvmBin() string {
+	if b := os.Getenv("SANDBOXER_SMOLVM"); b != "" {
+		return b
+	}
+	return smolvmEngine
 }
 
 func hasExec(name string) bool {

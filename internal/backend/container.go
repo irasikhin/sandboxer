@@ -147,6 +147,9 @@ type RunOpts struct {
 // and (when applicable) the egress allowlist. It returns the container exit
 // code.
 func Run(o RunOpts) (int, error) {
+	if o.Engine == smolvmEngine {
+		return vmRun(o), nil
+	}
 	// Make sure the toolbox image is present before anything else. The bundled
 	// default is never published, so a missing one is auto-built instead of
 	// letting the engine attempt a doomed pull and drop the user back to the

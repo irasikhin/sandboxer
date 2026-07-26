@@ -76,8 +76,14 @@ func shortHash(s string) string {
 // the idleness probe all reach into the guest the same way — so a second
 // isolation backend needs only to teach this one helper its own "exec in the
 // guest" shape, and every reader of guest state comes along for free. For the
-// container engines that is `<engine> exec <name> <argv…>`.
+// container engines that is `<engine> exec <name> <argv…>`; for the microVM
+// backend it is `smolvm machine exec --name <name> -- <argv…>`, run through the
+// resolved smolvm binary.
 func guestExec(engine, name string, argv ...string) *exec.Cmd {
+	if engine == smolvmEngine {
+		args := append([]string{"machine", "exec", "--name", name, "--"}, argv...)
+		return exec.Command(smolvmBin(), args...)
+	}
 	args := append([]string{"exec", name}, argv...)
 	return exec.Command(engine, args...)
 }
@@ -177,6 +183,9 @@ func ExecArgv(o RunOpts, name string, cmdArgs []string) []string {
 // (--network + proxy env). The single staleness oracle for EnsureSession and
 // the CLI's exec routing — they must never disagree.
 func SessionWantHash(o RunOpts) string {
+	if o.Engine == smolvmEngine {
+		return vmSessionWantHash(o)
+	}
 	egNet, egProxyURL := "", ""
 	if egressRequired(o) {
 		lk := egress.Lookup(o.Engine, SessionName(o.Slug, o.BaseDir))
@@ -189,6 +198,9 @@ func SessionWantHash(o RunOpts) string {
 // hash and image ID in one `container inspect` call. A non-zero exit means
 // the container does not exist: the zero SessionInfo.
 func InspectSession(engine, name string) SessionInfo {
+	if engine == smolvmEngine {
+		return vmInspectSession(name)
+	}
 	out, err := exec.Command(engine, "container", "inspect", "--format",
 		`{{.State.Running}} {{index .Config.Labels "`+LabelHash+`"}} {{.Image}} {{index .Config.Labels "`+LabelMounts+`"}}`, name).Output()
 	if err != nil {
@@ -248,6 +260,9 @@ func SessionIdle(engine, name string) bool {
 // plan, one action. The engine's container store is the only session state,
 // so re-running EnsureSession after any outcome is always safe.
 func EnsureSession(o RunOpts) (string, error) {
+	if o.Engine == smolvmEngine {
+		return vmEnsureSession(o)
+	}
 	name := SessionName(o.Slug, o.BaseDir)
 
 	// Serialize concurrent converges of THIS session across processes. Two
@@ -393,6 +408,9 @@ func createSession(o RunOpts, name, hash string) (string, error) {
 // with the same stdio wiring. Proxy and credential env were baked into the
 // container at create time; only the stdio and TERM travel with each exec.
 func ExecSession(o RunOpts, name string, cmdArgs []string) (int, error) {
+	if o.Engine == smolvmEngine {
+		return vmExecSession(o, name, cmdArgs)
+	}
 	cmd := exec.Command(o.Engine, execArgv(o, name, cmdArgs)...)
 	cmd.Stdin = o.Stdin
 	cmd.Stdout = o.Stdout
@@ -405,6 +423,9 @@ func ExecSession(o RunOpts, name string, cmdArgs []string) (int, error) {
 // EnsureSession resumes them with a plain start. Idempotent: a missing or
 // already-stopped session is not an error.
 func StopSession(engine, slug, baseDir string) error {
+	if engine == smolvmEngine {
+		return vmStopSession(slug, baseDir)
+	}
 	name := SessionName(slug, baseDir)
 	if InspectSession(engine, name).Exists {
 		if err := execx.Run(engine, "stop", name); err != nil {
@@ -423,6 +444,9 @@ func StopSession(engine, slug, baseDir string) error {
 // RemoveSession removes slug's session container and tears down its egress
 // resources entirely. Idempotent: a missing session only sweeps egress.
 func RemoveSession(engine, slug, baseDir string) error {
+	if engine == smolvmEngine {
+		return vmRemoveSession(slug, baseDir)
+	}
 	return removeSessionByName(engine, SessionName(slug, baseDir))
 }
 
@@ -440,6 +464,9 @@ func removeSessionByName(engine, name string) error {
 // from baseDir, each with its egress resources. Failures are collected so one
 // stubborn session does not strand the rest.
 func RemoveAllSessions(engine, baseDir string) error {
+	if engine == smolvmEngine {
+		return vmRemoveAllSessions(baseDir)
+	}
 	names, err := sessionNames(engine, baseDir)
 	if err != nil {
 		return err
@@ -470,6 +497,9 @@ func sessionNames(engine, baseDir string) ([]string, error) {
 // docker disagree on label templating in `ps --format` (`index .Labels` vs
 // `.Label`), while the full inspect template works verbatim on both.
 func SessionStates(engine, baseDir string) (map[string]string, error) {
+	if engine == smolvmEngine {
+		return vmSessionStates(baseDir)
+	}
 	names, err := sessionNames(engine, baseDir)
 	if err != nil {
 		return nil, err
@@ -502,6 +532,9 @@ func SessionStates(engine, baseDir string) (map[string]string, error) {
 // nothing will ever match them again. Reported by doctor with a removal hint;
 // sandboxer itself never auto-removes them.
 func OrphanSessions(engine string) ([]string, error) {
+	if engine == smolvmEngine {
+		return vmOrphanSessions()
+	}
 	out, err := execx.Output(engine, "ps", "-a",
 		"--filter", "label="+LabelManaged+"=true",
 		"--format", "{{.Names}}")

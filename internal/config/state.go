@@ -22,22 +22,35 @@ import (
 // only when no home can be determined and no override is set — callers that
 // need a guaranteed directory treat that as an error.
 func StateDir(projectRoot string) string {
+	root := StateRoot()
+	if root == "" {
+		return ""
+	}
 	abs, err := filepath.Abs(projectRoot)
 	if err != nil {
 		abs = projectRoot
 	}
-	id := projectID(abs)
+	return filepath.Join(root, projectID(abs))
+}
+
+// StateRoot is the parent of every project's StateDir — the one directory that
+// holds all of sandboxer's runtime state ($XDG_STATE_HOME/sandboxer, or the
+// SANDBOXER_STATE override, or ~/.local/state/sandboxer). It exists so a
+// project-independent record — e.g. the microVM machine registry, whose only
+// key is a globally-unique machine name — has a home outside any single
+// project's dir. "" only when no home can be determined and no override is set.
+func StateRoot() string {
 	if d := os.Getenv("SANDBOXER_STATE"); d != "" {
-		return filepath.Join(d, id)
+		return d
 	}
 	if x := os.Getenv("XDG_STATE_HOME"); x != "" {
-		return filepath.Join(x, "sandboxer", id)
+		return filepath.Join(x, "sandboxer")
 	}
 	home, err := os.UserHomeDir()
 	if err != nil || home == "" {
 		return ""
 	}
-	return filepath.Join(home, ".local", "state", "sandboxer", id)
+	return filepath.Join(home, ".local", "state", "sandboxer")
 }
 
 // projectID is a stable, human-readable identifier for a project root: its base
