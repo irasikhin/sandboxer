@@ -5,6 +5,7 @@ package backend
 
 import (
 	"errors"
+	"os"
 	"os/exec"
 
 	"github.com/irasikhin/sandboxer/internal/config"
@@ -23,6 +24,13 @@ import (
 // Callers display the engine we return (see EngineLabel), so the banner never
 // disagrees with what actually runs.
 func ResolveEngine(be string, d config.Defaults) (string, error) {
+	// The microVM backend resolves to smolvm, and does so BEFORE the
+	// SANDBOXER_ENGINE override — that override names a container engine and must
+	// never silently redirect a microVM sandbox onto docker, which would drop the
+	// hardware isolation the backend was chosen for.
+	if be == "microvm" {
+		return resolveSmolvm()
+	}
 	if d.Engine != "" {
 		return d.Engine, nil
 	}
@@ -71,6 +79,24 @@ func EngineLabel(be string, d config.Defaults) string {
 		return e
 	}
 	return be
+}
+
+// resolveSmolvm locates the smolvm CLI for the microVM backend: SANDBOXER_SMOLVM
+// overrides the binary/path, else "smolvm" on PATH. Like docker/podman it is a
+// preinstalled host requirement — an absent one is a clear error with an install
+// hint (never an autodownload, and never a silent fallback to a container engine,
+// which would quietly weaken isolation).
+func resolveSmolvm() (string, error) {
+	bin := os.Getenv("SANDBOXER_SMOLVM")
+	if bin == "" {
+		bin = smolvmEngine
+	}
+	if hasExec(bin) {
+		return bin, nil
+	}
+	return "", errors.New("the microvm backend needs smolvm on PATH " +
+		"(install: https://smolmachines.com — SANDBOXER_SMOLVM overrides the path; " +
+		"on NixOS the release binary is dynamically linked, run it via nix-ld or patchelf)")
 }
 
 func hasExec(name string) bool {
