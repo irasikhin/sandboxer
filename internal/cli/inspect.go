@@ -237,7 +237,10 @@ func sessionHashOpts(t *target, rt config.Runtime, engine string) (backend.RunOp
 		AuthEnv:   hostAuthEnv(t.profile),
 		RT:        rt, Profile: t.profile,
 		ProfileJSONPath: t.base.ProfileJSONPath(t.slug),
-		Mem:             rt.Mem, CPU: rt.CPU, Pids: rt.Pids,
+		// Paths only, no generation: the argv (and so the session hash this
+		// feeds) must match what enter built, which mounts them iff they exist.
+		NestedIDFiles: backend.NestedIDFiles(t.base.NestedIDFiles(t.slug)),
+		Mem:           rt.Mem, CPU: rt.CPU, Pids: rt.Pids,
 		NoEgress: noEgress(),
 	}, true
 }

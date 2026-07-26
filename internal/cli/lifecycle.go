@@ -204,7 +204,8 @@ disable with autoResume = false in the profile, or SANDBOXER_NO_RESUME=1.`,
 				return err
 			}
 			seedHostConfigs(t, errOut)
-			if err := runSetup(t, rt, engine, f.noSetup, errOut); err != nil {
+			nestedIDs := prepareNestedIDs(t, engine, errOut)
+			if err := runSetup(t, rt, engine, nestedIDs, f.noSetup, errOut); err != nil {
 				return err
 			}
 			name := backend.SessionName(t.slug, t.base.Dir)
@@ -228,6 +229,7 @@ disable with autoResume = false in the profile, or SANDBOXER_NO_RESUME=1.`,
 				AuthEnv:          hostAuthEnv(t.profile),
 				RT:               rt, Profile: t.profile,
 				ProfileJSONPath: t.base.ProfileJSONPath(t.slug),
+				NestedIDFiles:   nestedIDs,
 				Mem:             rt.Mem, CPU: rt.CPU, Pids: rt.Pids,
 				Interactive: true, Args: tmuxEnterArgs(sessionName),
 				NoEgress: noEgress(),
@@ -415,7 +417,8 @@ func newExecCmd() *cobra.Command {
 				return err
 			}
 			seedHostConfigs(t, cmd.ErrOrStderr())
-			if err := runSetup(t, rt, engine, f.noSetup, cmd.ErrOrStderr()); err != nil {
+			nestedIDs := prepareNestedIDs(t, engine, cmd.ErrOrStderr())
+			if err := runSetup(t, rt, engine, nestedIDs, f.noSetup, cmd.ErrOrStderr()); err != nil {
 				return err
 			}
 			image, spec, err := resolveImage(t.profile, engine, cmd.ErrOrStderr())
@@ -437,6 +440,7 @@ func newExecCmd() *cobra.Command {
 				AuthEnv:   hostAuthEnv(t.profile),
 				RT:        rt, Profile: t.profile,
 				ProfileJSONPath: t.base.ProfileJSONPath(t.slug),
+				NestedIDFiles:   nestedIDs,
 				Mem:             rt.Mem, CPU: rt.CPU, Pids: rt.Pids,
 				Interactive: true, Args: rest,
 				NoEgress: noEgress(),
@@ -725,7 +729,38 @@ var (
 	// string reader — which is exactly the "never ask" case, so without the
 	// seam the prompt's ANSWER paths could not be exercised at all.
 	backendIsTerminal = backend.IsInteractiveTerminal
+	// sandboxWriteNestedIDs is the id-file generation seam: the real thing
+	// reads the HOST's /etc/subuid, whose content a test cannot control.
+	sandboxWriteNestedIDs = (*sandbox.Base).WriteNestedIDFiles
 )
+
+// prepareNestedIDs generates the per-sandbox identity files a nestedContainers
+// profile mounts over /etc/{passwd,group,subuid,subgid} (multi-uid nested
+// podman — see backend.nestedContainerArgs) and returns their paths for
+// RunOpts. A no-op zero value for every other profile. Generation failing, or
+// finding no subordinate ranges on the host, is never fatal: the sandbox still
+// runs, the nested podman just stays single-uid — but on a podman engine,
+// where multi-uid WOULD have worked, the missing host ranges are worth a
+// pointer at the fix.
+func prepareNestedIDs(t *target, engine string, errOut io.Writer) backend.NestedIDFiles {
+	if t.profile == nil || !t.profile.NestedContainers || inContainer() {
+		return backend.NestedIDFiles{}
+	}
+	ok, err := sandboxWriteNestedIDs(t.base, t.slug)
+	if err != nil {
+		fmt.Fprintf(errOut, "sandboxer: nested id files: %v (nested podman stays single-uid)\n", err)
+		return backend.NestedIDFiles{}
+	}
+	if !ok {
+		if engine == "podman" {
+			fmt.Fprintln(errOut, "sandboxer: no subordinate uid/gid ranges for this user on the host "+
+				"(/etc/subuid, /etc/subgid) — the nested podman stays single-uid, so images that "+
+				"switch user won't run; grant a range (usermod --add-subuids/--add-subgids) to fix")
+		}
+		return backend.NestedIDFiles{}
+	}
+	return backend.NestedIDFiles(t.base.NestedIDFiles(t.slug))
+}
 
 // runSetup runs the profile's one-time `setup:` script inside the sandbox before
 // the user/agent takes over. It is gated by a per-sandbox stamp (the script's
@@ -733,7 +768,7 @@ var (
 // under the same isolation and egress allowlist as the sandbox, so network
 // installs need their domains allowed. A non-zero setup is fatal by default —
 // we don't drop the caller into a half-prepared sandbox — and noSetup skips it.
-func runSetup(t *target, rt config.Runtime, engine string, noSetup bool, errOut io.Writer) error {
+func runSetup(t *target, rt config.Runtime, engine string, nestedIDs backend.NestedIDFiles, noSetup bool, errOut io.Writer) error {
 	if t.profile == nil {
 		return nil
 	}
@@ -767,6 +802,7 @@ func runSetup(t *target, rt config.Runtime, engine string, noSetup bool, errOut 
 		RT:              rt,
 		Profile:         t.profile,
 		ProfileJSONPath: t.base.ProfileJSONPath(t.slug),
+		NestedIDFiles:   nestedIDs,
 		Mem:             rt.Mem,
 		CPU:             rt.CPU,
 		Pids:            rt.Pids,

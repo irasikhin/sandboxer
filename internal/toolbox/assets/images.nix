@@ -87,16 +87,18 @@ let
     { "default": [ { "type": "insecureAcceptAnything" } ] }
   '';
 
-  # Storage for the nested podman. The sandbox user has no subordinate
-  # uid range (no /etc/subuid, and no setuid newuidmap could work under
-  # --security-opt no-new-privileges anyway), so podman falls back to a
-  # SINGLE-uid namespace. Unpacking a normal image then fails, because
-  # its files are owned by ids that do not exist in that namespace
-  # (alpine's /etc/shadow is 0:42) — `ignore_chown_errors` is exactly
-  # the escape hatch for that case: the chown is skipped instead of
-  # aborting the pull. fuse-overlayfs (not vfs) keeps layers shared;
-  # it needs /dev/fuse, which the launcher passes only for a profile
-  # that opted in (see backend.nestedContainerArgs).
+  # Storage for the nested podman. On a podman engine the launcher
+  # mounts generated /etc/subuid+/etc/subgid and grants ambient
+  # SETUID/SETGID, so the shipped newuidmap builds a MULTI-uid
+  # namespace and normal images unpack (and run their own users)
+  # natively. `ignore_chown_errors` stays as the FALLBACK for where
+  # that grant does not exist — a docker engine (no ambient caps for a
+  # non-root user) or a host user without subordinate ranges — where
+  # podman maps a SINGLE uid and unpacking a normal image would
+  # otherwise abort on its foreign owners (alpine's /etc/shadow is
+  # 0:42); the chown is skipped instead. fuse-overlayfs (not vfs)
+  # keeps layers shared; it needs /dev/fuse, which the launcher passes
+  # only for a profile that opted in (see backend.nestedContainerArgs).
   containersStorage = pkgs.writeTextDir "etc/containers/storage.conf" ''
     [storage]
     driver = "overlay"
@@ -265,6 +267,11 @@ in
         aardvark-dns
         passt
         fuse-overlayfs
+        # newuidmap/newgidmap for the nested podman's MULTI-uid namespace.
+        # No setuid bit and none needed: on a podman engine the launcher
+        # grants SETUID/SETGID as AMBIENT caps (survive execve under
+        # no-new-privileges), which is all the maps take to write.
+        shadow
         # the multiplexer `enter` attaches (detach/reattach, wheel
         # scrolling, panes) — plus the terminfo it needs
         tmux

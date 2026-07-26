@@ -125,15 +125,22 @@ type RunOpts struct {
 	RT              config.Runtime
 	Profile         *config.Profile
 	ProfileJSONPath string // mounted ro at /run/sandboxer/profile.json if present
-	Interactive     bool
-	NoEgress        bool   // SANDBOXER_NO_EGRESS
-	Mem             string // memory cap → --memory (e.g. 2G); empty = unlimited
-	CPU             string // CPU cap → --cpus (accepts a float or systemd "100%")
-	Pids            int    // PID-count cap → --pids-limit; 0 = unlimited
-	Args            []string
-	Stdin           io.Reader
-	Stdout          io.Writer
-	Stderr          io.Writer
+	// NestedIDFiles are the host-generated identity files a nestedContainers
+	// profile mounts read-only over /etc/{passwd,group,subuid,subgid} so the
+	// nested rootless podman can build a MULTI-uid user namespace (they are
+	// runtime-generated because the sandbox uid is host-dependent — see
+	// sandbox.WriteNestedIDFiles). Zero value = no mounts; also ignored unless
+	// the engine is podman and the files exist (see nestedContainerArgs).
+	NestedIDFiles NestedIDFiles
+	Interactive   bool
+	NoEgress      bool   // SANDBOXER_NO_EGRESS
+	Mem           string // memory cap → --memory (e.g. 2G); empty = unlimited
+	CPU           string // CPU cap → --cpus (accepts a float or systemd "100%")
+	Pids          int    // PID-count cap → --pids-limit; 0 = unlimited
+	Args          []string
+	Stdin         io.Reader
+	Stdout        io.Writer
+	Stderr        io.Writer
 }
 
 // Run executes the container, wiring isolation, credentials, dependency mounts
@@ -290,7 +297,7 @@ func commonArgs(o RunOpts, egNet, egProxyURL string) []string {
 	if o.Engine == "podman" {
 		args = append(args, "--userns=keep-id")
 	}
-	args = append(args, nestedContainerArgs(o.Profile)...)
+	args = append(args, nestedContainerArgs(o)...)
 	// Both engines' host-gateway aliases, so a host-running service (e.g. a
 	// user's own proxy) is reachable from inside the container regardless of
 	// engine — see config.HostGatewayArgs.
@@ -351,21 +358,69 @@ func commonArgs(o RunOpts, egNet, egProxyURL string) []string {
 //   - /dev/fuse: fuse-overlayfs, the nested podman's storage driver (see the
 //     image's storage.conf), mounts layers through it.
 //
-// What it deliberately does NOT do: --privileged, --cap-add, or relaxing
-// no-new-privileges. Capabilities stay dropped, which leaves the nested podman
-// without a subordinate uid range — single-uid mapping, which the image's
+// On a PODMAN engine it additionally makes the nested podman MULTI-uid, so
+// images whose entrypoint switches user (postgres and friends setresuid to a
+// non-root uid) actually run:
+//
+//   - --cap-add SETUID/SETGID: newuidmap/newgidmap need these in the OUTER
+//     container's user namespace to write a multi-entry uid_map. For a
+//     non-root --user podman grants added caps through the AMBIENT set, and
+//     ambient caps survive execve even under no-new-privileges — so the maps
+//     get written with no setuid binary and NNP still on. (Docker never puts
+//     caps in the ambient set for a non-root user, which is why the docker
+//     argv stays exactly as before: there the grant would be dead weight.)
+//   - the /etc/{passwd,group,subuid,subgid} mounts (RunOpts.NestedIDFiles):
+//     the subordinate ranges the maps are built from, generated on the host
+//     because the sandbox uid is host-dependent. All four must exist — a
+//     missing set (e.g. the host user has no subuid range, where multi-uid is
+//     impossible by construction) emits neither the caps nor the mounts, and
+//     the nested podman keeps its old single-uid behavior.
+//
+// What it deliberately does NOT do: --privileged, blanket --cap-add, or
+// relaxing no-new-privileges. Without the multi-uid grant (docker engine, no
+// host subuid range) the nested podman maps a single uid, which the image's
 // ignore_chown_errors is there to absorb. The trade is real and documented in
 // SECURITY.md: a sandbox with nestedContainers has no syscall filter.
-func nestedContainerArgs(p *config.Profile) []string {
+func nestedContainerArgs(o RunOpts) []string {
+	p := o.Profile
 	if p == nil || !p.NestedContainers {
 		return nil
 	}
-	return []string{
+	args := []string{
 		"--security-opt", "seccomp=unconfined",
 		"--security-opt", "systempaths=unconfined",
 		"--device", "/dev/net/tun",
 		"--device", "/dev/fuse",
 	}
+	ids := o.NestedIDFiles
+	if o.Engine != "podman" || !allExist(ids.Passwd, ids.Group, ids.Subuid, ids.Subgid) {
+		return args
+	}
+	return append(args,
+		"--cap-add", "SETUID", "--cap-add", "SETGID",
+		"--volume", ids.Passwd+":/etc/passwd:ro",
+		"--volume", ids.Group+":/etc/group:ro",
+		"--volume", ids.Subuid+":/etc/subuid:ro",
+		"--volume", ids.Subgid+":/etc/subgid:ro",
+	)
+}
+
+// NestedIDFiles names the four host-generated identity files mounted into a
+// nestedContainers sandbox (see RunOpts.NestedIDFiles). A mirror of
+// sandbox.NestedIDFiles — backend does not import sandbox — kept
+// field-identical so the CLI converts one to the other directly.
+type NestedIDFiles struct {
+	Passwd, Group, Subuid, Subgid string
+}
+
+// allExist reports whether every path is non-empty and exists on the host.
+func allExist(paths ...string) bool {
+	for _, p := range paths {
+		if p == "" || !pathExists(p) {
+			return false
+		}
+	}
+	return true
 }
 
 // containerUserArgs is the `--user` flag for the sandbox container. By default

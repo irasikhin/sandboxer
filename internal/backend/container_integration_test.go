@@ -12,6 +12,7 @@ import (
 
 	"github.com/irasikhin/sandboxer/internal/config"
 	"github.com/irasikhin/sandboxer/internal/itest"
+	"github.com/irasikhin/sandboxer/internal/sandbox"
 )
 
 // realRunOpts builds a minimal RunOpts for a real engine run: egress disabled,
@@ -70,6 +71,54 @@ func TestRun_RealEngine_ExitCodePropagation(t *testing.T) {
 	}
 	if code != 7 {
 		t.Errorf("exit = %d, want 7 (real child code)", code)
+	}
+}
+
+// TestRun_RealEngine_NestedMultiUID proves the whole multi-uid chain on a real
+// podman engine: ambient SETUID/SETGID + the generated /etc/{passwd,group,
+// subuid,subgid} let the NESTED podman run an image under a user other than
+// the sandbox uid — the exact thing a single-uid mapping cannot do (postgres
+// et al. setresuid and die with EINVAL). Skips on docker (no ambient caps for
+// a non-root user — the grant is deliberately podman-only), on a host user
+// without subordinate ranges, and without the toolbox image (it carries the
+// nested podman + newuidmap).
+func TestRun_RealEngine_NestedMultiUID(t *testing.T) {
+	engine := itest.Engine(t)
+	if engine != "podman" {
+		t.Skipf("multi-uid nested podman needs a podman outer engine (got %s)", engine)
+	}
+	image := itest.EnsureToolboxImage(t, engine)
+	itest.RequireLiveEgress(t) // the nested pull reaches a real registry
+
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	base, err := sandbox.ResolveBase(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	ok, err := base.WriteNestedIDFiles("itest")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok {
+		t.Skip("host user has no subordinate uid/gid ranges — multi-uid impossible here")
+	}
+
+	dest := t.TempDir()
+	o := realRunOpts(t, engine, image, dest,
+		"bash", "-lc", "podman run --rm --user 999:999 docker.io/library/alpine id -u")
+	o.Profile = &config.Profile{NestedContainers: true}
+	o.NestedIDFiles = NestedIDFiles(base.NestedIDFiles("itest"))
+	var out bytes.Buffer
+	o.Stdout, o.Stderr = &out, &out
+	code, err := Run(o)
+	if err != nil {
+		t.Fatalf("Run: %v\n%s", err, out.String())
+	}
+	if code != 0 {
+		t.Fatalf("exit = %d, want 0 — nested user-switching run failed:\n%s", code, out.String())
+	}
+	if !strings.Contains(out.String(), "999") {
+		t.Errorf("nested id -u = %q, want 999", out.String())
 	}
 }
 

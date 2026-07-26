@@ -393,13 +393,29 @@ func TestNestedContainerArgs(t *testing.T) {
 		return RunOpts{MountDest: true, Engine: "docker", Image: "img:1", Dest: "/d", Slug: "s", Profile: p}
 	}
 
+	// A full set of existing id files, as the CLI generates them.
+	writeIDFiles := func(t *testing.T) NestedIDFiles {
+		t.Helper()
+		dir := t.TempDir()
+		ids := NestedIDFiles{
+			Passwd: filepath.Join(dir, "passwd"), Group: filepath.Join(dir, "group"),
+			Subuid: filepath.Join(dir, "subuid"), Subgid: filepath.Join(dir, "subgid"),
+		}
+		for _, p := range []string{ids.Passwd, ids.Group, ids.Subuid, ids.Subgid} {
+			if err := os.WriteFile(p, []byte("x\n"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}
+		return ids
+	}
+
 	t.Run("nil profile stays off", func(t *testing.T) {
-		if got := nestedContainerArgs(nil); got != nil {
+		if got := nestedContainerArgs(RunOpts{}); got != nil {
 			t.Errorf("nil profile = %v, want nil", got)
 		}
 	})
 	t.Run("profile that did not ask stays off", func(t *testing.T) {
-		if got := nestedContainerArgs(&config.Profile{}); got != nil {
+		if got := nestedContainerArgs(opts(&config.Profile{})); got != nil {
 			t.Errorf("unset = %v, want nil", got)
 		}
 	})
@@ -433,6 +449,68 @@ func TestNestedContainerArgs(t *testing.T) {
 		for _, never := range []string{"--privileged", "--cap-add"} {
 			if strings.Contains(s, never) {
 				t.Errorf("opt-in must never reach for %q: %v", never, argv)
+			}
+		}
+	})
+	t.Run("docker never gets the multi-uid grant, even with id files", func(t *testing.T) {
+		o := opts(&config.Profile{NestedContainers: true})
+		o.NestedIDFiles = writeIDFiles(t)
+		s := strings.Join(nestedContainerArgs(o), " ")
+		for _, never := range []string{"--cap-add", "/etc/passwd", "/etc/subuid"} {
+			if strings.Contains(s, never) {
+				t.Errorf("docker argv gained %q: %v", never, s)
+			}
+		}
+	})
+	t.Run("podman without id files stays single-uid", func(t *testing.T) {
+		o := opts(&config.Profile{NestedContainers: true})
+		o.Engine = "podman"
+		s := strings.Join(nestedContainerArgs(o), " ")
+		if strings.Contains(s, "--cap-add") || strings.Contains(s, "/etc/subuid") {
+			t.Errorf("no id files but multi-uid flags emitted: %v", s)
+		}
+	})
+	t.Run("podman with a partial id set stays single-uid", func(t *testing.T) {
+		o := opts(&config.Profile{NestedContainers: true})
+		o.Engine = "podman"
+		o.NestedIDFiles = writeIDFiles(t)
+		if err := os.Remove(o.NestedIDFiles.Subgid); err != nil {
+			t.Fatal(err)
+		}
+		if s := strings.Join(nestedContainerArgs(o), " "); strings.Contains(s, "--cap-add") {
+			t.Errorf("partial id set but multi-uid flags emitted: %v", s)
+		}
+	})
+	t.Run("podman with id files gets exactly the multi-uid grant", func(t *testing.T) {
+		o := opts(&config.Profile{NestedContainers: true})
+		o.Engine = "podman"
+		o.NestedIDFiles = writeIDFiles(t)
+		args := nestedContainerArgs(o)
+		s := strings.Join(args, " ")
+		for _, want := range []string{
+			"--cap-add SETUID", "--cap-add SETGID",
+			"--volume " + o.NestedIDFiles.Passwd + ":/etc/passwd:ro",
+			"--volume " + o.NestedIDFiles.Group + ":/etc/group:ro",
+			"--volume " + o.NestedIDFiles.Subuid + ":/etc/subuid:ro",
+			"--volume " + o.NestedIDFiles.Subgid + ":/etc/subgid:ro",
+		} {
+			if !strings.Contains(s, want) {
+				t.Errorf("argv missing %q: %v", want, args)
+			}
+		}
+		// SETUID+SETGID and NOTHING else — the grant is the two caps newuidmap
+		// needs, not a general escalation; posture flags stay intact.
+		if n := strings.Count(s, "--cap-add"); n != 2 {
+			t.Errorf("want exactly 2 --cap-add, got %d: %v", n, args)
+		}
+		if strings.Contains(s, "--privileged") {
+			t.Errorf("multi-uid grant must not reach for --privileged: %v", args)
+		}
+		argv, _ := RunArgv(o)
+		full := strings.Join(argv, " ")
+		for _, keep := range []string{"--cap-drop=ALL", "no-new-privileges"} {
+			if !strings.Contains(full, keep) {
+				t.Errorf("multi-uid grant dropped %q from the posture: %v", keep, argv)
 			}
 		}
 	})

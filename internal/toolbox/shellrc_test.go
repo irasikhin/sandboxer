@@ -69,14 +69,18 @@ func TestFlakeBakesToolingPack(t *testing.T) {
 }
 
 // TestImageBakesNestedPodman guards the nested-podman layer end to end: the
-// runtime pieces, and the two image-side bits without which a rootless podman
-// inside the sandbox cannot pull anything — /var/tmp (containers/image stages
-// blobs there) and a storage.conf whose ignore_chown_errors absorbs the
-// single-uid mapping. The launcher half is backend.nestedContainerArgs.
+// runtime pieces (shadow carries newuidmap/newgidmap, what a MULTI-uid nested
+// namespace is built with), and the two image-side bits without which a
+// rootless podman inside the sandbox cannot pull anything — /var/tmp
+// (containers/image stages blobs there) and a storage.conf whose
+// ignore_chown_errors absorbs the single-uid FALLBACK mapping (docker engine,
+// or no host subordinate ranges). The launcher half is
+// backend.nestedContainerArgs.
 func TestImageBakesNestedPodman(t *testing.T) {
 	s := imageDefinition(t)
 	for _, want := range []string{
 		"podman", "crun", "conmon", "netavark", "aardvark-dns", "passt", "fuse-overlayfs",
+		"shadow",
 		`writeTextDir "etc/containers/policy.json"`,
 		`writeTextDir "etc/containers/storage.conf"`,
 		"ignore_chown_errors",
