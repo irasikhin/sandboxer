@@ -512,6 +512,9 @@ func ensureImage(o RunOpts) error {
 // is supported by both docker and podman and exits non-zero when the image is
 // absent.
 func ImageExists(engine, image string) bool {
+	if engine == smolvmEngine {
+		return vmImageExists(image)
+	}
 	return exec.Command(engine, "image", "inspect", image).Run() == nil
 }
 
@@ -520,6 +523,9 @@ func ImageExists(engine, image string) bool {
 // A locally absent image is "unknown", never an error: callers skip the
 // image-freshness check on "" instead of failing before the image is built.
 func ImageID(engine, image string) string {
+	if engine == smolvmEngine {
+		return vmImageID(image)
+	}
 	out, err := exec.Command(engine, "image", "inspect", "--format", "{{.Id}}", image).Output()
 	if err != nil {
 		return ""
@@ -531,6 +537,9 @@ func ImageID(engine, image string) string {
 // container referencing it does not block removal). An already-absent image is
 // success — `image rm` is idempotent — so only a real engine failure errors.
 func RemoveImage(engine, image string) error {
+	if engine == smolvmEngine {
+		return vmRemoveImage(image)
+	}
 	if !ImageExists(engine, image) {
 		return nil
 	}

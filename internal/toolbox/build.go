@@ -318,6 +318,31 @@ func hasHostNetwork(extra []string) bool {
 // (ValidateImageSpec / ResolveLatest enforce it), so the != comparison is
 // exact and a github: flakeref override never needs a GitHub API resolve.
 func builderScript(refresh bool, nixpkgsRev, llmAgentsRev string) string {
+	// Build BOTH the toolbox image and the egress squid proxyImage in one nix
+	// invocation (shared eval), copying each realized tarball to /out.
+	nixBuild := nixBuildPrefix(overrideFlags(refresh, nixpkgsRev, llmAgentsRev))
+	return "set -e; " +
+		nixBuild + "path:/src#image > /out/storepath && " +
+		`cp -L "$(cat /out/storepath)" /out/image.tar.gz && ` +
+		nixBuild + "path:/src#proxyImage > /out/proxypath && " +
+		`cp -L "$(cat /out/proxypath)" /out/proxy.tar.gz`
+}
+
+// builderScriptImage is builderScript's image-only variant, run by the microVM
+// builder: the toolbox backend has no squid proxyImage (egress is smolvm's own
+// --allow-host), so only path:/src#image is realized and copied to /out.
+func builderScriptImage(refresh bool, nixpkgsRev, llmAgentsRev string) string {
+	nixBuild := nixBuildPrefix(overrideFlags(refresh, nixpkgsRev, llmAgentsRev))
+	return "set -e; " +
+		nixBuild + "path:/src#image > /out/storepath && " +
+		`cp -L "$(cat /out/storepath)" /out/image.tar.gz`
+}
+
+// overrideFlags renders the shared nix build flags: --refresh, and an
+// --override-input for each rev that differs from the embedded pin (byte-
+// identical to a stock build when the effective rev IS the pin, so nix's eval
+// cache is shared).
+func overrideFlags(refresh bool, nixpkgsRev, llmAgentsRev string) string {
 	flags := ""
 	if refresh {
 		flags += "--refresh "
@@ -329,17 +354,17 @@ func builderScript(refresh bool, nixpkgsRev, llmAgentsRev string) string {
 	if llmAgentsRev != "" && llmAgentsRev != embLLMAgents {
 		flags += "--override-input llm-agents github:numtide/llm-agents.nix/" + llmAgentsRev + " "
 	}
-	// Build BOTH the toolbox image and the egress squid proxyImage in one nix
-	// invocation (shared eval), copying each realized tarball to /out.
-	nixBuild := "nix --extra-experimental-features 'nix-command flakes' " +
+	return flags
+}
+
+// nixBuildPrefix is the shared `nix … build …` command prefix (substituter
+// timeouts + fallback so an unreachable extra cache never wedges the build; see
+// builderScript for the full rationale).
+func nixBuildPrefix(flags string) string {
+	return "nix --extra-experimental-features 'nix-command flakes' " +
 		"--accept-flake-config " +
 		"--option connect-timeout 5 --option stalled-download-timeout 30 --option fallback true " +
 		"build " + flags + "--no-write-lock-file --no-link --print-out-paths "
-	return "set -e; " +
-		nixBuild + "path:/src#image > /out/storepath && " +
-		`cp -L "$(cat /out/storepath)" /out/image.tar.gz && ` +
-		nixBuild + "path:/src#proxyImage > /out/proxypath && " +
-		`cp -L "$(cat /out/proxypath)" /out/proxy.tar.gz`
 }
 
 // orEmpty keeps the rendered JSON an object ({} not null) for a nil map.

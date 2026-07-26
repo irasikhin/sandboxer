@@ -79,7 +79,14 @@ func vmEnsureSession(o RunOpts) (string, error) {
 
 	hash := vmSessionWantHash(o)
 	info := vmInspectSession(name)
-	switch planSession(info, hash, "") {
+	// The wanted image id only matters for an existing machine, and is read from
+	// whatever is in the store now: a not-yet-built image yields "" and the
+	// freshness check is skipped, never a false "stale".
+	wantImage := ""
+	if info.Exists {
+		wantImage = vmImageID(o.Image)
+	}
+	switch planSession(info, hash, wantImage) {
 	case actExec:
 		return name, nil
 	case actStart:
@@ -100,6 +107,16 @@ func vmEnsureSession(o RunOpts) (string, error) {
 // that loses a name race to a concurrent enter adopts the winner's running,
 // hash-fresh machine instead of surfacing the conflict.
 func vmCreateSession(o RunOpts, name, hash string) (string, error) {
+	// Resolve the toolbox image to its store tar (building it in a microVM on
+	// first use); a public ref passes through. imageID is recorded so a rebuilt
+	// image under the same name reads as stale on the next enter.
+	imageRef, err := vmEnsureImage(o)
+	if err != nil {
+		return "", err
+	}
+	imageID := vmImageID(o.Image)
+	o.Image = imageRef
+
 	notice(o.Stderr, "creating the session machine…")
 	cmd := exec.Command(smolvmBin(), vmCreateArgv(o, name)...)
 	cmd.Stdout = io.Discard
@@ -113,7 +130,7 @@ func vmCreateSession(o RunOpts, name, hash string) (string, error) {
 	if err := execx.Run(smolvmBin(), vmStartArgv(name)...); err != nil {
 		return "", fmt.Errorf("start machine %s: %w", name, err)
 	}
-	if err := writeVMRecord(vmRecord{Name: name, BaseDir: o.BaseDir, Slug: o.Slug, Hash: hash, MountIDs: o.MountIDs}); err != nil {
+	if err := writeVMRecord(vmRecord{Name: name, BaseDir: o.BaseDir, Slug: o.Slug, Hash: hash, ImageID: imageID, MountIDs: o.MountIDs}); err != nil {
 		notice(o.Stderr, "warning: could not record session state: "+err.Error())
 	}
 	return name, nil
@@ -154,6 +171,14 @@ func vmExecSession(o RunOpts, name string, cmdArgs []string) (int, error) {
 // env is placed on the child process for the --secret-env references (see
 // vmRunArgv) to resolve.
 func vmRun(o RunOpts) int {
+	imageRef, err := vmEnsureImage(o)
+	if err != nil {
+		if o.Stderr != nil {
+			fmt.Fprintf(o.Stderr, "sandboxer: %v\n", err)
+		}
+		return 1
+	}
+	o.Image = imageRef
 	cmd := exec.Command(smolvmBin(), vmRunArgv(o)...)
 	cmd.Stdin = o.Stdin
 	cmd.Stdout = o.Stdout
