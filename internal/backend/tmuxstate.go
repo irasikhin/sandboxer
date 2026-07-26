@@ -3,7 +3,6 @@ package backend
 import (
 	"encoding/json"
 	"os"
-	"os/exec"
 	"path"
 	"regexp"
 	"sort"
@@ -89,7 +88,7 @@ const captureFormat = "#{session_name}\t#{window_index}\t#{window_name}\t#{windo
 // "nothing to capture", never a fabricated layout. The caller persists a nil
 // result as an empty/reset state, not a crash.
 func CaptureTmuxState(engine, name string) []TmuxSession {
-	out, err := exec.Command(engine, "exec", name,
+	out, err := guestExec(engine, name,
 		"tmux", "-L", tmuxSocket, "list-panes", "-a", "-F", captureFormat).Output()
 	if err != nil {
 		return nil
@@ -108,7 +107,7 @@ func tagAgents(engine, name string, sessions []TmuxSession) {
 	if !anyPanePid(sessions) {
 		return
 	}
-	out, err := exec.Command(engine, "exec", name, "ps", "-eo", "pid=,ppid=,args=").Output()
+	out, err := guestExec(engine, name, "ps", "-eo", "pid=,ppid=,args=").Output()
 	if err != nil {
 		return
 	}

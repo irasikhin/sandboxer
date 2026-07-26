@@ -69,6 +69,19 @@ func shortHash(s string) string {
 	return hex.EncodeToString(sum[:4])
 }
 
+// guestExec builds the command that runs argv non-interactively inside the
+// already-running guest of the session named name, its stdout captured by the
+// caller. It is the ONE engine-specific primitive the backend-neutral session
+// machinery leans on — the tmux layout capture, the agent process listing and
+// the idleness probe all reach into the guest the same way — so a second
+// isolation backend needs only to teach this one helper its own "exec in the
+// guest" shape, and every reader of guest state comes along for free. For the
+// container engines that is `<engine> exec <name> <argv…>`.
+func guestExec(engine, name string, argv ...string) *exec.Cmd {
+	args := append([]string{"exec", name}, argv...)
+	return exec.Command(engine, args...)
+}
+
 // createArgv assembles the engine argv that creates a detached persistent
 // session container: the same isolation/mount/env flags as a one-shot run
 // (commonArgs), but started with `run -d --init`, named and labeled for later
@@ -156,25 +169,6 @@ func ExecArgv(o RunOpts, name string, cmdArgs []string) []string {
 
 // --- session lifecycle -------------------------------------------------------
 
-// errEmptyAllowlist rejects an egress-required run with nothing on the
-// allowlist: that is always a misconfiguration, never a "block everything"
-// mode. Shared by the one-shot Run and the persistent-session paths so both
-// fail closed with the same guidance.
-var errEmptyAllowlist = errors.New("egress allowlist is enabled but no domains are allowed — " +
-	"set --allow-domains / egress.allowedDomains, or disable the allowlist " +
-	"(egress.enabled = false, or SANDBOXER_NO_EGRESS=1)")
-
-// egressRequired reports whether o must run behind the egress allowlist
-// sidecar: enabled (egress.enabled = true, the default) and not killed by the
-// operator (NoEgress / SANDBOXER_NO_EGRESS). A configured proxy no longer
-// disables the allowlist — with the allowlist on the proxy is CHAINED through
-// the sidecar; only egress.enabled = false drops to direct mode. The single
-// policy predicate for Run and the session lifecycle — they must never disagree,
-// because the session ConfigHash depends on it.
-func egressRequired(o RunOpts) bool {
-	return !o.NoEgress && o.RT.Egress
-}
-
 // SessionWantHash computes the ConfigHash a fresh persistent session for o
 // must carry: hashed with the session's STABLE egress identifiers (purely
 // name-derived via Lookup, no per-run randomness), so the hash computed on a
@@ -189,23 +183,6 @@ func SessionWantHash(o RunOpts) string {
 		egNet, egProxyURL = lk.Net(), lk.ProxyURL()
 	}
 	return ConfigHash(o, egNet, egProxyURL)
-}
-
-// SessionInfo is what a single engine inspect reveals about a session
-// container: whether it exists at all, whether it is currently running, the
-// ConfigHash it was created with (from the LabelHash label; "" when the label
-// is missing, which compares as stale against any wanted hash), and the ID of
-// the image it runs (normalized without the "sha256:" prefix; "" when
-// unreadable, which skips the image-freshness check), and the encoded mount
-// identities it was created with (from LabelMounts; "" on a session created
-// before that label existed, or one whose set was over the encoder's size cap
-// — "unknown", never "nothing was mounted").
-type SessionInfo struct {
-	Exists  bool
-	Running bool
-	Hash    string
-	ImageID string
-	Mounts  string
 }
 
 // InspectSession reads the session container's running state, recorded config
@@ -253,7 +230,7 @@ func InspectSession(engine, name string) SessionInfo {
 // "busy" merely postpones a config change to the next stop/enter, while a
 // false "idle" destroys a running agent.
 func SessionIdle(engine, name string) bool {
-	cmd := exec.Command(engine, "exec", name, "tmux", "-L", "sandboxer", "list-sessions")
+	cmd := guestExec(engine, name, "tmux", "-L", "sandboxer", "list-sessions")
 	var errb strings.Builder
 	cmd.Stderr = &errb
 	out, err := cmd.Output()
@@ -263,72 +240,6 @@ func SessionIdle(engine, name string) bool {
 	// tmux exits non-zero when its server is not running at all — that is the
 	// definitive "there is nothing in there" answer, not a failure.
 	return strings.Contains(errb.String(), "no server running")
-}
-
-// ImageFresh reports whether the session container's image (got, from
-// SessionInfo.ImageID) still is the image the engine would run today (want,
-// from ImageID). Either side unknown ("") skips the check — freshness then
-// rests on the config hash alone — so a not-yet-built image never reads as
-// stale. IDs are compared after trimming the "sha256:" prefix because docker
-// reports it and podman does not.
-func ImageFresh(got, want string) bool {
-	if got == "" || want == "" {
-		return true
-	}
-	return strings.TrimPrefix(got, "sha256:") == strings.TrimPrefix(want, "sha256:")
-}
-
-// sessionAction is planSession's verdict on how to converge a session.
-type sessionAction int
-
-const (
-	actCreate   sessionAction = iota // no container — create one
-	actStart                         // stopped container, fresh config — start it
-	actExec                          // running container, fresh config — use as-is
-	actRecreate                      // config changed — replace it (announced)
-)
-
-// planSession is the pure session-lifecycle policy: given what exists (info)
-// and what the caller wants (wantHash + wantImageID), it picks the one action
-// that converges the session. Fresh means the recorded config hash matches
-// AND the container still runs the image the engine would use today
-// (ImageFresh — a rebuilt image under an unchanged tag keeps the hash but
-// flips the ID; either ID unknown skips that half). A stale session is always
-// recreated (with a notice): sandboxer tracks no in-container clients —
-// park long-running work (the in-container tmux dies with its container).
-// Engine-free so the decision table is unit-testable:
-//
-//	not found        → create
-//	stopped + fresh  → start
-//	stopped + stale  → recreate
-//	running + fresh  → exec
-//	running + stale  → recreate
-func planSession(info SessionInfo, wantHash, wantImageID string) sessionAction {
-	fresh := info.Hash == wantHash && ImageFresh(info.ImageID, wantImageID)
-	switch {
-	case !info.Exists:
-		return actCreate
-	case !info.Running:
-		if fresh {
-			return actStart
-		}
-		return actRecreate
-	case fresh:
-		return actExec
-	default:
-		return actRecreate
-	}
-}
-
-// staleReason names what invalidated a session, for the user-facing notices:
-// a config-hash mismatch means the profile (or environment) changed, while a
-// hash-fresh container that still planned as stale runs an image that was
-// rebuilt under its unchanged tag.
-func staleReason(info SessionInfo, wantHash string) string {
-	if info.Hash == wantHash {
-		return "image rebuilt"
-	}
-	return "profile changed"
 }
 
 // EnsureSession converges slug's persistent session container to a running,
