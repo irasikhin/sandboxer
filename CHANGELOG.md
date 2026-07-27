@@ -6,6 +6,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.63.2] — 2026-07-27
+
+### Fixed
+
+- make the microvm toolbox image build actually work (d00e424)
+
+
 ## [0.63.1] — 2026-07-27
 
 ### Fixed
@@ -781,3 +788,4 @@ isolated, containerized dev sandbox, on a local Linux machine:
 [0.62.1]: https://github.com/irasikhin/sandboxer/compare/v0.62.0...v0.62.1
 [0.63.0]: https://github.com/irasikhin/sandboxer/compare/v0.62.1...v0.63.0
 [0.63.1]: https://github.com/irasikhin/sandboxer/compare/v0.63.0...v0.63.1
+[0.63.2]: https://github.com/irasikhin/sandboxer/compare/v0.63.1...v0.63.2
