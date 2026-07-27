@@ -185,29 +185,26 @@ func ValidateBackend(rt Runtime) error {
 }
 
 // validateMicrovm rejects only the egress shapes the microVM backend genuinely
-// cannot honor, and accepts the rest as first-class:
+// cannot honor; everything else is first-class:
 //
-//   - egress.proxy → honored as proxy-delegated egress: the guest's HTTP(S)
-//     clients are pointed at the proxy (HTTP_PROXY/HTTPS_PROXY/NO_PROXY env) over
-//     an open network. This is the microVM analogue of the container's direct
-//     mode; there is no squid, so the proxy IS the egress control point.
+//   - egress.proxy → proxy-delegated egress: the guest's HTTP(S) clients are
+//     pointed at the proxy (HTTP_PROXY/HTTPS_PROXY/NO_PROXY env) over an open
+//     network — the microVM analogue of the container's direct mode. There is no
+//     squid, so the proxy IS the egress control point. When an allowlist is ALSO
+//     set the two coexist: the proxy forwards, and the allowlist is enforced by
+//     the proxy rather than at the VM network layer (smolvm cannot both filter
+//     at the network layer AND reach a host-local proxy — that needs the open
+//     TSI network). That trade is surfaced as a warning at enter/exec
+//     (warnMicrovmProxy), NOT a hard error: a proxy + a default allowlist is the
+//     common case and must not block the sandbox.
 //   - egress.routes → rejected: per-domain upstream proxies are a squid
 //     cache_peer feature with no smolvm analogue.
-//   - egress.proxy together with an ACTIVE allowlist → rejected: the container
-//     chains the allowlist through squid to the proxy; microVM has neither, so
-//     it cannot enforce a VM-level allowlist AND forward through a proxy. The
-//     user must pick one, rather than have one silently dropped.
 //
 // (egress.noProxy is honored alongside a proxy, ignored without one.)
 func validateMicrovm(rt Runtime) error {
 	if len(rt.Routes) > 0 {
 		return fmt.Errorf("egress.routes is not supported by the microvm backend " +
 			"(no per-domain upstream proxies / squid); remove it or use a container backend")
-	}
-	if rt.Proxy != "" && rt.Egress && len(rt.Domains) > 0 {
-		return fmt.Errorf("the microvm backend cannot enforce an allowlist AND forward through " +
-			"egress.proxy (that needs the squid sidecar) — set egress.proxy alone " +
-			"(proxy-delegated egress) or egress.allowedDomains alone (a VM-level allowlist), not both")
 	}
 	return nil
 }

@@ -36,3 +36,24 @@ func TestWarnMicrovmIgnored(t *testing.T) {
 		t.Errorf("container backend should emit no microvm warnings, got %q", b.String())
 	}
 }
+
+// TestWarnMicrovmProxy pins the advisory when a microvm sandbox has both a proxy
+// and an allowlist (the allowlist is proxy-enforced), and its silence otherwise.
+func TestWarnMicrovmProxy(t *testing.T) {
+	var b bytes.Buffer
+	warnMicrovmProxy(&b, config.Runtime{Backend: "microvm", Proxy: "http://p:3128", Domains: []string{"a.com"}})
+	if !strings.Contains(b.String(), "enforced by the proxy") {
+		t.Errorf("missing proxy/allowlist advisory: %q", b.String())
+	}
+	// No allowlist, or a container backend → no advisory.
+	for _, rt := range []config.Runtime{
+		{Backend: "microvm", Proxy: "http://p:3128"},
+		{Backend: "docker", Proxy: "http://p:3128", Domains: []string{"a.com"}},
+	} {
+		b.Reset()
+		warnMicrovmProxy(&b, rt)
+		if b.Len() != 0 {
+			t.Errorf("unexpected advisory for %+v: %q", rt, b.String())
+		}
+	}
+}

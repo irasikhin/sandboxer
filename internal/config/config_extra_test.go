@@ -80,28 +80,22 @@ func TestValidateBackend(t *testing.T) {
 }
 
 func TestValidateBackendMicrovm(t *testing.T) {
-	// Accepted: a plain allowlist; a proxy alone (proxy-delegated egress); a
-	// proxy + noProxy without an active allowlist; a proxy with an allowlist that
-	// is present but INACTIVE (egress off).
+	// Accepted: a plain allowlist; a proxy alone; a proxy + noProxy; and — the
+	// common homelab case — a proxy TOGETHER with an active allowlist (they
+	// coexist, with a warning; the proxy is the egress path).
 	for _, rt := range []Runtime{
 		{Backend: "microvm", Egress: true, Domains: []string{"a.com"}},
 		{Backend: "microvm", Proxy: "http://p:3128"},
 		{Backend: "microvm", Proxy: "http://p:3128", NoProxy: "localhost"},
-		{Backend: "microvm", Proxy: "http://p:3128", Domains: []string{"a.com"}, Egress: false},
+		{Backend: "microvm", Proxy: "http://p:3128", Egress: true, Domains: []string{"a.com"}},
 	} {
 		if err := ValidateBackend(rt); err != nil {
 			t.Errorf("microvm should allow %+v: %v", rt, err)
 		}
 	}
-	// Rejected: routes (no analogue), and a proxy alongside an ACTIVE allowlist
-	// (can't chain without squid).
-	for _, rt := range []Runtime{
-		{Backend: "microvm", Routes: []Route{{}}},
-		{Backend: "microvm", Proxy: "http://p:3128", Egress: true, Domains: []string{"a.com"}},
-	} {
-		if err := ValidateBackend(rt); err == nil {
-			t.Errorf("microvm should reject %+v", rt)
-		}
+	// Rejected: only egress.routes (no squid cache_peer analogue).
+	if err := ValidateBackend(Runtime{Backend: "microvm", Routes: []Route{{}}}); err == nil {
+		t.Error("microvm should reject egress.routes")
 	}
 }
 

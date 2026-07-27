@@ -85,6 +85,7 @@ func newCreateCmd() *cobra.Command {
 			warnIgnoredRoutes(cmd.ErrOrStderr(), rtCreate)
 			warnOpenNetwork(cmd.ErrOrStderr(), rtCreate, t.profile)
 			warnMicrovmIgnored(cmd.ErrOrStderr(), rtCreate, t.profile)
+			warnMicrovmProxy(cmd.ErrOrStderr(), rtCreate)
 			out := cmd.OutOrStdout()
 			fmt.Fprintf(out, "sandbox %q created: %s\n", t.slug, t.base.SandboxDir(t.slug))
 			fmt.Fprintf(out, "enter:  sandboxer enter %s\n", t.slug)
@@ -198,6 +199,7 @@ disable with autoResume = false in the profile, or SANDBOXER_NO_RESUME=1.`,
 			warnIgnoredRoutes(errOut, rt)
 			warnOpenNetwork(errOut, rt, t.profile)
 			warnMicrovmIgnored(errOut, rt, t.profile)
+			warnMicrovmProxy(errOut, rt)
 			engine, err := backend.ResolveEngine(rt.Backend, config.LoadDefaults())
 			if err != nil {
 				return err
@@ -568,6 +570,22 @@ func warnMicrovmIgnored(w io.Writer, rt config.Runtime, prof *config.Profile) {
 	if prof != nil && prof.NestedContainers {
 		fmt.Fprintln(w, "sandboxer: nestedContainers ignored — a microVM runs container engines natively")
 	}
+}
+
+// warnMicrovmProxy notes the egress posture when a microvm sandbox has BOTH a
+// proxy and an allowlist: the proxy is the egress path (open network at the VM
+// layer), and the allowlist is enforced by the proxy rather than by smolvm's
+// --allow-host — because reaching a host-local proxy needs the open TSI network,
+// which cannot also filter at the network layer. The user should ensure their
+// proxy enforces the intended allowlist. Not an error: a proxy + a default
+// allowlist is the common case.
+func warnMicrovmProxy(w io.Writer, rt config.Runtime) {
+	if rt.Backend != "microvm" || rt.Proxy == "" || len(rt.Domains) == 0 {
+		return
+	}
+	fmt.Fprintln(w, "sandboxer: egress.proxy is set — the agent's egress goes through the proxy over "+
+		"an open VM network; egress.allowedDomains is then enforced by the proxy, not by the microVM. "+
+		"Make sure the proxy restricts egress to the intended allowlist.")
 }
 
 // warnOpenNetwork warns when the resolved network is fully open — no allowlist

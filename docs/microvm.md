@@ -112,7 +112,12 @@ it recreates the machine). The modes, in precedence order:
    container's direct mode. Unlike containers, **`localhost` is not rewritten**:
    smolvm's TSI reaches a host-local proxy transparently (verified — a guest
    with `--net` reaches the host's `127.0.0.1`), so `http://127.0.0.1:3128`
-   works. A proxy cannot be combined with an active allowlist (see below).
+   works. When `allowedDomains` is ALSO set the two **coexist** (the common
+   homelab case): the proxy forwards, and the allowlist is enforced by the proxy
+   rather than at the VM network layer — smolvm cannot both filter at the network
+   layer and reach a host-local proxy (that needs the open TSI network). This is
+   surfaced as a warning at enter/exec, not an error; ensure your proxy restricts
+   egress to the intended allowlist.
 2. `egress.enabled = false` (or `SANDBOXER_NO_EGRESS=1`), no proxy → open network.
 3. `egress.allowedDomains` non-empty → `--allow-host` per domain, fail-closed
    (only those hosts resolve).
@@ -131,10 +136,6 @@ Rejected or ignored under `backend = microvm`:
   podman/docker run argv with no VM equivalent).
 - `egress.routes` — config error (per-domain upstream proxies are a squid
   cache_peer feature with no smolvm analogue).
-- `egress.proxy` **together with an active `allowedDomains`** — config error: the
-  container chains the allowlist through squid to the proxy; a microVM has
-  neither, so it cannot enforce a VM-level allowlist AND forward through a proxy.
-  Set one or the other, not both.
 - `limits.pids` — ignored with a warning (no smolvm equivalent).
 - `nestedContainers` — ignored (a real VM runs container engines natively).
 
