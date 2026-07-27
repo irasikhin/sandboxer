@@ -257,6 +257,31 @@ func TestSeedMergeErrorPaths(t *testing.T) {
 	}
 }
 
+// TestSeedMergeNestedFileCreatesParents: a seed path that points straight at a
+// nested file (opencode's .local/share/opencode/auth.json) is copied even when
+// none of its parent dirs exist in the sandbox home yet — the bug that made the
+// seed warn "open …auth.json.seedtmp: no such file or directory".
+func TestSeedMergeNestedFileCreatesParents(t *testing.T) {
+	srcFile := filepath.Join(t.TempDir(), "auth.json")
+	writeFile(t, srcFile, "token")
+	dst := filepath.Join(t.TempDir(), "home", ".local", "share", "opencode", "auth.json")
+
+	n, err := seedMerge(srcFile, dst, nil)
+	if err != nil {
+		t.Fatalf("seedMerge nested file: %v", err)
+	}
+	if n != 1 {
+		t.Errorf("added = %d, want 1", n)
+	}
+	got, err := os.ReadFile(dst)
+	if err != nil || string(got) != "token" {
+		t.Errorf("copied file = %q, %v; want token", got, err)
+	}
+	if _, err := os.Stat(dst + ".seedtmp"); !os.IsNotExist(err) {
+		t.Errorf("staging temp left behind: %v", err)
+	}
+}
+
 // TestSeedHomeNoHostHome: an unresolvable host home is a quiet no-op.
 func TestSeedHomeNoHostHome(t *testing.T) {
 	b, err := ResolveBase(t.TempDir())

@@ -126,6 +126,10 @@ func seedMerge(src, dst string, skip []string) (added int, err error) {
 				fail(err)
 				return nil
 			}
+			if err := os.MkdirAll(filepath.Dir(target), 0o700); err != nil {
+				fail(err)
+				return nil
+			}
 			if err := os.Symlink(link, target); err != nil {
 				fail(err)
 				return nil
@@ -148,13 +152,18 @@ func seedMerge(src, dst string, skip []string) (added int, err error) {
 
 // copyFileStaged copies src to dst via a same-dir temp file and a rename, so
 // an interrupted seed never leaves a torn file that a later merge would then
-// treat as the seeded truth.
+// treat as the seeded truth. The destination's parent dirs are created first —
+// a seed path may point straight at a nested file (e.g. opencode's
+// .local/share/opencode/auth.json), whose parent the merge walk never visits.
 func copyFileStaged(src, dst string, perm os.FileMode) error {
 	in, err := os.Open(src)
 	if err != nil {
 		return err
 	}
 	defer in.Close()
+	if err := os.MkdirAll(filepath.Dir(dst), 0o700); err != nil {
+		return err
+	}
 	tmp := dst + ".seedtmp"
 	_ = os.Remove(tmp) // leftover of an interrupted seed
 	out, err := os.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_EXCL, perm)
