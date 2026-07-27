@@ -6,6 +6,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.63.1] — 2026-07-27
+
+### Fixed
+
+- let microvm egress.proxy and allowlist coexist (was a hard error) (d8fcdba)
+
+
 ## [0.63.0] — 2026-07-27
 
 ### Added
@@ -773,3 +780,4 @@ isolated, containerized dev sandbox, on a local Linux machine:
 [0.62.0]: https://github.com/irasikhin/sandboxer/compare/v0.61.0...v0.62.0
 [0.62.1]: https://github.com/irasikhin/sandboxer/compare/v0.62.0...v0.62.1
 [0.63.0]: https://github.com/irasikhin/sandboxer/compare/v0.62.1...v0.63.0
+[0.63.1]: https://github.com/irasikhin/sandboxer/compare/v0.63.0...v0.63.1
