@@ -6,6 +6,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.63.0] — 2026-07-27
+
+### Added
+
+- consistent microvm egress-proxy support (ec34f9e)
+
+### Fixed
+
+- microvm parity for clean/doctor/list and profile.json (33052a4)
+
+### Docs
+
+- microsandbox vs smolvm spike report (a5225ea)
+
+
 ## [0.62.1] — 2026-07-26
 
 ### Fixed
@@ -757,3 +772,4 @@ isolated, containerized dev sandbox, on a local Linux machine:
 [0.61.0]: https://github.com/irasikhin/sandboxer/compare/v0.60.0...v0.61.0
 [0.62.0]: https://github.com/irasikhin/sandboxer/compare/v0.61.0...v0.62.0
 [0.62.1]: https://github.com/irasikhin/sandboxer/compare/v0.62.0...v0.62.1
+[0.63.0]: https://github.com/irasikhin/sandboxer/compare/v0.62.1...v0.63.0
