@@ -5,8 +5,10 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
+	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/irasikhin/sandboxer/internal/config"
 	"github.com/irasikhin/sandboxer/internal/toolbox"
@@ -169,10 +171,19 @@ var vmBuildImageToStore = func(o RunOpts) error {
 		if o.Stderr != nil {
 			fmt.Fprintf(o.Stderr, "sandboxer: building the toolbox image with %s, then storing it for the microvm backend…\n", engine)
 		}
-		if err := toolbox.BuildImage(toolbox.BuildOpts{
+		bo := toolbox.BuildOpts{
 			Engine: engine, Image: o.Image, Spec: o.Spec, DestTar: out,
 			Stdout: o.Stderr, Stderr: o.Stderr,
-		}); err != nil {
+		}
+		// A loopback-bound host proxy (the common tunnel-client case) is
+		// unreachable from the builder's bridge network — the default
+		// host.docker.internal rewrite points at the gateway, not the
+		// loopback port, and the build stalls fetching flake inputs. Give the
+		// builder the host network so localhost really is the host's loopback.
+		if hostProxyIsLoopback() {
+			bo.ExtraArgs = []string{"--network=host"}
+		}
+		if err := toolbox.BuildImage(bo); err != nil {
 			return err
 		}
 		return vmStoreImage(o.Image, out)
@@ -187,6 +198,28 @@ var vmBuildImageToStore = func(o RunOpts) error {
 		return err
 	}
 	return vmStoreImage(o.Image, out)
+}
+
+// hostProxyIsLoopback reports whether the host's proxy env points at a loopback
+// address — a proxy a bridge-networked builder cannot reach (its
+// host.docker.internal rewrite hits the gateway, not the loopback-bound port),
+// so the build must run on the host network instead.
+func hostProxyIsLoopback() bool {
+	for _, name := range []string{"https_proxy", "HTTPS_PROXY", "http_proxy", "HTTP_PROXY", "all_proxy", "ALL_PROXY"} {
+		v := os.Getenv(name)
+		if v == "" {
+			continue
+		}
+		u, err := url.Parse(v)
+		if err != nil {
+			continue
+		}
+		h := u.Hostname()
+		if h == "localhost" || h == "::1" || strings.HasPrefix(h, "127.") {
+			return true
+		}
+	}
+	return false
 }
 
 // fileSHA256 returns the hex sha256 of a file's contents, streamed so a
