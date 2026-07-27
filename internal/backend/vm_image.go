@@ -173,6 +173,9 @@ var vmBuildImageToStore = func(o RunOpts) error {
 		}
 		bo := toolbox.BuildOpts{
 			Engine: engine, Image: o.Image, Spec: o.Spec, DestTar: out,
+			// A persistent nix-store cache makes the download resumable — key on a
+			// flaky link where individual NAR fetches stall and retry.
+			Cache:  true,
 			Stdout: o.Stderr, Stderr: o.Stderr,
 		}
 		// A loopback-bound host proxy (the common tunnel-client case) is

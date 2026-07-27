@@ -293,8 +293,14 @@ func builderArgv(o BuildOpts, ctxDir, outDir, cacheVol string) []string {
 	}
 	// Last, so an explicit --builder-arg overrides anything chosen above.
 	args = append(args, o.ExtraArgs...)
-	args = append(args, o.NixImage, "sh", "-lc",
-		builderScript(o.Refresh, o.Spec.NixpkgsRev, o.Spec.LLMAgentsRev))
+	// A DestTar build (the microVM store) needs only the toolbox image, not the
+	// egress squid proxyImage — building the proxy too would download its whole
+	// closure for nothing.
+	script := builderScript(o.Refresh, o.Spec.NixpkgsRev, o.Spec.LLMAgentsRev)
+	if o.DestTar != "" {
+		script = builderScriptImage(o.Refresh, o.Spec.NixpkgsRev, o.Spec.LLMAgentsRev)
+	}
+	args = append(args, o.NixImage, "sh", "-lc", script)
 	return args
 }
 
