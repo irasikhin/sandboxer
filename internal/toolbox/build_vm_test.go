@@ -52,6 +52,7 @@ func TestBuildImageVM(t *testing.T) {
 // context and out dirs shared, the nix caches allow-listed, the image ceiling
 // raised, and the image-only build script.
 func TestVMBuilderArgv(t *testing.T) {
+	clearProxyEnv(t) // no host proxy → the allow-host (direct-egress) branch
 	o := BuildVMOpts{Smolvm: "smolvm", NixImage: NixImage}
 	got := vmBuilderArgv(o, "/ctx", "/out")
 	want := []string{
@@ -64,8 +65,14 @@ func TestVMBuilderArgv(t *testing.T) {
 		"--allow-host", "objects.githubusercontent.com",
 		"--allow-host", "raw.githubusercontent.com",
 		"--allow-host", "numtide.cachix.org",
+		"-e", "PATH=/root/.nix-profile/bin:/nix/var/nix/profiles/default/bin:/nix/var/nix/profiles/default/sbin",
+		"-e", "USER=root",
+		"-e", "NIX_SSL_CERT_FILE=/nix/var/nix/profiles/default/etc/ssl/certs/ca-bundle.crt",
+		"-e", "SSL_CERT_FILE=/nix/var/nix/profiles/default/etc/ssl/certs/ca-bundle.crt",
+		"-e", "GIT_SSL_CAINFO=/nix/var/nix/profiles/default/etc/ssl/certs/ca-bundle.crt",
+		"-e", "NIX_PATH=/nix/var/nix/profiles/per-user/root/channels:/root/.nix-defexpr/channels",
 		"--max-image-size", "16GiB",
-		"--", "sh", "-lc", builderScriptImage(false, "", ""),
+		"--", "/bin/sh", "-lc", builderScriptImage(false, "", ""),
 	}
 	if !slices.Equal(got, want) {
 		t.Errorf("vmBuilderArgv =\n%q\nwant\n%q", got, want)
@@ -75,6 +82,27 @@ func TestVMBuilderArgv(t *testing.T) {
 	withCache := vmBuilderArgv(BuildVMOpts{NixImage: NixImage, Cache: "/nixcache"}, "/ctx", "/out")
 	if !slices.Contains(withCache, "/nixcache:/nix") {
 		t.Errorf("cache volume missing: %q", withCache)
+	}
+}
+
+// TestVMBuilderArgvProxy: with a host proxy, the builder opens the network and
+// inherits the proxy env (so nix fetches through it) instead of allow-listing
+// the caches for direct egress.
+func TestVMBuilderArgvProxy(t *testing.T) {
+	clearProxyEnv(t)
+	t.Setenv("http_proxy", "http://127.0.0.1:8888")
+	t.Setenv("https_proxy", "http://127.0.0.1:8888")
+
+	got := vmBuilderArgv(BuildVMOpts{NixImage: NixImage}, "/ctx", "/out")
+	j := strings.Join(got, " ")
+	if !slices.Contains(got, "--net") {
+		t.Errorf("proxy build should open the network: %q", got)
+	}
+	if !strings.Contains(j, "http_proxy=http://127.0.0.1:8888") {
+		t.Errorf("proxy env not inherited: %q", j)
+	}
+	if strings.Contains(j, "--allow-host") {
+		t.Errorf("proxy build should not allow-list caches directly: %q", j)
 	}
 }
 

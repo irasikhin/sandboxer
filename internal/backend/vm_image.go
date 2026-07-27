@@ -125,7 +125,7 @@ func vmEnsureImage(o RunOpts) (string, error) {
 			"and is built locally (never published) — build it with:\n  %s", o.Image, hint)
 	}
 	if o.Stderr != nil {
-		fmt.Fprintf(o.Stderr, "sandboxer: toolbox image %q not found — building it in a microVM now "+
+		fmt.Fprintf(o.Stderr, "sandboxer: toolbox image %q not found — building it now "+
 			"(one-time, several minutes; disable with SANDBOXER_NO_AUTOBUILD=1)…\n", o.Image)
 	}
 	if err := vmBuildImageToStore(o); err != nil {
@@ -159,6 +159,24 @@ var vmBuildImageToStore = func(o RunOpts) error {
 	}
 	defer func() { _ = os.RemoveAll(tmp) }()
 	out := filepath.Join(tmp, "image.tar")
+
+	// Prefer a container engine for the one-time image build when one is present:
+	// it is reliable and the resulting tar boots under smolvm. The in-VM builder
+	// (no engine) is the fallback — but a smolvm registry-pull bug currently
+	// leaves a nixos/nix guest without its /nix/store, so it is best-effort until
+	// that is fixed upstream or the builder image is loaded rather than pulled.
+	if engine, derr := DetectEngine(config.LoadDefaults()); derr == nil {
+		if o.Stderr != nil {
+			fmt.Fprintf(o.Stderr, "sandboxer: building the toolbox image with %s, then storing it for the microvm backend…\n", engine)
+		}
+		if err := toolbox.BuildImage(toolbox.BuildOpts{
+			Engine: engine, Image: o.Image, Spec: o.Spec, DestTar: out,
+			Stdout: o.Stderr, Stderr: o.Stderr,
+		}); err != nil {
+			return err
+		}
+		return vmStoreImage(o.Image, out)
+	}
 	if err := toolbox.BuildImageVM(toolbox.BuildVMOpts{
 		Smolvm:  smolvmBin(),
 		DestTar: out,

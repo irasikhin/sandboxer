@@ -59,11 +59,17 @@ type BuildOpts struct {
 	// engine auto-pulls), so clean-by-default still removes it afterward even
 	// though BuildImage's own probe now sees it as present.
 	BuilderPulled bool
-	Refresh       bool      // re-fetch flake inputs (nix build --refresh)
-	ExtraArgs     []string  // extra engine `run` flags for the builder (escape hatch)
-	Spec          Spec      // image variant customization (attrs, user nix, rev overrides); zero = stock
-	Stdout        io.Writer // build chatter / engine stdout
-	Stderr        io.Writer // progress banners / engine stderr
+	Refresh       bool // re-fetch flake inputs (nix build --refresh)
+	// DestTar, when set, copies the built image tarball there and SKIPS the
+	// engine load / retag / proxy-image steps. It is how the microVM backend
+	// gets a toolbox tar for its own store using a container engine to build
+	// (reliable) instead of the in-VM builder (which a smolvm registry-pull bug
+	// on nix-store images currently breaks). The proxy image is not built.
+	DestTar   string
+	ExtraArgs []string  // extra engine `run` flags for the builder (escape hatch)
+	Spec      Spec      // image variant customization (attrs, user nix, rev overrides); zero = stock
+	Stdout    io.Writer // build chatter / engine stdout
+	Stderr    io.Writer // progress banners / engine stderr
 }
 
 // BuildImage assembles the build context, runs the ephemeral nix builder, loads
@@ -119,6 +125,19 @@ func BuildImage(o BuildOpts) error {
 	build.Stderr = o.Stderr
 	if err := build.Run(); err != nil {
 		return fmt.Errorf("toolbox image build failed: %w", err)
+	}
+
+	// microVM store path: take the built tar and stop — no engine load/retag,
+	// no proxy image. The caller (backend.vmBuildImageToStore) moves it into the
+	// microVM image store.
+	if o.DestTar != "" {
+		if err := copyFile(filepath.Join(outDir, "image.tar.gz"), o.DestTar); err != nil {
+			return fmt.Errorf("copy built image to %s: %w", o.DestTar, err)
+		}
+		if pulledBuilder && !o.KeepBuilder {
+			_ = exec.Command(o.Engine, "rmi", o.NixImage).Run()
+		}
+		return nil
 	}
 
 	// The flake always produces builtName:latest, and `engine load` re-points
