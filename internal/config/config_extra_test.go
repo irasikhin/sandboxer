@@ -80,15 +80,24 @@ func TestValidateBackend(t *testing.T) {
 }
 
 func TestValidateBackendMicrovm(t *testing.T) {
-	// A plain microvm backend (optionally with an allowlist) is accepted.
-	if err := ValidateBackend(Runtime{Backend: "microvm", Egress: true, Domains: []string{"a.com"}}); err != nil {
-		t.Errorf("plain microvm should be allowed: %v", err)
-	}
-	// The squid-only egress features have no smolvm analogue → hard errors.
+	// Accepted: a plain allowlist; a proxy alone (proxy-delegated egress); a
+	// proxy + noProxy without an active allowlist; a proxy with an allowlist that
+	// is present but INACTIVE (egress off).
 	for _, rt := range []Runtime{
+		{Backend: "microvm", Egress: true, Domains: []string{"a.com"}},
 		{Backend: "microvm", Proxy: "http://p:3128"},
-		{Backend: "microvm", NoProxy: "localhost"},
+		{Backend: "microvm", Proxy: "http://p:3128", NoProxy: "localhost"},
+		{Backend: "microvm", Proxy: "http://p:3128", Domains: []string{"a.com"}, Egress: false},
+	} {
+		if err := ValidateBackend(rt); err != nil {
+			t.Errorf("microvm should allow %+v: %v", rt, err)
+		}
+	}
+	// Rejected: routes (no analogue), and a proxy alongside an ACTIVE allowlist
+	// (can't chain without squid).
+	for _, rt := range []Runtime{
 		{Backend: "microvm", Routes: []Route{{}}},
+		{Backend: "microvm", Proxy: "http://p:3128", Egress: true, Domains: []string{"a.com"}},
 	} {
 		if err := ValidateBackend(rt); err == nil {
 			t.Errorf("microvm should reject %+v", rt)

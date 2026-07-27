@@ -101,28 +101,40 @@ container-only and ignored here.
 
 ## Egress
 
-A smolvm machine has **no network route by default**, so egress is a
-create-time flag rather than a proxy sidecar:
+A smolvm machine has **no network route by default**. There is no squid
+sidecar; egress is a create-time policy folded into the session hash (changing
+it recreates the machine). The modes, in precedence order:
 
-- `egress.enabled = false` (or `SANDBOXER_NO_EGRESS=1`) → open network;
-- `egress.allowedDomains` non-empty → `--allow-host` per domain, fail-closed
-  (only those hosts resolve);
-- egress on with an **empty** allowlist → a fully offline machine (a valid
-  state here — with no default route, "allow nothing" simply reaches nothing).
+1. **`egress.proxy` set → proxy-delegated egress.** The network is opened and the
+   guest's HTTP(S) clients are pointed at the proxy
+   (`HTTP_PROXY`/`HTTPS_PROXY`/`NO_PROXY` env, `egress.noProxy` → `NO_PROXY`).
+   The proxy IS the egress control point — the microVM analogue of the
+   container's direct mode. Unlike containers, **`localhost` is not rewritten**:
+   smolvm's TSI reaches a host-local proxy transparently (verified — a guest
+   with `--net` reaches the host's `127.0.0.1`), so `http://127.0.0.1:3128`
+   works. A proxy cannot be combined with an active allowlist (see below).
+2. `egress.enabled = false` (or `SANDBOXER_NO_EGRESS=1`), no proxy → open network.
+3. `egress.allowedDomains` non-empty → `--allow-host` per domain, fail-closed
+   (only those hosts resolve).
+4. egress on with an **empty** allowlist → a fully offline machine (valid here —
+   with no default route, "allow nothing" simply reaches nothing).
 
 `--allow-host` matches an **exact hostname**; a leading dot (`.example.com`, the
-container allowlist's subdomain grammar) is stripped, so it no longer covers
-`api.example.com`. Domain edits recreate the machine (the allowlist is part of
-its config hash).
+container's subdomain grammar) is stripped, so it no longer covers
+`api.example.com`.
 
 ## What the microVM backend does not support
 
-These are container-only and are rejected or ignored under `backend = microvm`:
+Rejected or ignored under `backend = microvm`:
 
 - `sandboxer compose` — errors (it emits a docker-compose file and a
   podman/docker run argv with no VM equivalent).
-- `egress.proxy`, `egress.noProxy`, `egress.routes` — config errors (smolvm has
-  no upstream-proxy chaining).
+- `egress.routes` — config error (per-domain upstream proxies are a squid
+  cache_peer feature with no smolvm analogue).
+- `egress.proxy` **together with an active `allowedDomains`** — config error: the
+  container chains the allowlist through squid to the proxy; a microVM has
+  neither, so it cannot enforce a VM-level allowlist AND forward through a proxy.
+  Set one or the other, not both.
 - `limits.pids` — ignored with a warning (no smolvm equivalent).
 - `nestedContainers` — ignored (a real VM runs container engines natively).
 
