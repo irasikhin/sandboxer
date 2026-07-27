@@ -6,6 +6,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.63.5] — 2026-07-27
+
+### Fixed
+
+- seed a nested-file config path (create parent dirs) (8919eab)
+
+
 ## [0.63.4] — 2026-07-27
 
 ### Fixed
@@ -805,3 +812,4 @@ isolated, containerized dev sandbox, on a local Linux machine:
 [0.63.2]: https://github.com/irasikhin/sandboxer/compare/v0.63.1...v0.63.2
 [0.63.3]: https://github.com/irasikhin/sandboxer/compare/v0.63.2...v0.63.3
 [0.63.4]: https://github.com/irasikhin/sandboxer/compare/v0.63.3...v0.63.4
+[0.63.5]: https://github.com/irasikhin/sandboxer/compare/v0.63.4...v0.63.5
