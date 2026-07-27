@@ -149,9 +149,9 @@ func stubRemoveAllSessions(t *testing.T, sdir string, err error) (calls *[]seamC
 // podman.
 func stubInstalledEngines(t *testing.T, engines []string) {
 	t.Helper()
-	old := backendInstalledEngines
-	t.Cleanup(func() { backendInstalledEngines = old })
-	backendInstalledEngines = func(config.Defaults) []string { return engines }
+	old := backendSweepEngines
+	t.Cleanup(func() { backendSweepEngines = old })
+	backendSweepEngines = func(config.Defaults) []string { return engines }
 }
 
 // TestCleanRemovesSessions: clean sweeps the project's session containers

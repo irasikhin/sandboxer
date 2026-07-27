@@ -117,6 +117,12 @@ func vmCreateSession(o RunOpts, name, hash string) (string, error) {
 	imageID := vmImageID(o.Image)
 	o.Image = imageRef
 
+	// Stage the profile.json into the per-sandbox run dir so the -v mount source
+	// exists before the machine boots.
+	if err := stageProfileJSON(o); err != nil {
+		return "", fmt.Errorf("stage profile.json for %s: %w", name, err)
+	}
+
 	notice(o.Stderr, "creating the session machine…")
 	cmd := exec.Command(smolvmBin(), vmCreateArgv(o, name)...)
 	cmd.Stdout = io.Discard
@@ -179,6 +185,12 @@ func vmRun(o RunOpts) int {
 		return 1
 	}
 	o.Image = imageRef
+	if err := stageProfileJSON(o); err != nil {
+		if o.Stderr != nil {
+			fmt.Fprintf(o.Stderr, "sandboxer: %v\n", err)
+		}
+		return 1
+	}
 	cmd := exec.Command(smolvmBin(), vmRunArgv(o)...)
 	cmd.Stdin = o.Stdin
 	cmd.Stdout = o.Stdout

@@ -106,7 +106,7 @@ to remove a single sandbox instead.`,
 			if top, _, ok := worktree.Detect(abs); ok {
 				repos[top] = true // pre-srcs-model sandboxes lived on the project repo
 			}
-			engines := backendInstalledEngines(config.LoadDefaults())
+			engines := backendSweepEngines(config.LoadDefaults())
 			if len(engines) == 0 {
 				fmt.Fprintln(cmd.ErrOrStderr(),
 					"sandboxer: session cleanup skipped: no container engine (docker or podman) found")

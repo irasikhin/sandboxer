@@ -97,7 +97,7 @@ Run this after a fresh install or when something isn't working.`,
 			// orphans whose project dir is gone (their containers survive a
 			// bare `rm -rf` of the project). Every installed engine is probed —
 			// per-profile backends may have put sessions on podman AND docker.
-			for _, e := range backendInstalledEngines(d) {
+			for _, e := range backendSweepEngines(d) {
 				reportSessions(tw, e, &ok, &warn)
 			}
 

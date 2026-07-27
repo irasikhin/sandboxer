@@ -2,6 +2,8 @@ package backend
 
 import (
 	"bytes"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -228,6 +230,83 @@ func TestVMNetworkArgs(t *testing.T) {
 	more.RT.Domains = []string{"a.com", "b.com"}
 	if vmSessionWantHash(base) == vmSessionWantHash(more) {
 		t.Error("editing the allowlist did not change the session hash")
+	}
+}
+
+// TestVMNetworkArgsProxy pins proxy-delegated egress: a proxy opens the network
+// and sets the guest HTTP(S)_PROXY/NO_PROXY env (localhost NOT rewritten), and
+// it takes precedence over the allowlist.
+func TestVMNetworkArgsProxy(t *testing.T) {
+	o := RunOpts{RT: config.Runtime{
+		Proxy: "http://127.0.0.1:3128", NoProxy: "localhost,.internal",
+		Egress: true, Domains: []string{"example.com"}, // present but proxy wins
+	}}
+	got := vmNetworkArgs(o)
+	want := []string{"--net",
+		"-e", "HTTP_PROXY=http://127.0.0.1:3128", "-e", "http_proxy=http://127.0.0.1:3128",
+		"-e", "HTTPS_PROXY=http://127.0.0.1:3128", "-e", "https_proxy=http://127.0.0.1:3128",
+		"-e", "NO_PROXY=localhost,.internal", "-e", "no_proxy=localhost,.internal"}
+	if !slices.Equal(got, want) {
+		t.Errorf("proxy net =\n%q\nwant\n%q", got, want)
+	}
+	// The proxy value must not be rewritten (TSI reaches host loopback as-is).
+	if strings.Contains(strings.Join(got, " "), "host-gateway") ||
+		strings.Contains(strings.Join(got, " "), "host.docker.internal") {
+		t.Error("microvm proxy must not rewrite localhost to a host gateway")
+	}
+	// Editing the proxy changes the session hash.
+	base := RunOpts{Image: "i", Dest: "/d", RT: config.Runtime{Proxy: "http://a:1"}}
+	other := RunOpts{Image: "i", Dest: "/d", RT: config.Runtime{Proxy: "http://b:2"}}
+	if vmSessionWantHash(base) == vmSessionWantHash(other) {
+		t.Error("changing the proxy did not change the session hash")
+	}
+}
+
+// TestVMProfileJSONMount pins that a configured profile.json is shared at
+// /run/sandboxer (via the per-sandbox run dir), and that staging copies it there.
+func TestVMProfileJSONMount(t *testing.T) {
+	meta := t.TempDir()
+	pj := filepath.Join(meta, "s.profile.json")
+	if err := os.WriteFile(pj, []byte(`{"k":"v"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	o := RunOpts{Image: "img", Dest: "/d", Slug: "s", ProfileJSONPath: pj,
+		Stdin: strings.NewReader(""), Stdout: &bytes.Buffer{}}
+	runDir := filepath.Join(meta, "s.run")
+
+	// The create argv mounts the run dir read-only at /run/sandboxer.
+	if !slices.Contains(vmCreateArgv(o, "n"), "-v") ||
+		!strings.Contains(strings.Join(vmCreateArgv(o, "n"), " "), runDir+":/run/sandboxer:ro") {
+		t.Errorf("create argv missing profile.json mount: %q", vmCreateArgv(o, "n"))
+	}
+	// Staging creates the dir and copies the file to profile.json.
+	if err := stageProfileJSON(o); err != nil {
+		t.Fatalf("stageProfileJSON: %v", err)
+	}
+	got, err := os.ReadFile(filepath.Join(runDir, "profile.json"))
+	if err != nil || string(got) != `{"k":"v"}` {
+		t.Errorf("staged profile.json = %q, %v; want {\"k\":\"v\"}", got, err)
+	}
+	// No ProfileJSONPath → no mount, no-op stage.
+	if strings.Contains(strings.Join(vmCreateArgv(RunOpts{Image: "i", Dest: "/d", Slug: "s"}, "n"), " "), "/run/sandboxer") {
+		t.Error("a sandbox with no profile.json must not mount /run/sandboxer")
+	}
+}
+
+// TestSweepEngines pins that the sweep set includes smolvm when it is available,
+// so clean/doctor/list reach microvm sessions.
+func TestSweepEngines(t *testing.T) {
+	bin := filepath.Join(t.TempDir(), "smolvm")
+	if err := os.WriteFile(bin, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("SANDBOXER_SMOLVM", bin)
+	if !slices.Contains(SweepEngines(config.Defaults{}), smolvmEngine) {
+		t.Error("SweepEngines must include smolvm when it is available")
+	}
+	t.Setenv("SANDBOXER_SMOLVM", "/nonexistent/smolvm-xyz")
+	if slices.Contains(SweepEngines(config.Defaults{}), smolvmEngine) {
+		t.Error("SweepEngines must not include an absent smolvm")
 	}
 }
 

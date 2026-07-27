@@ -19,9 +19,11 @@ import (
 var (
 	backendRemoveSession     = backend.RemoveSession
 	backendRemoveAllSessions = backend.RemoveAllSessions
-	// backendInstalledEngines enumerates every engine a sweep or report must
-	// visit (rm-all, list, doctor) — sessions may live on podman AND docker.
-	backendInstalledEngines = backend.InstalledEngines
+	// backendSweepEngines enumerates every engine a sweep or report must visit
+	// (clean, list, doctor) — sessions may live on podman AND docker, AND on the
+	// microVM backend (smolvm) whose machines + host-side records would otherwise
+	// leak, invisible to clean/doctor.
+	backendSweepEngines = backend.SweepEngines
 )
 
 func init() {

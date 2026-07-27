@@ -4,6 +4,7 @@ import (
 	"maps"
 	"math"
 	"os"
+	"path/filepath"
 	"slices"
 	"sort"
 	"strconv"
@@ -154,26 +155,81 @@ func vmCommonArgs(o RunOpts) []string {
 	if csv := o.RT.DomainsCSV(); csv != "" {
 		args = append(args, "-e", "SANDBOXER_ALLOW_DOMAINS="+csv)
 	}
+	// The profile.json, shared read-only at /run/sandboxer — the same path the
+	// container mounts the single file at (smolvm shares DIRECTORIES only, so it
+	// is staged into a per-sandbox run dir first; see stageProfileJSON). Mounted
+	// whenever a profile.json is configured; stageProfileJSON guarantees the dir
+	// exists before boot.
+	if d := vmRunDir(o); d != "" {
+		args = append(args, "-v", d+":/run/sandboxer:ro")
+	}
 	args = append(args, vmExtraMountsAndEnv(o.Profile)...)
 	return args
 }
 
+// vmRunDir is the per-sandbox directory shared read-only at /run/sandboxer, or
+// "" when no profile.json is configured. smolvm cannot share the single
+// profile.json file (it shares directories), and _meta holds every sandbox's
+// metadata, so the file is staged into its own <slug>.run dir beside it.
+func vmRunDir(o RunOpts) string {
+	if o.ProfileJSONPath == "" {
+		return ""
+	}
+	return filepath.Join(filepath.Dir(o.ProfileJSONPath), o.Slug+".run")
+}
+
+// stageProfileJSON populates the per-sandbox run dir (vmRunDir) with the
+// profile.json so it can be shared at /run/sandboxer. The dir is always created
+// when a profile.json path is configured (so the -v source exists even if the
+// file itself is absent); the file is copied when present. No-op otherwise.
+func stageProfileJSON(o RunOpts) error {
+	dir := vmRunDir(o)
+	if dir == "" {
+		return nil
+	}
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return err
+	}
+	if !pathExists(o.ProfileJSONPath) {
+		return nil
+	}
+	data, err := os.ReadFile(o.ProfileJSONPath)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(filepath.Join(dir, "profile.json"), data, 0o600)
+}
+
 // vmNetworkArgs renders the machine's outbound policy. A smolvm machine has NO
-// route by default, so the three states are:
+// route by default, so the states are:
 //
-//   - egress disabled (egress.enabled=false or SANDBOXER_NO_EGRESS) → --net, an
-//     open network — the operator asked for no allowlist;
+//   - egress.proxy set → proxy-delegated egress (the container's direct mode):
+//     open the network and point the guest's HTTP(S) clients at the proxy via
+//     HTTP_PROXY/HTTPS_PROXY/NO_PROXY env. There is no squid, so the proxy is the
+//     egress control point; an active allowlist alongside a proxy is refused by
+//     ValidateBackend, never silently dropped. localhost is NOT rewritten (unlike
+//     the container host-gateway) — smolvm's TSI reaches a host-local proxy as-is.
+//   - egress disabled (egress.enabled=false or SANDBOXER_NO_EGRESS), no proxy →
+//     --net, an open network;
 //   - egress on with an allowlist → --allow-host per domain (each implies --net),
 //     the fail-closed default: only the listed hosts resolve;
-//   - egress on with an EMPTY allowlist → no flag at all, a fully offline machine.
-//     This is a VALID state here, unlike the container path's errEmptyAllowlist —
-//     with no route by default, "allow nothing" is simply "reach nothing", not a
-//     misconfiguration that could fail open.
+//   - egress on with an EMPTY allowlist → no flag at all, a fully offline machine
+//     (a VALID state here, unlike the container path's errEmptyAllowlist — with no
+//     route by default, "allow nothing" is simply "reach nothing").
 //
 // The flags live in the create argv, so they fold into vmSessionWantHash: adding
-// a domain, or toggling egress, recreates the machine (the analogue of the
-// container ConfFingerprint).
+// a domain, toggling egress, or changing the proxy recreates the machine (the
+// analogue of the container ConfFingerprint).
 func vmNetworkArgs(o RunOpts) []string {
+	if p := o.RT.Proxy; p != "" {
+		args := []string{"--net",
+			"-e", "HTTP_PROXY=" + p, "-e", "http_proxy=" + p,
+			"-e", "HTTPS_PROXY=" + p, "-e", "https_proxy=" + p}
+		if o.RT.NoProxy != "" {
+			args = append(args, "-e", "NO_PROXY="+o.RT.NoProxy, "-e", "no_proxy="+o.RT.NoProxy)
+		}
+		return args
+	}
 	if !egressRequired(o) {
 		return []string{"--net"}
 	}

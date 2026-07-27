@@ -71,6 +71,20 @@ func InstalledEngines(d config.Defaults) []string {
 	return engines
 }
 
+// SweepEngines returns every engine whose sessions a sweep or report
+// (clean, doctor, list) must cover: the installed CONTAINER engines, plus
+// "smolvm" when the microVM backend is available on this host. A sweep that
+// consulted only InstalledEngines would strand a microvm project's machines and
+// their host-side records — nothing would ever reclaim them. The vm* sweeps
+// filter by base dir, so adding smolvm is a no-op for pure-container projects.
+func SweepEngines(d config.Defaults) []string {
+	engines := InstalledEngines(d)
+	if hasExec(smolvmBin()) {
+		engines = append(engines, smolvmEngine)
+	}
+	return engines
+}
+
 // EngineLabel reports, best-effort, the engine ResolveEngine would pick, for the
 // summary banner so it matches what runs. It never errors: with no engine
 // installed it returns be unchanged so the banner still names the configured

@@ -85,7 +85,7 @@ func printList(cmd *cobra.Command, base *sandbox.Base, wide bool) {
 // on an engine-less host.
 func projectSessionStates(baseDir string) map[string]string {
 	var states map[string]string
-	for _, engine := range backendInstalledEngines(config.LoadDefaults()) {
+	for _, engine := range backendSweepEngines(config.LoadDefaults()) {
 		st, err := sessionStates(engine, baseDir)
 		if err != nil {
 			continue
