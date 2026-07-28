@@ -101,9 +101,10 @@ jobs:
       # The pin must be built with a Go at least as new as go.mod's floor:
       # golangci-lint refuses to run when "the Go language version used to
       # build golangci-lint is lower than the targeted Go version", so raising
-      # the floor to 1.25.8 broke the v2.1.6 pin (built with go1.24.2). v2.12.2
-      # is built with go1.26 and is also what the nix devShell provides, so a
-      # local run and this job now agree.
+      # the floor past 1.24 broke the old v2.1.6 pin (built with go1.24.2).
+      # v2.12.2 is built with go1.26 — ahead of the current 1.25.10 floor, with
+      # room for the next bump — and is what the nix devShell provides, so a
+      # local run and this job agree.
       - uses: golangci/golangci-lint-action@v8
         with:
           version: v2.12.2
