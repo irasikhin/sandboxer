@@ -26,7 +26,7 @@ commits, PR flow, security posture. **Do NOT restate them here or in CONTRIBUTIN
 Fills for the skills' placeholders, and the local choices that differ from the kpass reference `arch-go-cli`
 was extracted from:
 
-- **Module / app:** `github.com/irasikhin/sandboxer`; binary `sandboxer`; Go **1.25.8** (the floor is a security floor — go1.24 carries reachable stdlib CVEs GO-2026-4601/4602, and CI runs govulncheck on the toolchain go.mod selects).
+- **Module / app:** `github.com/irasikhin/sandboxer`; binary `sandboxer`; Go **1.25.10** (the floor is a security floor — CI runs govulncheck on the toolchain go.mod selects, so a reachable stdlib CVE is fixed by RAISING this: go1.24 carried GO-2026-4601/4602, and 1.25.8 became reachable-vulnerable the moment the microVM backend started calling `net.Resolver.LookupHost` — GO-2026-4971, fixed in 1.25.10).
 - **CLI parser = `spf13/cobra`** — `arch-go-cli` is parser-agnostic; the kpass reference uses `alecthomas/kong`.
   Commands are `*cobra.Command` factories that self-register via `register()` in each command file's `init()`;
   the root is assembled from `commandFactories` in `internal/cli/cli.go` (no central command list). The
