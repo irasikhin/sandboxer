@@ -87,11 +87,11 @@ gives up on it and builds from source instead:
 			if err != nil {
 				return err
 			}
-			// A microvm profile builds the image IN a microVM and stores it where
-			// the microvm backend reads it (the tar store), not in a container
-			// engine's store — otherwise the build would land somewhere enter
-			// never looks. It shares nothing with the container path below.
-			if backendName == "microvm" {
+			// A microVM profile stores the built image where ITS backend reads it
+			// — the tar store both runners build into, plus microsandbox's own
+			// image store — not in a container engine's store, where enter would
+			// never look. It shares nothing with the container path below.
+			if config.IsMicrovmBackend(backendName) {
 				image := d.Image
 				if !spec.Empty() {
 					// No container engine to resolve a "latest" rev against; PinSpec
@@ -104,7 +104,7 @@ gives up on it and builds from source instead:
 				}
 				fmt.Fprintf(cmd.ErrOrStderr(), "sandboxer: building toolbox image %q in a microVM "+
 					"(several minutes on first run)…\n", image)
-				return backendBuildVMImage(image, spec, cmd.ErrOrStderr())
+				return backendBuildVMImage(engine, image, spec, cmd.ErrOrStderr())
 			}
 			// Probe the builder image BEFORE pin resolution: resolving a
 			// "latest" rev runs it (the engine auto-pulls), and clean-by-default
@@ -151,8 +151,8 @@ gives up on it and builds from source instead:
 		},
 	}
 	fl := cmd.Flags()
-	fl.StringVar(&backendFlag, "backend", "", "backend: docker | podman | microvm (default: the profile's, else docker)")
-	fl.StringVar(&engineFlag, "engine", "", "container engine: docker | podman (default: auto-detect); ignored for --backend microvm")
+	fl.StringVar(&backendFlag, "backend", "", "backend: docker | podman | microvm | microsandbox (default: the profile's, else docker)")
+	fl.StringVar(&engineFlag, "engine", "", "container engine: docker | podman (default: auto-detect); ignored for a microVM backend")
 	fl.StringVarP(&configPath, "config", "f", "", "profile file (default: the project sandboxer.nix; pick a profiles section by name)")
 	fl.StringVar(&nixImage, "nix-image", "", "builder image (default: pinned "+toolbox.NixImage+")")
 	fl.BoolVar(&cache, "cache", false, "keep a persistent nix-store volume for faster rebuilds")
@@ -175,11 +175,12 @@ var backendBuildVMImage = backend.BuildVMImage
 
 // imageBackend resolves where `image build` / `image rm` act: the isolation
 // backend (flag > profile > default) and, for a container backend, the engine
-// binary (--engine wins, else the backend hint). For microvm the engine is
-// smolvm's identity (ResolveEngine errors if smolvm is absent). This is the fix
-// for image build/rm having only known --engine: without it an image built for
-// a `backend = "microvm"` profile went to a container engine's store, which the
-// microvm backend never reads.
+// binary (--engine wins, else the backend hint). For a microVM backend the
+// engine is its runner's identity — smolvm's or microsandbox's — and
+// ResolveEngine errors if that runner is absent. This is the fix for image
+// build/rm having only known --engine: without it an image built for a
+// `backend = "microvm"` profile went to a container engine's store, which the
+// microVM backends never read.
 func imageBackend(backendFlag, engineFlag string, prof *config.Profile, d config.Defaults) (backendName, engine string, err error) {
 	backendName = backendFlag
 	if backendName == "" && prof != nil {
@@ -188,8 +189,8 @@ func imageBackend(backendFlag, engineFlag string, prof *config.Profile, d config
 	if backendName == "" {
 		backendName = d.Backend
 	}
-	if backendName == "microvm" {
-		engine, err = backend.ResolveEngine("microvm", d)
+	if config.IsMicrovmBackend(backendName) {
+		engine, err = backend.ResolveEngine(backendName, d)
 		return backendName, engine, err
 	}
 	engine, err = backend.ResolveEngine(firstNonEmpty(engineFlag, backendName), d)

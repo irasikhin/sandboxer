@@ -11,7 +11,7 @@ import (
 	"github.com/irasikhin/sandboxer/internal/config"
 )
 
-// A microVM machine carries no engine-side labels — `machine ls` reports only
+// A smolvm machine carries no engine-side labels — `machine ls` reports only
 // name and state — so the identity a container keeps in its sandboxer.* labels
 // (the slug and base it belongs to, the config hash it was created with, its
 // image id and mount fingerprint) lives in a host-side record instead: one JSON
@@ -20,6 +20,14 @@ import (
 // per-name file needs no lock — every writer owns a distinct path — and a
 // by-name lookup (InspectSession) and a base-dir sweep (SessionStates /
 // OrphanSessions) both read straight from that directory.
+//
+// microsandbox DOES have labels, but keeps the same record: one identity
+// mechanism for both runners means one set of sweeps and no two-store drift. Its
+// records live in a per-engine subdirectory (vmRunner.recordDir) because the
+// machine name is derived from the sandbox, not the engine — a project that
+// switches runners would otherwise have the new machine's record overwrite the
+// old one's, and the old machine would be stranded with nothing left to name it.
+// smolvm keeps the flat legacy layout, so existing records are found unchanged.
 
 // errNoStateRoot is returned when no state root can be resolved (no home, no
 // override), so a machine record cannot be persisted.
@@ -37,18 +45,18 @@ type vmRecord struct {
 	MountIDs string `json:"mountIDs,omitempty"`
 }
 
-// vmMachinesDir is the directory of per-machine records, or "" when no state
+// vmMachinesDir is the directory of r's per-machine records, or "" when no state
 // root exists (callers then behave as if there were no records).
-func vmMachinesDir() string {
+func vmMachinesDir(r vmRunner) string {
 	root := config.StateRoot()
 	if root == "" {
 		return ""
 	}
-	return filepath.Join(root, "machines")
+	return filepath.Join(root, "machines", r.recordDir())
 }
 
-func vmRecordPath(name string) string {
-	dir := vmMachinesDir()
+func vmRecordPath(r vmRunner, name string) string {
+	dir := vmMachinesDir(r)
 	if dir == "" {
 		return ""
 	}
@@ -57,8 +65,8 @@ func vmRecordPath(name string) string {
 
 // writeVMRecord persists rec atomically (write-temp + rename), creating the
 // machines dir on demand.
-func writeVMRecord(rec vmRecord) error {
-	path := vmRecordPath(rec.Name)
+func writeVMRecord(r vmRunner, rec vmRecord) error {
+	path := vmRecordPath(r, rec.Name)
 	if path == "" {
 		return errNoStateRoot
 	}
@@ -79,8 +87,8 @@ func writeVMRecord(rec vmRecord) error {
 // readVMRecord loads a machine's record; the zero vmRecord (all fields "") when
 // the file is absent or unreadable, which reads through vmInspectSession as an
 // "unknown" hash — i.e. stale, recreated — never a fabricated match.
-func readVMRecord(name string) vmRecord {
-	path := vmRecordPath(name)
+func readVMRecord(r vmRunner, name string) vmRecord {
+	path := vmRecordPath(r, name)
 	if path == "" {
 		return vmRecord{}
 	}
@@ -97,16 +105,17 @@ func readVMRecord(name string) vmRecord {
 
 // removeVMRecord deletes a machine's record (idempotent — a missing file is not
 // an error).
-func removeVMRecord(name string) {
-	if path := vmRecordPath(name); path != "" {
+func removeVMRecord(r vmRunner, name string) {
+	if path := vmRecordPath(r, name); path != "" {
 		_ = os.Remove(path)
 	}
 }
 
-// listVMRecords returns every persisted machine record; a read/parse failure on
-// one file skips it rather than aborting the sweep.
-func listVMRecords() []vmRecord {
-	dir := vmMachinesDir()
+// listVMRecords returns every machine record persisted for r; a read/parse
+// failure on one file skips it rather than aborting the sweep. Subdirectories
+// are skipped, so another runner's records never leak into this one's sweep.
+func listVMRecords(r vmRunner) []vmRecord {
+	dir := vmMachinesDir(r)
 	if dir == "" {
 		return nil
 	}
@@ -119,7 +128,7 @@ func listVMRecords() []vmRecord {
 		if e.IsDir() || !strings.HasSuffix(e.Name(), ".json") {
 			continue
 		}
-		if rec := readVMRecord(strings.TrimSuffix(e.Name(), ".json")); rec.Name != "" {
+		if rec := readVMRecord(r, strings.TrimSuffix(e.Name(), ".json")); rec.Name != "" {
 			recs = append(recs, rec)
 		}
 	}
@@ -155,9 +164,9 @@ var vmListMachines = func() []vmMachine {
 	return parseVMMachines(out)
 }
 
-// vmMachineByName finds a live machine by name.
-func vmMachineByName(name string) (vmMachine, bool) {
-	for _, m := range vmListMachines() {
+// vmMachineByName finds a live machine by name in r's inventory.
+func vmMachineByName(r vmRunner, name string) (vmMachine, bool) {
+	for _, m := range r.listMachines() {
 		if m.Name == name {
 			return m, true
 		}

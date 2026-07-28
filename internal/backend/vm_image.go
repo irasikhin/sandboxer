@@ -139,16 +139,29 @@ func vmEnsureImage(o RunOpts) (string, error) {
 	return vmImagePath(o.Image), nil
 }
 
-// BuildVMImage builds the toolbox image in a microVM and stores it under the
-// image name — the explicit `sandboxer image build --backend microvm` entry
-// point, the counterpart of the enter-time auto-build (vmEnsureImage). It
-// rebuilds unconditionally (an explicit build always refreshes the store) and
-// errors up front if smolvm is unavailable, so the CLI never silently no-ops.
-func BuildVMImage(image string, spec toolbox.Spec, stderr io.Writer) error {
-	if _, err := resolveSmolvm(); err != nil {
+// BuildVMImage builds the toolbox image for a microVM backend and stores it
+// under the image name — the explicit `sandboxer image build --backend
+// microvm|microsandbox` entry point, the counterpart of the enter-time
+// auto-build. It rebuilds unconditionally (an explicit build always refreshes
+// the store) and errors up front if the requested runner is unavailable, so the
+// CLI never silently no-ops. Both runners share ONE build artifact (the tar);
+// microsandbox additionally imports it into its own image store, which is what
+// its `create` reads.
+func BuildVMImage(engine, image string, spec toolbox.Spec, stderr io.Writer) error {
+	if engine == msbEngine {
+		if _, err := resolveMsb(); err != nil {
+			return err
+		}
+	} else if _, err := resolveSmolvm(); err != nil {
 		return err
 	}
-	return vmBuildImageToStore(RunOpts{Image: image, Spec: spec, Stderr: stderr})
+	if err := vmBuildImageToStore(RunOpts{Image: image, Spec: spec, Stderr: stderr}); err != nil {
+		return err
+	}
+	if engine == msbEngine {
+		return msbLoadStoredImage(image, stderr)
+	}
+	return nil
 }
 
 // vmBuildImageToStore builds the toolbox image inside a microVM (no container
@@ -190,6 +203,14 @@ var vmBuildImageToStore = func(o RunOpts) error {
 			return err
 		}
 		return vmStoreImage(o.Image, out)
+	}
+	// No container engine: fall back to building inside a microVM. That builder
+	// is smolvm's, so say so plainly when smolvm is not installed either —
+	// otherwise the failure surfaces as a bare exec error from a binary the user
+	// never asked for.
+	if !hasExec(smolvmBin()) {
+		return fmt.Errorf("the toolbox image is built either with a container engine or in a smolvm " +
+			"microVM, and neither docker/podman nor smolvm is installed — install one of them and retry")
 	}
 	if err := toolbox.BuildImageVM(toolbox.BuildVMOpts{
 		Smolvm:  smolvmBin(),

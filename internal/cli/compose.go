@@ -46,9 +46,9 @@ equivalent — its purpose is "run it with your own tooling".`,
 			if err := config.ValidateBackend(rt); err != nil {
 				return err
 			}
-			if rt.Backend == "microvm" {
-				return fmt.Errorf("compose is container-only — it emits a docker-compose file " +
-					"and a podman/docker run argv, which the microvm backend has no equivalent for")
+			if config.IsMicrovmBackend(rt.Backend) {
+				return fmt.Errorf("compose is container-only — it emits a docker-compose file "+
+					"and a podman/docker run argv, which the %s backend has no equivalent for", rt.Backend)
 			}
 			if err := config.ValidateSession(rt); err != nil {
 				return err

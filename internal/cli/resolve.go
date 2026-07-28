@@ -46,7 +46,7 @@ func bindTarget(cmd *cobra.Command, f *commonFlags) {
 func bindExisting(cmd *cobra.Command, f *commonFlags) {
 	bindTarget(cmd, f)
 	fl := cmd.Flags()
-	fl.StringVar(&f.backend, "backend", "", "backend: docker | podman | microvm")
+	fl.StringVar(&f.backend, "backend", "", "backend: docker | podman | microvm | microsandbox")
 	fl.StringVar(&f.domains, "allow-domains", "", "egress allowlist, csv (e.g. api.anthropic.com,github.com)")
 }
 
@@ -249,8 +249,11 @@ func (t *target) runtime(f commonFlags) (config.Runtime, error) {
 // raw configured value, so the banner can never claim "docker" while podman
 // runs.
 func backendLabel(rt config.Runtime) string {
-	if rt.Backend == "microvm" {
+	switch rt.Backend {
+	case "microvm":
 		return "microvm (smolvm)"
+	case "microsandbox":
+		return "microsandbox (msb)"
 	}
 	return backend.EngineLabel(rt.Backend, config.LoadDefaults())
 }

@@ -1,32 +1,38 @@
 package backend
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
+	"time"
 
 	"github.com/irasikhin/sandboxer/internal/execx"
 )
 
-// The microVM session lifecycle: the smolvm twin of session.go's container
-// path, over the SAME pure planSession policy so the two can never disagree on
-// when a session is stale. smolvm has named machines but no labels, so identity
-// lives in a host-side record (vm_state.go) rather than the engine; everything
-// else — the decision table, the tmux capture/restore, the enter orchestration
-// in internal/cli — is shared. Every engine call goes through smolvmBin(), the
-// real binary behind the "smolvm" identity (see detect.go).
+// The microVM session lifecycle: the twin of session.go's container path, over
+// the SAME pure planSession policy so the two can never disagree on when a
+// session is stale. It is runner-agnostic — smolvm and microsandbox differ only
+// in their CLI vocabulary, which lives behind vmRunner (vm_runner.go) — and
+// identity lives in a host-side record (vm_state.go) rather than the engine, so
+// both runners share one set of sweeps. Everything else (the decision table, the
+// tmux capture/restore, the enter orchestration in internal/cli) is shared with
+// the container backend.
 
-// vmSessionHashArgv is the canonical config argv a microVM session's hash is
+// vmSessionHashArgv is the canonical config argv a smolvm session's hash is
 // taken over: the create argv MINUS the machine name (a rename must never flip
 // the hash), so any change to the image, mounts, env, size or the egress
 // allowlist recreates the machine while a rename does not — the microVM
-// analogue of ConfigHash.
+// analogue of ConfigHash. (microsandbox's equivalent is msbHashArgv, which also
+// drops the labels.)
 func vmSessionHashArgv(o RunOpts) []string {
 	return append([]string{"machine", "create", "-I", o.Image}, vmCommonArgs(o)...)
 }
@@ -35,20 +41,20 @@ func vmSessionHashArgv(o RunOpts) []string {
 // Pure (no engine call — the whole config is in the argv), NUL-joined so
 // adjacent argv elements cannot collide by concatenation.
 func vmSessionWantHash(o RunOpts) string {
-	sum := sha256.Sum256([]byte(strings.Join(vmSessionHashArgv(o), "\x00")))
+	sum := sha256.Sum256([]byte(strings.Join(vmRunnerFor(o.Engine).hashArgv(o), "\x00")))
 	return hex.EncodeToString(sum[:])
 }
 
-// vmInspectSession reports a machine's existence and run state from
-// `machine ls`, and its recorded hash/image/mounts from the host-side record
-// (smolvm keeps no labels). A machine with no record reads as stale (empty
-// hash), which recreates it — never a fabricated match.
-func vmInspectSession(name string) SessionInfo {
-	m, ok := vmMachineByName(name)
+// vmInspectSession reports a machine's existence and run state from the
+// runner's inventory, and its recorded hash/image/mounts from the host-side
+// record. A machine with no record reads as stale (empty hash), which recreates
+// it — never a fabricated match.
+func vmInspectSession(r vmRunner, name string) SessionInfo {
+	m, ok := vmMachineByName(r, name)
 	if !ok {
 		return SessionInfo{}
 	}
-	rec := readVMRecord(name)
+	rec := readVMRecord(r, name)
 	return SessionInfo{
 		Exists:  true,
 		Running: m.State == "running",
@@ -60,10 +66,9 @@ func vmInspectSession(name string) SessionInfo {
 
 // vmEnsureSession converges slug's microVM session to a running,
 // configuration-fresh state and returns its machine name — the microVM twin of
-// EnsureSession, over the shared planSession policy. Image freshness is not
-// checked yet (the image store lands with the in-VM build); passing "" for the
-// wanted image id simply skips that half, never a false "stale".
+// EnsureSession, over the shared planSession policy.
 func vmEnsureSession(o RunOpts) (string, error) {
+	r := vmRunnerFor(o.Engine)
 	name := SessionName(o.Slug, o.BaseDir)
 
 	// Serialize concurrent converges of THIS machine across processes, like the
@@ -78,44 +83,50 @@ func vmEnsureSession(o RunOpts) (string, error) {
 	}
 
 	hash := vmSessionWantHash(o)
-	info := vmInspectSession(name)
+	info := vmInspectSession(r, name)
 	// The wanted image id only matters for an existing machine, and is read from
 	// whatever is in the store now: a not-yet-built image yields "" and the
 	// freshness check is skipped, never a false "stale".
 	wantImage := ""
 	if info.Exists {
-		wantImage = vmImageID(o.Image)
+		wantImage = r.imageID(o.Image)
 	}
 	switch planSession(info, hash, wantImage) {
 	case actExec:
 		return name, nil
 	case actStart:
-		if err := execx.Run(smolvmBin(), vmStartArgv(name)...); err != nil {
+		if err := execx.Run(r.bin(), r.startArgv(name)...); err != nil {
 			return "", fmt.Errorf("start machine %s: %w", name, err)
 		}
 		return name, nil
 	case actRecreate:
 		notice(o.Stderr, "recreating session: "+staleReason(info, hash))
-		return vmRecreateSession(o, name, hash)
+		return vmRecreateSession(o, r, name, hash)
 	default: // actCreate
-		return vmCreateSession(o, name, hash)
+		return vmCreateSession(o, r, name, hash)
 	}
 }
 
-// vmCreateSession creates the machine, starts it (smolvm's create does not
-// start — spike: create → start → exec), and records its identity. A create
-// that loses a name race to a concurrent enter adopts the winner's running,
-// hash-fresh machine instead of surfacing the conflict.
-func vmCreateSession(o RunOpts, name, hash string) (string, error) {
-	// Resolve the toolbox image to its store tar (building it in a microVM on
-	// first use); a public ref passes through. imageID is recorded so a rebuilt
+// vmCreateSession creates the machine, starts it when the runner's create does
+// not (smolvm: create → start → exec; microsandbox boots on create), and records
+// its identity. A create that loses a name race to a concurrent enter adopts the
+// winner's running, hash-fresh machine instead of surfacing the conflict.
+func vmCreateSession(o RunOpts, r vmRunner, name, hash string) (string, error) {
+	if err := r.preflight(o); err != nil {
+		return "", err
+	}
+	// Resolve the toolbox image to what the runner is handed (smolvm: the store
+	// tar; microsandbox: a reference in its own image store), building it on
+	// first use; a public ref passes through. imageID is recorded so a rebuilt
 	// image under the same name reads as stale on the next enter.
-	imageRef, err := vmEnsureImage(o)
+	imageRef, err := r.ensureImage(o)
 	if err != nil {
 		return "", err
 	}
-	imageID := vmImageID(o.Image)
+	imageID := r.imageID(o.Image)
 	o.Image = imageRef
+
+	o.RT.Domains = vmCreatableDomains(o, r)
 
 	// Stage the profile.json into the per-sandbox run dir so the -v mount source
 	// exists before the machine boots.
@@ -124,47 +135,122 @@ func vmCreateSession(o RunOpts, name, hash string) (string, error) {
 	}
 
 	notice(o.Stderr, "creating the session machine…")
-	cmd := exec.Command(smolvmBin(), vmCreateArgv(o, name)...)
+	cmd := exec.Command(r.bin(), r.createArgv(o, name, hash)...)
 	cmd.Stdout = io.Discard
 	cmd.Stderr = o.Stderr
+	// The auth values ride on the CHILD process env, never in argv: in
+	// microsandbox's --secret mode the create argv holds only KEY references and
+	// msb reads the values from here. smolvm's create references none and simply
+	// ignores them.
+	cmd.Env = append(os.Environ(), o.AuthEnv...)
 	if err := cmd.Run(); err != nil {
-		if again := vmInspectSession(name); again.Exists && again.Running && again.Hash == hash {
+		if again := vmInspectSession(r, name); again.Exists && again.Running && again.Hash == hash {
 			return name, nil
 		}
 		return "", fmt.Errorf("create machine %s: %w", name, err)
 	}
-	if err := execx.Run(smolvmBin(), vmStartArgv(name)...); err != nil {
-		return "", fmt.Errorf("start machine %s: %w", name, err)
+	if !r.startsOnCreate() {
+		if err := execx.Run(r.bin(), r.startArgv(name)...); err != nil {
+			return "", fmt.Errorf("start machine %s: %w", name, err)
+		}
 	}
-	if err := writeVMRecord(vmRecord{Name: name, BaseDir: o.BaseDir, Slug: o.Slug, Hash: hash, ImageID: imageID, MountIDs: o.MountIDs}); err != nil {
+	if err := writeVMRecord(r, vmRecord{Name: name, BaseDir: o.BaseDir, Slug: o.Slug, Hash: hash, ImageID: imageID, MountIDs: o.MountIDs}); err != nil {
 		notice(o.Stderr, "warning: could not record session state: "+err.Error())
 	}
 	return name, nil
+}
+
+// vmCreatableDomains adapts the allowlist to what the runner can actually boot
+// with. smolvm's --allow-host resolves every host at VM start and HARD-FAILS the
+// machine on any that does not (e.g. wildcard-suffix domains like cloudfront.net
+// have no A record of their own), so the unresolvable ones are dropped with a
+// warning; microsandbox's rules are name-bound and matched at connect time, so
+// nothing is dropped there. Only the launch argv is filtered — the session hash
+// is taken over the full configured list, so a transient resolution failure
+// never flips it. The proxy path uses no per-host flag and is left alone.
+func vmCreatableDomains(o RunOpts, r vmRunner) []string {
+	if _, isSmolvm := r.(smolvmRunner); !isSmolvm {
+		return o.RT.Domains
+	}
+	if !egressRequired(o) || o.RT.Proxy != "" || len(o.RT.Domains) == 0 {
+		return o.RT.Domains
+	}
+	return vmResolvableDomains(o.RT.Domains, o.Stderr)
+}
+
+// vmResolvableDomains keeps only the allowlist domains that resolve on the host,
+// dropping the rest with a one-line warning — smolvm's --allow-host hard-fails
+// the machine on an unresolvable host. Lookups run concurrently with a short
+// timeout so a non-resolving host cannot stall create; input order is preserved.
+func vmResolvableDomains(domains []string, w io.Writer) []string {
+	type result struct {
+		d  string
+		ok bool
+	}
+	ch := make(chan result, len(domains))
+	for _, d := range domains {
+		go func(d string) {
+			host := strings.TrimPrefix(strings.TrimSpace(d), ".")
+			if host == "" {
+				ch <- result{d, false}
+				return
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+			defer cancel()
+			_, err := net.DefaultResolver.LookupHost(ctx, host)
+			ch <- result{d, err == nil}
+		}(d)
+	}
+	keep := make(map[string]bool, len(domains))
+	var dropped []string
+	for range domains {
+		if r := <-ch; r.ok {
+			keep[r.d] = true
+		} else {
+			dropped = append(dropped, strings.TrimPrefix(r.d, "."))
+		}
+	}
+	var out []string
+	for _, d := range domains {
+		if keep[d] {
+			out = append(out, d)
+		}
+	}
+	if len(dropped) > 0 && w != nil {
+		sort.Strings(dropped)
+		fmt.Fprintf(w, "sandboxer: egress: dropped %d unresolvable domain(s) from the microvm allowlist "+
+			"(smolvm --allow-host needs resolvable hosts; wildcard-suffix domains need egress.proxy or "+
+			"the microsandbox backend, whose rules are name-bound): %s\n",
+			len(dropped), strings.Join(dropped, " "))
+	}
+	return out
 }
 
 // vmRecreateSession replaces a stale machine: save the tmux layout while it
 // still runs (so the next attach restores it — a config change no longer costs
 // the user their windows), delete the old machine and its record, then create
 // anew.
-func vmRecreateSession(o RunOpts, name, hash string) (string, error) {
+func vmRecreateSession(o RunOpts, r vmRunner, name, hash string) (string, error) {
 	if SaveSessionState(o.Engine, name, o.SessionStatePath) {
 		notice(o.Stderr, "saved your session layout — restoring it on attach "+
 			"(recorded agents relaunch and resume; other running programs are interrupted)")
 	}
 	notice(o.Stderr, "removing the old session machine…")
-	if err := execx.Run(smolvmBin(), vmRemoveArgv(name)...); err != nil {
+	if err := execx.Run(r.bin(), r.removeArgv(name)...); err != nil {
 		return "", fmt.Errorf("remove stale machine %s: %w", name, err)
 	}
-	removeVMRecord(name)
-	return vmCreateSession(o, name, hash)
+	removeVMRecord(r, name)
+	return vmCreateSession(o, r, name, hash)
 }
 
 // vmExecSession runs cmdArgs inside the running machine and returns the exit
-// code — the microVM counterpart of ExecSession. The --secret-env references in
-// vmExecArgv resolve against the child process environment, so the auth VALUES
-// are placed there (never in argv), current on every exec.
+// code — the microVM counterpart of ExecSession. The auth VALUES travel with
+// the exec (as smolvm --secret-env references resolved from this process's
+// environment, or as microsandbox --env flags), so a rotated token reaches the
+// sandbox on the next shell with no rebuild.
 func vmExecSession(o RunOpts, name string, cmdArgs []string) (int, error) {
-	cmd := exec.Command(smolvmBin(), vmExecArgv(o, name, cmdArgs)...)
+	r := vmRunnerFor(o.Engine)
+	cmd := exec.Command(r.bin(), r.execArgv(o, name, cmdArgs)...)
 	cmd.Stdin = o.Stdin
 	cmd.Stdout = o.Stdout
 	cmd.Stderr = o.Stderr
@@ -174,10 +260,16 @@ func vmExecSession(o RunOpts, name string, cmdArgs []string) (int, error) {
 
 // vmRun executes a one-shot ephemeral machine — the microVM counterpart of Run
 // — and returns its exit code. The agent is the machine's workload, so its auth
-// env is placed on the child process for the --secret-env references (see
-// vmRunArgv) to resolve.
+// env travels with the run itself.
 func vmRun(o RunOpts) int {
-	imageRef, err := vmEnsureImage(o)
+	r := vmRunnerFor(o.Engine)
+	if err := r.preflight(o); err != nil {
+		if o.Stderr != nil {
+			fmt.Fprintf(o.Stderr, "sandboxer: %v\n", err)
+		}
+		return 1
+	}
+	imageRef, err := r.ensureImage(o)
 	if err != nil {
 		if o.Stderr != nil {
 			fmt.Fprintf(o.Stderr, "sandboxer: %v\n", err)
@@ -185,13 +277,14 @@ func vmRun(o RunOpts) int {
 		return 1
 	}
 	o.Image = imageRef
+	o.RT.Domains = vmCreatableDomains(o, r)
 	if err := stageProfileJSON(o); err != nil {
 		if o.Stderr != nil {
 			fmt.Fprintf(o.Stderr, "sandboxer: %v\n", err)
 		}
 		return 1
 	}
-	cmd := exec.Command(smolvmBin(), vmRunArgv(o)...)
+	cmd := exec.Command(r.bin(), r.runArgv(o)...)
 	cmd.Stdin = o.Stdin
 	cmd.Stdout = o.Stdout
 	cmd.Stderr = o.Stderr
@@ -202,10 +295,11 @@ func vmRun(o RunOpts) int {
 // vmStopSession stops slug's machine, keeping its config and volumes so a later
 // ensure resumes it with a plain start. Idempotent: a missing machine is not an
 // error.
-func vmStopSession(slug, baseDir string) error {
+func vmStopSession(engine, slug, baseDir string) error {
+	r := vmRunnerFor(engine)
 	name := SessionName(slug, baseDir)
-	if _, ok := vmMachineByName(name); ok {
-		if err := execx.Run(smolvmBin(), vmStopArgv(name)...); err != nil {
+	if _, ok := vmMachineByName(r, name); ok {
+		if err := execx.Run(r.bin(), r.stopArgv(name)...); err != nil {
 			return fmt.Errorf("stop machine %s: %w", name, err)
 		}
 	}
@@ -213,28 +307,29 @@ func vmStopSession(slug, baseDir string) error {
 }
 
 // vmRemoveSession deletes slug's machine and its record. Idempotent.
-func vmRemoveSession(slug, baseDir string) error {
-	return vmRemoveMachineByName(SessionName(slug, baseDir))
+func vmRemoveSession(engine, slug, baseDir string) error {
+	return vmRemoveMachineByName(vmRunnerFor(engine), SessionName(slug, baseDir))
 }
 
-func vmRemoveMachineByName(name string) error {
-	if _, ok := vmMachineByName(name); ok {
-		if err := execx.Run(smolvmBin(), vmRemoveArgv(name)...); err != nil {
+func vmRemoveMachineByName(r vmRunner, name string) error {
+	if _, ok := vmMachineByName(r, name); ok {
+		if err := execx.Run(r.bin(), r.removeArgv(name)...); err != nil {
 			return fmt.Errorf("remove machine %s: %w", name, err)
 		}
 	}
-	removeVMRecord(name)
+	removeVMRecord(r, name)
 	return nil
 }
 
-// vmRemoveAllSessions deletes every recorded machine created from baseDir, each
-// with its record. Failures are collected so one stubborn machine does not
+// vmRemoveAllSessions deletes every machine this runner recorded from baseDir,
+// each with its record. Failures are collected so one stubborn machine does not
 // strand the rest.
-func vmRemoveAllSessions(baseDir string) error {
+func vmRemoveAllSessions(engine, baseDir string) error {
+	r := vmRunnerFor(engine)
 	var errs []error
-	for _, rec := range listVMRecords() {
+	for _, rec := range listVMRecords(r) {
 		if rec.BaseDir == baseDir {
-			errs = append(errs, vmRemoveMachineByName(rec.Name))
+			errs = append(errs, vmRemoveMachineByName(r, rec.Name))
 		}
 	}
 	return errors.Join(errs...)
@@ -244,13 +339,14 @@ func vmRemoveAllSessions(baseDir string) error {
 // for listings: the recorded machines cross-referenced with the live inventory.
 // A recorded machine the engine no longer knows reads as "gone", so a
 // hand-deleted machine still surfaces (for cleanup) rather than vanishing.
-func vmSessionStates(baseDir string) (map[string]string, error) {
+func vmSessionStates(engine, baseDir string) (map[string]string, error) {
+	r := vmRunnerFor(engine)
 	live := map[string]string{}
-	for _, m := range vmListMachines() {
+	for _, m := range r.listMachines() {
 		live[m.Name] = m.State
 	}
 	states := map[string]string{}
-	for _, rec := range listVMRecords() {
+	for _, rec := range listVMRecords(r) {
 		if rec.BaseDir != baseDir {
 			continue
 		}
@@ -266,9 +362,9 @@ func vmSessionStates(baseDir string) (map[string]string, error) {
 // vmOrphanSessions returns the names of recorded machines whose base directory
 // no longer exists on this host — the project was deleted behind sandboxer's
 // back — for doctor to report with a removal hint.
-func vmOrphanSessions() ([]string, error) {
+func vmOrphanSessions(engine string) ([]string, error) {
 	var orphans []string
-	for _, rec := range listVMRecords() {
+	for _, rec := range listVMRecords(vmRunnerFor(engine)) {
 		if rec.BaseDir == "" {
 			continue
 		}

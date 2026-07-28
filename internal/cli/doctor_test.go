@@ -30,6 +30,34 @@ func doctorEnv(t *testing.T) {
 	t.Chdir(t.TempDir())
 }
 
+// TestDoctorMicrosandboxRow: doctor reports the second microVM runner beside
+// smolvm — absent is a warning with an install hint (nobody needs it unless
+// they picked that backend), and a present msb whose MSB_HOME is too deep is
+// flagged BEFORE the first create fails on an over-long agent socket.
+func TestDoctorMicrosandboxRow(t *testing.T) {
+	doctorEnv(t)
+	stubSessionStates(t, map[string]string{}, nil)
+	stubSessionOrphans(t, nil, nil)
+
+	t.Setenv("SANDBOXER_MSB", "/nonexistent/msb-xyz")
+	_, out, _ := run("doctor")
+	if !strings.Contains(out, "microsandbox (msb)") || !strings.Contains(out, "SANDBOXER_MSB") {
+		t.Errorf("doctor missing the microsandbox row:\n%s", out)
+	}
+
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "msb")
+	if err := os.WriteFile(bin, []byte("#!/bin/sh\necho 'msb 0.6.7-fake'\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("SANDBOXER_MSB", bin)
+	t.Setenv("MSB_HOME", filepath.Join("/home/dev", strings.Repeat("deep/", 20), ".msb"))
+	_, out, _ = run("doctor")
+	if !strings.Contains(out, "MSB_HOME is too deep") {
+		t.Errorf("doctor did not flag a too-deep MSB_HOME:\n%s", out)
+	}
+}
+
 // TestDoctorSessions: with an engine present doctor tallies this project's
 // sessions and warns about orphaned containers with a removal hint.
 func TestDoctorSessions(t *testing.T) {

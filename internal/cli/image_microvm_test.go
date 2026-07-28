@@ -31,7 +31,7 @@ func TestBuildImageMicrovmRoutesToVMBuild(t *testing.T) {
 	var vmImage string
 	oldVM, oldC := backendBuildVMImage, toolboxBuild
 	defer func() { backendBuildVMImage, toolboxBuild = oldVM, oldC }()
-	backendBuildVMImage = func(image string, _ toolbox.Spec, _ io.Writer) error {
+	backendBuildVMImage = func(_, image string, _ toolbox.Spec, _ io.Writer) error {
 		vmImage = image
 		return nil
 	}
@@ -57,7 +57,7 @@ func TestBuildImageMicrovmVariant(t *testing.T) {
 	var vmImage string
 	oldVM := backendBuildVMImage
 	defer func() { backendBuildVMImage = oldVM }()
-	backendBuildVMImage = func(image string, _ toolbox.Spec, _ io.Writer) error {
+	backendBuildVMImage = func(_, image string, _ toolbox.Spec, _ io.Writer) error {
 		vmImage = image
 		return nil
 	}

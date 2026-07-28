@@ -62,8 +62,10 @@ least one commit — `git init && git add -A && git commit -m init`). Non-git
 trees come in via `extraMounts`.
 
 Isolation backend — a **docker / podman** container built from a toolbox image,
-or (experimental, `backend = "microvm"`) a real **microVM** via smolvm/libkrun
-for a hardware-isolation boundary; see [docs/microvm.md](./docs/microvm.md). The
+or (experimental) a real **microVM** on libkrun for a hardware-isolation
+boundary, via either runner: `backend = "microvm"` (smolvm) or `backend =
+"microsandbox"` (msb, whose network-policy engine keeps the allowlist's
+subdomain grammar intact); see [docs/microvm.md](./docs/microvm.md). The
 image has the agents baked in (claude, opencode, crush, aider, pi, gemini) plus an
 everyday toolchain: python3, node/npm, jdk+maven, redocly, ripgrep/fd/jq/…,
 tmux (auto-attached by `enter`), and **rootless podman** for nested containers (never
@@ -242,7 +244,7 @@ Scalars come from **flags** and `SANDBOXER_*` env vars:
 
 | Setting | Flag | Env |
 |---------|------|-----|
-| backend | `--backend` | `SANDBOXER_BACKEND` (default `docker`; `docker\|podman` pins that engine when installed, else falls back to whichever is; `microvm` runs a smolvm microVM — [docs/microvm.md](./docs/microvm.md)) |
+| backend | `--backend` | `SANDBOXER_BACKEND` (default `docker`; `docker\|podman` pins that engine when installed, else falls back to whichever is; `microvm` (smolvm) and `microsandbox` (msb) run a real microVM — [docs/microvm.md](./docs/microvm.md)) |
 | session mode | `--ephemeral` | `SANDBOXER_SESSION` (default `persistent`; the env wins over a profile's `session:`) |
 | egress domains | `--allow-domains a,b` | `SANDBOXER_DOMAINS` |
 | disable egress | — | `SANDBOXER_NO_EGRESS=1` |

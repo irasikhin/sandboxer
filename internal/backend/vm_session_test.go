@@ -86,7 +86,7 @@ func TestVMSessionLifecycle(t *testing.T) {
 	if err != nil || got != name {
 		t.Fatalf("EnsureSession create = %q, %v; want %q", got, err, name)
 	}
-	if rec := readVMRecord(name); rec.Hash != vmSessionWantHash(o) {
+	if rec := readVMRecord(smolvmRunner{}, name); rec.Hash != vmSessionWantHash(o) {
 		t.Errorf("record hash = %q, want %q", rec.Hash, vmSessionWantHash(o))
 	}
 	if info := InspectSession(smolvmEngine, name); !info.Running {
@@ -119,7 +119,7 @@ func TestVMSessionLifecycle(t *testing.T) {
 	if !strings.Contains(readFile(t, log), "machine delete") {
 		t.Error("stale session was not recreated (no delete)")
 	}
-	if rec := readVMRecord(name); rec.Hash != vmSessionWantHash(o2) {
+	if rec := readVMRecord(smolvmRunner{}, name); rec.Hash != vmSessionWantHash(o2) {
 		t.Errorf("record not updated after recreate: %q", rec.Hash)
 	}
 
@@ -139,7 +139,7 @@ func TestVMSessionLifecycle(t *testing.T) {
 	if info := InspectSession(smolvmEngine, name); info.Exists {
 		t.Error("machine still exists after remove")
 	}
-	if rec := readVMRecord(name); rec.Name != "" {
+	if rec := readVMRecord(smolvmRunner{}, name); rec.Name != "" {
 		t.Error("record survived remove")
 	}
 }
@@ -153,7 +153,7 @@ func TestVMSessionStatesAndOrphans(t *testing.T) {
 	goneBase := filepath.Join(t.TempDir(), "deleted")
 
 	writeRec := func(name, b, slug string) {
-		if err := writeVMRecord(vmRecord{Name: name, BaseDir: b, Slug: slug, Hash: "h"}); err != nil {
+		if err := writeVMRecord(smolvmRunner{}, vmRecord{Name: name, BaseDir: b, Slug: slug, Hash: "h"}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -240,7 +240,7 @@ func TestVMRemoveAllSessions(t *testing.T) {
 	base := t.TempDir()
 	other := t.TempDir()
 	mkMachine := func(name, b, slug string) {
-		if err := writeVMRecord(vmRecord{Name: name, BaseDir: b, Slug: slug, Hash: "h"}); err != nil {
+		if err := writeVMRecord(smolvmRunner{}, vmRecord{Name: name, BaseDir: b, Slug: slug, Hash: "h"}); err != nil {
 			t.Fatal(err)
 		}
 		// Register it as live so the delete path runs.
@@ -258,10 +258,10 @@ func TestVMRemoveAllSessions(t *testing.T) {
 	if err := RemoveAllSessions(smolvmEngine, base); err != nil {
 		t.Fatalf("RemoveAllSessions: %v", err)
 	}
-	if readVMRecord("m-a").Name != "" || readVMRecord("m-b").Name != "" {
+	if readVMRecord(smolvmRunner{}, "m-a").Name != "" || readVMRecord(smolvmRunner{}, "m-b").Name != "" {
 		t.Error("base machines' records survived RemoveAllSessions")
 	}
-	if readVMRecord("m-keep").Name == "" {
+	if readVMRecord(smolvmRunner{}, "m-keep").Name == "" {
 		t.Error("another base's record was swept")
 	}
 }

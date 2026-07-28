@@ -147,7 +147,7 @@ type RunOpts struct {
 // and (when applicable) the egress allowlist. It returns the container exit
 // code.
 func Run(o RunOpts) (int, error) {
-	if o.Engine == smolvmEngine {
+	if isVMEngine(o.Engine) {
 		return vmRun(o), nil
 	}
 	// Make sure the toolbox image is present before anything else. The bundled
@@ -512,6 +512,9 @@ func ensureImage(o RunOpts) error {
 // is supported by both docker and podman and exits non-zero when the image is
 // absent.
 func ImageExists(engine, image string) bool {
+	if engine == msbEngine {
+		return msbImageExists(image)
+	}
 	if engine == smolvmEngine {
 		return vmImageExists(image)
 	}
@@ -523,8 +526,8 @@ func ImageExists(engine, image string) bool {
 // A locally absent image is "unknown", never an error: callers skip the
 // image-freshness check on "" instead of failing before the image is built.
 func ImageID(engine, image string) string {
-	if engine == smolvmEngine {
-		return vmImageID(image)
+	if isVMEngine(engine) {
+		return vmRunnerFor(engine).imageID(image)
 	}
 	out, err := exec.Command(engine, "image", "inspect", "--format", "{{.Id}}", image).Output()
 	if err != nil {
@@ -537,6 +540,9 @@ func ImageID(engine, image string) string {
 // container referencing it does not block removal). An already-absent image is
 // success — `image rm` is idempotent — so only a real engine failure errors.
 func RemoveImage(engine, image string) error {
+	if engine == msbEngine {
+		return msbRemoveImage(image)
+	}
 	if engine == smolvmEngine {
 		return vmRemoveImage(image)
 	}

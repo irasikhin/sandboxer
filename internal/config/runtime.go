@@ -175,14 +175,21 @@ func ValidateBackend(rt Runtime) error {
 	switch rt.Backend {
 	case "", "auto", "podman", "docker":
 		return nil
-	case "microvm":
+	case "microvm", "microsandbox":
 		return validateMicrovm(rt)
 	case "native":
 		return fmt.Errorf("the native backend was removed — sandboxer is container-only now; use backend: docker or podman")
 	default:
-		return fmt.Errorf("unknown backend %q — use docker, podman or microvm", rt.Backend)
+		return fmt.Errorf("unknown backend %q — use docker, podman, microvm or microsandbox", rt.Backend)
 	}
 }
+
+// IsMicrovmBackend reports whether b names a microVM backend — a real virtual
+// machine per sandbox — rather than a container engine. Two runners sit on the
+// same libkrun VMM and share every rule the CLI applies to microVMs: "microvm"
+// (smolvm) and "microsandbox" (msb). Callers that must distinguish the RUNNER
+// compare the backend string itself.
+func IsMicrovmBackend(b string) bool { return b == "microvm" || b == "microsandbox" }
 
 // validateMicrovm rejects only the egress shapes the microVM backend genuinely
 // cannot honor; everything else is first-class:
@@ -198,13 +205,18 @@ func ValidateBackend(rt Runtime) error {
 //     (warnMicrovmProxy), NOT a hard error: a proxy + a default allowlist is the
 //     common case and must not block the sandbox.
 //   - egress.routes → rejected: per-domain upstream proxies are a squid
-//     cache_peer feature with no smolvm analogue.
+//     cache_peer feature neither microVM runner has an analogue for.
 //
 // (egress.noProxy is honored alongside a proxy, ignored without one.)
+//
+// The allowlist itself is first-class on both runners, with one difference worth
+// knowing: smolvm's --allow-host resolves and permits an EXACT host, while
+// microsandbox's rules are name-bound suffixes, so `.example.com` keeps covering
+// subdomains exactly as the squid sidecar does.
 func validateMicrovm(rt Runtime) error {
 	if len(rt.Routes) > 0 {
-		return fmt.Errorf("egress.routes is not supported by the microvm backend " +
-			"(no per-domain upstream proxies / squid); remove it or use a container backend")
+		return fmt.Errorf("egress.routes is not supported by the %s backend "+
+			"(no per-domain upstream proxies / squid); remove it or use a container backend", rt.Backend)
 	}
 	return nil
 }

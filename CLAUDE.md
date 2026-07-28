@@ -52,7 +52,14 @@ was extracted from:
 
 ## Repo-only knowledge (owned by no skill)
 
-- **Isolation backend** (`internal/backend`): `container` (podman/docker via the toolbox image). sandboxer is a
+- **Isolation backend** (`internal/backend`): `container` (podman/docker via the toolbox image) or a real microVM
+  on libkrun, with TWO runners behind one implementation — `backend = "microvm"` (smolvm) and
+  `backend = "microsandbox"` (msb). The only seam between them is `vmRunner` (`vm_runner.go`): argv dialect +
+  image store + inventory. Everything else (planSession, the host-side record, tmux capture/restore) is shared,
+  and the records are per-runner subdirs so switching runners cannot strand the other's machines. msb's rules
+  are name-bound (`*.domain` = squid's leading dot, no allowlist narrowing); its `--secret` DLP mode is opt-in
+  behind `SANDBOXER_MSB_SECRETS=1` (unverified substitution + boot-time binding). See `docs/microvm.md`.
+  sandboxer is a
   HOST tool — its binary is NOT baked into the toolbox image, so it is normally absent inside the sandbox;
   `PersistentPreRunE` in `cli.go` is a belt-and-suspenders **deny-all** (every command refuses when
   `SANDBOXER_IN_CONTAINER` is set, injected per-run by `commonArgs`).

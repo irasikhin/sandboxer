@@ -89,9 +89,11 @@ Run this after a fresh install or when something isn't working.`,
 				}
 			}
 
-			// microVM backend (smolvm). Reported alongside the container engine so
-			// a host set up for `backend: microvm` gets the same at-a-glance check.
+			// microVM backends (smolvm, microsandbox). Reported alongside the
+			// container engine so a host set up for one of them gets the same
+			// at-a-glance check.
 			reportMicrovm(tw, &ok, &warn)
+			reportMicrosandbox(tw, &ok, &warn)
 
 			// Persistent sessions: this project's running/stopped tally, plus
 			// orphans whose project dir is gone (their containers survive a
@@ -184,6 +186,34 @@ func reportMicrovm(tw io.Writer, ok, warn *int) {
 		*warn++
 	default:
 		fmt.Fprintf(tw, "microvm (smolvm)\t✓\t%s available\n", version)
+		*ok++
+	}
+}
+
+// reportMicrosandbox adds doctor's row for the second microVM runner. Same
+// shape as reportMicrovm — a missing msb is only a warning — plus the one
+// prerequisite that is otherwise invisible until the first `create` fails: every
+// sandbox's agent-relay UNIX socket path derives from MSB_HOME, and a deep home
+// pushes it past the kernel's 108-byte limit.
+func reportMicrosandbox(tw io.Writer, ok, warn *int) {
+	present, version, kvmOK, homeOK := backend.MsbStatus()
+	switch {
+	case !present:
+		fmt.Fprintf(tw, "microsandbox (msb)\t⚠\tnot found — needed only for backend: microsandbox (install: https://microsandbox.dev; SANDBOXER_MSB overrides the path)\n")
+		*warn++
+	case !kvmOK:
+		msg := "the microsandbox backend needs KVM on Linux"
+		if underWSL() {
+			msg = "under WSL2 — enable nested KVM: set nestedVirtualization=true in %UserProfile%\\.wslconfig, then `wsl --shutdown` (see docs/windows.md)"
+		}
+		fmt.Fprintf(tw, "microsandbox (msb)\t⚠\t%s present, but /dev/kvm is missing — %s\n", version, msg)
+		*warn++
+	case !homeOK:
+		fmt.Fprintf(tw, "microsandbox (msb)\t⚠\t%s present, but MSB_HOME is too deep (%s) — every sandbox's agent socket derives from it and must stay under 108 bytes; point MSB_HOME at a short path\n",
+			version, backend.MsbHome())
+		*warn++
+	default:
+		fmt.Fprintf(tw, "microsandbox (msb)\t✓\t%s available\n", version)
 		*ok++
 	}
 }

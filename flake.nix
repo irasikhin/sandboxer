@@ -36,6 +36,9 @@
         # The microVM runtime for `backend = "microvm"` (repackaged upstream
         # binary — not in nixpkgs, needs patching to run on NixOS).
         smolvm = final.callPackage ./nix/smolvm.nix { };
+        # The second microVM runtime, for `backend = "microsandbox"` (same
+        # libkrun VMM, a richer CLI — see docs/microsandbox-spike.md).
+        microsandbox = final.callPackage ./nix/microsandbox.nix { };
       };
     in
     {
@@ -103,6 +106,7 @@
           default = pkgs.sandboxer;
           sandboxer = pkgs.sandboxer;
           smolvm = pkgs.smolvm;
+          microsandbox = pkgs.microsandbox;
           inherit (images) image proxyImage;
           smokeImage = smokeImage;
         };
@@ -124,6 +128,15 @@
             type = "app";
             meta.description = "smolvm microVM runtime (sandboxer's microvm backend)";
             program = "${pkgs.smolvm}/bin/smolvm";
+          };
+
+          # The second microVM runtime, so `nix run .#microsandbox -- list`
+          # works without a system install (and `sandboxer --backend
+          # microsandbox` can point SANDBOXER_MSB at the built path).
+          microsandbox = {
+            type = "app";
+            meta.description = "microsandbox microVM runtime (sandboxer's microsandbox backend)";
+            program = "${pkgs.microsandbox}/bin/msb";
           };
 
           # Build the toolbox + egress-proxy images and load them into host
@@ -165,11 +178,12 @@
             jq
             podman
             smolvm # microvm backend runtime (SANDBOXER_SMOLVM picks it up)
+            microsandbox # microsandbox backend runtime (SANDBOXER_MSB picks it up)
           ];
           shellHook = ''
             echo "sandboxer devShell — go toolchain + linters."
             echo "build:  go build ./cmd/sandboxer   image:  nix run .#build-image"
-            echo "microvm: smolvm on PATH (backend = \"microvm\")"
+            echo "microvm: smolvm on PATH (backend = \"microvm\"), msb on PATH (backend = \"microsandbox\")"
           '';
         };
 

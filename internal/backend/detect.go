@@ -25,12 +25,15 @@ import (
 // Callers display the engine we return (see EngineLabel), so the banner never
 // disagrees with what actually runs.
 func ResolveEngine(be string, d config.Defaults) (string, error) {
-	// The microVM backend resolves to smolvm, and does so BEFORE the
+	// The microVM backends resolve to their runner, and do so BEFORE the
 	// SANDBOXER_ENGINE override — that override names a container engine and must
 	// never silently redirect a microVM sandbox onto docker, which would drop the
 	// hardware isolation the backend was chosen for.
-	if be == "microvm" {
+	switch be {
+	case "microvm":
 		return resolveSmolvm()
+	case "microsandbox":
+		return resolveMsb()
 	}
 	if d.Engine != "" {
 		return d.Engine, nil
@@ -72,15 +75,18 @@ func InstalledEngines(d config.Defaults) []string {
 }
 
 // SweepEngines returns every engine whose sessions a sweep or report
-// (clean, doctor, list) must cover: the installed CONTAINER engines, plus
-// "smolvm" when the microVM backend is available on this host. A sweep that
-// consulted only InstalledEngines would strand a microvm project's machines and
-// their host-side records — nothing would ever reclaim them. The vm* sweeps
-// filter by base dir, so adding smolvm is a no-op for pure-container projects.
+// (clean, doctor, list) must cover: the installed CONTAINER engines, plus each
+// microVM runner available on this host. A sweep that consulted only
+// InstalledEngines would strand a microVM project's machines and their
+// host-side records — nothing would ever reclaim them. The vm* sweeps filter by
+// base dir and by runner, so adding them is a no-op for pure-container projects.
 func SweepEngines(d config.Defaults) []string {
 	engines := InstalledEngines(d)
 	if hasExec(smolvmBin()) {
 		engines = append(engines, smolvmEngine)
+	}
+	if hasExec(msbBin()) {
+		engines = append(engines, msbEngine)
 	}
 	return engines
 }
@@ -140,6 +146,52 @@ func SmolvmStatus() (present bool, version string, kvmOK bool) {
 	}
 	return present, version, kvmOK
 }
+
+// resolveMsb confirms the microsandbox backend can run and returns its ENGINE
+// IDENTITY, the constant "microsandbox" — never the override path, for the same
+// reason resolveSmolvm returns its own constant. Like every other engine it is a
+// preinstalled host requirement: an absent one is a clear error with an install
+// hint, never an autodownload and never a silent fallback to a container engine.
+func resolveMsb() (string, error) {
+	if hasExec(msbBin()) {
+		return msbEngine, nil
+	}
+	return "", errors.New("the microsandbox backend needs msb on PATH " +
+		"(install: https://microsandbox.dev — SANDBOXER_MSB overrides the path; " +
+		"on NixOS use the flake's microsandbox package: the release binary is dynamically linked)")
+}
+
+// msbBin is the actual binary the microsandbox backend executes: the
+// SANDBOXER_MSB override (a name or an absolute path), else "msb" resolved on
+// PATH. Distinct from the engine identity msbEngine, which is only ever the
+// constant "microsandbox".
+func msbBin() string {
+	if b := os.Getenv("SANDBOXER_MSB"); b != "" {
+		return b
+	}
+	return "msb"
+}
+
+// MsbStatus reports the microsandbox backend's host readiness for `doctor`:
+// whether the msb binary is found (via msbBin), its `--version` line when it
+// runs, whether /dev/kvm exists on Linux, and whether MSB_HOME is short enough
+// for a sandbox's agent-relay socket to fit in sun_path — the one microsandbox
+// prerequisite that is invisible until the first `create` fails.
+func MsbStatus() (present bool, version string, kvmOK, homeOK bool) {
+	kvmOK = devKVMPresent()
+	homeOK = msbHomeRoomy(msbHome())
+	if !hasExec(msbBin()) {
+		return false, "", kvmOK, homeOK
+	}
+	present = true
+	if out, err := exec.Command(msbBin(), "--version").Output(); err == nil {
+		version = strings.TrimSpace(string(out))
+	}
+	return present, version, kvmOK, homeOK
+}
+
+// MsbHome exposes the effective MSB_HOME for doctor's hint.
+func MsbHome() string { return msbHome() }
 
 func hasExec(name string) bool {
 	_, err := exec.LookPath(name)

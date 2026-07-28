@@ -17,7 +17,10 @@ in the PR: `verified microvm e2e on <os/arch/hw> <date> — N/N pass`.
 
 ## Prerequisites
 
-- smolvm installed (`smolvm --version`); `SANDBOXER_SMOLVM` set if off PATH.
+- The runner under test installed: smolvm (`smolvm --version`, `SANDBOXER_SMOLVM`
+  if off PATH) and/or microsandbox (`msb --version`, `SANDBOXER_MSB`). Both are
+  worth a pass on a Mac — microsandbox is the only runner with macOS AND Windows
+  builds, so it is the candidate for a default flip.
 - macOS: macOS 11+ Apple Silicon. Windows: WSL2 with
   `nestedVirtualization=true` in `.wslconfig` and `wsl --shutdown` applied, then
   run everything **inside** the WSL2 Linux distro.
@@ -32,10 +35,14 @@ Hypervisor.framework automatically:
 ```console
 $ SANDBOXER_SMOLVM=/path/to/smolvm \
   go test -tags integration -run 'TestVM_.*_RealEngine' ./internal/backend/...
+$ SANDBOXER_MSB=/path/to/msb \
+  go test -tags integration -run 'TestMSB_.*_RealEngine' ./internal/backend/...
 ```
 
 Expect `TestVM_Lifecycle`, `TestVM_NarrowingWall`, `TestVM_GuestWriteUID`, and
-(Linux/WSL2 only) `TestVM_SecretNotInPS` to pass. If they pass, the invariants
+(Linux/WSL2 only) `TestVM_SecretNotInPS` to pass, and the microsandbox twins
+(`TestMSB_Lifecycle`, `TestMSB_NarrowingWall`, `TestMSB_GuestWriteUID`,
+`TestMSB_EgressAllowlist`, `TestMSB_SecretsMode`). If they pass, the invariants
 below are covered — the manual steps are the fallback when the Go suite cannot
 run.
 
@@ -57,6 +64,11 @@ Run each and confirm the expected result. Substitute a real profile/slug.
 | 10 | Recreate on change | edit `limits`/`allowedDomains`, re-enter | "recreating session" notice, new machine |
 | 11 | Image build in VM | `sandboxer image build --backend microvm` (needs network) | builds via a nixos/nix microVM, no docker/podman |
 | 12 | Clean teardown | `sandboxer clean` then `smolvm machine ls` | no leftover machines |
+
+Run 1–12 again with `--backend microsandbox` (teardown check: `msb list`). Two
+runner-specific extras: a sandbox root under `/tmp` must be REFUSED with the
+tmpfs-shadowing explanation, and `allowedDomains = ["example.com"]` must also
+cover `www.example.com` (the subdomain grammar smolvm loses).
 
 ## Windows / WSL2 specific
 

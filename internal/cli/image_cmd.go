@@ -79,8 +79,8 @@ func newImageRmCmd() *cobra.Command {
 		},
 	}
 	fl := cmd.Flags()
-	fl.StringVar(&backendFlag, "backend", "", "backend: docker | podman | microvm (default: the profile's, else docker)")
-	fl.StringVar(&engineFlag, "engine", "", "container engine: docker | podman (default: auto-detect); ignored for --backend microvm")
+	fl.StringVar(&backendFlag, "backend", "", "backend: docker | podman | microvm | microsandbox (default: the profile's, else docker)")
+	fl.StringVar(&engineFlag, "engine", "", "container engine: docker | podman (default: auto-detect); ignored for a microVM backend")
 	fl.StringVarP(&configPath, "config", "f", "", "profile whose image variant to remove")
 	return cmd
 }

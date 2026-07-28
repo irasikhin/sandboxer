@@ -101,7 +101,7 @@ func newCreateCmd() *cobra.Command {
 	fl := cmd.Flags()
 	fl.StringVar(&f.src, "src", "", "project root")
 	fl.StringVarP(&f.config, "config", "f", "", "profile file (default: the project sandboxer.nix; pick a profiles section by name)")
-	fl.StringVar(&f.backend, "backend", "", "backend: docker | podman | microvm")
+	fl.StringVar(&f.backend, "backend", "", "backend: docker | podman | microvm | microsandbox")
 	fl.StringVar(&f.domains, "allow-domains", "", "egress allowlist (csv)")
 	return cmd
 }
@@ -561,7 +561,7 @@ func warnIgnoredRoutes(w io.Writer, rt config.Runtime) {
 // features microvm cannot honor are a hard config error (ValidateBackend), not
 // a warning.
 func warnMicrovmIgnored(w io.Writer, rt config.Runtime, prof *config.Profile) {
-	if rt.Backend != "microvm" {
+	if !config.IsMicrovmBackend(rt.Backend) {
 		return
 	}
 	if rt.Pids > 0 {
@@ -580,7 +580,7 @@ func warnMicrovmIgnored(w io.Writer, rt config.Runtime, prof *config.Profile) {
 // proxy enforces the intended allowlist. Not an error: a proxy + a default
 // allowlist is the common case.
 func warnMicrovmProxy(w io.Writer, rt config.Runtime) {
-	if rt.Backend != "microvm" || rt.Proxy == "" || len(rt.Domains) == 0 {
+	if !config.IsMicrovmBackend(rt.Backend) || rt.Proxy == "" || len(rt.Domains) == 0 {
 		return
 	}
 	fmt.Fprintln(w, "sandboxer: egress.proxy is set — the agent's egress goes through the proxy over "+

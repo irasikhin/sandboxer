@@ -104,7 +104,8 @@ func starterProfile(name string, d config.Defaults) string {
   # Sandbox name (slug); names the sandbox dir ./sandboxes/<name>/.
   name = %[1]q;
 
-  # Isolation backend: docker | podman.
+  # Isolation backend: docker | podman (a container), or microvm | microsandbox
+  # (a real VM per sandbox, on libkrun — see docs/microvm.md).
   backend = %[2]q;
 
   # The sources the sandbox sees — ALWAYS explicit, there is no implicit

@@ -20,9 +20,9 @@ var (
 	backendRemoveSession     = backend.RemoveSession
 	backendRemoveAllSessions = backend.RemoveAllSessions
 	// backendSweepEngines enumerates every engine a sweep or report must visit
-	// (clean, list, doctor) — sessions may live on podman AND docker, AND on the
-	// microVM backend (smolvm) whose machines + host-side records would otherwise
-	// leak, invisible to clean/doctor.
+	// (clean, list, doctor) — sessions may live on podman AND docker, AND on
+	// either microVM runner (smolvm, microsandbox) whose machines + host-side
+	// records would otherwise leak, invisible to clean/doctor.
 	backendSweepEngines = backend.SweepEngines
 )
 
