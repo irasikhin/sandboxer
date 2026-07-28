@@ -396,12 +396,13 @@ case "$cmd" in
     for ((i=0; i<${#a[@]}; i++)); do
       if [ "${a[i]}" = "--name" ]; then name="${a[i+1]}"; fi
     done
+    if [ -e "$D/$name" ]; then echo "sandbox $name already exists" >&2; exit 1; fi
     printf Running > "$D/$name"
     ;;
   start)  printf Running > "$D/${!#}" ;;
   stop)   printf Stopped > "$D/${!#}" ;;
   remove) for x in "$@"; do [ "$x" = "-f" ] || rm -f "$D/$x"; done ;;
-  image)  exit 1 ;;
+  image)  [ "${1:-}" = remove ] || exit 1 ;;
   exec|run)
     argv=(); seen=0
     for x in "$@"; do
