@@ -105,9 +105,19 @@ jobs:
       # v2.12.2 is built with go1.26 — ahead of the current 1.25.10 floor, with
       # room for the next bump — and is what the nix devShell provides, so a
       # local run and this job agree.
+      #
+      # skip-cache: the action's restored lint cache makes results
+      # NON-DETERMINISTIC. staticcheck's SA5011 needs whole-package facts to
+      # know a call does not return (t.Fatal), and a partially-cached run can
+      # miss them: the identical tree that linted clean at one commit reported a
+      # false "possible nil pointer dereference" at the next, in a test file
+      # neither commit touched. A cold run of the same version and toolchain
+      # reports nothing. Green-because-cached is worse than slow, and the
+      # analysis costs seconds here.
       - uses: golangci/golangci-lint-action@v8
         with:
           version: v2.12.2
+          skip-cache: true
 
   nix:
     runs-on: ubuntu-latest
