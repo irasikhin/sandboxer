@@ -1,4 +1,4 @@
-# microVM end-to-end tests (smolvm + KVM).
+# microVM end-to-end tests (smolvm, microsandbox + KVM).
 #
 # The container itest slice runs in ci.yml on every push; the microVM backend
 # needs a hypervisor, so its real-engine e2e runs here — nightly and on demand,
@@ -14,10 +14,12 @@ on:
   schedule:
     - cron: "0 4 * * *" # nightly
 
-# The pinned smolvm release the e2e leg installs. Bump deliberately (a new
-# upstream may change CLI semantics the argv builders depend on).
+# The pinned runner releases the e2e legs install. Bump deliberately (a new
+# upstream may change CLI semantics the argv builders depend on) — and keep
+# MSB_VERSION in step with nix/microsandbox.nix.
 env:
   SMOLVM_VERSION: "1.6.13"
+  MSB_VERSION: "0.6.7"
 
 jobs:
   microvm:
@@ -59,6 +61,46 @@ jobs:
       - name: microVM e2e (real smolvm)
         run: go test -tags integration -count=1 -timeout 20m -run 'TestVM_.*_RealEngine' ./internal/backend/...
 
+  # The same real-engine slice for the second runner. Kept a separate job (not a
+  # matrix) because the two install differently and the msb suite covers one
+  # thing smolvm's cannot: the runner-enforced egress allowlist.
+  microsandbox:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: enable /dev/kvm
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
+            | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+          ls -l /dev/kvm || echo "no /dev/kvm — the microsandbox tests will skip"
+
+      # The release tarball is exactly two files: msb and libkrunfw.so.*, which
+      # msb resolves from BESIDE the binary — so keep them together and point
+      # SANDBOXER_MSB at the extracted path, never at a copy of msb alone.
+      - name: install microsandbox
+        run: |
+          set -euo pipefail
+          base="https://github.com/microsandbox/microsandbox/releases/download/v${MSB_VERSION}"
+          curl -fsSLO "$base/microsandbox-linux-x86_64.tar.gz"
+          curl -fsSLO "$base/checksums.sha256"
+          grep "microsandbox-linux-x86_64.tar.gz" checksums.sha256 | sha256sum -c -
+          mkdir -p msb && tar xzf microsandbox-linux-x86_64.tar.gz -C msb
+          echo "SANDBOXER_MSB=$PWD/msb/msb" >> "$GITHUB_ENV"
+          # MSB_HOME must stay short: every sandbox's agent-relay socket derives
+          # from it and must fit in sun_path (108 bytes).
+          echo "MSB_HOME=/tmp/msb" >> "$GITHUB_ENV"
+
+      - run: go vet -tags integration ./...
+
+      - name: microsandbox e2e (real msb)
+        run: go test -tags integration -count=1 -timeout 20m -run 'TestMSB_.*_RealEngine' ./internal/backend/...
+
   # A cheap canary that the pinned smolvm still installs and boots a machine —
   # catches an upstream release breaking our assumptions before the full suite.
   smolvm-canary:
@@ -81,3 +123,29 @@ jobs:
           smolvm="$PWD/smolvm-${SMOLVM_VERSION}-linux-x86_64/smolvm"
           "$smolvm" --version
           "$smolvm" machine run -I alpine -- echo hello-from-the-canary
+
+  # The same canary for microsandbox: the pinned release still installs, its
+  # doctor passes (KVM + libkrunfw resolution) and a sandbox boots.
+  msb-canary:
+    runs-on: ubuntu-latest
+    steps:
+      - name: enable /dev/kvm
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
+            | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: install + smoke microsandbox
+        env:
+          MSB_HOME: /tmp/msb
+        run: |
+          set -euo pipefail
+          base="https://github.com/microsandbox/microsandbox/releases/download/v${MSB_VERSION}"
+          curl -fsSLO "$base/microsandbox-linux-x86_64.tar.gz"
+          curl -fsSLO "$base/checksums.sha256"
+          grep "microsandbox-linux-x86_64.tar.gz" checksums.sha256 | sha256sum -c -
+          mkdir -p msb && tar xzf microsandbox-linux-x86_64.tar.gz -C msb
+          msb="$PWD/msb/msb"
+          "$msb" --version
+          "$msb" doctor
+          "$msb" run alpine -- echo hello-from-the-canary
