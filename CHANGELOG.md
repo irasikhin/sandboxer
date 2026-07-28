@@ -6,6 +6,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.64.0] — 2026-07-28
+
+### Added
+
+- microsandbox as a second microVM runner (d0a2774)
+
+### Fixed
+
+- raise the Go floor to 1.25.10 (372a0b2)
+
+### Tests
+
+- cover the microVM failure paths (b7dfe86)
+
+### CI
+
+- run the microVM e2e for microsandbox too (878dcd9)
+
+
 ## [0.63.5] — 2026-07-27
 
 ### Fixed
@@ -813,3 +832,4 @@ isolated, containerized dev sandbox, on a local Linux machine:
 [0.63.3]: https://github.com/irasikhin/sandboxer/compare/v0.63.2...v0.63.3
 [0.63.4]: https://github.com/irasikhin/sandboxer/compare/v0.63.3...v0.63.4
 [0.63.5]: https://github.com/irasikhin/sandboxer/compare/v0.63.4...v0.63.5
+[0.64.0]: https://github.com/irasikhin/sandboxer/compare/v0.63.5...v0.64.0
