@@ -6,6 +6,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.65.0] — 2026-07-30
+
+### Added
+
+- make the listing host-wide across every project (86a1d5f)
+
+### CI
+
+- keep the golangci-lint pin rationale current with the Go floor (9ea962a)
+- make the lint job deterministic (skip the golangci-lint cache) (7eef8c2)
+
+
 ## [0.64.0] — 2026-07-28
 
 ### Added
@@ -833,3 +845,4 @@ isolated, containerized dev sandbox, on a local Linux machine:
 [0.63.4]: https://github.com/irasikhin/sandboxer/compare/v0.63.3...v0.63.4
 [0.63.5]: https://github.com/irasikhin/sandboxer/compare/v0.63.4...v0.63.5
 [0.64.0]: https://github.com/irasikhin/sandboxer/compare/v0.63.5...v0.64.0
+[0.65.0]: https://github.com/irasikhin/sandboxer/compare/v0.64.0...v0.65.0
