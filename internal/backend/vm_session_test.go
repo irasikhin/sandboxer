@@ -2,6 +2,7 @@ package backend
 
 import (
 	"bytes"
+	"maps"
 	"os"
 	"path/filepath"
 	"strings"
@@ -186,6 +187,25 @@ func TestVMSessionStatesAndOrphans(t *testing.T) {
 	}
 	if len(orphans) != 1 || orphans[0] != "m-orphan" {
 		t.Errorf("OrphanSessions = %v, want [m-orphan]", orphans)
+	}
+
+	// The host-wide view is the same records grouped by base dir — including the
+	// project whose dir is gone, whose machines a listing must still show.
+	all, err := AllSessionStates(smolvmEngine)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]map[string]string{
+		base:     {"live": "running", "forgotten": "gone"},
+		goneBase: {"orphan": "gone"},
+	}
+	if len(all) != len(want) {
+		t.Fatalf("AllSessionStates = %v, want %v", all, want)
+	}
+	for b, states := range want {
+		if !maps.Equal(all[b], states) {
+			t.Errorf("AllSessionStates[%q] = %v, want %v", b, all[b], states)
+		}
 	}
 }
 

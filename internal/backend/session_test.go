@@ -1219,3 +1219,73 @@ func TestSessionStates(t *testing.T) {
 		}
 	})
 }
+
+func TestAllSessionStates(t *testing.T) {
+	requireExec(t, "sh")
+
+	t.Run("groups every session by its base dir", func(t *testing.T) {
+		engine, logPath := sessionEngine(t)
+		t.Setenv("SBX_PS_OUT", "n1\nn2\nn3\nn4\nn5")
+		// The base dir comes LAST and takes the rest of the line: a status and a
+		// slug never contain a space, a project path can. A session missing
+		// either label belongs to no project and is skipped, never mapped.
+		t.Setenv("SBX_INSPECT_OUT", strings.Join([]string{
+			"running feat /state/a",
+			"exited other /state/a",
+			"running spike /state/with space/b",
+			"created  /state/a",
+			"running noBase ",
+		}, "\n"))
+		got, err := AllSessionStates(engine)
+		if err != nil {
+			t.Fatalf("AllSessionStates: %v", err)
+		}
+		want := map[string]map[string]string{
+			"/state/a":            {"feat": "running", "other": "exited"},
+			"/state/with space/b": {"spike": "running"},
+		}
+		if len(got) != len(want) {
+			t.Fatalf("AllSessionStates = %v, want %v", got, want)
+		}
+		for base, states := range want {
+			if !maps.Equal(got[base], states) {
+				t.Errorf("AllSessionStates[%q] = %v, want %v", base, got[base], states)
+			}
+		}
+		// One ps and one batched inspect, whatever the number of projects.
+		for _, want := range []string{
+			"ps -a --filter label=sandboxer.managed=true --format {{.Names}}",
+			`container inspect --format {{.State.Status}} {{index .Config.Labels "sandboxer.slug"}} {{index .Config.Labels "sandboxer.base"}} n1 n2 n3 n4 n5`,
+		} {
+			if lines := engineLog(t, logPath); !hasLine(lines, want) {
+				t.Errorf("missing %q:\n%s", want, strings.Join(lines, "\n"))
+			}
+		}
+	})
+
+	t.Run("no sessions skips the inspect", func(t *testing.T) {
+		engine, logPath := sessionEngine(t)
+		t.Setenv("SBX_PS_OUT", "")
+		got, err := AllSessionStates(engine)
+		if err != nil || len(got) != 0 {
+			t.Fatalf("AllSessionStates = (%v, %v), want an empty map", got, err)
+		}
+		if findPrefixLine(engineLog(t, logPath), "container inspect") != "" {
+			t.Error("no names, no inspect")
+		}
+	})
+
+	t.Run("engine failures surface", func(t *testing.T) {
+		engine, _ := sessionEngine(t)
+		t.Setenv("SBX_PS_FAIL", "1")
+		if _, err := AllSessionStates(engine); err == nil || !strings.Contains(err.Error(), "list sessions") {
+			t.Errorf("AllSessionStates = %v, want a list sessions error", err)
+		}
+		t.Setenv("SBX_PS_FAIL", "")
+		t.Setenv("SBX_PS_OUT", "n1")
+		t.Setenv("SBX_INSPECT_FAIL", "1")
+		if _, err := AllSessionStates(engine); err == nil || !strings.Contains(err.Error(), "inspect sessions") {
+			t.Errorf("AllSessionStates = %v, want an inspect sessions error", err)
+		}
+	})
+}

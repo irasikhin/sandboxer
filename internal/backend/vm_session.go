@@ -340,21 +340,40 @@ func vmRemoveAllSessions(engine, baseDir string) error {
 // A recorded machine the engine no longer knows reads as "gone", so a
 // hand-deleted machine still surfaces (for cleanup) rather than vanishing.
 func vmSessionStates(engine, baseDir string) (map[string]string, error) {
+	all, err := vmAllSessionStates(engine)
+	if err != nil {
+		return nil, err
+	}
+	states := all[baseDir]
+	if states == nil {
+		states = map[string]string{}
+	}
+	return states, nil
+}
+
+// vmAllSessionStates is AllSessionStates for a microVM runner: every recorded
+// machine grouped by the base dir its record names. There is no per-project
+// query to save here — the records are host-side files that listVMRecords reads
+// whole either way — so the per-project view is a lookup into this one.
+func vmAllSessionStates(engine string) (map[string]map[string]string, error) {
 	r := vmRunnerFor(engine)
 	live := map[string]string{}
 	for _, m := range r.listMachines() {
 		live[m.Name] = m.State
 	}
-	states := map[string]string{}
+	states := map[string]map[string]string{}
 	for _, rec := range listVMRecords(r) {
-		if rec.BaseDir != baseDir {
-			continue
+		if rec.BaseDir == "" {
+			continue // no base dir — attributable to no project
 		}
-		if st, ok := live[rec.Name]; ok {
-			states[rec.Slug] = st
-		} else {
-			states[rec.Slug] = "gone"
+		st, ok := live[rec.Name]
+		if !ok {
+			st = "gone"
 		}
+		if states[rec.BaseDir] == nil {
+			states[rec.BaseDir] = map[string]string{}
+		}
+		states[rec.BaseDir][rec.Slug] = st
 	}
 	return states, nil
 }

@@ -118,7 +118,7 @@ sandboxer enter  feat                     # attach a shell (persistent session; 
 sandboxer exec   feat -- claude           # run an agent/command inside it
 git log feat/feat                      # the work is an ordinary branch (commit it on the host)
 sandboxer stop   feat                     # park the session container (enter resumes it)
-sandboxer list                            # status of all sandboxes (alias: sandboxer status)
+sandboxer list                            # every sandbox on the host, all projects (alias: status)
 sandboxer rm     feat                     # delete the sandbox and its session (keeps the branch)
 ```
 
@@ -215,7 +215,12 @@ and degrade to tofu boxes without one. `Ctrl-Space r` reloads the config.
 Yanks travel to the host clipboard over OSC 52, and `escape-time` is 10ms so
 ESC stays instant inside vim and the agent TUIs. `exec` reuses a running session;
 `stop` parks the container for a later resume; `rm` removes it along with the
-sandbox. `list`'s STATE column shows `running`/`stopped`/`-` per sandbox. When
+sandbox. `list`'s STATE column shows `running`/`stopped`/`-` per sandbox, and
+the listing is **host-wide**: every project sandboxer holds state for, current
+project first (`*` marks its active sandbox, `!` a project whose directory is
+gone), because the sandbox worth being reminded of is the one in a repo you are
+not standing in. `--src <path>` narrows it back to one project, `-w` stops
+truncating the paths. When
 the profile changes or the toolbox image is rebuilt, the next `enter` recreates
 the session (announced) — unless that session is still holding a tmux session,
 in which case `enter` attaches to it as-is rather than rebuilding it under

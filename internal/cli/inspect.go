@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/spf13/cobra"
 
@@ -14,9 +16,13 @@ import (
 	"github.com/irasikhin/sandboxer/internal/sandbox"
 )
 
-// sessionStates is the session-enumeration seam for list and doctor,
-// overridable in tests so the STATE column renders without a real engine.
-var sessionStates = backend.SessionStates
+// sessionStates and allSessionStates are the session-enumeration seams for
+// list and doctor — per project and host-wide — overridable in tests so the
+// STATE column renders without a real engine.
+var (
+	sessionStates    = backend.SessionStates
+	allSessionStates = backend.AllSessionStates
+)
 
 func init() {
 	register(newListCmd)
@@ -32,25 +38,46 @@ func baseOnly(src string) (*sandbox.Base, error) {
 	return sandbox.ResolveBase(root)
 }
 
+// listFmt is the per-project row layout; listAllFmt is the host-wide one, with
+// a PROJECT column whose width is passed in (a '*' width arg) so the paths line
+// up whether or not they were truncated.
+const (
+	listFmt    = "%-2s %-16s %-8s %-9s %-5s %s\n"
+	listAllFmt = "%-2s %-*s %-16s %-8s %-9s %-5s %s\n"
+)
+
 func newListCmd() *cobra.Command {
 	var src string
 	var wide bool
 	cmd := &cobra.Command{
 		Use:     "list",
 		Aliases: []string{"status"},
-		Short:   "List sandboxes and their status",
-		Args:    cobra.NoArgs,
+		Short:   "List sandboxes and their status, across every project on this host",
+		Long: `List sandboxes and their status.
+
+The listing is HOST-WIDE by default: every project sandboxer holds state for,
+not just the one in the current directory. Sandboxes are meant to run in
+parallel, and the ones worth being reminded of are exactly the ones in a repo
+you are not standing in — a stopped session, a finished agent, or a leftover
+whose project directory is gone.
+
+Pass --src <path> to narrow the listing back to one project.`,
+		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			base, err := baseOnly(src)
-			if err != nil {
-				return err
+			if src != "" {
+				base, err := baseOnly(src)
+				if err != nil {
+					return err
+				}
+				printList(cmd, base, wide)
+				return nil
 			}
-			printList(cmd, base, wide)
+			printAll(cmd, sandbox.Projects(), wide)
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&src, "src", "", "project root")
-	cmd.Flags().BoolVarP(&wide, "wide", "w", false, "show full sandbox names (no truncation)")
+	cmd.Flags().StringVar(&src, "src", "", "list only this project (default: every project on this host)")
+	cmd.Flags().BoolVarP(&wide, "wide", "w", false, "show full sandbox names and project paths (no truncation)")
 	return cmd
 }
 
@@ -58,7 +85,7 @@ func printList(cmd *cobra.Command, base *sandbox.Base, wide bool) {
 	out := cmd.OutOrStdout()
 	cur := base.Current()
 	states := projectSessionStates(base.Dir)
-	fmt.Fprintf(out, "%-2s %-16s %-8s %-9s %-5s %s\n", "", "SANDBOX", "STATE", "EXIT", "SEC", "RESULT")
+	fmt.Fprintf(out, listFmt, "", "SANDBOX", "STATE", "EXIT", "SEC", "RESULT")
 	for _, slug := range base.Agents() {
 		exit, secs := readMeta(base.MetaFilePath(slug))
 		res := jsonResult(base.LogPath(slug, "json"))
@@ -71,11 +98,156 @@ func printList(cmd *cobra.Command, base *sandbox.Base, wide bool) {
 			slugDisp = truncate(slug, 16)
 			resDisp = truncate(res, 50)
 		}
-		fmt.Fprintf(out, "%-2s %-16s %-8s %-9s %-5s %s\n",
+		fmt.Fprintf(out, listFmt,
 			marker, slugDisp, sessionState(states, slug), exit, secs, resDisp)
 	}
 	fmt.Fprintln(out)
 	fmt.Fprintln(out, "* = active (use). enter <s> | exec <s> -- cmd | show [s] | path [s] | rm <s>")
+}
+
+// allRow is one rendered host-wide row. The rows are collected before printing
+// so the PROJECT column can be sized to what is actually there — and so an empty
+// host prints a hint instead of a header with nothing under it.
+type allRow struct {
+	marker, project, slug, state, exit, secs, result string
+}
+
+// printAll renders the host-wide listing: every project's sandboxes in one
+// table, the current directory's project first and the rest by path. The session
+// STATE comes from ONE sweep per engine (not one probe per project), so the cost
+// does not grow with the number of repos.
+func printAll(cmd *cobra.Command, projects []sandbox.Project, wide bool) {
+	out := cmd.OutOrStdout()
+	states := hostSessionStates()
+	wd, _ := filepath.Abs(getwd())
+	width := len("PROJECT")
+	var rows []allRow
+	var hasCur, hasGone bool
+	for _, p := range orderProjects(projects, wd) {
+		// The active marker is the CURRENT project's only: it answers "what does
+		// a bare enter/exec hit", and a bare command hits nothing anywhere else.
+		// Another project's `use` choice becomes visible once you cd there.
+		cur := ""
+		if p.Src == wd {
+			cur = p.Current()
+		}
+		project := projectCol(p.Src, wide)
+		// Runes, not bytes: fmt's %-*s pads by rune count, and a left-truncated
+		// path carries a 3-byte "…".
+		if n := utf8.RuneCountInString(project); n > width {
+			width = n
+		}
+		for _, slug := range p.Agents() {
+			exit, secs := readMeta(p.MetaFilePath(slug))
+			res := jsonResult(p.LogPath(slug, "json"))
+			marker := ""
+			switch {
+			case p.Gone:
+				marker, hasGone = "!", true
+			case slug == cur && slug != "":
+				marker, hasCur = "*", true
+			}
+			slugDisp, resDisp := slug, res
+			if !wide {
+				slugDisp = truncate(slug, 16)
+				resDisp = truncate(res, 34)
+			}
+			rows = append(rows, allRow{
+				marker: marker, project: project, slug: slugDisp,
+				state: sessionState(states[p.Dir], slug), exit: exit, secs: secs, result: resDisp,
+			})
+		}
+	}
+	if len(rows) == 0 {
+		fmt.Fprintln(out, "no sandboxes on this host (create one: sandboxer create <slug>)")
+		return
+	}
+	fmt.Fprintf(out, listAllFmt, "", width, "PROJECT", "SANDBOX", "STATE", "EXIT", "SEC", "RESULT")
+	for _, r := range rows {
+		fmt.Fprintf(out, listAllFmt, r.marker, width, r.project, r.slug, r.state, r.exit, r.secs, r.result)
+	}
+	fmt.Fprintln(out)
+	// Only the markers actually in the table get explained — a legend for a
+	// symbol that is not there reads as a warning that is not there either.
+	var legend []string
+	if hasCur {
+		legend = append(legend, "* = active (use) in the current project.")
+	}
+	if hasGone {
+		legend = append(legend, "! = the project directory is gone (state left behind).")
+	}
+	legend = append(legend, "Commands act on ONE project: cd there, or pass --src <path> (narrows this list too).")
+	for _, l := range legend {
+		fmt.Fprintln(out, l)
+	}
+}
+
+// orderProjects puts the project the user is standing in first — its sandboxes
+// are the ones the bare enter/exec/rm act on — and leaves the rest in Projects'
+// path order.
+func orderProjects(projects []sandbox.Project, wd string) []sandbox.Project {
+	for i, p := range projects {
+		if p.Src != wd {
+			continue
+		}
+		ordered := make([]sandbox.Project, 0, len(projects))
+		ordered = append(ordered, p)
+		ordered = append(ordered, projects[:i]...)
+		return append(ordered, projects[i+1:]...)
+	}
+	return projects
+}
+
+// projectCol renders a project root for the PROJECT column: the home directory
+// folded to ~, and (unless --wide) truncated from the LEFT, keeping the tail
+// that tells two checkouts apart.
+func projectCol(src string, wide bool) string {
+	if home, err := os.UserHomeDir(); err == nil && home != "" {
+		if src == home {
+			src = "~"
+		} else if rest, ok := strings.CutPrefix(src, home+string(filepath.Separator)); ok {
+			src = "~" + string(filepath.Separator) + rest
+		}
+	}
+	if wide {
+		return src
+	}
+	const maxCol = 28
+	if r := []rune(src); len(r) > maxCol {
+		return "…" + string(r[len(r)-maxCol+1:])
+	}
+	return src
+}
+
+// hostSessionStates maps baseDir → slug → container status for every project on
+// the host, from one sweep per installed engine (a profile's `backend:` may have
+// put sessions on podman AND docker, or on a microVM runner). Best-effort like
+// projectSessionStates: an engine problem drops that engine's answers only.
+func hostSessionStates() map[string]map[string]string {
+	all := map[string]map[string]string{}
+	for _, engine := range backendSweepEngines(config.LoadDefaults()) {
+		byBase, err := allSessionStates(engine)
+		if err != nil {
+			continue
+		}
+		for base, st := range byBase {
+			if all[base] == nil {
+				all[base] = make(map[string]string, len(st))
+			}
+			mergeStates(all[base], st)
+		}
+	}
+	return all
+}
+
+// mergeStates folds one engine's slug→status answers into dst, where a
+// "running" verdict wins over another engine's leftover record.
+func mergeStates(dst, src map[string]string) {
+	for slug, s := range src {
+		if cur, ok := dst[slug]; !ok || cur != "running" {
+			dst[slug] = s
+		}
+	}
 }
 
 // projectSessionStates returns slug→container status for the project's
@@ -93,12 +265,8 @@ func projectSessionStates(baseDir string) map[string]string {
 		if states == nil {
 			states = make(map[string]string, len(st))
 		}
-		for slug, s := range st {
-			// A "running" verdict wins over another engine's leftover record.
-			if cur, ok := states[slug]; !ok || cur != "running" {
-				states[slug] = s
-			}
-		}
+		// A "running" verdict wins over another engine's leftover record.
+		mergeStates(states, st)
 	}
 	return states
 }

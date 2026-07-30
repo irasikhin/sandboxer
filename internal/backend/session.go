@@ -526,6 +526,55 @@ func SessionStates(engine, baseDir string) (map[string]string, error) {
 	return states, nil
 }
 
+// AllSessionStates maps baseDir → slug → container status for EVERY
+// sandboxer-managed session on the engine — what a host-wide listing needs. It
+// costs two engine calls no matter how many projects exist, which is why it is
+// not a loop over SessionStates: one label-filtered probe per project turns a
+// listing into seconds of exec once a user has a handful of repos.
+func AllSessionStates(engine string) (map[string]map[string]string, error) {
+	if isVMEngine(engine) {
+		return vmAllSessionStates(engine)
+	}
+	out, err := execx.Output(engine, "ps", "-a",
+		"--filter", "label="+LabelManaged+"=true",
+		"--format", "{{.Names}}")
+	if err != nil {
+		return nil, fmt.Errorf("list sessions: %w", err)
+	}
+	names := strings.Fields(out) // container names contain no whitespace
+	states := map[string]map[string]string{}
+	if len(names) == 0 {
+		return states, nil
+	}
+	// One batched inspect, with the full template both engines agree on (see
+	// SessionStates). Field ORDER carries the parse: a status and a slug never
+	// contain a space (config.Sanitize), while a base DIRECTORY can — so the
+	// path goes last and takes the rest of the line.
+	args := []string{"container", "inspect", "--format",
+		`{{.State.Status}} {{index .Config.Labels "` + LabelSlug + `"}} {{index .Config.Labels "` + LabelBase + `"}}`}
+	args = append(args, names...)
+	iout, err := execx.Output(engine, args...)
+	if err != nil {
+		return nil, fmt.Errorf("inspect sessions: %w", err)
+	}
+	for _, line := range strings.Split(strings.TrimRight(iout, "\n"), "\n") {
+		status, rest, ok := strings.Cut(line, " ")
+		if !ok {
+			continue
+		}
+		slug, base, ok := strings.Cut(rest, " ")
+		base = strings.TrimSpace(base)
+		if !ok || slug == "" || base == "" {
+			continue // a session missing either label cannot be attributed
+		}
+		if states[base] == nil {
+			states[base] = map[string]string{}
+		}
+		states[base][slug] = status
+	}
+	return states, nil
+}
+
 // OrphanSessions returns the names of sandboxer-managed session containers
 // whose recorded base directory no longer exists on this host — the project
 // was deleted behind the engine's back (rm -rf instead of `sandboxer rm`), so
