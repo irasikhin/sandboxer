@@ -19,10 +19,9 @@ import (
 // announceFreshState prints a one-time notice when this command initialised the
 // project's runtime state tree, so the auto-created directory is never a
 // surprise. The state lives outside the repo (config.StateDir).
-func announceFreshState(cmd *cobra.Command, fresh bool, root string) {
+func announceFreshState(w io.Writer, fresh bool, root string) {
 	if fresh {
-		fmt.Fprintf(cmd.ErrOrStderr(), "sandboxer: initialized state in %s\n",
-			config.StateDir(root))
+		fmt.Fprintf(w, "sandboxer: initialized state in %s\n", config.StateDir(root))
 	}
 }
 
@@ -58,7 +57,7 @@ func newCreateCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			announceFreshState(cmd, fresh, t.base.Src)
+			announceFreshState(cmd.ErrOrStderr(), fresh, t.base.Src)
 			if f.domains != "" {
 				if err := t.base.SetDomains(f.domains); err != nil {
 					return err
@@ -109,6 +108,7 @@ func newCreateCmd() *cobra.Command {
 func newEnterCmd() *cobra.Command {
 	var f commonFlags
 	var sessionName string
+	var quiet bool
 	cmd := &cobra.Command{
 		Use:   "enter [slug|profile|file.nix]",
 		Short: "Open an interactive shell inside the sandbox",
@@ -151,17 +151,24 @@ disable with autoResume = false in the profile, or SANDBOXER_NO_RESUME=1.`,
 			if err != nil {
 				return err
 			}
-			announceFreshState(cmd, fresh, t.base.Src)
+			// narrate carries the progress/banner chatter; --quiet drops it.
+			// Warnings, errors and the interactive drift prompt stay on the
+			// real stderr regardless.
+			narrate := io.Writer(cmd.ErrOrStderr())
+			if quiet {
+				narrate = io.Discard
+			}
+			announceFreshState(narrate, fresh, t.base.Src)
 			dest := t.base.SandboxDir(t.slug)
 			createdDest := !fileExists(dest)
 			if createdDest {
-				fmt.Fprintf(cmd.ErrOrStderr(), "sandbox %q does not exist — creating\n", t.slug)
+				fmt.Fprintf(narrate, "sandbox %q does not exist — creating\n", t.slug)
 				if t.json != nil {
 					if err := t.base.WriteProfileJSON(t.slug, t.json); err != nil {
 						return err
 					}
 				}
-				if err := t.base.MakeSandbox(t.slug, cmd.ErrOrStderr()); err != nil {
+				if err := t.base.MakeSandbox(t.slug, narrate); err != nil {
 					return err
 				}
 			} else {
@@ -171,7 +178,7 @@ disable with autoResume = false in the profile, or SANDBOXER_NO_RESUME=1.`,
 				// Converge the sources onto the (possibly edited) profile: new
 				// srcs materialize under <slug>/ — a live session sees them
 				// immediately through its stable mount.
-				if _, err := t.base.SyncSrcs(t.slug, cmd.ErrOrStderr()); err != nil {
+				if _, err := t.base.SyncSrcs(t.slug, narrate); err != nil {
 					return err
 				}
 			}
@@ -190,11 +197,11 @@ disable with autoResume = false in the profile, or SANDBOXER_NO_RESUME=1.`,
 			}
 			persistent := rt.Session == config.SessionPersistent
 			errOut := cmd.ErrOrStderr()
-			fmt.Fprintln(errOut, configLine(rt, t.slug, t.profile, backendLabel(rt)))
+			fmt.Fprintln(narrate, configLine(rt, t.slug, t.profile, backendLabel(rt)))
 			// Show what the sandbox actually exposes — one line per source repo,
 			// with its branch and where the worktree lives.
 			for _, s := range t.base.Srcs(t.slug) {
-				fmt.Fprintf(errOut, "sandboxer: src %s\n", srcLine(s))
+				fmt.Fprintf(narrate, "sandboxer: src %s\n", srcLine(s))
 			}
 			warnIgnoredRoutes(errOut, rt)
 			warnOpenNetwork(errOut, rt, t.profile)
@@ -207,9 +214,9 @@ disable with autoResume = false in the profile, or SANDBOXER_NO_RESUME=1.`,
 			if err := t.base.EnsureHome(t.slug); err != nil {
 				return err
 			}
-			seedHostConfigs(t, errOut)
-			nestedIDs := prepareNestedIDs(t, engine, errOut)
-			if err := runSetup(t, rt, engine, nestedIDs, f.noSetup, errOut); err != nil {
+			seedHostConfigs(t, narrate)
+			nestedIDs := prepareNestedIDs(t, engine, narrate)
+			if err := runSetup(t, rt, engine, nestedIDs, f.noSetup, narrate); err != nil {
 				return err
 			}
 			name := backend.SessionName(t.slug, t.base.Dir)
@@ -305,11 +312,11 @@ disable with autoResume = false in the profile, or SANDBOXER_NO_RESUME=1.`,
 			}
 			switch {
 			case staleWhy != "":
-				fmt.Fprintln(errOut, staleSessionEnterBanner(t.slug, engine, dest, name, staleWhy))
+				fmt.Fprintln(narrate, staleSessionEnterBanner(t.slug, engine, dest, name, staleWhy))
 			case useSession:
-				fmt.Fprintln(errOut, persistentEnterBanner(t.slug, engine, dest, name))
+				fmt.Fprintln(narrate, persistentEnterBanner(t.slug, engine, dest, name))
 			default:
-				fmt.Fprintln(errOut, oneShotEnterBanner(t.slug, engine, dest, oneShotWhy))
+				fmt.Fprintln(narrate, oneShotEnterBanner(t.slug, engine, dest, oneShotWhy))
 			}
 			var code int
 			var runErr error
@@ -343,10 +350,10 @@ disable with autoResume = false in the profile, or SANDBOXER_NO_RESUME=1.`,
 				backendSyncSessionState(engine, name, o.SessionStatePath)
 			}
 			for _, s := range t.base.Srcs(t.slug) {
-				fmt.Fprintf(errOut, "sandboxer: %s: work is in %s — commit/review on the host: git -C %s log %s\n",
+				fmt.Fprintf(narrate, "sandboxer: %s: work is in %s — commit/review on the host: git -C %s log %s\n",
 					filepath.Base(s.RepoRoot), s.Path, s.RepoRoot, s.Branch)
 			}
-			fmt.Fprintf(errOut, "sandboxer: done in %s\n", dest)
+			fmt.Fprintf(narrate, "sandboxer: done in %s\n", dest)
 			if runErr != nil {
 				return silentErr{runErr}
 			}
@@ -361,11 +368,13 @@ disable with autoResume = false in the profile, or SANDBOXER_NO_RESUME=1.`,
 	cmd.Flags().BoolVar(&f.ephemeral, "ephemeral", false, "one-shot container instead of the persistent session")
 	cmd.Flags().BoolVar(&f.recreate, "recreate", false, "force session rebuild even if running (picks up config changes)")
 	cmd.Flags().StringVar(&sessionName, "session", "main", "tmux session name inside the container")
+	cmd.Flags().BoolVarP(&quiet, "quiet", "q", false, "suppress the progress narration (warnings and errors still print)")
 	return cmd
 }
 
 func newExecCmd() *cobra.Command {
 	var f commonFlags
+	var quiet bool
 	cmd := &cobra.Command{
 		Use:   "exec [slug] -- <cmd...>",
 		Short: "Run a command inside the sandbox",
@@ -391,6 +400,12 @@ composes with scripts and CI.`,
 			if err != nil {
 				return err
 			}
+			// Same narration split as enter: --quiet drops the chatter,
+			// warnings and errors keep the real stderr.
+			narrate := io.Writer(cmd.ErrOrStderr())
+			if quiet {
+				narrate = io.Discard
+			}
 			dest := t.base.SandboxDir(t.slug)
 			if !fileExists(dest) {
 				return fmt.Errorf("no sandbox %q (create it: sandboxer create)", t.slug)
@@ -398,7 +413,7 @@ composes with scripts and CI.`,
 			if err := t.syncSnapshot(); err != nil {
 				return err
 			}
-			if _, err := t.base.SyncSrcs(t.slug, cmd.ErrOrStderr()); err != nil {
+			if _, err := t.base.SyncSrcs(t.slug, narrate); err != nil {
 				return err
 			}
 			// Re-resolve after the snapshot landed (worktreesDir may have changed).
@@ -413,7 +428,7 @@ composes with scripts and CI.`,
 			if err := config.ValidateSession(rt); err != nil {
 				return err
 			}
-			fmt.Fprintln(cmd.ErrOrStderr(), configLine(rt, t.slug, t.profile, backendLabel(rt)))
+			fmt.Fprintln(narrate, configLine(rt, t.slug, t.profile, backendLabel(rt)))
 			warnIgnoredRoutes(cmd.ErrOrStderr(), rt)
 			warnOpenNetwork(cmd.ErrOrStderr(), rt, t.profile)
 			engine, err := backend.ResolveEngine(rt.Backend, config.LoadDefaults())
@@ -423,9 +438,9 @@ composes with scripts and CI.`,
 			if err := t.base.EnsureHome(t.slug); err != nil {
 				return err
 			}
-			seedHostConfigs(t, cmd.ErrOrStderr())
-			nestedIDs := prepareNestedIDs(t, engine, cmd.ErrOrStderr())
-			if err := runSetup(t, rt, engine, nestedIDs, f.noSetup, cmd.ErrOrStderr()); err != nil {
+			seedHostConfigs(t, narrate)
+			nestedIDs := prepareNestedIDs(t, engine, narrate)
+			if err := runSetup(t, rt, engine, nestedIDs, f.noSetup, narrate); err != nil {
 				return err
 			}
 			image, spec, err := resolveImage(t.profile, engine, cmd.ErrOrStderr())
@@ -501,6 +516,7 @@ composes with scripts and CI.`,
 	bindExisting(cmd, &f)
 	cmd.Flags().BoolVar(&f.noSetup, "no-setup", false, "skip the profile's one-time setup script")
 	cmd.Flags().BoolVar(&f.ephemeral, "ephemeral", false, "one-shot container instead of the persistent session")
+	cmd.Flags().BoolVarP(&quiet, "quiet", "q", false, "suppress the progress narration (warnings and errors still print)")
 	return cmd
 }
 

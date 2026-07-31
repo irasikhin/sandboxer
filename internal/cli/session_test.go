@@ -508,6 +508,51 @@ func TestEnterExitCodePassthrough(t *testing.T) {
 	}
 }
 
+// TestExecQuiet: -q drops the narration (config line, src sync chatter) while
+// a security warning still reaches stderr.
+func TestExecQuiet(t *testing.T) {
+	project := sessionProject(t)
+	stubSessionSeams(t, backend.SessionInfo{}, "h")
+
+	code, _, errs := run("exec", "feat", "--src", project, "-q", "--", "true")
+	if code != 0 {
+		t.Fatalf("exec -q = %d, %s", code, errs)
+	}
+	if strings.Contains(errs, "backend=") {
+		t.Errorf("exec -q must drop the config line, got %q", errs)
+	}
+
+	// The open-egress warning is not narration: it prints despite -q.
+	cfg := filepath.Join(t.TempDir(), "open.nix")
+	if err := os.WriteFile(cfg, []byte(`{ name = "feat"; srcs = [ { src = "."; branch = "feat/x"; } ]; egress = { enabled = false; }; }`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	code, _, errs = run("exec", "--src", project, "--config", cfg, "-q", "--", "true")
+	if code != 0 {
+		t.Fatalf("exec -q (open egress) = %d, %s", code, errs)
+	}
+	if !strings.Contains(errs, "WARNING — egress is unrestricted") {
+		t.Errorf("exec -q must keep the security warning, got %q", errs)
+	}
+}
+
+// TestEnterQuiet: --quiet enters silently — no config line, no banner, no
+// epilogue — and still exits clean.
+func TestEnterQuiet(t *testing.T) {
+	project := sessionProject(t)
+	stubSessionSeams(t, backend.SessionInfo{}, "h")
+
+	code, _, errs := run("enter", "feat", "--src", project, "--quiet")
+	if code != 0 {
+		t.Fatalf("enter --quiet = %d, %s", code, errs)
+	}
+	for _, banned := range []string{"backend=", "persistent session", "done in", "sandboxer: src "} {
+		if strings.Contains(errs, banned) {
+			t.Errorf("enter --quiet must drop %q, got %q", banned, errs)
+		}
+	}
+}
+
 // TestExecEphemeralSkipsInspect: --ephemeral bypasses session discovery
 // entirely.
 func TestExecEphemeralSkipsInspect(t *testing.T) {
