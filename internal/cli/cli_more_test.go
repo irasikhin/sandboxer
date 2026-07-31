@@ -103,11 +103,4 @@ func TestListMarkerAndJSONResultNoKeys(t *testing.T) {
 	if code, out, _ := run("list", "--src", project); code != 0 || !strings.Contains(out, "*") {
 		t.Errorf("list active marker = (%d, %q)", code, out)
 	}
-	p := filepath.Join(t.TempDir(), "j.json")
-	if err := os.WriteFile(p, []byte(`{"other":1}`), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if got := jsonResult(p); got != "" {
-		t.Errorf("jsonResult without keys = %q, want empty", got)
-	}
 }

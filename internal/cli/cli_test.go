@@ -79,42 +79,6 @@ func TestFileExistsAndInContainer(t *testing.T) {
 	}
 }
 
-func TestReadMeta(t *testing.T) {
-	p := filepath.Join(t.TempDir(), "m")
-	if err := os.WriteFile(p, []byte("exit=0\nsecs=12\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if e, s := readMeta(p); e != "0" || s != "12" {
-		t.Errorf("readMeta = (%q,%q), want (0,12)", e, s)
-	}
-	if e, s := readMeta(filepath.Join(t.TempDir(), "missing")); e != "-" || s != "-" {
-		t.Errorf("readMeta(missing) = (%q,%q), want (-,-)", e, s)
-	}
-}
-
-func TestJSONResult(t *testing.T) {
-	dir := t.TempDir()
-	write := func(name, body string) string {
-		p := filepath.Join(dir, name)
-		if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
-			t.Fatal(err)
-		}
-		return p
-	}
-	if got := jsonResult(write("r.json", `{"result":"hello   world"}`)); got != "hello world" {
-		t.Errorf("result = %q, want 'hello world'", got)
-	}
-	if got := jsonResult(write("e.json", `{"error":"boom"}`)); got != "boom" {
-		t.Errorf("error = %q, want boom", got)
-	}
-	if got := jsonResult(write("bad.json", `not json`)); got != "" {
-		t.Errorf("invalid json = %q, want empty", got)
-	}
-	if got := jsonResult(filepath.Join(dir, "missing")); got != "" {
-		t.Errorf("missing = %q, want empty", got)
-	}
-}
-
 func TestDumpFile(t *testing.T) {
 	dir := t.TempDir()
 	noNL := filepath.Join(dir, "a")

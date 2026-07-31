@@ -50,7 +50,7 @@ func rowFields(line string) []string {
 }
 
 // allRowFields returns the host-wide list row for slug as
-// [marker, ID, PROJECT, SANDBOX, STATE, EXIT, SEC, RESULT…].
+// [marker, ID, PROJECT, SANDBOX, STATE].
 func allRowFields(t *testing.T, out, slug string) []string {
 	t.Helper()
 	for _, line := range strings.Split(out, "\n") {
@@ -63,7 +63,7 @@ func allRowFields(t *testing.T, out, slug string) []string {
 }
 
 // listRow returns the per-project list row for slug as
-// [marker, ID, SANDBOX, STATE, EXIT, SEC, RESULT…].
+// [marker, ID, SANDBOX, STATE].
 func listRow(t *testing.T, out, slug string) []string {
 	t.Helper()
 	for _, line := range strings.Split(out, "\n") {
@@ -280,7 +280,7 @@ func TestProjectWidth(t *testing.T) {
 		{desc: "no terminal keeps the full path", longest: 60, term: 0, want: 60},
 		{desc: "a wide terminal fits it", longest: 60, term: 200, want: 60},
 		{desc: "a short path is never padded up", longest: 12, term: 200, want: 12},
-		{desc: "a narrow terminal pays for RESULT first", longest: 60, term: 100, want: 100 - fixedListCols - minResultCol},
+		{desc: "a narrow terminal cuts the path back", longest: 60, term: 80, want: 80 - fixedListCols},
 		{desc: "the floor holds on a tiny terminal", longest: 60, term: 40, want: minProjectCol},
 		{desc: "--wide ignores the terminal", longest: 60, term: 40, wide: true, want: 60},
 	} {

@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -44,18 +43,17 @@ func baseOnly(src string) (*sandbox.Base, error) {
 // way, from sandbox.IDLen, so the handle the table prints and the one commands
 // accept can never drift apart.
 const (
-	listFmt    = "%-2s %-*s %-16s %-8s %-9s %-5s %s\n"
-	listAllFmt = "%-2s %-*s %-*s %-16s %-8s %-9s %-5s %s\n"
+	listFmt    = "%-2s %-*s %-16s %s\n"
+	listAllFmt = "%-2s %-*s %-*s %-16s %s\n"
 )
 
 // Column budget for the host-wide table: fixedListCols is what listAllFmt
-// spends on everything except PROJECT and RESULT (the two variable columns),
-// and the two minimums are the floor each keeps when a narrow terminal cannot
-// pay for both.
+// spends on everything except PROJECT (the one variable column), and
+// minProjectCol is the floor PROJECT keeps when a narrow terminal cannot
+// pay for the full path.
 const (
-	fixedListCols = 55
+	fixedListCols = 37
 	minProjectCol = 20
-	minResultCol  = 12
 )
 
 func newListCmd() *cobra.Command {
@@ -103,21 +101,18 @@ func printList(cmd *cobra.Command, base *sandbox.Base, wide bool) {
 	out := cmd.OutOrStdout()
 	cur := base.Current()
 	states := projectSessionStates(base.Dir)
-	fmt.Fprintf(out, listFmt, "", sandbox.IDLen, "ID", "SANDBOX", "STATE", "EXIT", "SEC", "RESULT")
+	fmt.Fprintf(out, listFmt, "", sandbox.IDLen, "ID", "SANDBOX", "STATE")
 	for _, slug := range base.Agents() {
-		exit, secs := readMeta(base.MetaFilePath(slug))
-		res := jsonResult(base.LogPath(slug, "json"))
 		marker := ""
 		if slug == cur {
 			marker = "*"
 		}
-		slugDisp, resDisp := slug, res
+		slugDisp := slug
 		if !wide {
 			slugDisp = truncate(slug, 16)
-			resDisp = truncate(res, 50)
 		}
 		fmt.Fprintf(out, listFmt,
-			marker, sandbox.IDLen, base.ID(slug), slugDisp, sessionState(states, slug), exit, secs, resDisp)
+			marker, sandbox.IDLen, base.ID(slug), slugDisp, sessionState(states, slug))
 	}
 	fmt.Fprintln(out)
 	fmt.Fprintln(out, "* = active (use). enter <s> | exec <s> -- cmd | show [s] | path [s] | rm <s>")
@@ -127,7 +122,7 @@ func printList(cmd *cobra.Command, base *sandbox.Base, wide bool) {
 // so the PROJECT column can be sized to what is actually there — and so an empty
 // host prints a hint instead of a header with nothing under it.
 type allRow struct {
-	marker, id, project, slug, state, exit, secs, result string
+	marker, id, project, slug, state string
 }
 
 // printAll renders the host-wide listing: every project's sandboxes in one
@@ -156,8 +151,6 @@ func printAll(cmd *cobra.Command, projects []sandbox.Project, wide bool) {
 			longest = n
 		}
 		for _, slug := range p.Agents() {
-			exit, secs := readMeta(p.MetaFilePath(slug))
-			res := jsonResult(p.LogPath(slug, "json"))
 			marker := ""
 			switch {
 			case p.Gone:
@@ -165,14 +158,13 @@ func printAll(cmd *cobra.Command, projects []sandbox.Project, wide bool) {
 			case slug == cur && slug != "":
 				marker, hasCur = "*", true
 			}
-			slugDisp, resDisp := slug, res
+			slugDisp := slug
 			if !wide {
 				slugDisp = truncate(slug, 16)
-				resDisp = truncate(res, 34)
 			}
 			rows = append(rows, allRow{
 				marker: marker, id: p.ID(slug), project: project, slug: slugDisp,
-				state: sessionState(states[p.Dir], slug), exit: exit, secs: secs, result: resDisp,
+				state: sessionState(states[p.Dir], slug),
 			})
 		}
 	}
@@ -181,10 +173,10 @@ func printAll(cmd *cobra.Command, projects []sandbox.Project, wide bool) {
 		return
 	}
 	width := projectWidth(longest, outWidth(out), wide)
-	fmt.Fprintf(out, listAllFmt, "", sandbox.IDLen, "ID", width, "PROJECT", "SANDBOX", "STATE", "EXIT", "SEC", "RESULT")
+	fmt.Fprintf(out, listAllFmt, "", sandbox.IDLen, "ID", width, "PROJECT", "SANDBOX", "STATE")
 	for _, r := range rows {
 		fmt.Fprintf(out, listAllFmt, r.marker, sandbox.IDLen, r.id,
-			width, truncateLeft(r.project, width), r.slug, r.state, r.exit, r.secs, r.result)
+			width, truncateLeft(r.project, width), r.slug, r.state)
 	}
 	fmt.Fprintln(out)
 	// Only the markers actually in the table get explained — a legend for a
@@ -239,15 +231,15 @@ func projectPath(src string) string {
 // full longest path: a column that answers "which repo" but not "where" is the
 // one thing this column exists for, so it is cut back only when a real terminal
 // genuinely cannot fit it — and then only to what is left once the fixed
-// columns and a still-readable RESULT are paid for, never below minProjectCol.
-// term <= 0 means the output is not a terminal at all (a pipe, a file, a test
-// buffer): nothing is truncated, because something is READING this. --wide
-// keeps the full path unconditionally.
+// columns are paid for, never below minProjectCol. term <= 0 means the output
+// is not a terminal at all (a pipe, a file, a test buffer): nothing is
+// truncated, because something is READING this. --wide keeps the full path
+// unconditionally.
 func projectWidth(longest, term int, wide bool) int {
 	if wide || term <= 0 {
 		return longest
 	}
-	room := term - fixedListCols - minResultCol
+	room := term - fixedListCols
 	if room < minProjectCol {
 		room = minProjectCol
 	}
@@ -470,40 +462,6 @@ func sessionHashOpts(t *target, rt config.Runtime, engine string) (backend.RunOp
 		Mem:           rt.Mem, CPU: rt.CPU, Pids: rt.Pids,
 		NoEgress: noEgress(),
 	}, true
-}
-
-func readMeta(path string) (exit, secs string) {
-	exit, secs = "-", "-"
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return
-	}
-	for _, line := range strings.Split(string(data), "\n") {
-		if v, ok := strings.CutPrefix(line, "exit="); ok {
-			exit = v
-		} else if v, ok := strings.CutPrefix(line, "secs="); ok {
-			secs = v
-		}
-	}
-	return
-}
-
-// jsonResult extracts the agent's result/error string from its output log.
-func jsonResult(path string) string {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return ""
-	}
-	var m map[string]any
-	if json.Unmarshal(data, &m) != nil {
-		return ""
-	}
-	for _, k := range []string{"result", "error"} {
-		if v, ok := m[k]; ok {
-			return strings.Join(strings.Fields(fmt.Sprint(v)), " ")
-		}
-	}
-	return ""
 }
 
 func dumpFile(out interface{ Write([]byte) (int, error) }, path string) bool {
