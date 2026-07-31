@@ -462,6 +462,52 @@ func TestExecSessionErrorPropagates(t *testing.T) {
 	}
 }
 
+// TestExecExitCodePassthrough: the child's non-zero exit code becomes
+// sandboxer's own exit code (not a flattened 1), with nothing printed about
+// it — the child's output already told the story.
+func TestExecExitCodePassthrough(t *testing.T) {
+	project := sessionProject(t)
+	stubSessionSeams(t, backend.SessionInfo{}, "h")
+	backendRun = func(o backend.RunOpts) (int, error) { return 7, nil }
+
+	code, _, errs := run("exec", "feat", "--src", project, "--", "false")
+	if code != 7 {
+		t.Errorf("exec exit = %d, want the child's 7 (stderr: %q)", code, errs)
+	}
+	if strings.Contains(errs, "exited") {
+		t.Errorf("a passed-through exit code must not be narrated, got %q", errs)
+	}
+}
+
+// TestExecSessionExitCodePassthrough: same passthrough on the session path.
+func TestExecSessionExitCodePassthrough(t *testing.T) {
+	project := sessionProject(t)
+	stubSessionSeams(t, backend.SessionInfo{Exists: true, Running: true, Hash: "h"}, "h")
+	backendExecSession = func(o backend.RunOpts, name string, cmdArgs []string) (int, error) {
+		return 42, nil
+	}
+
+	code, _, _ := run("exec", "feat", "--src", project, "--", "sh", "-c", "exit 42")
+	if code != 42 {
+		t.Errorf("session exec exit = %d, want the child's 42", code)
+	}
+}
+
+// TestEnterExitCodePassthrough: enter passes the shell's exit code through
+// too, like ssh does.
+func TestEnterExitCodePassthrough(t *testing.T) {
+	project := sessionProject(t)
+	stubSessionSeams(t, backend.SessionInfo{}, "h")
+	backendExecSession = func(o backend.RunOpts, name string, cmdArgs []string) (int, error) {
+		return 5, nil
+	}
+
+	code, _, errs := run("enter", "feat", "--src", project)
+	if code != 5 {
+		t.Errorf("enter exit = %d, want the shell's 5 (stderr: %q)", code, errs)
+	}
+}
+
 // TestExecEphemeralSkipsInspect: --ephemeral bypasses session discovery
 // entirely.
 func TestExecEphemeralSkipsInspect(t *testing.T) {

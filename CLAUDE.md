@@ -44,7 +44,8 @@ was extracted from:
 - **User-facing error = `silentErr{err}`** in `internal/cli/cli.go` (kpass uses `UserError{Msg}`): it marks
   "the command already printed its own diagnostic", so `Run` returns exit 1 without re-printing. Same contract
   as `lang-go-error-handling`, different shape — there is no colored top-level reprint and no `130`/Canceled
-  branch (the CLI is synchronous).
+  branch (the CLI is synchronous). `exitErr{code}` (same file) is the second typed error: enter/exec wrap the
+  child's non-zero exit code in it and `Run` passes the code through as the process exit code, printing nothing.
 - **Lint:** `.golangci.yml` already matches `build-go-tooling`'s linter set verbatim. CI additionally enforces
   a **90% coverage floor** (the project-set value `lang-go-testing` / `ci-github-binary-release` refer to).
 - **Release:** Linux **amd64 + arm64 only** today (no darwin matrix yet); `version` is hardcoded in

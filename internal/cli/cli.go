@@ -23,10 +23,16 @@ func Run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	root.SetOut(stdout)
 	root.SetErr(stderr)
 	if err := root.Execute(); err != nil {
-		// Cobra already prints usage on arg errors; command bodies print their
-		// own diagnostics via cmd.PrintErrln. Just surface a final marker.
-		// errors.As (not a bare type assertion) so a wrapped silentErr is still
-		// recognized and not double-printed.
+		// A child process's exit code passes through as sandboxer's own (like
+		// ssh/docker exec), printed by nobody — the child's output already told
+		// the story.
+		var ee exitErr
+		if errors.As(err, &ee) {
+			return ee.code
+		}
+		// Command bodies print their own diagnostics via cmd.PrintErrln. Just
+		// surface a final marker. errors.As (not a bare type assertion) so a
+		// wrapped silentErr is still recognized and not double-printed.
 		var se silentErr
 		if !errors.As(err, &se) {
 			fmt.Fprintln(stderr, "sandboxer:", err)
@@ -46,6 +52,13 @@ func (e silentErr) Error() string { return e.err.Error() }
 // particular Run's own errors.As check, which must recognize a silentErr even
 // if a caller ever wraps it.
 func (e silentErr) Unwrap() error { return e.err }
+
+// exitErr carries a child process's exit code out of enter/exec so Run can
+// return it as the process exit code. Never printed: a non-zero child is the
+// child's news, not sandboxer's.
+type exitErr struct{ code int }
+
+func (e exitErr) Error() string { return fmt.Sprintf("exited %d", e.code) }
 
 func newRootCmd() *cobra.Command {
 	root := &cobra.Command{

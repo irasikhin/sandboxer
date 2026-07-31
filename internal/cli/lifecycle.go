@@ -351,7 +351,7 @@ disable with autoResume = false in the profile, or SANDBOXER_NO_RESUME=1.`,
 				return silentErr{runErr}
 			}
 			if code != 0 {
-				return silentErr{fmt.Errorf("shell exited %d", code)}
+				return exitErr{code}
 			}
 			return nil
 		},
@@ -369,6 +369,9 @@ func newExecCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "exec [slug] -- <cmd...>",
 		Short: "Run a command inside the sandbox",
+		Long: `Run a command inside the sandbox. The command's exit code becomes
+sandboxer's own exit code — a failing test run fails the exec too, so it
+composes with scripts and CI.`,
 		Example: `  # run a one-off command (note the -- separator)
   sandboxer exec feat -- npm test
 
@@ -488,7 +491,9 @@ func newExecCmd() *cobra.Command {
 				return runErr
 			}
 			if code != 0 {
-				return silentErr{fmt.Errorf("command exited %d", code)}
+				// Pass the command's exit code through (scripts and CI depend
+				// on telling "the tests failed" from "sandboxer failed").
+				return exitErr{code}
 			}
 			return nil
 		},
