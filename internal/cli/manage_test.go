@@ -2,12 +2,14 @@ package cli
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/irasikhin/sandboxer/internal/config"
+	"github.com/irasikhin/sandboxer/internal/sandbox"
 )
 
 // stubRemoveSession replaces the rm seam with a recorder returning err. The
@@ -97,6 +99,127 @@ func TestRmEngineLessHost(t *testing.T) {
 	if fileExists(dest) {
 		t.Error("sandbox files were not removed")
 	}
+}
+
+// TestRmByID: the id `list` prints is a HOST-WIDE handle — rm takes it (or an
+// unambiguous prefix) from any directory and removes that sandbox in its own
+// project, including a project whose directory is gone, which no cd and no
+// --src can reach. Several may go at once, and every argument is resolved
+// before anything is removed, so a typo removes nothing.
+func TestRmByID(t *testing.T) {
+	t.Setenv("SANDBOXER_STATE", t.TempDir()) // isolate the host-wide index
+	here := sessionProject(t)                // the cwd project, with "feat"
+	other := newProject(t)
+	if code, _, errs := run("create", "away", "--src", other); code != 0 {
+		t.Fatalf("create away: %d %s", code, errs)
+	}
+	deleted := newProject(t)
+	if code, _, errs := run("create", "left", "--src", deleted); code != 0 {
+		t.Fatalf("create left: %d %s", code, errs)
+	}
+	if err := os.RemoveAll(deleted); err != nil {
+		t.Fatal(err)
+	}
+	awayID := sandbox.ID(config.StateDir(other), "away")
+	leftID := sandbox.ID(config.StateDir(deleted), "left")
+	stubRemoveSession(t, "", nil)
+	t.Chdir(here)
+
+	t.Run("an unknown id-shaped token removes nothing", func(t *testing.T) {
+		code, _, errs := run("rm", "feat", "ffffffff")
+		if code == 0 {
+			t.Fatal("rm with an unknown id = 0, want a failure")
+		}
+		if !fileExists(sandboxDir(here, "feat")) {
+			t.Errorf("a failed batch removed feat anyway (errs=%q)", errs)
+		}
+	})
+
+	t.Run("a prefix reaches another project", func(t *testing.T) {
+		code, out, errs := run("rm", awayID[:sandbox.MinIDPrefix])
+		if code != 0 {
+			t.Fatalf("rm by id prefix = %d, %s", code, errs)
+		}
+		// The project must be named: "removed sandbox: away" alone reads like
+		// something in the cwd project just went.
+		if !strings.Contains(out, "removed sandbox: away") || !strings.Contains(out, other) {
+			t.Errorf("rm output = %q, want the slug AND the project %s", out, other)
+		}
+		if fileExists(sandboxDir(other, "away")) {
+			t.Error("the sandbox in the other project survived")
+		}
+	})
+
+	t.Run("a gone project's leftover can be cleared", func(t *testing.T) {
+		code, out, errs := run("rm", leftID)
+		if code != 0 {
+			t.Fatalf("rm of a gone project's sandbox = %d, %s", code, errs)
+		}
+		if !strings.Contains(out, "removed sandbox: left") {
+			t.Errorf("rm output = %q", out)
+		}
+		if _, err := sandbox.FindByID(leftID); !errors.Is(err, sandbox.ErrNoSuchID) {
+			t.Errorf("the leftover is still in the host-wide index: %v", err)
+		}
+	})
+
+	t.Run("an ambiguous prefix is an error, not a guess", func(t *testing.T) {
+		// A second sandbox whose id shares the prefix. The ids are real hashes,
+		// so the collision is searched for rather than declared.
+		twin := collidingSlug(t, config.StateDir(here), sandbox.ID(config.StateDir(here), "feat"))
+		base, err := sandbox.OpenBase(here)
+		if err != nil || base == nil {
+			t.Fatalf("OpenBase(%s): %v", here, err)
+		}
+		if err := base.AppendAgent(twin); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = base.RemoveAgent(twin) })
+
+		prefix := sandbox.ID(config.StateDir(here), "feat")[:sandbox.MinIDPrefix]
+		code, _, errs := run("rm", prefix)
+		if code == 0 {
+			t.Fatal("an ambiguous prefix removed something")
+		}
+		if !strings.Contains(errs, "ambiguous") {
+			t.Errorf("rm %s: %q, want an ambiguity error naming the candidates", prefix, errs)
+		}
+	})
+
+	t.Run("a slug of the current project wins over an id-shaped token", func(t *testing.T) {
+		// "beefed" is hex and long enough to look like an id; as a sandbox of
+		// the project we stand in it must still resolve as the slug it is.
+		cfg := filepath.Join(t.TempDir(), "beefed.nix")
+		if err := os.WriteFile(cfg, []byte(`{ name = "beefed"; srcs = [ { src = "."; branch = "feat/x"; } ]; }`), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if code, _, errs := run("create", "--src", here, "--config", cfg); code != 0 {
+			t.Fatalf("create beefed: %d %s", code, errs)
+		}
+		code, out, errs := run("rm", "beefed")
+		if code != 0 {
+			t.Fatalf("rm beefed = %d, %s", code, errs)
+		}
+		if strings.Contains(out, "(") { // no project suffix: it was the local one
+			t.Errorf("rm output = %q, want the local sandbox with no project suffix", out)
+		}
+	})
+}
+
+// collidingSlug searches stateDir's id space for a slug whose id shares its
+// first MinIDPrefix characters with want. The ids are sha256 prefixes, so an
+// ambiguous prefix cannot be written down — it has to be found (one in 16^4
+// tries, milliseconds).
+func collidingSlug(t *testing.T, stateDir, want string) string {
+	t.Helper()
+	for i := 0; i < 1<<24; i++ {
+		slug := fmt.Sprintf("twin%d", i)
+		if strings.HasPrefix(sandbox.ID(stateDir, slug), want[:sandbox.MinIDPrefix]) {
+			return slug
+		}
+	}
+	t.Fatalf("no slug found whose id shares the prefix of %s", want)
+	return ""
 }
 
 // TestRmRejectsUnsafeSlug: a slug of "." or ".." resolves the removal path onto

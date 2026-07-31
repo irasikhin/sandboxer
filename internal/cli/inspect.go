@@ -40,10 +40,22 @@ func baseOnly(src string) (*sandbox.Base, error) {
 
 // listFmt is the per-project row layout; listAllFmt is the host-wide one, with
 // a PROJECT column whose width is passed in (a '*' width arg) so the paths line
-// up whether or not they were truncated.
+// up whether or not they were truncated. The ID column takes its width the same
+// way, from sandbox.IDLen, so the handle the table prints and the one commands
+// accept can never drift apart.
 const (
-	listFmt    = "%-2s %-16s %-8s %-9s %-5s %s\n"
-	listAllFmt = "%-2s %-*s %-16s %-8s %-9s %-5s %s\n"
+	listFmt    = "%-2s %-*s %-16s %-8s %-9s %-5s %s\n"
+	listAllFmt = "%-2s %-*s %-*s %-16s %-8s %-9s %-5s %s\n"
+)
+
+// Column budget for the host-wide table: fixedListCols is what listAllFmt
+// spends on everything except PROJECT and RESULT (the two variable columns),
+// and the two minimums are the floor each keeps when a narrow terminal cannot
+// pay for both.
+const (
+	fixedListCols = 55
+	minProjectCol = 20
+	minResultCol  = 12
 )
 
 func newListCmd() *cobra.Command {
@@ -60,6 +72,12 @@ not just the one in the current directory. Sandboxes are meant to run in
 parallel, and the ones worth being reminded of are exactly the ones in a repo
 you are not standing in — a stopped session, a finished agent, or a leftover
 whose project directory is gone.
+
+The ID column is each sandbox's host-wide handle: commands that take a slug
+(rm, enter, exec, show, path, stop, ...) take an id — or any unambiguous
+prefix of one — instead, and act on that sandbox in its own project without a
+cd or --src. That is the only way to reach a sandbox whose project directory
+is gone (the "!" rows).
 
 Pass --src <path> to narrow the listing back to one project.`,
 		Args: cobra.NoArgs,
@@ -85,7 +103,7 @@ func printList(cmd *cobra.Command, base *sandbox.Base, wide bool) {
 	out := cmd.OutOrStdout()
 	cur := base.Current()
 	states := projectSessionStates(base.Dir)
-	fmt.Fprintf(out, listFmt, "", "SANDBOX", "STATE", "EXIT", "SEC", "RESULT")
+	fmt.Fprintf(out, listFmt, "", sandbox.IDLen, "ID", "SANDBOX", "STATE", "EXIT", "SEC", "RESULT")
 	for _, slug := range base.Agents() {
 		exit, secs := readMeta(base.MetaFilePath(slug))
 		res := jsonResult(base.LogPath(slug, "json"))
@@ -99,7 +117,7 @@ func printList(cmd *cobra.Command, base *sandbox.Base, wide bool) {
 			resDisp = truncate(res, 50)
 		}
 		fmt.Fprintf(out, listFmt,
-			marker, slugDisp, sessionState(states, slug), exit, secs, resDisp)
+			marker, sandbox.IDLen, base.ID(slug), slugDisp, sessionState(states, slug), exit, secs, resDisp)
 	}
 	fmt.Fprintln(out)
 	fmt.Fprintln(out, "* = active (use). enter <s> | exec <s> -- cmd | show [s] | path [s] | rm <s>")
@@ -109,7 +127,7 @@ func printList(cmd *cobra.Command, base *sandbox.Base, wide bool) {
 // so the PROJECT column can be sized to what is actually there — and so an empty
 // host prints a hint instead of a header with nothing under it.
 type allRow struct {
-	marker, project, slug, state, exit, secs, result string
+	marker, id, project, slug, state, exit, secs, result string
 }
 
 // printAll renders the host-wide listing: every project's sandboxes in one
@@ -120,7 +138,7 @@ func printAll(cmd *cobra.Command, projects []sandbox.Project, wide bool) {
 	out := cmd.OutOrStdout()
 	states := hostSessionStates()
 	wd, _ := filepath.Abs(getwd())
-	width := len("PROJECT")
+	longest := len("PROJECT")
 	var rows []allRow
 	var hasCur, hasGone bool
 	for _, p := range orderProjects(projects, wd) {
@@ -131,11 +149,11 @@ func printAll(cmd *cobra.Command, projects []sandbox.Project, wide bool) {
 		if p.Src == wd {
 			cur = p.Current()
 		}
-		project := projectCol(p.Src, wide)
+		project := projectPath(p.Src)
 		// Runes, not bytes: fmt's %-*s pads by rune count, and a left-truncated
 		// path carries a 3-byte "…".
-		if n := utf8.RuneCountInString(project); n > width {
-			width = n
+		if n := utf8.RuneCountInString(project); n > longest {
+			longest = n
 		}
 		for _, slug := range p.Agents() {
 			exit, secs := readMeta(p.MetaFilePath(slug))
@@ -153,7 +171,7 @@ func printAll(cmd *cobra.Command, projects []sandbox.Project, wide bool) {
 				resDisp = truncate(res, 34)
 			}
 			rows = append(rows, allRow{
-				marker: marker, project: project, slug: slugDisp,
+				marker: marker, id: p.ID(slug), project: project, slug: slugDisp,
 				state: sessionState(states[p.Dir], slug), exit: exit, secs: secs, result: resDisp,
 			})
 		}
@@ -162,9 +180,11 @@ func printAll(cmd *cobra.Command, projects []sandbox.Project, wide bool) {
 		fmt.Fprintln(out, "no sandboxes on this host (create one: sandboxer create <slug>)")
 		return
 	}
-	fmt.Fprintf(out, listAllFmt, "", width, "PROJECT", "SANDBOX", "STATE", "EXIT", "SEC", "RESULT")
+	width := projectWidth(longest, outWidth(out), wide)
+	fmt.Fprintf(out, listAllFmt, "", sandbox.IDLen, "ID", width, "PROJECT", "SANDBOX", "STATE", "EXIT", "SEC", "RESULT")
 	for _, r := range rows {
-		fmt.Fprintf(out, listAllFmt, r.marker, width, r.project, r.slug, r.state, r.exit, r.secs, r.result)
+		fmt.Fprintf(out, listAllFmt, r.marker, sandbox.IDLen, r.id,
+			width, truncateLeft(r.project, width), r.slug, r.state, r.exit, r.secs, r.result)
 	}
 	fmt.Fprintln(out)
 	// Only the markers actually in the table get explained — a legend for a
@@ -174,9 +194,11 @@ func printAll(cmd *cobra.Command, projects []sandbox.Project, wide bool) {
 		legend = append(legend, "* = active (use) in the current project.")
 	}
 	if hasGone {
-		legend = append(legend, "! = the project directory is gone (state left behind).")
+		legend = append(legend, "! = the project directory is gone (state left behind; rm <id> clears it).")
 	}
-	legend = append(legend, "Commands act on ONE project: cd there, or pass --src <path> (narrows this list too).")
+	legend = append(legend,
+		"ID reaches a sandbox in ANY project: rm <id> | enter <id> | show <id> (a unique prefix is enough).",
+		"A bare slug means the current project — cd there, or pass --src <path> (narrows this list too).")
 	for _, l := range legend {
 		fmt.Fprintln(out, l)
 	}
@@ -198,25 +220,62 @@ func orderProjects(projects []sandbox.Project, wd string) []sandbox.Project {
 	return projects
 }
 
-// projectCol renders a project root for the PROJECT column: the home directory
-// folded to ~, and (unless --wide) truncated from the LEFT, keeping the tail
-// that tells two checkouts apart.
-func projectCol(src string, wide bool) string {
+// projectPath renders a project root for the PROJECT column: the home
+// directory folded to ~. Never shortened here — how much of it fits is the
+// table's decision (projectWidth), not the path's.
+func projectPath(src string) string {
 	if home, err := os.UserHomeDir(); err == nil && home != "" {
 		if src == home {
-			src = "~"
-		} else if rest, ok := strings.CutPrefix(src, home+string(filepath.Separator)); ok {
-			src = "~" + string(filepath.Separator) + rest
+			return "~"
+		}
+		if rest, ok := strings.CutPrefix(src, home+string(filepath.Separator)); ok {
+			return "~" + string(filepath.Separator) + rest
 		}
 	}
-	if wide {
-		return src
-	}
-	const maxCol = 28
-	if r := []rune(src); len(r) > maxCol {
-		return "…" + string(r[len(r)-maxCol+1:])
-	}
 	return src
+}
+
+// projectWidth decides how wide the PROJECT column may be. The default is the
+// full longest path: a column that answers "which repo" but not "where" is the
+// one thing this column exists for, so it is cut back only when a real terminal
+// genuinely cannot fit it — and then only to what is left once the fixed
+// columns and a still-readable RESULT are paid for, never below minProjectCol.
+// term <= 0 means the output is not a terminal at all (a pipe, a file, a test
+// buffer): nothing is truncated, because something is READING this. --wide
+// keeps the full path unconditionally.
+func projectWidth(longest, term int, wide bool) int {
+	if wide || term <= 0 {
+		return longest
+	}
+	room := term - fixedListCols - minResultCol
+	if room < minProjectCol {
+		room = minProjectCol
+	}
+	if longest > room {
+		return room
+	}
+	return longest
+}
+
+// outWidth reports the terminal width behind a command's output stream, or 0
+// when it is not a terminal (a pipe, a redirect, a test buffer) — deriving it
+// from the writer the table actually prints to, so capturing the output can
+// never truncate it.
+func outWidth(out io.Writer) int {
+	if f, ok := out.(*os.File); ok {
+		return terminalWidth(f)
+	}
+	return 0
+}
+
+// truncateLeft shortens a path to n runes from the LEFT, keeping the tail that
+// tells two checkouts apart.
+func truncateLeft(s string, n int) string {
+	r := []rune(s)
+	if len(r) <= n || n < 1 {
+		return s
+	}
+	return "…" + string(r[len(r)-n+1:])
 }
 
 // hostSessionStates maps baseDir → slug → container status for every project on

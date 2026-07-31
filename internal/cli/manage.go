@@ -3,6 +3,8 @@ package cli
 import (
 	"fmt"
 	"io"
+	"path/filepath"
+	"slices"
 	"strings"
 	"text/tabwriter"
 
@@ -35,36 +37,95 @@ func init() {
 func newRmCmd() *cobra.Command {
 	var f commonFlags
 	cmd := &cobra.Command{
-		Use:   "rm [slug]",
-		Short: "Remove a sandbox and its state",
+		Use:   "rm [slug|id ...]",
+		Short: "Remove one or more sandboxes and their state",
 		Long: `Remove a sandbox: its managed source worktrees, private agent home, logs,
 metadata and the persistent session container. The source branches are
 KEPT — the work stays reviewable in each repo; delete them with plain git
-when done. Adopted worktrees are never touched.`,
+when done. Adopted worktrees are never touched.
+
+Each argument is a slug in the current project, or an ID from 'sandboxer list'
+(any unambiguous prefix) — which removes that sandbox in ITS project, no cd
+and no --src needed, including one whose project directory is gone. Several
+may be given; every one of them is resolved before anything is removed, so a
+typo removes nothing.`,
 		Example: `  # remove the sandbox "feat" (its configured branches survive)
   sandboxer rm feat
 
+  # remove two sandboxes seen in 'sandboxer list', in whatever projects they live
+  sandboxer rm 9f0e1122 3c4d
+
   # remove the active sandbox
   sandboxer rm`,
-		Args: cobra.MaximumNArgs(1),
+		Args: cobra.ArbitraryArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			t, err := resolveTarget(f, posArg(args))
-			if err != nil {
-				return err
+			if len(args) == 0 {
+				args = []string{""} // no argument: the active sandbox, as before
 			}
-			// The session container goes first, while the engine labels still
-			// match an existing base dir; best-effort — an engine-less host
-			// must still get its files removed.
-			removeSessionBestEffort(t, f, cmd.ErrOrStderr())
-			if err := t.base.Remove(t.slug); err != nil {
-				return err
+			// Resolve EVERY argument first: a half-done removal is the one
+			// outcome a batch must not produce, and an unknown id is exactly
+			// the mistake a batch invites.
+			targets := make([]*target, 0, len(args))
+			for _, arg := range args {
+				t, err := resolveTarget(f, arg)
+				if err != nil {
+					return err
+				}
+				if !known(t) {
+					return fmt.Errorf("no such sandbox: %s — 'sandboxer list' shows every sandbox on this host, "+
+						"by slug (this project) and by id (any project)", firstNonEmpty(arg, t.slug))
+				}
+				targets = append(targets, t)
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "removed sandbox: %s\n", t.slug)
+			for _, t := range targets {
+				// The session container goes first, while the engine labels still
+				// match an existing base dir; best-effort — an engine-less host
+				// must still get its files removed.
+				removeSessionBestEffort(t, f, cmd.ErrOrStderr())
+				if err := t.base.Remove(t.slug); err != nil {
+					return err
+				}
+				fmt.Fprintf(cmd.OutOrStdout(), "removed sandbox: %s%s\n", t.slug, otherProject(t))
+			}
 			return nil
 		},
 	}
 	bindExisting(cmd, &f)
 	return cmd
+}
+
+// known reports whether the target names a sandbox that actually exists. A
+// removal is the one place a typo must not pass silently: resolveTarget happily
+// shapes any token into a target, so without this `rm bogus` would report
+// "removed sandbox: bogus" having removed nothing — and in a batch it would
+// hide which of the arguments was wrong. The registration is the record, and
+// any leftover artifact counts too: a create that died part-way never got to
+// register, and that half-written state is exactly what rm is for.
+func known(t *target) bool {
+	if slices.Contains(t.base.Agents(), t.slug) {
+		return true
+	}
+	for _, p := range []string{
+		t.base.SandboxDir(t.slug),
+		t.base.ProfileJSONPath(t.slug),
+		t.base.HomeDir(t.slug),
+		t.base.MetaFilePath(t.slug),
+	} {
+		if fileExists(p) {
+			return true
+		}
+	}
+	return false
+}
+
+// otherProject names the target's project when it is NOT the one we are
+// standing in — a sandbox reached by id lives elsewhere, and "removed sandbox:
+// feat" with no hint of WHERE reads like the local one just went.
+func otherProject(t *target) string {
+	if wd, err := filepath.Abs(getwd()); err == nil && wd == t.base.Src {
+		return ""
+	}
+	return " (" + t.base.Src + ")"
 }
 
 // removeSessionBestEffort tears down the sandbox's persistent session

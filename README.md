@@ -219,8 +219,15 @@ sandbox. `list`'s STATE column shows `running`/`stopped`/`-` per sandbox, and
 the listing is **host-wide**: every project sandboxer holds state for, current
 project first (`*` marks its active sandbox, `!` a project whose directory is
 gone), because the sandbox worth being reminded of is the one in a repo you are
-not standing in. `--src <path>` narrows it back to one project, `-w` stops
-truncating the paths. When
+not standing in. Project paths print in full — they shorten only when the
+terminal cannot fit them (never when the output is piped), and `-w` stops
+truncating altogether. The `ID` column is each sandbox's **host-wide handle**:
+any command that takes a slug takes an id — or any unambiguous prefix — and acts
+on that sandbox in its own project, with no `cd` and no `--src`
+(`sandboxer rm 9f0e 3c4d` removes two sandboxes wherever they live, and is the
+only way to clear a `!` row, whose project directory no longer exists). A bare
+slug still means the current project, and `--src <path>` narrows the listing
+back to one. When
 the profile changes or the toolbox image is rebuilt, the next `enter` recreates
 the session (announced) — unless that session is still holding a tmux session,
 in which case `enter` attaches to it as-is rather than rebuilding it under

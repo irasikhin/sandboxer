@@ -1,12 +1,14 @@
 package cli
 
 import (
+	"bytes"
 	"errors"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/irasikhin/sandboxer/internal/backend"
 	"github.com/irasikhin/sandboxer/internal/config"
@@ -35,13 +37,24 @@ func stubAllSessionStates(t *testing.T, states map[string]map[string]string, err
 	}
 }
 
-// allRowFields returns the whitespace-split fields of the host-wide list row for
-// slug — the marker column included, so a row with no marker starts at the
-// PROJECT field.
+// rowFields splits a list row into fields with the marker column NORMALIZED:
+// index 0 is always the marker ("" when the row carries none), so the columns
+// after it keep the same indices whether or not a row is flagged.
+func rowFields(line string) []string {
+	f := strings.Fields(line)
+	marker := ""
+	if len(f) > 0 && (f[0] == "*" || f[0] == "!") {
+		marker, f = f[0], f[1:]
+	}
+	return append([]string{marker}, f...)
+}
+
+// allRowFields returns the host-wide list row for slug as
+// [marker, ID, PROJECT, SANDBOX, STATE, EXIT, SEC, RESULT…].
 func allRowFields(t *testing.T, out, slug string) []string {
 	t.Helper()
 	for _, line := range strings.Split(out, "\n") {
-		if f := strings.Fields(line); slices.Contains(f, slug) {
+		if f := rowFields(line); len(f) > 3 && f[3] == slug {
 			return f
 		}
 	}
@@ -49,12 +62,12 @@ func allRowFields(t *testing.T, out, slug string) []string {
 	return nil
 }
 
-// listRow returns the whitespace-split fields of the list row for slug.
+// listRow returns the per-project list row for slug as
+// [marker, ID, SANDBOX, STATE, EXIT, SEC, RESULT…].
 func listRow(t *testing.T, out, slug string) []string {
 	t.Helper()
 	for _, line := range strings.Split(out, "\n") {
-		f := strings.Fields(line)
-		if len(f) > 0 && f[0] == slug {
+		if f := rowFields(line); len(f) > 2 && f[2] == slug {
 			return f
 		}
 	}
@@ -85,8 +98,8 @@ func TestListStateColumn(t *testing.T) {
 		t.Errorf("list header missing STATE:\n%s", out)
 	}
 	for slug, want := range map[string]string{"feat": "running", "idle": "stopped", "off": "-"} {
-		if row := listRow(t, out, slug); row[1] != want {
-			t.Errorf("list state for %s = %q, want %q (row %v)", slug, row[1], want, row)
+		if row := listRow(t, out, slug); row[3] != want {
+			t.Errorf("list state for %s = %q, want %q (row %v)", slug, row[3], want, row)
 		}
 	}
 }
@@ -101,8 +114,8 @@ func TestListStateBestEffort(t *testing.T) {
 		if code != 0 {
 			t.Fatalf("list = %d, %s", code, errs)
 		}
-		if row := listRow(t, out, "feat"); row[1] != "-" {
-			t.Errorf("list state on engine error = %q, want -", row[1])
+		if row := listRow(t, out, "feat"); row[3] != "-" {
+			t.Errorf("list state on engine error = %q, want -", row[3])
 		}
 	})
 
@@ -123,8 +136,8 @@ func TestListStateBestEffort(t *testing.T) {
 		if called {
 			t.Error("the enumeration seam must not be called without an engine")
 		}
-		if row := listRow(t, out, "feat"); row[1] != "-" {
-			t.Errorf("engine-less list state = %q, want -", row[1])
+		if row := listRow(t, out, "feat"); row[3] != "-" {
+			t.Errorf("engine-less list state = %q, want -", row[3])
 		}
 	})
 }
@@ -162,25 +175,41 @@ func TestListAllProjects(t *testing.T) {
 		if !strings.Contains(out, "PROJECT") {
 			t.Errorf("the host-wide listing has no PROJECT column:\n%s", out)
 		}
-		// marker, project, slug, state — the cwd project's active sandbox.
-		if row := allRowFields(t, out, "feat"); row[0] != "*" || row[2] != "feat" || row[3] != "running" {
-			t.Errorf("feat row = %v, want [* <project> feat running …]", row)
+		// marker, id, project, slug, state — the cwd project's active sandbox.
+		if row := allRowFields(t, out, "feat"); row[0] != "*" || row[4] != "running" {
+			t.Errorf("feat row = %v, want [* <id> <project> feat running …]", row)
 		}
 		// The deleted project's sandbox survives in the listing, flagged.
-		if row := allRowFields(t, out, "old"); row[0] != "!" || row[2] != "old" || row[3] != "-" {
-			t.Errorf("old row = %v, want [! <project> old - …]", row)
+		if row := allRowFields(t, out, "old"); row[0] != "!" || row[4] != "-" {
+			t.Errorf("old row = %v, want [! <id> <project> old - …]", row)
 		}
 		if i, j := strings.Index(out, "feat"), strings.Index(out, "old"); i > j {
 			t.Errorf("the current project must come first:\n%s", out)
 		}
 		for _, want := range []string{
 			"* = active (use) in the current project.",
-			"! = the project directory is gone (state left behind).",
+			"! = the project directory is gone (state left behind;",
 			"--src <path>",
 		} {
 			if !strings.Contains(out, want) {
 				t.Errorf("legend missing %q:\n%s", want, out)
 			}
+		}
+	})
+
+	t.Run("the ID column is the host-wide handle", func(t *testing.T) {
+		code, out, errs := run("list")
+		if code != 0 {
+			t.Fatalf("list = %d, %s", code, errs)
+		}
+		for slug, src := range map[string]string{"feat": project, "old": deleted} {
+			want := sandbox.ID(config.StateDir(src), slug)
+			if got := allRowFields(t, out, slug)[1]; got != want {
+				t.Errorf("%s id column = %q, want %q (the id commands resolve)", slug, got, want)
+			}
+		}
+		if !strings.Contains(out, "ID") {
+			t.Errorf("the listing has no ID header:\n%s", out)
 		}
 	})
 
@@ -200,8 +229,8 @@ func TestListAllProjects(t *testing.T) {
 		if code != 0 {
 			t.Fatalf("list = %d, %s", code, errs)
 		}
-		if row := allRowFields(t, out, "feat"); row[3] != "-" {
-			t.Errorf("state on engine error = %q, want - (row %v)", row[3], row)
+		if row := allRowFields(t, out, "feat"); row[4] != "-" {
+			t.Errorf("state on engine error = %q, want - (row %v)", row[4], row)
 		}
 	})
 
@@ -216,27 +245,86 @@ func TestListAllProjects(t *testing.T) {
 	})
 }
 
-// TestProjectCol pins the PROJECT column's rendering: the home directory folds
-// to ~, and without --wide a long path is truncated from the LEFT, keeping the
-// tail that tells two checkouts apart.
-func TestProjectCol(t *testing.T) {
+// TestProjectPath pins the PROJECT column's rendering: the home directory folds
+// to ~ and the path is otherwise untouched — how much of it fits is the table's
+// call (projectWidth), not the path's.
+func TestProjectPath(t *testing.T) {
 	home := filepath.Join("/home", "u")
 	t.Setenv("HOME", home)
-	for _, c := range []struct {
-		src, want string
-		wide      bool
-	}{
+	for _, c := range []struct{ src, want string }{
 		{src: home, want: "~"},
 		{src: filepath.Join(home, "work", "sandboxer"), want: filepath.Join("~", "work", "sandboxer")},
 		{src: "/srv/checkout", want: "/srv/checkout"},
-		{src: "/a/very/deeply/nested/place/for/a/checkout", want: "…nested/place/for/a/checkout"},
-		{src: "/a/very/deeply/nested/place/for/a/checkout", want: "/a/very/deeply/nested/place/for/a/checkout", wide: true},
+		{src: "/a/very/deeply/nested/place/for/a/checkout", want: "/a/very/deeply/nested/place/for/a/checkout"},
 		// A path that is not under $HOME must not lose its prefix to the fold.
 		{src: home + "-elsewhere/x", want: home + "-elsewhere/x"},
 	} {
-		if got := projectCol(c.src, c.wide); got != c.want {
-			t.Errorf("projectCol(%q, wide=%v) = %q, want %q", c.src, c.wide, got, c.want)
+		if got := projectPath(c.src); got != c.want {
+			t.Errorf("projectPath(%q) = %q, want %q", c.src, got, c.want)
 		}
+	}
+}
+
+// TestProjectWidth: the PROJECT column is as wide as the longest path — full
+// paths are the DEFAULT, since a path that says which repo but not where is
+// what made the column useless. It shrinks only against a real terminal that
+// cannot fit it, never below the floor, and never when the output is being read
+// by something (term 0: a pipe, a file, a test) or --wide was asked for.
+func TestProjectWidth(t *testing.T) {
+	for _, c := range []struct {
+		desc          string
+		longest, term int
+		wide          bool
+		want          int
+	}{
+		{desc: "no terminal keeps the full path", longest: 60, term: 0, want: 60},
+		{desc: "a wide terminal fits it", longest: 60, term: 200, want: 60},
+		{desc: "a short path is never padded up", longest: 12, term: 200, want: 12},
+		{desc: "a narrow terminal pays for RESULT first", longest: 60, term: 100, want: 100 - fixedListCols - minResultCol},
+		{desc: "the floor holds on a tiny terminal", longest: 60, term: 40, want: minProjectCol},
+		{desc: "--wide ignores the terminal", longest: 60, term: 40, wide: true, want: 60},
+	} {
+		if got := projectWidth(c.longest, c.term, c.wide); got != c.want {
+			t.Errorf("%s: projectWidth(%d, %d, %v) = %d, want %d",
+				c.desc, c.longest, c.term, c.wide, got, c.want)
+		}
+	}
+}
+
+// TestTruncateLeft: a path too long for its column loses its HEAD, keeping the
+// tail that tells two checkouts apart, and the ellipsis counts as one rune.
+func TestTruncateLeft(t *testing.T) {
+	for _, c := range []struct {
+		s    string
+		n    int
+		want string
+	}{
+		{s: "/a/b/c", n: 6, want: "/a/b/c"},
+		{s: "/a/b/c", n: 10, want: "/a/b/c"},
+		{s: "/a/very/deeply/nested/checkout", n: 12, want: "…ed/checkout"},
+		{s: "/a/b/c", n: 0, want: "/a/b/c"},
+	} {
+		if got := truncateLeft(c.s, c.n); got != c.want || utf8.RuneCountInString(got) > max(c.n, len(c.s)) {
+			t.Errorf("truncateLeft(%q, %d) = %q, want %q", c.s, c.n, got, c.want)
+		}
+	}
+}
+
+// TestOutWidth: only a real terminal has a width to fit into. A capture buffer
+// has none, and neither does a character device that is not a tty (/dev/null —
+// the file that makes a naive isatty lie), so both report 0 and nothing gets
+// truncated behind a pipe.
+func TestOutWidth(t *testing.T) {
+	if got := outWidth(&bytes.Buffer{}); got != 0 {
+		t.Errorf("outWidth(buffer) = %d, want 0", got)
+	}
+	f, err := os.Open(os.DevNull)
+	if err != nil {
+		t.Skipf("no %s: %v", os.DevNull, err)
+	}
+	defer f.Close()
+	if got := outWidth(f); got != 0 {
+		t.Errorf("outWidth(%s) = %d, want 0", os.DevNull, got)
 	}
 }
 

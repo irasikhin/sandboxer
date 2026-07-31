@@ -198,6 +198,22 @@ func resolveTarget(f commonFlags, pos string) (*target, error) {
 		slug = firstNonEmpty(f.sandbox, pos)
 	}
 
+	// A token shaped like a host-wide id (what `list` prints) that is NOT a
+	// sandbox of the project we stand in resolves through the id index instead:
+	// the sandbox is acted on in ITS project, with no cd and no --src — the only
+	// way to reach one whose project directory is gone. A slug of the current
+	// project always wins the tie (a slug is a name, an id is just a handle),
+	// and -f/--src mean a project was already named, so the lookup is skipped
+	// there. An unknown token falls through and is reported as a missing slug.
+	if file == "" && f.src == "" && sandbox.LooksLikeID(slug) && !projectHasSlug(root, slug) {
+		switch ref, ferr := sandbox.FindByID(slug); {
+		case ferr == nil:
+			return idTarget(ref)
+		case !errors.Is(ferr, sandbox.ErrNoSuchID):
+			return nil, ferr
+		}
+	}
+
 	base, err := sandbox.ResolveBase(root)
 	if err != nil {
 		return nil, err
@@ -229,6 +245,34 @@ func resolveTarget(f commonFlags, pos string) (*target, error) {
 		prof = loadStoredProfile(base, slug)
 	}
 	return &target{base: base, slug: slug, profile: prof, json: profJSON}, nil
+}
+
+// idTarget builds the target for a sandbox resolved by id. Its profile can only
+// come from the stored snapshot: we are not standing in that project, so its
+// sandboxer.nix is not the config in scope — and t.json stays nil, so nothing
+// this command does can overwrite the snapshot with a foreign profile.
+func idTarget(ref sandbox.Ref) (*target, error) {
+	if err := config.ValidSlug(ref.Slug); err != nil {
+		return nil, err
+	}
+	return &target{base: ref.Base, slug: ref.Slug, profile: loadStoredProfile(ref.Base, ref.Slug)}, nil
+}
+
+// projectHasSlug reports whether root's project already holds a sandbox by that
+// name. It opens the state read-only (OpenBase, not ResolveBase): merely
+// checking must never mint a state directory for whatever cwd we happen to be
+// standing in.
+func projectHasSlug(root, slug string) bool {
+	base, err := sandbox.OpenBase(root)
+	if err != nil || base == nil {
+		return false
+	}
+	for _, a := range base.Agents() {
+		if a == slug {
+			return true
+		}
+	}
+	return false
 }
 
 // runtime resolves the effective settings for a target using the flag overrides.
