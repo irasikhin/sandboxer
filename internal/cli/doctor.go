@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -42,8 +43,19 @@ func warnIgnoredConfig(w io.Writer, root string) {
 		rel)
 }
 
+// doctorCheck is one doctor finding, shared by the table and --json
+// renderings. Status is "ok", "warn" or "info".
+type doctorCheck struct {
+	Name   string `json:"name"`
+	Status string `json:"status"`
+	Detail string `json:"detail"`
+}
+
+func okCheck(name, detail string) doctorCheck   { return doctorCheck{name, "ok", detail} }
+func warnCheck(name, detail string) doctorCheck { return doctorCheck{name, "warn", detail} }
+
 func newDoctorCmd() *cobra.Command {
-	var strict bool
+	var strict, asJSON bool
 	cmd := &cobra.Command{
 		Use:   "doctor",
 		Short: "Check the environment and report any issues",
@@ -52,128 +64,42 @@ toolbox image, agent credentials, and common configuration issues.
 
 Run this after a fresh install or when something isn't working. With
 --strict, any warning makes doctor exit non-zero, so it can gate a CI
-or provisioning pipeline.`,
+or provisioning pipeline; --json emits the checks machine-readably.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			out := cmd.OutOrStdout()
-			tw := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
+			checks := doctorChecks()
 			ok, warn := 0, 0
-
-			d := config.LoadDefaults()
-
-			// Host nix — required to evaluate sandboxer.nix (eval only; images
-			// still build inside a container).
-			if _, err := exec.LookPath("nix-instantiate"); err != nil {
-				fmt.Fprintf(tw, "nix\t⚠\tnot found — required to evaluate %s (install: https://nixos.org/download)\n",
-					config.ConfigFileName)
-				warn++
-			} else {
-				fmt.Fprintf(tw, "nix\t✓\tnix-instantiate available\n")
-				ok++
-			}
-
-			// Host git — every source is checked out as a git worktree, and
-			// without git the srcs errors are misleading ("not a git
-			// repository with a commit" also covers a missing git binary).
-			if _, err := exec.LookPath("git"); err != nil {
-				fmt.Fprintf(tw, "git\t⚠\tnot found — every source is checked out as a git worktree; install git\n")
-				warn++
-			} else {
-				fmt.Fprintf(tw, "git\t✓\tavailable\n")
-				ok++
-			}
-
-			// Container engine.
-			engine, engineErr := backend.DetectEngine(d)
-			if engineErr != nil {
-				fmt.Fprintf(tw, "container engine\t⚠\t%s\n", engineErr)
-				warn++
-			} else {
-				fmt.Fprintf(tw, "container engine\t✓\t%s available\n", engine)
-				ok++
-
-				// Toolbox image.
-				image := d.Image
-				if backend.ImageExists(engine, image) {
-					fmt.Fprintf(tw, "toolbox image %s\t✓\tpresent\n", image)
+			for _, c := range checks {
+				switch c.Status {
+				case "ok":
 					ok++
-				} else {
-					fmt.Fprintf(tw, "toolbox image %s\t⚠\tnot found — build with: sandboxer image build\n", image)
+				case "warn":
 					warn++
 				}
 			}
-
-			// microVM backends (smolvm, microsandbox). Reported alongside the
-			// container engine so a host set up for one of them gets the same
-			// at-a-glance check.
-			reportMicrovm(tw, &ok, &warn)
-			reportMicrosandbox(tw, &ok, &warn)
-
-			// Persistent sessions: this project's running/stopped tally, plus
-			// orphans whose project dir is gone (their containers survive a
-			// bare `rm -rf` of the project). Every installed engine is probed —
-			// per-profile backends may have put sessions on podman AND docker.
-			for _, e := range backendSweepEngines(d) {
-				reportSessions(tw, e, &ok, &warn)
-			}
-
-			// Agents baked into the toolbox image. Credentials are NEVER passed
-			// through from the host: log in or export API keys INSIDE the
-			// sandbox (its private $HOME persists).
-			for _, name := range registry.Names() {
-				a, _ := registry.Get(name)
-				fmt.Fprintf(tw, "agent %s\t-\tbin=%s image=%v (auth inside the sandbox)\n",
-					name, a.Bin, a.Image == nil || *a.Image)
-			}
-
-			// Project config at the repo root.
-			cfgPath := config.ConfigPath()
-			switch {
-			case fileExists(cfgPath):
-				if _, err := config.LoadDocument(cfgPath); err == nil {
-					fmt.Fprintf(tw, "%s\t✓\tparses ok\n", cfgPath)
-					ok++
-				} else {
-					fmt.Fprintf(tw, "%s\t⚠\t%v\n", cfgPath, err)
-					warn++
+			out := cmd.OutOrStdout()
+			if asJSON {
+				doc := struct {
+					Checks   []doctorCheck `json:"checks"`
+					OK       int           `json:"ok"`
+					Warnings int           `json:"warnings"`
+				}{checks, ok, warn}
+				enc := json.NewEncoder(out)
+				enc.SetIndent("", "  ")
+				if err := enc.Encode(doc); err != nil {
+					return err
 				}
-				// The config is meant to be committed; an ignore rule covering it
-				// would silently keep it out of git.
-				if gitCheckIgnore(getwd(), cfgPath) {
-					fmt.Fprintf(tw, "%s\t⚠\tignored by the repo's gitignore — drop that rule so the config can be committed\n",
-						cfgPath)
-					warn++
+			} else {
+				tw := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
+				symbols := map[string]string{"ok": "✓", "warn": "⚠", "info": "-"}
+				for _, c := range checks {
+					fmt.Fprintf(tw, "%s\t%s\t%s\n", c.Name, symbols[c.Status], c.Detail)
 				}
-			case fileExists(config.LegacyYAMLConfigFileName):
-				// An upgrading user with the YAML-era config: translate by hand.
-				fmt.Fprintf(tw, "./%s\t⚠\tlegacy YAML config — translate it to %s (same camelCase keys; no longer read)\n",
-					config.LegacyYAMLConfigFileName, cfgPath)
-				warn++
-			case fileExists(config.LegacyConfigDirPath()):
-				// An upgrading user with the pre-relocation .sandboxer/config.yaml.
-				fmt.Fprintf(tw, "%s\t⚠\tlegacy location — translate it to %s (no longer read)\n",
-					config.LegacyConfigDirPath(), cfgPath)
-				warn++
-			case fileExists(config.LegacyConfigFileName):
-				// An upgrading user with the ancient root-level profile: flag the move.
-				fmt.Fprintf(tw, "./%s\t⚠\tlegacy location — translate it to %s (no longer read)\n",
-					config.LegacyConfigFileName, cfgPath)
-				warn++
+				if err := tw.Flush(); err != nil {
+					return err
+				}
+				fmt.Fprintf(out, "\n%d ok, %d warning(s)\n", ok, warn)
 			}
-
-			// Pre-split leftovers: runtime state used to live under .sandboxer/;
-			// it now lives outside the repo (config.StateDir). Flag the old dirs
-			// so an upgrading user can delete them.
-			if legacyStateLeftover(getwd()) {
-				fmt.Fprintf(tw, "%s/_meta\t⚠\tpre-split runtime state — data now lives in %s; safe to delete the old _meta/_home/_logs/<slug> dirs\n",
-					config.LegacyStateDirName, config.StateDir(getwd()))
-				warn++
-			}
-
-			if err := tw.Flush(); err != nil {
-				return err
-			}
-			fmt.Fprintf(out, "\n%d ok, %d warning(s)\n", ok, warn)
 			if strict && warn > 0 {
 				// The tally above is the diagnostic; silentErr keeps Run from
 				// narrating it a second time.
@@ -183,58 +109,153 @@ or provisioning pipeline.`,
 		},
 	}
 	cmd.Flags().BoolVar(&strict, "strict", false, "exit non-zero when any warning is found (for CI preflight)")
+	cmd.Flags().BoolVar(&asJSON, "json", false, "emit machine-readable JSON instead of the table")
 	return cmd
 }
 
-// reportMicrovm adds doctor's microVM-backend row: whether smolvm is installed
-// (with its version), and on Linux whether /dev/kvm is present. A missing
-// smolvm is a warning, not an error — a host using only the container backend
-// does not need it — with an install hint; a present smolvm without KVM is
-// flagged because the backend cannot boot a machine there.
-func reportMicrovm(tw io.Writer, ok, warn *int) {
+// doctorChecks runs every check and returns the findings in display order.
+func doctorChecks() []doctorCheck {
+	var checks []doctorCheck
+	d := config.LoadDefaults()
+
+	// Host nix — required to evaluate sandboxer.nix (eval only; images
+	// still build inside a container).
+	if _, err := exec.LookPath("nix-instantiate"); err != nil {
+		checks = append(checks, warnCheck("nix",
+			fmt.Sprintf("not found — required to evaluate %s (install: https://nixos.org/download)", config.ConfigFileName)))
+	} else {
+		checks = append(checks, okCheck("nix", "nix-instantiate available"))
+	}
+
+	// Host git — every source is checked out as a git worktree, and without
+	// git the srcs errors are misleading ("not a git repository with a
+	// commit" also covers a missing git binary).
+	if _, err := exec.LookPath("git"); err != nil {
+		checks = append(checks, warnCheck("git", "not found — every source is checked out as a git worktree; install git"))
+	} else {
+		checks = append(checks, okCheck("git", "available"))
+	}
+
+	// Container engine.
+	engine, engineErr := backend.DetectEngine(d)
+	if engineErr != nil {
+		checks = append(checks, warnCheck("container engine", engineErr.Error()))
+	} else {
+		checks = append(checks, okCheck("container engine", engine+" available"))
+
+		// Toolbox image.
+		image := d.Image
+		if backend.ImageExists(engine, image) {
+			checks = append(checks, okCheck("toolbox image "+image, "present"))
+		} else {
+			checks = append(checks, warnCheck("toolbox image "+image, "not found — build with: sandboxer image build"))
+		}
+	}
+
+	// microVM backends (smolvm, microsandbox). Reported alongside the
+	// container engine so a host set up for one of them gets the same
+	// at-a-glance check.
+	checks = append(checks, reportMicrovm(), reportMicrosandbox())
+
+	// Persistent sessions: this project's running/stopped tally, plus
+	// orphans whose project dir is gone (their containers survive a
+	// bare `rm -rf` of the project). Every installed engine is probed —
+	// per-profile backends may have put sessions on podman AND docker.
+	for _, e := range backendSweepEngines(d) {
+		checks = append(checks, reportSessions(e)...)
+	}
+
+	// Agents baked into the toolbox image. Credentials are NEVER passed
+	// through from the host: log in or export API keys INSIDE the
+	// sandbox (its private $HOME persists).
+	for _, name := range registry.Names() {
+		a, _ := registry.Get(name)
+		checks = append(checks, doctorCheck{"agent " + name, "info",
+			fmt.Sprintf("bin=%s image=%v (auth inside the sandbox)", a.Bin, a.Image == nil || *a.Image)})
+	}
+
+	// Project config at the repo root.
+	cfgPath := config.ConfigPath()
+	switch {
+	case fileExists(cfgPath):
+		if _, err := config.LoadDocument(cfgPath); err == nil {
+			checks = append(checks, okCheck(cfgPath, "parses ok"))
+		} else {
+			checks = append(checks, warnCheck(cfgPath, err.Error()))
+		}
+		// The config is meant to be committed; an ignore rule covering it
+		// would silently keep it out of git.
+		if gitCheckIgnore(getwd(), cfgPath) {
+			checks = append(checks, warnCheck(cfgPath, "ignored by the repo's gitignore — drop that rule so the config can be committed"))
+		}
+	case fileExists(config.LegacyYAMLConfigFileName):
+		// An upgrading user with the YAML-era config: translate by hand.
+		checks = append(checks, warnCheck("./"+config.LegacyYAMLConfigFileName,
+			fmt.Sprintf("legacy YAML config — translate it to %s (same camelCase keys; no longer read)", cfgPath)))
+	case fileExists(config.LegacyConfigDirPath()):
+		// An upgrading user with the pre-relocation .sandboxer/config.yaml.
+		checks = append(checks, warnCheck(config.LegacyConfigDirPath(),
+			fmt.Sprintf("legacy location — translate it to %s (no longer read)", cfgPath)))
+	case fileExists(config.LegacyConfigFileName):
+		// An upgrading user with the ancient root-level profile: flag the move.
+		checks = append(checks, warnCheck("./"+config.LegacyConfigFileName,
+			fmt.Sprintf("legacy location — translate it to %s (no longer read)", cfgPath)))
+	}
+
+	// Pre-split leftovers: runtime state used to live under .sandboxer/;
+	// it now lives outside the repo (config.StateDir). Flag the old dirs
+	// so an upgrading user can delete them.
+	if legacyStateLeftover(getwd()) {
+		checks = append(checks, warnCheck(config.LegacyStateDirName+"/_meta",
+			fmt.Sprintf("pre-split runtime state — data now lives in %s; safe to delete the old _meta/_home/_logs/<slug> dirs", config.StateDir(getwd()))))
+	}
+	return checks
+}
+
+// reportMicrovm builds doctor's microVM-backend row: whether smolvm is
+// installed (with its version), and on Linux whether /dev/kvm is present. A
+// missing smolvm is a warning, not an error — a host using only the container
+// backend does not need it — with an install hint; a present smolvm without
+// KVM is flagged because the backend cannot boot a machine there.
+func reportMicrovm() doctorCheck {
+	const name = "microvm (smolvm)"
 	present, version, kvmOK := backend.SmolvmStatus()
 	switch {
 	case !present:
-		fmt.Fprintf(tw, "microvm (smolvm)\t⚠\tnot found — needed only for backend: microvm (install: https://smolmachines.com; SANDBOXER_SMOLVM overrides the path)\n")
-		*warn++
+		return warnCheck(name, "not found — needed only for backend: microvm (install: https://smolmachines.com; SANDBOXER_SMOLVM overrides the path)")
 	case !kvmOK:
 		msg := "the microvm backend needs KVM on Linux"
 		if underWSL() {
 			msg = "under WSL2 — enable nested KVM: set nestedVirtualization=true in %UserProfile%\\.wslconfig, then `wsl --shutdown` (see docs/windows.md)"
 		}
-		fmt.Fprintf(tw, "microvm (smolvm)\t⚠\t%s present, but /dev/kvm is missing — %s\n", version, msg)
-		*warn++
+		return warnCheck(name, fmt.Sprintf("%s present, but /dev/kvm is missing — %s", version, msg))
 	default:
-		fmt.Fprintf(tw, "microvm (smolvm)\t✓\t%s available\n", version)
-		*ok++
+		return okCheck(name, version+" available")
 	}
 }
 
-// reportMicrosandbox adds doctor's row for the second microVM runner. Same
+// reportMicrosandbox builds doctor's row for the second microVM runner. Same
 // shape as reportMicrovm — a missing msb is only a warning — plus the one
 // prerequisite that is otherwise invisible until the first `create` fails: every
 // sandbox's agent-relay UNIX socket path derives from MSB_HOME, and a deep home
 // pushes it past the kernel's 108-byte limit.
-func reportMicrosandbox(tw io.Writer, ok, warn *int) {
+func reportMicrosandbox() doctorCheck {
+	const name = "microsandbox (msb)"
 	present, version, kvmOK, homeOK := backend.MsbStatus()
 	switch {
 	case !present:
-		fmt.Fprintf(tw, "microsandbox (msb)\t⚠\tnot found — needed only for backend: microsandbox (install: https://microsandbox.dev; SANDBOXER_MSB overrides the path)\n")
-		*warn++
+		return warnCheck(name, "not found — needed only for backend: microsandbox (install: https://microsandbox.dev; SANDBOXER_MSB overrides the path)")
 	case !kvmOK:
 		msg := "the microsandbox backend needs KVM on Linux"
 		if underWSL() {
 			msg = "under WSL2 — enable nested KVM: set nestedVirtualization=true in %UserProfile%\\.wslconfig, then `wsl --shutdown` (see docs/windows.md)"
 		}
-		fmt.Fprintf(tw, "microsandbox (msb)\t⚠\t%s present, but /dev/kvm is missing — %s\n", version, msg)
-		*warn++
+		return warnCheck(name, fmt.Sprintf("%s present, but /dev/kvm is missing — %s", version, msg))
 	case !homeOK:
-		fmt.Fprintf(tw, "microsandbox (msb)\t⚠\t%s present, but MSB_HOME is too deep (%s) — every sandbox's agent socket derives from it and must stay under 108 bytes; point MSB_HOME at a short path\n",
-			version, backend.MsbHome())
-		*warn++
+		return warnCheck(name, fmt.Sprintf("%s present, but MSB_HOME is too deep (%s) — every sandbox's agent socket derives from it and must stay under 108 bytes; point MSB_HOME at a short path",
+			version, backend.MsbHome()))
 	default:
-		fmt.Fprintf(tw, "microsandbox (msb)\t✓\t%s available\n", version)
-		*ok++
+		return okCheck(name, version+" available")
 	}
 }
 
@@ -251,18 +272,16 @@ func underWSL() bool {
 	return strings.Contains(v, "microsoft") || strings.Contains(v, "wsl")
 }
 
-// reportSessions adds doctor's persistent-session rows for one engine: a
+// reportSessions builds doctor's persistent-session rows for one engine: a
 // running/stopped tally for the current project, and a warning listing
 // orphaned session containers — sandboxer-managed but with their
 // sandboxer.base directory gone — together with a removal hint. The orphan
 // probe is purely advisory, so its failure is not a finding.
-func reportSessions(tw io.Writer, engine string, ok, warn *int) {
+func reportSessions(engine string) []doctorCheck {
 	baseDir := config.StateDir(getwd())
 	states, err := sessionStates(engine, baseDir)
 	if err != nil {
-		fmt.Fprintf(tw, "sessions (%s)\t⚠\t%v\n", engine, err)
-		*warn++
-		return
+		return []doctorCheck{warnCheck("sessions ("+engine+")", err.Error())}
 	}
 	running := 0
 	for _, st := range states {
@@ -270,16 +289,15 @@ func reportSessions(tw io.Writer, engine string, ok, warn *int) {
 			running++
 		}
 	}
-	fmt.Fprintf(tw, "sessions (%s)\t✓\t%d running / %d stopped for this project\n",
-		engine, running, len(states)-running)
-	*ok++
+	checks := []doctorCheck{okCheck("sessions ("+engine+")",
+		fmt.Sprintf("%d running / %d stopped for this project", running, len(states)-running))}
 	orphans, err := sessionOrphans(engine)
 	if err != nil || len(orphans) == 0 {
-		return
+		return checks
 	}
-	fmt.Fprintf(tw, "orphan sessions (%s)\t⚠\t%s — their projects are gone; remove: %s rm -f %s\n",
-		engine, strings.Join(orphans, " "), engine, strings.Join(orphans, " "))
-	*warn++
+	return append(checks, warnCheck("orphan sessions ("+engine+")",
+		fmt.Sprintf("%s — their projects are gone; remove: %s rm -f %s",
+			strings.Join(orphans, " "), engine, strings.Join(orphans, " "))))
 }
 
 // legacyStateLeftover reports whether the pre-split runtime state directory

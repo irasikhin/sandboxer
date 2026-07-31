@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -352,6 +353,56 @@ func TestOrderProjects(t *testing.T) {
 	}
 }
 
+// TestListJSON: --json emits machine-readable rows — absolute project paths,
+// no truncation, the state and each project's own active pointer — and an
+// empty host is [], never a hint string.
+func TestListJSON(t *testing.T) {
+	t.Setenv("SANDBOXER_STATE", t.TempDir())
+
+	var empty []listEntry
+	code, out, errs := run("list", "--json")
+	if code != 0 || json.Unmarshal([]byte(out), &empty) != nil || empty == nil || len(empty) != 0 {
+		t.Fatalf("empty list --json = (%d, %q, %s), want a [] array", code, out, errs)
+	}
+
+	project := sessionProject(t)
+	if code, _, errs := run("use", "feat", "--src", project); code != 0 {
+		t.Fatalf("use feat: %d %s", code, errs)
+	}
+	stubAllSessionStates(t, map[string]map[string]string{
+		config.StateDir(project): {"feat": "running"},
+	}, nil)
+
+	code, out, errs = run("list", "--json")
+	if code != 0 {
+		t.Fatalf("list --json = %d, %s", code, errs)
+	}
+	var entries []listEntry
+	if err := json.Unmarshal([]byte(out), &entries); err != nil {
+		t.Fatalf("list --json is not valid JSON: %v\n%s", err, out)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("list --json entries = %d, want 1:\n%s", len(entries), out)
+	}
+	e := entries[0]
+	if e.Sandbox != "feat" || e.Project != project || e.State != "running" || !e.Active || e.ProjectGone {
+		t.Errorf("list --json entry = %+v", e)
+	}
+	if e.ID != sandbox.ID(config.StateDir(project), e.Sandbox) {
+		t.Errorf("list --json id = %q, want the host-wide handle", e.ID)
+	}
+
+	// --src narrows the JSON listing the same way it narrows the table.
+	code, out, errs = run("list", "--src", project, "--json")
+	if code != 0 {
+		t.Fatalf("list --src --json = %d, %s", code, errs)
+	}
+	entries = nil
+	if err := json.Unmarshal([]byte(out), &entries); err != nil || len(entries) != 1 {
+		t.Errorf("list --src --json = (%v, %d entries):\n%s", err, len(entries), out)
+	}
+}
+
 // TestListAllEmpty: with no project state at all the host-wide listing prints a
 // hint, not a header with nothing under it.
 func TestListAllEmpty(t *testing.T) {
@@ -367,6 +418,41 @@ func TestListAllEmpty(t *testing.T) {
 
 // TestShowSessionBlock: show reports the session container name, its state,
 // and the fresh/stale verdict from the recorded vs recomputed config hash.
+// TestShowJSON: --json emits one object carrying what the text sections say —
+// the stored resolved profile verbatim, the recorded sources with their host
+// paths, and the session verdict with the tri-state freshness.
+func TestShowJSON(t *testing.T) {
+	project := sessionProject(t)
+	stubSessionSeams(t, backend.SessionInfo{Exists: true, Running: true, Hash: "h"}, "h")
+
+	code, out, errs := run("show", "feat", "--src", project, "--json")
+	if code != 0 {
+		t.Fatalf("show --json = %d, %s", code, errs)
+	}
+	var doc struct {
+		Slug    string         `json:"slug"`
+		Backend string         `json:"backend"`
+		Profile map[string]any `json:"profile"`
+		Sources []showSource   `json:"sources"`
+		Session showSession    `json:"session"`
+	}
+	if err := json.Unmarshal([]byte(out), &doc); err != nil {
+		t.Fatalf("show --json is not valid JSON: %v\n%s", err, out)
+	}
+	if doc.Slug != "feat" || doc.Profile == nil {
+		t.Errorf("show --json slug/profile = %q/%v", doc.Slug, doc.Profile)
+	}
+	if len(doc.Sources) == 0 || doc.Sources[0].Branch == "" || doc.Sources[0].Path == "" {
+		t.Errorf("show --json sources = %+v, want the recorded worktrees", doc.Sources)
+	}
+	if doc.Session.State != "running" || doc.Session.Fresh == nil || !*doc.Session.Fresh {
+		t.Errorf("show --json session = %+v, want running+fresh", doc.Session)
+	}
+	if strings.Contains(out, "== profile") {
+		t.Error("show --json must not carry the text section headers")
+	}
+}
+
 func TestShowSessionBlock(t *testing.T) {
 	project := sessionProject(t)
 	name := backend.SessionName("feat", config.StateDir(project))

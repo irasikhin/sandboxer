@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -454,6 +455,50 @@ func TestDoctorConfigParseError(t *testing.T) {
 	}
 	if strings.Contains(out, "parses ok") {
 		t.Errorf("invalid config should not report 'parses ok':\n%s", out)
+	}
+}
+
+// TestDoctorJSON: --json emits every check as {name, status, detail} plus the
+// tallies, and the counts agree with the statuses.
+func TestDoctorJSON(t *testing.T) {
+	t.Setenv("SANDBOXER_IN_CONTAINER", "")
+
+	code, out, errs := run("doctor", "--json")
+	if code != 0 {
+		t.Fatalf("doctor --json = %d, %s", code, errs)
+	}
+	var doc struct {
+		Checks []struct {
+			Name   string `json:"name"`
+			Status string `json:"status"`
+			Detail string `json:"detail"`
+		} `json:"checks"`
+		OK       int `json:"ok"`
+		Warnings int `json:"warnings"`
+	}
+	if err := json.Unmarshal([]byte(out), &doc); err != nil {
+		t.Fatalf("doctor --json is not valid JSON: %v\n%s", err, out)
+	}
+	if len(doc.Checks) == 0 {
+		t.Fatal("doctor --json has no checks")
+	}
+	ok, warn := 0, 0
+	for _, c := range doc.Checks {
+		switch c.Status {
+		case "ok":
+			ok++
+		case "warn":
+			warn++
+		case "info":
+		default:
+			t.Errorf("check %q has unknown status %q", c.Name, c.Status)
+		}
+	}
+	if ok != doc.OK || warn != doc.Warnings {
+		t.Errorf("tallies = (%d ok, %d warn), checks say (%d, %d)", doc.OK, doc.Warnings, ok, warn)
+	}
+	if strings.Contains(out, "⚠") || strings.Contains(out, "✓") {
+		t.Error("doctor --json must not carry the table symbols")
 	}
 }
 

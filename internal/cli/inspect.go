@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -58,7 +59,7 @@ const (
 
 func newListCmd() *cobra.Command {
 	var src string
-	var wide bool
+	var wide, asJSON bool
 	cmd := &cobra.Command{
 		Use:     "list",
 		Aliases: []string{"status"},
@@ -77,7 +78,9 @@ prefix of one — instead, and act on that sandbox in its own project without a
 cd or --src. That is the only way to reach a sandbox whose project directory
 is gone (the "!" rows).
 
-Pass --src <path> to narrow the listing back to one project.`,
+Pass --src <path> to narrow the listing back to one project.
+--json emits the same rows as machine-readable objects (full paths,
+no truncation) for scripts and CI.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if src != "" {
@@ -85,8 +88,15 @@ Pass --src <path> to narrow the listing back to one project.`,
 				if err != nil {
 					return err
 				}
+				if asJSON {
+					states := map[string]map[string]string{base.Dir: projectSessionStates(base.Dir)}
+					return writeListJSON(cmd.OutOrStdout(), []sandbox.Project{{Base: base}}, states)
+				}
 				printList(cmd, base, wide)
 				return nil
+			}
+			if asJSON {
+				return writeListJSON(cmd.OutOrStdout(), sandbox.Projects(), hostSessionStates())
 			}
 			printAll(cmd, sandbox.Projects(), wide)
 			return nil
@@ -94,7 +104,43 @@ Pass --src <path> to narrow the listing back to one project.`,
 	}
 	cmd.Flags().StringVar(&src, "src", "", "list only this project (default: every project on this host)")
 	cmd.Flags().BoolVarP(&wide, "wide", "w", false, "show full sandbox names and project paths (no truncation)")
+	cmd.Flags().BoolVar(&asJSON, "json", false, "emit machine-readable JSON instead of the table")
 	return cmd
+}
+
+// listEntry is one sandbox in `list --json`. Paths are absolute and nothing is
+// truncated: machine output is for reading, not for fitting a terminal.
+type listEntry struct {
+	ID          string `json:"id"`
+	Project     string `json:"project"`
+	Sandbox     string `json:"sandbox"`
+	State       string `json:"state"`
+	Active      bool   `json:"active,omitempty"`
+	ProjectGone bool   `json:"projectGone,omitempty"`
+}
+
+// writeListJSON renders the listing as a JSON array — an empty host is [],
+// never a hint string. Active is each project's own `use` pointer (the text
+// table narrows it to the cwd project; a machine reading every project wants
+// every pointer).
+func writeListJSON(out io.Writer, projects []sandbox.Project, states map[string]map[string]string) error {
+	entries := []listEntry{}
+	for _, p := range projects {
+		cur := p.Current()
+		for _, slug := range p.Agents() {
+			entries = append(entries, listEntry{
+				ID:          p.ID(slug),
+				Project:     p.Src,
+				Sandbox:     slug,
+				State:       sessionState(states[p.Dir], slug),
+				Active:      slug != "" && slug == cur,
+				ProjectGone: p.Gone,
+			})
+		}
+	}
+	enc := json.NewEncoder(out)
+	enc.SetIndent("", "  ")
+	return enc.Encode(entries)
 }
 
 func printList(cmd *cobra.Command, base *sandbox.Base, wide bool) {
@@ -339,6 +385,7 @@ func sessionState(states map[string]string, slug string) string {
 
 func newShowCmd() *cobra.Command {
 	var f commonFlags
+	var asJSON bool
 	cmd := &cobra.Command{
 		Use:   "show [slug]",
 		Short: "Show the resolved profile and session state for a sandbox",
@@ -358,6 +405,9 @@ func newShowCmd() *cobra.Command {
 			if rtErr != nil {
 				return rtErr
 			}
+			if asJSON {
+				return writeShowJSON(out, t, rtShow)
+			}
 			fmt.Fprintln(out, configLine(rtShow, t.slug, t.profile, backendLabel(rtShow)))
 			fmt.Fprintf(out, "== profile (%s) ==\n", t.slug)
 			if !dumpFile(out, t.base.ProfileJSONPath(t.slug)) {
@@ -369,7 +419,58 @@ func newShowCmd() *cobra.Command {
 		},
 	}
 	bindExisting(cmd, &f)
+	cmd.Flags().BoolVar(&asJSON, "json", false, "emit machine-readable JSON instead of the sectioned text")
 	return cmd
+}
+
+// showSource is one resolved source in `show --json` — the same facts srcLine
+// prints, addressable by key.
+type showSource struct {
+	Repo    string   `json:"repo"`
+	Branch  string   `json:"branch"`
+	Include []string `json:"include,omitempty"`
+	Path    string   `json:"path"`
+	Adopted bool     `json:"adopted,omitempty"`
+}
+
+// showSession is the session verdict in `show --json`. Fresh is a tri-state:
+// absent when freshness could not be judged (no engine, cold image pin),
+// false with StaleWhy naming what went stale.
+type showSession struct {
+	Container string `json:"container"`
+	State     string `json:"state"` // none | running | stopped | unknown
+	Fresh     *bool  `json:"fresh,omitempty"`
+	StaleWhy  string `json:"staleWhy,omitempty"`
+}
+
+// writeShowJSON renders everything show's text sections say as one object:
+// the stored resolved profile verbatim, the recorded sources, the session
+// verdict.
+func writeShowJSON(out io.Writer, t *target, rt config.Runtime) error {
+	profile := json.RawMessage("null")
+	if data, err := os.ReadFile(t.base.ProfileJSONPath(t.slug)); err == nil && json.Valid(data) {
+		profile = json.RawMessage(data)
+	}
+	sources := []showSource{}
+	for _, s := range t.base.Srcs(t.slug) {
+		sources = append(sources, showSource{
+			Repo: s.RepoRoot, Branch: s.Branch, Include: s.Include,
+			Path: s.Path, Adopted: !s.Managed,
+		})
+	}
+	doc := struct {
+		Slug    string          `json:"slug"`
+		Backend string          `json:"backend"`
+		Profile json.RawMessage `json:"profile"`
+		Sources []showSource    `json:"sources"`
+		Session showSession     `json:"session"`
+	}{
+		Slug: t.slug, Backend: rt.Backend, Profile: profile,
+		Sources: sources, Session: sessionStatus(t, rt),
+	}
+	enc := json.NewEncoder(out)
+	enc.SetIndent("", "  ")
+	return enc.Encode(doc)
 }
 
 // printSourcesBlock renders show's "== sources ==" lines: the RESOLVED sources
@@ -390,39 +491,59 @@ func printSourcesBlock(out io.Writer, t *target) {
 	}
 }
 
-// printSessionBlock renders show's "== session ==" lines: the deterministic
-// session container name, its current state, and whether the session is still
-// fresh — the config hash recorded at create time matches the profile AND the
-// container still runs the engine's current image — or the next persistent
-// enter would recreate the container (stale, naming which of the two went).
+// sessionStatus computes the session verdict both renderings share: the
+// deterministic container name, its current state, and whether the session is
+// still fresh — the config hash recorded at create time matches the profile
+// AND the container still runs the engine's current image — or the next
+// persistent enter would recreate it (stale, naming which of the two went).
 // Best-effort: with no engine the state is unknown, never an error.
-func printSessionBlock(out io.Writer, t *target, rt config.Runtime) {
-	fmt.Fprintln(out, "== session ==")
-	name := backend.SessionName(t.slug, t.base.Dir)
-	fmt.Fprintf(out, "container: %s\n", name)
+func sessionStatus(t *target, rt config.Runtime) showSession {
+	s := showSession{Container: backend.SessionName(t.slug, t.base.Dir)}
 	engine, err := backend.ResolveEngine(rt.Backend, config.LoadDefaults())
 	if err != nil {
-		fmt.Fprintln(out, "state: unknown (no container engine)")
-		return
+		s.State = "unknown"
+		return s
 	}
-	info := backendInspectSession(engine, name)
+	info := backendInspectSession(engine, s.Container)
 	if !info.Exists {
-		fmt.Fprintln(out, "state: none (a persistent enter creates it)")
-		return
+		s.State = "none"
+		return s
 	}
-	state := "stopped"
+	s.State = "stopped"
 	if info.Running {
-		state = "running"
+		s.State = "running"
 	}
+	fresh := new(bool)
 	switch o, ok := sessionHashOpts(t, rt, engine); {
 	case !ok:
-		fmt.Fprintf(out, "state: %s\n", state)
 	case info.Hash != backendWantHash(o):
-		fmt.Fprintf(out, "state: %s (stale — the profile changed; re-enter recreates it)\n", state)
+		s.Fresh, s.StaleWhy = fresh, "the profile changed"
 	case !backend.ImageFresh(info.ImageID, backendImageID(engine, o.Image)):
-		fmt.Fprintf(out, "state: %s (stale — the image was rebuilt; re-enter recreates it)\n", state)
+		s.Fresh, s.StaleWhy = fresh, "the image was rebuilt"
 	default:
-		fmt.Fprintf(out, "state: %s (fresh)\n", state)
+		*fresh = true
+		s.Fresh = fresh
+	}
+	return s
+}
+
+// printSessionBlock renders show's "== session ==" lines from the shared
+// sessionStatus verdict.
+func printSessionBlock(out io.Writer, t *target, rt config.Runtime) {
+	fmt.Fprintln(out, "== session ==")
+	s := sessionStatus(t, rt)
+	fmt.Fprintf(out, "container: %s\n", s.Container)
+	switch {
+	case s.State == "unknown":
+		fmt.Fprintln(out, "state: unknown (no container engine)")
+	case s.State == "none":
+		fmt.Fprintln(out, "state: none (a persistent enter creates it)")
+	case s.Fresh == nil:
+		fmt.Fprintf(out, "state: %s\n", s.State)
+	case !*s.Fresh:
+		fmt.Fprintf(out, "state: %s (stale — %s; re-enter recreates it)\n", s.State, s.StaleWhy)
+	default:
+		fmt.Fprintf(out, "state: %s (fresh)\n", s.State)
 	}
 }
 
