@@ -6,6 +6,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.66.0] — 2026-07-31
+
+### Added
+
+- full project paths and a host-wide id per sandbox (ca0c92f)
+
+
 ## [0.65.0] — 2026-07-30
 
 ### Added
@@ -846,3 +853,4 @@ isolated, containerized dev sandbox, on a local Linux machine:
 [0.63.5]: https://github.com/irasikhin/sandboxer/compare/v0.63.4...v0.63.5
 [0.64.0]: https://github.com/irasikhin/sandboxer/compare/v0.63.5...v0.64.0
 [0.65.0]: https://github.com/irasikhin/sandboxer/compare/v0.64.0...v0.65.0
+[0.66.0]: https://github.com/irasikhin/sandboxer/compare/v0.65.0...v0.66.0
