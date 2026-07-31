@@ -831,6 +831,16 @@ func runSetup(t *target, rt config.Runtime, engine string, nestedIDs backend.Nes
 	if merr != nil {
 		return merr
 	}
+	// The script's output goes to the terminal AND to _logs/<slug>.setup.log,
+	// so a failure that scrolled away stays debuggable (troubleshooting.md
+	// points there). Best-effort: no log file never blocks the setup itself.
+	setupOut := io.Writer(errOut)
+	logPath := ""
+	if f, ferr := os.Create(t.base.LogPath(t.slug, "setup.log")); ferr == nil {
+		defer f.Close()
+		logPath = f.Name()
+		setupOut = io.MultiWriter(errOut, f)
+	}
 	code, err := backendRun(backend.RunOpts{
 		Engine: engine, Image: image, Spec: spec,
 		Dest: t.base.SandboxDir(t.slug), Slug: t.slug,
@@ -851,14 +861,18 @@ func runSetup(t *target, rt config.Runtime, engine string, nestedIDs backend.Nes
 		Interactive:     false,
 		Args:            []string{"bash", "-lc", t.profile.Setup},
 		NoEgress:        noEgress(),
-		Stdout:          errOut,
-		Stderr:          errOut,
+		Stdout:          setupOut,
+		Stderr:          setupOut,
 	})
 	if err != nil {
 		return fmt.Errorf("setup failed to start: %w", err)
 	}
 	if code != 0 {
-		return fmt.Errorf("setup exited %d — fix the `setup:` script or re-run with --no-setup", code)
+		hint := "fix the `setup:` script or re-run with --no-setup"
+		if logPath != "" {
+			hint += " (output saved: " + logPath + ")"
+		}
+		return fmt.Errorf("setup exited %d — %s", code, hint)
 	}
 	return t.base.MarkSetupDone(t.slug, hash)
 }

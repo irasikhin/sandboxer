@@ -98,8 +98,8 @@ localhost proxy to the host gateway.
 `setup:` is a one-time `bash -lc` script run inside the sandbox before you take
 over. A failed setup is **fatal by default**, so the `enter`/`exec` aborts.
 
-- Read the captured output under `$XDG_STATE_HOME/sandboxer/<project>/_logs/`
-  (`<slug>.*`).
+- Read the captured output: `$XDG_STATE_HOME/sandboxer/<project>/_logs/<slug>.setup.log`
+  (the failure message prints the exact path).
 - Skip it for one run with `--no-setup` to get a shell and debug interactively.
 - A common cause is a network step under the egress allowlist — see the section
   above and allow the domains the script needs.

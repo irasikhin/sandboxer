@@ -3,6 +3,8 @@ package cli
 import (
 	"bytes"
 	"errors"
+	"fmt"
+	"os"
 	"strings"
 	"testing"
 
@@ -75,6 +77,39 @@ func TestRunSetupRunsStampsAndIsIdempotent(t *testing.T) {
 	}
 	if called {
 		t.Error("stamped setup must not run again")
+	}
+}
+
+// TestRunSetupLogsOutput: the script's output is tee'd into
+// _logs/<slug>.setup.log so a failure that scrolled away stays debuggable,
+// and the failure hint names the file.
+func TestRunSetupLogsOutput(t *testing.T) {
+	base, err := sandbox.ResolveBase(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func(old func(backend.RunOpts) (int, error)) { backendRun = old }(backendRun)
+	backendRun = func(o backend.RunOpts) (int, error) {
+		fmt.Fprintln(o.Stdout, "npm ERR! boom")
+		return 3, nil
+	}
+	var buf bytes.Buffer
+
+	tp := &target{base: base, slug: "s", profile: &config.Profile{Setup: "npm ci"}}
+	serr := runSetup(tp, config.Runtime{}, "podman", backend.NestedIDFiles{}, false, &buf)
+	if serr == nil {
+		t.Fatal("non-zero setup exit must error")
+	}
+	logPath := base.LogPath("s", "setup.log")
+	if !strings.Contains(serr.Error(), logPath) {
+		t.Errorf("setup error should name the saved log, got %q", serr)
+	}
+	data, rerr := os.ReadFile(logPath)
+	if rerr != nil || !strings.Contains(string(data), "npm ERR! boom") {
+		t.Errorf("setup log = (%q, %v), want the script output captured", data, rerr)
+	}
+	if !strings.Contains(buf.String(), "npm ERR! boom") {
+		t.Error("the terminal must still see the script output")
 	}
 }
 
