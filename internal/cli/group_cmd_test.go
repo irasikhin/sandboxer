@@ -65,7 +65,7 @@ func TestConfigValidate(t *testing.T) {
 	}
 
 	// Valid config.
-	if err := os.WriteFile(config.ConfigPath(), []byte("{ name = \"ok\"; backend = \"docker\"; }\n"), 0o644); err != nil {
+	if err := os.WriteFile(config.ConfigPath(), []byte("{ name = \"ok\"; backend = \"docker\"; srcs = [ { src = \".\"; branch = \"feat/x\"; } ]; }\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if code, out, errs := run("config", "validate"); code != 0 || !strings.Contains(out, "ok") {
@@ -77,6 +77,56 @@ func TestConfigValidate(t *testing.T) {
 	}
 	if code, _, errs := run("config", "validate"); code != 1 || errs == "" {
 		t.Errorf("validate unknown-field = (%d, %q), want exit 1", code, errs)
+	}
+}
+
+// TestConfigValidateSemantic: validate runs the static semantic checks too —
+// README promises a bad include/domain/backend fails HERE, not first at
+// create/enter. Each case is a config that decodes fine but cannot run.
+func TestConfigValidateSemantic(t *testing.T) {
+	t.Chdir(t.TempDir())
+	cases := []struct {
+		desc, cfg, want string
+	}{
+		{"unknown backend",
+			`{ name = "x"; backend = "dokcer"; srcs = [ { src = "."; branch = "b/x"; } ]; }`,
+			"unknown backend"},
+		{"domain missing dot",
+			`{ name = "x"; srcs = [ { src = "."; branch = "b/x"; } ]; egress.allowedDomains = [ "githubcom" ]; }`,
+			"missing dot"},
+		{"negated include",
+			`{ name = "x"; srcs = [ { src = "."; branch = "b/x"; include = [ "!/vendor/" ]; } ]; }`,
+			"negation is not supported"},
+		{"missing branch",
+			`{ name = "x"; srcs = [ { src = "."; } ]; }`,
+			"branch is required"},
+		{"empty srcs",
+			`{ name = "x"; srcs = [ ]; }`,
+			"srcs is empty"},
+		{"bad session",
+			`{ name = "x"; session = "sticky"; srcs = [ { src = "."; branch = "b/x"; } ]; }`,
+			"unknown session mode"},
+	}
+	for _, c := range cases {
+		t.Run(c.desc, func(t *testing.T) {
+			if err := os.WriteFile(config.ConfigPath(), []byte(c.cfg+"\n"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			code, _, errs := run("config", "validate")
+			if code != 1 || !strings.Contains(errs, c.want) {
+				t.Errorf("validate = (%d, %q), want exit 1 with %q", code, errs, c.want)
+			}
+		})
+	}
+
+	// A multi-profile file labels the failing section.
+	multi := `{ profiles = { good = { srcs = [ { src = "."; branch = "b/x"; } ]; }; bad = { backend = "nope"; srcs = [ { src = "."; branch = "b/x"; } ]; }; }; default = "good"; }`
+	if err := os.WriteFile(config.ConfigPath(), []byte(multi+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	code, _, errs := run("config", "validate")
+	if code != 1 || !strings.Contains(errs, "profiles.bad") {
+		t.Errorf("multi validate = (%d, %q), want the failing section named", code, errs)
 	}
 }
 

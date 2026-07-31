@@ -246,7 +246,9 @@ func ValidateInclude(include []string) error {
 // ValidateSrcs checks every source's include patterns. Path/branch validation
 // needs the repo on disk and lives in sandbox.resolveSrcs; this half is pure
 // and runs wherever a profile is resolved, so `config validate` catches a bad
-// pattern without touching git.
+// pattern without touching git. (The src/branch-required checks live in the
+// CLI's validateProfile, NOT here: resolveSrcs calls this first, and a generic
+// message would shadow its richer errors — the recorded-branch hint.)
 func ValidateSrcs(srcs []Src) error {
 	for _, s := range srcs {
 		if err := ValidateInclude(s.Include); err != nil {

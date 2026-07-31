@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 
 	"github.com/spf13/cobra"
 
@@ -79,6 +80,11 @@ func newConfigValidateCmd() *cobra.Command {
 
 Unknown attr names are rejected (not silently ignored), so a typo like
 'allowedDomain' surfaces here rather than quietly doing nothing at run time.
+Each profile then gets the same static semantic checks create/enter run —
+backend and session names, domains, proxy, routes, include-pattern shapes,
+srcs with their required branches — so a config that validates can only
+still fail on what needs the repo on disk (a branch that does not exist, a
+pattern matching nothing).
 Defaults to ` + config.ConfigPath() + `; pass a file or -f to check another.`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -86,13 +92,55 @@ Defaults to ` + config.ConfigPath() + `; pass a file or -f to check another.`,
 			if !fileExists(path) {
 				return fmt.Errorf("no config at %s (scaffold one: sandboxer config init)", path)
 			}
-			if _, err := config.LoadDocument(path); err != nil {
+			doc, err := config.LoadDocument(path)
+			if err != nil {
 				return fmt.Errorf("%s: %w", path, err)
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "%s: ok\n", path)
+			names := make([]string, 0, len(doc.Profiles))
+			for name := range doc.Profiles {
+				names = append(names, name)
+			}
+			sort.Strings(names)
+			for _, name := range names {
+				if err := validateProfile(doc.Profiles[name]); err != nil {
+					if doc.Multi() {
+						return fmt.Errorf("%s: profiles.%s: %w", path, name, err)
+					}
+					return fmt.Errorf("%s: %w", path, err)
+				}
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "%s: ok (%d profile(s))\n", path, len(names))
 			return nil
 		},
 	}
 	cmd.Flags().StringVarP(&configPath, "config", "f", "", "config file to validate (default: "+config.ConfigPath()+")")
 	return cmd
+}
+
+// validateProfile runs the static semantic checks on one profile — the same
+// validators create/enter run, minus anything needing the repo on disk. The
+// srcs shape checks live here rather than in config.ValidateSrcs: read-only
+// commands (show, stop, compose) legitimately resolve a nil/empty profile,
+// and on enter/create the sandbox layer's richer errors (the recorded-branch
+// hint) must not be shadowed by a generic one.
+func validateProfile(p config.Profile) error {
+	if len(p.Srcs) == 0 {
+		return fmt.Errorf("srcs is empty — a sandbox needs at least one source, e.g. srcs = [ { src = \".\"; branch = \"devops/my-change\"; } ]")
+	}
+	for _, s := range p.Srcs {
+		if s.Src == "" {
+			return fmt.Errorf("srcs entry: src is required — a repo path or git URL")
+		}
+		if s.Branch == "" {
+			return fmt.Errorf("srcs entry %q: branch is required — every source names its branch explicitly, e.g. { src = %q; branch = \"devops/my-change\"; }", s.Src, s.Src)
+		}
+	}
+	rt, err := config.ResolveRuntime(&p, config.Defaults{}, "", config.Overrides{})
+	if err != nil {
+		return err
+	}
+	if err := config.ValidateBackend(rt); err != nil {
+		return err
+	}
+	return config.ValidateSession(rt)
 }
