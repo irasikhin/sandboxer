@@ -43,13 +43,16 @@ func warnIgnoredConfig(w io.Writer, root string) {
 }
 
 func newDoctorCmd() *cobra.Command {
+	var strict bool
 	cmd := &cobra.Command{
 		Use:   "doctor",
 		Short: "Check the environment and report any issues",
 		Long: `Check that the sandboxer environment is correctly set up: container engine,
 toolbox image, agent credentials, and common configuration issues.
 
-Run this after a fresh install or when something isn't working.`,
+Run this after a fresh install or when something isn't working. With
+--strict, any warning makes doctor exit non-zero, so it can gate a CI
+or provisioning pipeline.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			out := cmd.OutOrStdout()
@@ -66,6 +69,17 @@ Run this after a fresh install or when something isn't working.`,
 				warn++
 			} else {
 				fmt.Fprintf(tw, "nix\t✓\tnix-instantiate available\n")
+				ok++
+			}
+
+			// Host git — every source is checked out as a git worktree, and
+			// without git the srcs errors are misleading ("not a git
+			// repository with a commit" also covers a missing git binary).
+			if _, err := exec.LookPath("git"); err != nil {
+				fmt.Fprintf(tw, "git\t⚠\tnot found — every source is checked out as a git worktree; install git\n")
+				warn++
+			} else {
+				fmt.Fprintf(tw, "git\t✓\tavailable\n")
 				ok++
 			}
 
@@ -160,9 +174,15 @@ Run this after a fresh install or when something isn't working.`,
 				return err
 			}
 			fmt.Fprintf(out, "\n%d ok, %d warning(s)\n", ok, warn)
+			if strict && warn > 0 {
+				// The tally above is the diagnostic; silentErr keeps Run from
+				// narrating it a second time.
+				return silentErr{fmt.Errorf("%d warning(s)", warn)}
+			}
 			return nil
 		},
 	}
+	cmd.Flags().BoolVar(&strict, "strict", false, "exit non-zero when any warning is found (for CI preflight)")
 	return cmd
 }
 

@@ -457,6 +457,38 @@ func TestDoctorConfigParseError(t *testing.T) {
 	}
 }
 
+// TestDoctorGitRow: git is a hard prerequisite (every source is a worktree),
+// so doctor reports it like nix and the engine.
+func TestDoctorGitRow(t *testing.T) {
+	t.Setenv("SANDBOXER_IN_CONTAINER", "")
+
+	code, out, _ := run("doctor")
+	if code != 0 {
+		t.Fatalf("doctor = %d", code)
+	}
+	if !strings.Contains(out, "git") {
+		t.Errorf("doctor output missing the git row:\n%s", out)
+	}
+}
+
+// TestDoctorStrict: --strict turns warnings into a non-zero exit (CI
+// preflight), without narrating anything beyond the existing tally.
+func TestDoctorStrict(t *testing.T) {
+	t.Setenv("SANDBOXER_IN_CONTAINER", "")
+	t.Setenv("PATH", "") // no git/nix/engine → warnings guaranteed
+
+	code, out, errs := run("doctor", "--strict")
+	if code != 1 {
+		t.Fatalf("doctor --strict with warnings = %d, want 1", code)
+	}
+	if !strings.Contains(out, "warning(s)") {
+		t.Errorf("doctor should still print the tally:\n%s", out)
+	}
+	if strings.Contains(errs, "sandboxer:") {
+		t.Errorf("--strict must not add a second narration, got %q", errs)
+	}
+}
+
 // TestDoctorNoEngine covers the "no container engine" branch by running doctor
 // with an empty PATH so engine detection finds nothing.
 func TestDoctorNoEngine(t *testing.T) {
