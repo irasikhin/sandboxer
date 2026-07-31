@@ -154,7 +154,7 @@ disable with autoResume = false in the profile, or SANDBOXER_NO_RESUME=1.`,
 			// narrate carries the progress/banner chatter; --quiet drops it.
 			// Warnings, errors and the interactive drift prompt stay on the
 			// real stderr regardless.
-			narrate := io.Writer(cmd.ErrOrStderr())
+			narrate := cmd.ErrOrStderr()
 			if quiet {
 				narrate = io.Discard
 			}
@@ -402,7 +402,7 @@ composes with scripts and CI.`,
 			}
 			// Same narration split as enter: --quiet drops the chatter,
 			// warnings and errors keep the real stderr.
-			narrate := io.Writer(cmd.ErrOrStderr())
+			narrate := cmd.ErrOrStderr()
 			if quiet {
 				narrate = io.Discard
 			}
@@ -850,7 +850,7 @@ func runSetup(t *target, rt config.Runtime, engine string, nestedIDs backend.Nes
 	// The script's output goes to the terminal AND to _logs/<slug>.setup.log,
 	// so a failure that scrolled away stays debuggable (troubleshooting.md
 	// points there). Best-effort: no log file never blocks the setup itself.
-	setupOut := io.Writer(errOut)
+	setupOut := errOut
 	logPath := ""
 	if f, ferr := os.Create(t.base.LogPath(t.slug, "setup.log")); ferr == nil {
 		defer f.Close()
