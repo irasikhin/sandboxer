@@ -6,6 +6,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.69.0] — 2026-08-03
+
+### Added
+
+- track latest agent revs by default — image build auto-updates (785455c)
+
+### CI
+
+- fix the smolvm canary and stop a skipped job reporting green (341e344)
+
+
 ## [0.68.0] — 2026-08-03
 
 ### Fixed
@@ -905,3 +916,4 @@ isolated, containerized dev sandbox, on a local Linux machine:
 [0.66.0]: https://github.com/irasikhin/sandboxer/compare/v0.65.0...v0.66.0
 [0.67.0]: https://github.com/irasikhin/sandboxer/compare/v0.66.0...v0.67.0
 [0.68.0]: https://github.com/irasikhin/sandboxer/compare/v0.67.0...v0.68.0
+[0.69.0]: https://github.com/irasikhin/sandboxer/compare/v0.68.0...v0.69.0
