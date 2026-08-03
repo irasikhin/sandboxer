@@ -56,10 +56,21 @@ jobs:
 
       - run: go vet -tags integration ./...
 
-      # The microVM e2e tests boot a small public image (smolvm pulls alpine);
-      # they skip cleanly if /dev/kvm is absent.
+      # The microVM e2e tests boot a small public image (smolvm pulls alpine).
+      # They skip cleanly when a prerequisite is missing — which is why the
+      # named list is asserted afterwards: a job that skipped everything is
+      # green too, and that is not a result.
       - name: microVM e2e (real smolvm)
-        run: go test -tags integration -count=1 -timeout 20m -run 'TestVM_.*_RealEngine' ./internal/backend/...
+        run: |
+          set -euo pipefail
+          go test -tags integration -count=1 -timeout 20m -v \
+            -run 'TestVM_.*_RealEngine' ./internal/backend/... 2>&1 | tee vm-e2e.log
+          scripts/assert-tests-ran.sh vm-e2e.log \
+            TestVM_Lifecycle_RealEngine \
+            TestVM_NarrowingWall_RealEngine \
+            TestVM_GuestWriteUID_RealEngine \
+            TestVM_SecretNotInPS_RealEngine \
+            TestVM_EgressAllowlist_RealEngine
 
   # The same real-engine slice for the second runner. Kept a separate job (not a
   # matrix) because the two install differently and the msb suite covers one
@@ -99,10 +110,27 @@ jobs:
       - run: go vet -tags integration ./...
 
       - name: microsandbox e2e (real msb)
-        run: go test -tags integration -count=1 -timeout 20m -run 'TestMSB_.*_RealEngine' ./internal/backend/...
+        run: |
+          set -euo pipefail
+          go test -tags integration -count=1 -timeout 20m -v \
+            -run 'TestMSB_.*_RealEngine' ./internal/backend/... 2>&1 | tee msb-e2e.log
+          scripts/assert-tests-ran.sh msb-e2e.log \
+            TestMSB_Lifecycle_RealEngine \
+            TestMSB_NarrowingWall_RealEngine \
+            TestMSB_GuestWriteUID_RealEngine \
+            TestMSB_EgressAllowlist_RealEngine \
+            TestMSB_SecretsMode_RealEngine
 
   # A cheap canary that the pinned smolvm still installs and boots a machine —
   # catches an upstream release breaking our assumptions before the full suite.
+  #
+  # `machine run` needs --net to pull the image: a smolvm machine has NO route
+  # by default (the fail-closed property the whole backend is built on), so
+  # without it the alpine pull cannot resolve index.docker.io and the canary
+  # fails on any runner with a cold image cache — which is every CI runner. The
+  # msb canary needs no equivalent because a microsandbox VM starts with an open
+  # network. Note this makes the canary a NETWORK test too; a registry outage
+  # will show up here.
   smolvm-canary:
     runs-on: ubuntu-latest
     steps:
@@ -122,7 +150,7 @@ jobs:
           tar xzf "smolvm-${SMOLVM_VERSION}-linux-x86_64.tar.gz"
           smolvm="$PWD/smolvm-${SMOLVM_VERSION}-linux-x86_64/smolvm"
           "$smolvm" --version
-          "$smolvm" machine run -I alpine -- echo hello-from-the-canary
+          "$smolvm" machine run --net -I alpine -- echo hello-from-the-canary
 
   # The same canary for microsandbox: the pinned release still installs, its
   # doctor passes (KVM + libkrunfw resolution) and a sandbox boots.

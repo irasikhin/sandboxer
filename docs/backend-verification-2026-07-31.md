@@ -223,3 +223,37 @@ state. Two produced findings: F4 above, and —
 
 macOS and Windows/WSL2 — no hardware. `docs/e2e-checklist.md` keeps them manual,
 and W1 (nested KVM under WSL2) remains the biggest unverified assumption.
+
+## Follow-up — 2026-08-03: the nightly e2e had never been green
+
+Checked while releasing this work: `e2e.yml` had failed every night since at
+least 2026-07-31, always in `smolvm-canary` at "install + smoke smolvm", while
+the two real-engine jobs reported success.
+
+The canary ran `smolvm machine run -I alpine -- echo hello-from-the-canary`
+without `--net`. A smolvm machine has **no route by default** — the fail-closed
+property this whole backend is built on — so the alpine pull could not resolve
+`index.docker.io`, and smolvm said so in its own error:
+
+```
+Error: ... pull image: ... lookup index.docker.io: network is unreachable
+Hint: networking is disabled. Add --net to enable image pulls:
+```
+
+It therefore fails on any runner with a cold image cache, i.e. every CI runner;
+it passes locally only because a previous run left alpine cached. `msb-canary`
+needs no equivalent because a microsandbox VM starts with an open network.
+Reproduced in `ubuntu:24.04` with `--device /dev/kvm`, and confirmed that adding
+`--net` boots and prints in 4.7 s.
+
+The second half is the more interesting one. The `microvm` job's test step
+finished in **10 s**; the same five tests take **51 s** on an idle host here.
+That gap is consistent with the tests skipping and reporting green — the exact
+"a skip is not a pass" failure this report already flagged, and the same shape
+as the host-auth test that stayed broken for ~8 releases because nothing
+compiled the integration tag. It is not proof (CI boots may simply be faster —
+the microsandbox job's 9 s *is* consistent with its 12.8 s locally), and the
+logs need admin to read, so rather than guess, both e2e jobs now name the tests
+that MUST have run and fail with the runner's own skip reason otherwise
+(`scripts/assert-tests-ran.sh`). The next nightly answers the question either
+way instead of hiding it.
