@@ -6,6 +6,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.67.0] — 2026-08-03
+
+### Added
+
+- pass the child's exit code through as sandboxer's own (3ce044d)
+- --strict CI gate and a git prerequisite row (11f76c1)
+- capture the setup script's output to _logs (e93ebb4)
+- --json output for list, show and doctor (d25888a)
+- -q/--quiet for enter and exec (30a7e40)
+- validate runs the static semantic checks (f36415b)
+
+### Fixed
+
+- drop the never-populated EXIT/SEC/RESULT columns (5663df8)
+
+### Build
+
+- refresh vendorHash for the x/sys bump (088d93f)
+
+### CI
+
+- bump actions/setup-go from 5 to 7 (5c7a9d5)
+
+### Chores
+
+- bump golang.org/x/sys (c0e9e2e)
+
+### Style
+
+- drop unnecessary io.Writer conversions (fc4c4d0)
+
+
 ## [0.66.0] — 2026-07-31
 
 ### Added
@@ -854,3 +886,4 @@ isolated, containerized dev sandbox, on a local Linux machine:
 [0.64.0]: https://github.com/irasikhin/sandboxer/compare/v0.63.5...v0.64.0
 [0.65.0]: https://github.com/irasikhin/sandboxer/compare/v0.64.0...v0.65.0
 [0.66.0]: https://github.com/irasikhin/sandboxer/compare/v0.65.0...v0.66.0
+[0.67.0]: https://github.com/irasikhin/sandboxer/compare/v0.66.0...v0.67.0
