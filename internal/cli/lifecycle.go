@@ -80,6 +80,17 @@ func newCreateCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			// Validate here too, not only on enter/exec: a profile every other
+			// command hard-refuses (a microVM backend with egress.routes, an
+			// unknown backend, a bad session mode) must fail BEFORE the user is
+			// told the sandbox is ready — otherwise create leaves worktrees and
+			// a state dir behind and the diagnosis arrives on the first enter.
+			if err := config.ValidateBackend(rtCreate); err != nil {
+				return err
+			}
+			if err := config.ValidateSession(rtCreate); err != nil {
+				return err
+			}
 			fmt.Fprintln(cmd.ErrOrStderr(), configLine(rtCreate, t.slug, t.profile, backendLabel(rtCreate)))
 			warnIgnoredRoutes(cmd.ErrOrStderr(), rtCreate)
 			warnOpenNetwork(cmd.ErrOrStderr(), rtCreate, t.profile)
