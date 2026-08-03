@@ -296,8 +296,8 @@ func reportSessions(engine string) []doctorCheck {
 		return checks
 	}
 	return append(checks, warnCheck("orphan sessions ("+engine+")",
-		fmt.Sprintf("%s — their projects are gone; remove: %s rm -f %s",
-			strings.Join(orphans, " "), engine, strings.Join(orphans, " "))))
+		fmt.Sprintf("%s — their projects are gone; remove: %s",
+			strings.Join(orphans, " "), backend.RemoveCommand(engine, orphans))))
 }
 
 // legacyStateLeftover reports whether the pre-split runtime state directory

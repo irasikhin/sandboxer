@@ -38,12 +38,18 @@ const (
 	LabelMounts = "sandboxer.mounts"
 )
 
+// sessionNamePrefix marks a container or machine as sandboxer's. On the
+// container path a label carries that fact and the name is cosmetic; a smolvm
+// machine has no labels at all, so for the microVM runners the NAME is the only
+// evidence of ownership a sweep can go on (vmOrphanSessions).
+const sessionNamePrefix = "sandboxer-"
+
 // SessionName returns the deterministic container name for slug's persistent
 // session under baseDir: "sandboxer-<slug>-<hash>". The slug is sanitized to
 // the container-name alphabet both engines accept, and the 8-hex sha256 prefix
 // of baseDir disambiguates same-named sandboxes living in different projects.
 func SessionName(slug, baseDir string) string {
-	return "sandboxer-" + sanitizeContainerName(slug) + "-" + shortHash(baseDir)
+	return sessionNamePrefix + sanitizeContainerName(slug) + "-" + shortHash(baseDir)
 }
 
 // sanitizeContainerName maps s onto the container-name alphabet shared by

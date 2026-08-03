@@ -378,18 +378,65 @@ func vmAllSessionStates(engine string) (map[string]map[string]string, error) {
 	return states, nil
 }
 
-// vmOrphanSessions returns the names of recorded machines whose base directory
-// no longer exists on this host — the project was deleted behind sandboxer's
-// back — for doctor to report with a removal hint.
+// vmOrphanSessions returns the names of sandboxer-managed machines nothing will
+// ever match again, for doctor to report with a removal hint. Two ways a machine
+// gets there, and the second is why this consults the LIVE inventory and not
+// only the records:
+//
+//   - recorded, but the base directory the record names is gone — the project
+//     was deleted behind sandboxer's back (rm -rf instead of `sandboxer rm`);
+//   - running, named like ours, but with NO record at all — the record was lost
+//     instead (a wiped state dir, a changed SANDBOXER_STATE/XDG_STATE_HOME).
+//
+// Every other VM sweep iterates records, so before this the second kind was
+// invisible to clean, list and doctor while still holding disk and a VM. The
+// container path cannot have that blind spot because it asks the ENGINE by
+// label; a smolvm machine carries no labels, so the name prefix is the only
+// evidence of ownership available — deliberately conservative, since an
+// unrecorded machine is reported for the user to remove, never auto-deleted.
 func vmOrphanSessions(engine string) ([]string, error) {
+	r := vmRunnerFor(engine)
+	recorded := make(map[string]bool)
 	var orphans []string
-	for _, rec := range listVMRecords(vmRunnerFor(engine)) {
+	for _, rec := range listVMRecords(r) {
+		recorded[rec.Name] = true
 		if rec.BaseDir == "" {
-			continue
+			continue // no base dir — not provably orphaned
 		}
 		if _, err := os.Stat(rec.BaseDir); os.IsNotExist(err) {
 			orphans = append(orphans, rec.Name)
 		}
 	}
+	for _, m := range r.listMachines() {
+		if recorded[m.Name] || !strings.HasPrefix(m.Name, sessionNamePrefix) {
+			continue
+		}
+		orphans = append(orphans, m.Name)
+	}
+	sort.Strings(orphans)
 	return orphans, nil
+}
+
+// RemoveCommand renders a copy-pasteable command that removes the named
+// sessions on this engine, for a hint like doctor's orphan line.
+//
+// The container engines take every name in one `rm -f`. The microVM runners do
+// not: they remove one machine per call and their verbs differ (smolvm `machine
+// delete --name X -f`, microsandbox `remove -f X`), so the container spelling a
+// hint would otherwise hardcode is simply not a command there. This went
+// unnoticed because microVM orphans never surfaced in the first place — the
+// sweep read only the host-side records (see vmOrphanSessions).
+func RemoveCommand(engine string, names []string) string {
+	if len(names) == 0 {
+		return ""
+	}
+	if !isVMEngine(engine) {
+		return engine + " rm -f " + strings.Join(names, " ")
+	}
+	r := vmRunnerFor(engine)
+	cmds := make([]string, 0, len(names))
+	for _, n := range names {
+		cmds = append(cmds, r.bin()+" "+strings.Join(r.removeArgv(n), " "))
+	}
+	return strings.Join(cmds, "; ")
 }
