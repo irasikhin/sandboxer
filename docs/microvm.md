@@ -36,11 +36,20 @@ $ sandboxer enter mybox --backend microsandbox
 $ SANDBOXER_BACKEND=microsandbox sandboxer enter mybox
 ```
 
+> **Known breakage — prefer `microsandbox` today.** On smolvm 1.6.13 the
+> `microvm` runner cannot boot the stock profile: three virtio-fs shares (the
+> ones sandboxer always creates) plus `--allow-host` plus a large image is a
+> configuration libkrun rejects with `krun_start_enter returned: -22 (EINVAL)`,
+> so every `enter`/`exec` fails while the allowlist is on. `microsandbox` takes
+> the identical profile and boots. Workarounds, minimal reproducer and the exact
+> versions are in
+> [troubleshooting.md](troubleshooting.md#microvm-smolvm-krun_start_enter-returned--22-einval-on-every-enter).
+
 ## Choosing a runner
 
 | | `microvm` (smolvm) | `microsandbox` (msb) |
 |---|---|---|
-| allowlist grammar | exact host (`--allow-host`) — a leading dot is stripped, so `.example.com` stops covering `api.example.com` | **name-bound suffix rules** — `example.com` covers the domain *and* its subdomains, per protocol and port, like the squid sidecar |
+| allowlist grammar | name-bound suffix (`--allow-host`) — a leading dot is stripped, but the rule still covers the domain *and* its subdomains | **name-bound suffix rules** — same coverage, and additionally per protocol and port, like the squid sidecar |
 | unresolvable allowlist entry | hard-fails the machine at boot (sandboxer drops such entries with a warning) | fine — rules match at connect time |
 | raw-IP bypass of an allowed domain | possible | refused (rules are name-bound) |
 | image handling | a docker-save tar, re-imported on every cold create | imported once into msb's image store, then boot-only |
@@ -166,9 +175,11 @@ recreates the machine). There is no squid sidecar on either runner.
    egress to the intended allowlist.
 2. `egress.enabled = false` (or `SANDBOXER_NO_EGRESS=1`), no proxy → open network.
 3. `egress.allowedDomains` non-empty → `--allow-host` per domain, fail-closed
-   (only those hosts resolve). It matches an **exact hostname**: a leading dot
-   (`.example.com`, the container's subdomain grammar) is stripped, so it no
-   longer covers `api.example.com`. An entry that does not resolve on the host
+   (only those hosts resolve). A leading dot (`.example.com`, the container's
+   subdomain grammar) is stripped so the name resolves, but this does **not**
+   narrow the rule: measured on smolvm 1.6.13, `--allow-host` matches the host
+   and its subdomains, the same coverage squid's leading-dot `dstdomain` and
+   microsandbox's `*.domain` give. An entry that does not resolve on the host
    would hard-fail the machine at boot, so such entries are dropped with a
    warning.
 4. egress on with an **empty** allowlist → a fully offline machine (valid here —

@@ -243,10 +243,17 @@ func vmNetworkArgs(o RunOpts) []string {
 // vmAllowHosts normalizes the allowlist for smolvm's --allow-host, which resolves
 // each entry as a hostname at VM start: a leading dot (the squid subdomain-
 // wildcard grammar) is stripped so the name resolves, blanks and duplicates are
-// dropped, and the result is sorted for a stable machine hash. NOTE the semantic
-// narrowing this backend accepts — smolvm allows the exact host, not its
-// subdomains, so `.example.com` becomes `example.com` and no longer covers
-// `api.example.com`.
+// dropped, and the result is sorted for a stable machine hash.
+//
+// Stripping the dot does NOT narrow the rule. Measured on smolvm 1.6.13,
+// --allow-host matches the host AND its subdomains, the same suffix semantics
+// as squid's leading-dot dstdomain and microsandbox's `*.domain`:
+// `--allow-host github.com` admits api.github.com and codeload.github.com
+// (different IPs, so this is name-bound, not an address or subnet match) and
+// refuses example.com, while `--allow-host api.github.com` refuses the parent
+// github.com. All three backends therefore agree on what a listed domain
+// covers — worth re-checking on a smolvm upgrade, since only the runner
+// enforces it.
 func vmAllowHosts(domains []string) []string {
 	seen := map[string]bool{}
 	var out []string

@@ -25,7 +25,11 @@ in the PR: `verified microvm e2e on <os/arch/hw> <date> — N/N pass`.
   `nestedVirtualization=true` in `.wslconfig` and `wsl --shutdown` applied, then
   run everything **inside** the WSL2 Linux distro.
 - A built sandboxer binary and a bootable image. The tests default to the public
-  `alpine` ref; set `SANDBOXER_ITEST_VM_IMAGE=/path/to/image.tar` for offline.
+  `alpine` ref; set `SANDBOXER_ITEST_VM_IMAGE=/path/to/image.tar` for offline —
+  **and run at least one pass with the real toolbox tar**, not `alpine`. Size and
+  layer count are load-bearing here: the EINVAL that made `backend = "microvm"`
+  unbootable with egress on reproduces only on the large image, so an
+  alpine-only run of these same tests stays green through it.
 
 ## Fast path — the Go suite
 
@@ -65,10 +69,15 @@ Run each and confirm the expected result. Substitute a real profile/slug.
 | 11 | Image build in VM | `sandboxer image build --backend microvm` (needs network) | builds via a nixos/nix microVM, no docker/podman |
 | 12 | Clean teardown | `sandboxer clean` then `smolvm machine ls` | no leftover machines |
 
-Run 1–12 again with `--backend microsandbox` (teardown check: `msb list`). Two
-runner-specific extras: a sandbox root under `/tmp` must be REFUSED with the
-tmpfs-shadowing explanation, and `allowedDomains = ["example.com"]` must also
-cover `www.example.com` (the subdomain grammar smolvm loses).
+Run 1–12 again with `--backend microsandbox` (teardown check: `msb list`). One
+runner-specific extra: a sandbox root under `/tmp` must be REFUSED with the
+tmpfs-shadowing explanation.
+
+Invariant 6 is worth running on **both** runners: `allowedDomains =
+["example.com"]` must cover `www.example.com` on each. Both do — smolvm's
+`--allow-host` is name-bound suffix matching, not the exact-host match this
+checklist once claimed — so a divergence here means an upstream runner changed
+its grammar, which is exactly what the check is for.
 
 ## Windows / WSL2 specific
 

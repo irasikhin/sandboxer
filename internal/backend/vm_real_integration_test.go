@@ -5,6 +5,7 @@ package backend
 import (
 	"bytes"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -12,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/irasikhin/sandboxer/internal/config"
 	"github.com/irasikhin/sandboxer/internal/itest"
 )
 
@@ -189,4 +191,57 @@ func scanProcCmdlines(t *testing.T, needle string) bool {
 		}
 	}
 	return false
+}
+
+// TestVM_EgressAllowlist_RealEngine is the smolvm twin of
+// TestMSB_EgressAllowlist_RealEngine, and it deliberately carries the FULL mount
+// set the CLI produces — the sandbox dir, the private home, and the read-only
+// /run/sandboxer profile share — not the single share the other tests use.
+//
+// That shape is the point. Every other TestVM_* case boots with one share and no
+// network flags, and the combination the real CLI always emits (an allowlist
+// PLUS all three shares) had never been exercised: it turned out to fail at
+// libkrun with EINVAL on a large image, which meant the default profile —
+// backend = "microvm" with egress on — could not boot a sandbox at all, while
+// the whole suite stayed green. A test that reproduces the CLI's argv shape is
+// the thing that would have caught it.
+func TestVM_EgressAllowlist_RealEngine(t *testing.T) {
+	engine := itest.Smolvm(t)
+	if exec.Command("sh", "-c", "getent hosts example.com >/dev/null 2>&1").Run() != nil {
+		t.Skip("no outbound DNS on this host — skipping the egress allowlist check")
+	}
+	dest := t.TempDir()
+	o := vmITOpts(t, engine, "itvmnet", dest)
+	// The CLI's full mount set: sandbox dir (MountDest, already on) + home +
+	// the staged profile.json dir.
+	o.HomeDir = t.TempDir()
+	meta := t.TempDir()
+	o.ProfileJSONPath = filepath.Join(meta, "profile.json")
+	mustWrite(t, o.ProfileJSONPath, "{}")
+	o.RT = config.Runtime{Egress: true, Domains: []string{"example.com"}}
+
+	name := SessionName(o.Slug, o.BaseDir)
+	itest.CleanupMachine(t, name)
+	if _, err := EnsureSession(o); err != nil {
+		t.Fatalf("EnsureSession with an allowlist and the CLI's full mount set: %v\n"+
+			"a krun_start_enter EINVAL here means the runner refused the very argv "+
+			"every `sandboxer enter` on this backend emits", err)
+	}
+
+	// The allowed domain resolves inside the guest…
+	if code, _ := ExecSession(o, name, []string{"sh", "-c", "nslookup example.com >/dev/null 2>&1"}); code != 0 {
+		t.Errorf("the allowed domain did not resolve inside the guest (code %d)", code)
+	}
+	// …its SUBDOMAIN does too — --allow-host is name-bound suffix matching, the
+	// same coverage squid's leading-dot dstdomain gives. A failure here means
+	// smolvm narrowed its grammar and the allowlist silently got stricter.
+	if code, _ := ExecSession(o, name, []string{"sh", "-c", "nslookup www.example.com >/dev/null 2>&1"}); code != 0 {
+		t.Errorf("a subdomain of an allowed domain did not resolve (code %d) — "+
+			"smolvm's --allow-host grammar changed", code)
+	}
+	// …and a domain that is not on the list is refused.
+	if code, _ := ExecSession(o, name, []string{"sh", "-c",
+		"wget -q -T 5 -O /dev/null http://api.github.com/ 2>/dev/null"}); code == 0 {
+		t.Error("SECURITY: a domain outside the allowlist was reachable from the guest")
+	}
 }

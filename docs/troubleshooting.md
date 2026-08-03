@@ -129,6 +129,75 @@ failed: Operation not permitted` — means the nested podman only has a
   run that workload under a podman engine, or `--user 0:0` the nested
   container when the image tolerates running as (namespaced) root.
 
+## microvm (smolvm): `krun_start_enter returned: -22 (EINVAL)` on every enter
+
+Symptom — every `enter`/`exec` on `backend = "microvm"` dies in a few seconds:
+
+```
+Error: agent operation failed: start machine: … start vm:
+krun_start_enter returned: -22 (EINVAL — libkrun rejected the VM configuration …)
+```
+
+This is an upstream smolvm/libkrun limit, not a misconfiguration, and it hits
+the DEFAULT profile: sandboxer always shares three directories (the sandbox
+dir, the private home, and the read-only `/run/sandboxer` profile dir), and an
+allowlist adds `--allow-host`. Three shares **plus** a network flag **plus** a
+large image is the combination libkrun refuses. Measured on smolvm 1.6.13 /
+libkrunfw 5.6.0 with the ~3.4 GB toolbox image; minimal reproducer:
+
+```console
+$ smolvm machine run -I toolbox.tar -v A:A -v B:B -v C:C:ro \
+    --allow-host example.com -- /bin/sh -c true      # EINVAL
+$ smolvm machine run -I toolbox.tar -v A:A -v B:B -v C:C:ro \
+    -- /bin/sh -c true                               # boots
+$ smolvm machine run -I toolbox.tar -v A:A -v B:B \
+    --allow-host example.com -- /bin/sh -c true      # boots
+```
+
+Any of these gets you running today:
+
+- **`backend = "microsandbox"`** — the other microVM runner takes the identical
+  profile (same image, same three shares, same allowlist) and boots. This is the
+  recommended route; its allowlist is enforced by the runner and keeps
+  subdomains.
+- **`SANDBOXER_NO_EGRESS=1`**, or `egress.enabled = false` — drops
+  `--allow-host` and the machine boots. Note what you are giving up: outbound
+  traffic is then unrestricted unless an `egress.proxy` polices it.
+- **`egress.proxy`** — proxy-delegated egress also omits `--allow-host`
+  (the proxy is the control point instead).
+- **A container backend** (`docker`/`podman`), which is the default and is
+  unaffected.
+
+`TestVM_EgressAllowlist_RealEngine` covers this shape, but only reproduces it
+when pointed at a large image — run the microVM legs with
+`SANDBOXER_ITEST_VM_IMAGE=<toolbox tar>`, not the default `alpine`.
+
+## podman: "no policy.json file found" / short name did not resolve
+
+podman needs its own configuration to exist before it can pull, load or run
+anything: a `policy.json` and a `registries.conf`, in `~/.config/containers/`
+or `/etc/containers/`. A distro podman package ships them (`containers-common`);
+the sandboxer devShell puts the podman **binary** on `$PATH` and nothing else,
+so on a host that has no system-wide podman install the first `podman` call
+fails with one of:
+
+```
+Error: no policy.json file found at any of the following: …
+Error: short-name "alpine:latest" did not resolve to an alias and no containers-registries.conf(5) was found
+```
+
+Write the two files yourself:
+
+```console
+$ mkdir -p ~/.config/containers
+$ printf '{"default":[{"type":"insecureAcceptAnything"}]}\n' > ~/.config/containers/policy.json
+$ printf 'unqualified-search-registries = ["docker.io"]\n' > ~/.config/containers/registries.conf
+```
+
+`newuidmap`/`newgidmap` must also be reachable for rootless multi-uid images
+(NixOS keeps them in `/run/wrappers/bin`, which `nix develop` does not put on
+`$PATH`) — see "Nested podman" above.
+
 ## Persistent session won't reattach
 
 `enter` shells into a persistent session container; a later `enter`
