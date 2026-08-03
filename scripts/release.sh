@@ -165,7 +165,36 @@ today="$(date -u +%Y-%m-%d)"
     fi
   done < <(git log --reverse --no-merges "${prev_tag}..HEAD" --format='%h%x09%s')
 
+  # Breaking changes lead the section. They are the reason the version moved,
+  # and a reader scanning for "what will this upgrade do to me" must not have to
+  # infer it from a one-line entry filed under Fixed. Detected the same two ways
+  # the bump itself is (a `type!:` subject or a BREAKING CHANGE: footer), so the
+  # section can never disagree with the number; the footer's own prose is quoted
+  # when present, since it is written for exactly this audience.
+  breaking="$(git log --reverse --no-merges "${prev_tag}..HEAD" \
+    --format='%h%x1f%s%x1f%b%x1e' | python3 -c '
+import re, sys
+out = []
+for rec in sys.stdin.read().split("\x1e"):
+    if not rec.strip():
+        continue
+    sha, subject, body = (rec.strip("\n").split("\x1f") + ["", ""])[:3]
+    bang = re.match(r"^[a-z]+(\([^)]+\))?!: (.+)", subject)
+    footer = re.search(r"^BREAKING CHANGE:\s*(.+?)(?=\n\n|\Z)", body, re.M | re.S)
+    if not bang and not footer:
+        continue
+    desc = bang.group(2) if bang else re.sub(r"^[a-z]+(\([^)]+\))?!?: ", "", subject)
+    out.append(f"- {desc} ({sha})")
+    if footer:
+        text = " ".join(footer.group(1).split())
+        out.append(f"  {text}")
+out and print("\n".join(out))
+')"
   any=0
+  if [[ -n "$breaking" ]]; then
+    printf '### ⚠ Breaking changes\n\n%s\n\n' "$breaking"
+    any=1
+  fi
   for t in "${order[@]}"; do
     if [[ -n "${out[$t]:-}" ]]; then
       printf '### %s\n\n%s\n' "${buckets[$t]}" "${out[$t]}"
