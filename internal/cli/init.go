@@ -133,6 +133,9 @@ func starterProfile(name string, d config.Defaults) string {
   # defaults (SANDBOXER_DOMAINS or the built-in set — AI APIs, package + container
   # registries). Setting allowedDomains REPLACES that default set wholesale —
   # re-list EVERY domain you need, or delete the attr to keep the full defaults.
+  # An empty list means what it says: allowedDomains = [ ] reaches NOTHING (the
+  # container backend refuses to start rather than run a sandbox that can talk
+  # to nowhere — turn egress off instead if that is what you meant).
   egress = {
     # enabled = true (default) runs sandboxer's squid allowlist sidecar and
     # enforces allowedDomains below. enabled = false is the escape hatch: NO

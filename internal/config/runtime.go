@@ -72,14 +72,26 @@ func ResolveRuntime(p *Profile, d Defaults, baseDomains string, f Overrides) (Ru
 		return Runtime{}, err
 	}
 
-	domains := f.Domains
-	if domains == "" {
-		domains = strings.Join(p.Egress.AllowedDomains, ",")
+	// Precedence flag > profile > base(run.env)/defaults, with one distinction
+	// the plain firstNonEmpty pattern cannot make: an allowlist that is present
+	// but EMPTY. `allowedDomains = [ ]` decodes to a non-nil empty slice while an
+	// absent attr leaves it nil, and the two must not mean the same thing —
+	// folding them together made "allow nothing" silently resolve to the full
+	// built-in default set, i.e. the one spelling a reader is sure means
+	// "deny everything" was the one that opened 40 domains. An explicit empty
+	// list now stays empty; the backends already have a defined answer for it
+	// (the container path refuses with errEmptyAllowlist and points at
+	// egress.enabled = false, a microVM boots with no route at all).
+	var domains []string
+	switch {
+	case f.Domains != "":
+		domains = splitCSV(f.Domains)
+	case p.Egress.AllowedDomains != nil:
+		domains = splitCSV(strings.Join(p.Egress.AllowedDomains, ","))
+	default:
+		domains = splitCSV(baseDomains)
 	}
-	if domains == "" {
-		domains = baseDomains
-	}
-	rt.Domains = splitCSV(domains)
+	rt.Domains = domains
 	if err := ValidateDomains(rt.Domains); err != nil {
 		return Runtime{}, err
 	}
