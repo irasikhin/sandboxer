@@ -55,11 +55,10 @@ type BuildOpts struct {
 	Cache       bool   // keep a persistent nix-store volume for fast rebuilds
 	KeepBuilder bool   // don't remove the nixos/nix image afterward
 	// BuilderPulled marks the builder image as pulled by an earlier step of
-	// this command (the "latest" pin resolver runs it before BuildImage and the
+	// this command (the pin resolver runs it before BuildImage and the
 	// engine auto-pulls), so clean-by-default still removes it afterward even
 	// though BuildImage's own probe now sees it as present.
 	BuilderPulled bool
-	Refresh       bool // re-fetch flake inputs (nix build --refresh)
 	// DestTar, when set, copies the built image tarball there and SKIPS the
 	// engine load / retag / proxy-image steps. It is how the microVM backend
 	// gets a toolbox tar for its own store using a container engine to build
@@ -90,6 +89,24 @@ func BuildImage(o BuildOpts) error {
 		progress = io.Discard
 	}
 
+	// Track whether we pull the builder image, so cleanup only removes what we
+	// added (never a nixos/nix the user already had). BuilderPulled folds in a
+	// pull done by an earlier step of the same command; the probe runs BEFORE
+	// the pin resolution below, whose resolver container may itself pull the
+	// builder.
+	pulledBuilder := o.BuilderPulled || !imageExists(o.Engine, o.NixImage)
+
+	// Resolve tracking input revs ("" / "latest" — the default) to concrete
+	// commits so every build, including the enter-time auto-build of a missing
+	// stock image, bakes the stamped agent set — never a silently stale pin.
+	// A spec the caller already pinned (image build does, for the tag) passes
+	// through untouched.
+	spec, err := PinSpec(o.Spec, o.Engine, o.NixImage, false, progress)
+	if err != nil {
+		return err
+	}
+	o.Spec = spec
+
 	ctxDir, err := os.MkdirTemp("", "sandboxer-ctx-")
 	if err != nil {
 		return err
@@ -104,11 +121,6 @@ func BuildImage(o BuildOpts) error {
 	if err := writeContext(ctxDir, o.Spec); err != nil {
 		return fmt.Errorf("assemble build context: %w", err)
 	}
-
-	// Track whether we pull the builder image, so cleanup only removes what we
-	// added (never a nixos/nix the user already had). BuilderPulled folds in a
-	// pull done by an earlier step of the same command (the pin resolver).
-	pulledBuilder := o.BuilderPulled || !imageExists(o.Engine, o.NixImage)
 	// Clear any leftover builder container from a previously aborted run.
 	_ = exec.Command(o.Engine, "rm", "-f", builderName).Run()
 
@@ -296,9 +308,9 @@ func builderArgv(o BuildOpts, ctxDir, outDir, cacheVol string) []string {
 	// A DestTar build (the microVM store) needs only the toolbox image, not the
 	// egress squid proxyImage — building the proxy too would download its whole
 	// closure for nothing.
-	script := builderScript(o.Refresh, o.Spec.NixpkgsRev, o.Spec.LLMAgentsRev)
+	script := builderScript(o.Spec.NixpkgsRev, o.Spec.LLMAgentsRev)
 	if o.DestTar != "" {
-		script = builderScriptImage(o.Refresh, o.Spec.NixpkgsRev, o.Spec.LLMAgentsRev)
+		script = builderScriptImage(o.Spec.NixpkgsRev, o.Spec.LLMAgentsRev)
 	}
 	args = append(args, o.NixImage, "sh", "-lc", script)
 	return args
@@ -340,12 +352,13 @@ func hasHostNetwork(extra []string) bool {
 // becomes an --override-input flag only when it differs from the embedded pin
 // — when the effective rev IS the pin the script stays byte-identical to a
 // stock build, so nix's eval cache is shared. Revs are full 40-hex commits
-// (ValidateImageSpec / ResolveLatest enforce it), so the != comparison is
-// exact and a github: flakeref override never needs a GitHub API resolve.
-func builderScript(refresh bool, nixpkgsRev, llmAgentsRev string) string {
+// (ValidateImageSpec / ResolveLatest enforce it; BuildImage pins tracking revs
+// before this renders), so the != comparison is exact and a github: flakeref
+// override never needs a GitHub API resolve.
+func builderScript(nixpkgsRev, llmAgentsRev string) string {
 	// Build BOTH the toolbox image and the egress squid proxyImage in one nix
 	// invocation (shared eval), copying each realized tarball to /out.
-	nixBuild := nixBuildPrefix(overrideFlags(refresh, nixpkgsRev, llmAgentsRev))
+	nixBuild := nixBuildPrefix(overrideFlags(nixpkgsRev, llmAgentsRev))
 	return "set -e; " +
 		nixBuild + "path:/src#image > /out/storepath && " +
 		`cp -L "$(cat /out/storepath)" /out/image.tar.gz && ` +
@@ -356,22 +369,20 @@ func builderScript(refresh bool, nixpkgsRev, llmAgentsRev string) string {
 // builderScriptImage is builderScript's image-only variant, run by the microVM
 // builder: the toolbox backend has no squid proxyImage (egress is smolvm's own
 // --allow-host), so only path:/src#image is realized and copied to /out.
-func builderScriptImage(refresh bool, nixpkgsRev, llmAgentsRev string) string {
-	nixBuild := nixBuildPrefix(overrideFlags(refresh, nixpkgsRev, llmAgentsRev))
+func builderScriptImage(nixpkgsRev, llmAgentsRev string) string {
+	nixBuild := nixBuildPrefix(overrideFlags(nixpkgsRev, llmAgentsRev))
 	return "set -e; " +
 		nixBuild + "path:/src#image > /out/storepath && " +
 		`cp -L "$(cat /out/storepath)" /out/image.tar.gz`
 }
 
-// overrideFlags renders the shared nix build flags: --refresh, and an
-// --override-input for each rev that differs from the embedded pin (byte-
-// identical to a stock build when the effective rev IS the pin, so nix's eval
-// cache is shared).
-func overrideFlags(refresh bool, nixpkgsRev, llmAgentsRev string) string {
+// overrideFlags renders the shared nix build flags: an --override-input for
+// each rev that differs from the embedded pin (byte-identical to a stock build
+// when the effective rev IS the pin, so nix's eval cache is shared). The revs
+// are always concrete commits by the time this renders, so there is no mutable
+// flakeref left for nix's own --refresh to matter to.
+func overrideFlags(nixpkgsRev, llmAgentsRev string) string {
 	flags := ""
-	if refresh {
-		flags += "--refresh "
-	}
 	embNixpkgs, embLLMAgents := EmbeddedRevs()
 	if nixpkgsRev != "" && nixpkgsRev != embNixpkgs {
 		flags += "--override-input nixpkgs github:NixOS/nixpkgs/" + nixpkgsRev + " "

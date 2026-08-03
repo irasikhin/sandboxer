@@ -177,6 +177,38 @@ func TestImageRm(t *testing.T) {
 	}
 }
 
+// TestImageRmVariant: with a customized profile, rm resolves the variant tag
+// via the warm pins stamp (never a resolver container); a cold stamp is a
+// fail-closed error — nothing was ever built to remove.
+func TestImageRmVariant(t *testing.T) {
+	fakePodman(t)
+	t.Setenv("SANDBOXER_ENGINE", "podman")
+	cfg := filepath.Join(t.TempDir(), "img.nix")
+	if err := os.WriteFile(cfg, []byte("{ name = \"feat\"; image.packages = [ \"ripgrep\" ]; }\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	if code, _, errs := run("image", "rm", "-f", cfg); code != 1 || !strings.Contains(errs, "image build") {
+		t.Errorf("variant rm on a cold pins cache = (%d, %q), want fail-closed guidance", code, errs)
+	}
+
+	warmPins(t, strings.Repeat("a", 40))
+	var gotImage string
+	old := backendRemoveImage
+	t.Cleanup(func() { backendRemoveImage = old })
+	backendRemoveImage = func(_, image string) error {
+		gotImage = image
+		return nil
+	}
+	if code, _, errs := run("image", "rm", "-f", cfg); code != 0 {
+		t.Fatalf("variant rm = %d, %s", code, errs)
+	}
+	if !strings.HasPrefix(gotImage, "sandboxer-toolbox:var-") {
+		t.Errorf("variant rm removed %q, want a var- tag", gotImage)
+	}
+}
+
 // TestProfileUseAlias: `profile use` is the same selector as the top-level use.
 func TestProfileUseAlias(t *testing.T) {
 	project := newProject(t)

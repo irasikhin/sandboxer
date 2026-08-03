@@ -377,8 +377,8 @@ build time (an overlay) is a separate file:
     files."/etc/sandboxer/rc.d/10-aliases.sh" = "alias mci='mvn clean install'";
     env.SANDBOX_FLAVOR = "custom";                    # static image OCI env
     # overlay = "./overlay.nix";  # a PLAIN nixpkgs overlay, for computed pkgs
-    # llmAgentsRev = "latest";    # input pin override: latest | full commit hash
-    # nixpkgsRev = "<commit>";    # empty = the pin embedded in the binary
+    # llmAgentsRev = "<commit>";  # PIN the agents (full 40-hex); default: track latest
+    # nixpkgsRev = "<commit>";    # PIN nixpkgs (full 40-hex); default: track latest
   };
 }
 ```
@@ -409,12 +409,14 @@ content — auto-built on first use and shared by identical profiles; the stock
 persistent session recreates itself on the next `enter`. Full commented
 example: [examples/custom-image.nix](./examples/custom-image.nix).
 
-`llmAgentsRev`/`nixpkgsRev` move the image's flake-input pins — e.g. pick up
-newer agents without waiting for a sandboxer release. A full 40-hex commit
-hash pins exactly; `latest` is resolved to the remote head **once**, inside the
-builder container at build time, and stamped into the per-user pins cache
-(`~/.cache/sandboxer/image-pins.json`). `enter`/`exec` reuse the stamp and
-never re-resolve; only `sandboxer image build --refresh` moves it.
+The image's flake inputs (`nixpkgs`, `llm-agents` — the agents) **track the
+remote heads by default**: `sandboxer image build` re-resolves them, stamps the
+result into the per-user pins cache (`~/.cache/sandboxer/image-pins.json`) and
+builds from it — so a rebuild + `recreate` is how agents update.
+`enter`/`exec` only ever reuse the stamp, never re-resolve — nothing moves
+behind your back. `--no-refresh` builds from the existing stamp. To hold an
+input still, set `llmAgentsRev`/`nixpkgsRev` to a full 40-hex commit — a pin
+selects a content-addressed `var-` image that never moves.
 
 ### Nested containers (`nestedContainers`)
 
@@ -604,19 +606,22 @@ volume for faster rebuilds, `--keep-builder` to keep the `nixos/nix` image.
 variant alike. Inspect or hand-run the container config with
 `sandboxer compose <slug>` (or `--print-run`).
 
+Every `image build` first re-resolves the flake inputs (nixpkgs and the
+llm-agents catalog) to their current remote heads and stamps them into the
+pins cache, so a rebuild picks up new agent releases — `--no-refresh` builds
+from the existing stamp instead (see
+[Custom toolbox image](#custom-toolbox-image-image)).
+
 `sandboxer image build [profile]` (a positional name or `-f`, resolved like
 enter/exec) builds that profile's customized variant instead of the stock
 image. `--llm-agents-rev`/`--nixpkgs-rev` override the input revs for this one
-build, on top of the profile's values; `--refresh` re-fetches the flake inputs
-and re-resolves any `latest` pin (a `latest` rev resolves once and is stamped
-into the pins cache — see
-[Custom toolbox image](#custom-toolbox-image-image)). Any rev override selects
-a `var-` tag too: rev flags **without** a profile pre-resolve the pins and
-pre-build a variant, but the stock image profile-less sandboxes run is not
-touched — only a profile pinning the same revs uses the result (the command
-prints a note). Variant tags hash the input pins, so each sandboxer release (a
-pin bump) rebuilds a variant once on first use; `--cache` keeps a nix-store
-volume that makes those rebuilds cheap.
+build, on top of the profile's values. A **concrete** rev override selects a
+`var-` tag: concrete rev flags **without** a profile pre-build a pinned
+variant, but the stock image profile-less sandboxes run is not touched — only
+a profile pinning the same revs uses the result (the command prints a note).
+Variant tags hash the effective input revs, so an `image build` that moves the
+stamp rebuilds a tracking variant once on first use; `--cache` keeps a
+nix-store volume that makes those rebuilds cheap.
 
 > Migrating from ≤0.20: tool-pack variants moved from `tools-*` to the unified
 > `var-*` tags. The old `sandboxer-toolbox:tools-*` images are orphans —

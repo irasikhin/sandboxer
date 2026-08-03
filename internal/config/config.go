@@ -156,18 +156,26 @@ type ImageSpec struct {
 	// profile file; LoadDocument resolves it to an absolute path so the
 	// stored _meta/<slug>.profile.json snapshot stays self-contained.
 	Overlay string `json:"overlay,omitempty"`
-	// LLMAgentsRev / NixpkgsRev override the embedded flake-input pins: empty
-	// keeps the embedded pin, "latest" resolves the remote head once at build
-	// time, and a full 40-hex commit hash pins exactly (see ValidateImageSpec).
+	// LLMAgentsRev / NixpkgsRev select the image's flake-input revs. Empty and
+	// "latest" both track the remote head (the default: `image build`
+	// re-resolves and rebuilds with the current agents); a full 40-hex commit
+	// hash pins exactly (see ValidateImageSpec).
 	LLMAgentsRev string `json:"llmAgentsRev,omitempty"`
 	NixpkgsRev   string `json:"nixpkgsRev,omitempty"`
 }
 
 // Empty reports whether the spec requests no customization, i.e. the sandbox
-// runs the stock toolbox image.
+// runs the stock toolbox image. A tracking rev ("" or "latest") is the stock
+// image's own behavior, not a customization; only a concrete pin is.
 func (s ImageSpec) Empty() bool {
 	return len(s.Packages) == 0 && len(s.Files) == 0 && len(s.Env) == 0 &&
-		s.Overlay == "" && s.LLMAgentsRev == "" && s.NixpkgsRev == ""
+		s.Overlay == "" && isTrackingRev(s.LLMAgentsRev) && isTrackingRev(s.NixpkgsRev)
+}
+
+// isTrackingRev reports whether an image input rev tracks the remote head —
+// the empty default and the explicit "latest" spelling mean the same thing.
+func isTrackingRev(rev string) bool {
+	return rev == "" || rev == "latest"
 }
 
 // WholeRepo reports whether include selects the whole repository — no patterns,
@@ -261,8 +269,8 @@ func ValidateSrcs(srcs []Src) error {
 var imageRevRe = regexp.MustCompile(`^[0-9a-f]{40}$`)
 
 // ValidateImageSpec rejects a malformed flake-input revision override. Each rev
-// is "" (keep the embedded pin), "latest" (resolve the remote head at build
-// time) or a full 40-character lowercase hex commit hash. Short prefixes are
+// is "" or "latest" (track the remote head — the default) or a full
+// 40-character lowercase hex commit hash that pins it. Short prefixes are
 // rejected: the same commit as 7- and 40-hex would mint two different variant
 // tags, and nix treats a non-40-hex rev in a github: flakeref as a ref needing
 // a GitHub API resolve — a network dependency a pin must not have.

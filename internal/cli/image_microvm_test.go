@@ -23,16 +23,25 @@ func fakeSmolvmOnPath(t *testing.T) {
 }
 
 // TestBuildImageMicrovmRoutesToVMBuild: `image build --backend microvm` builds
-// in a microVM (the store path), never the container engine.
+// in a microVM (the store path), never the container engine's image store. The
+// pin resolver still runs on a container engine (here the pin-serving fake
+// podman, forced via SANDBOXER_ENGINE), and the resolved revs reach the VM
+// build's spec.
 func TestBuildImageMicrovmRoutesToVMBuild(t *testing.T) {
+	requireExec(t, "sh")
 	newProject(t)
 	fakeSmolvmOnPath(t)
+	rev := strings.Repeat("b", 40)
+	pinPodman(t, rev)
+	t.Setenv("SANDBOXER_ENGINE", "podman")
 
 	var vmImage string
+	var vmSpec toolbox.Spec
 	oldVM, oldC := backendBuildVMImage, toolboxBuild
 	defer func() { backendBuildVMImage, toolboxBuild = oldVM, oldC }()
-	backendBuildVMImage = func(_, image string, _ toolbox.Spec, _ io.Writer) error {
+	backendBuildVMImage = func(_, image string, spec toolbox.Spec, _ io.Writer) error {
 		vmImage = image
+		vmSpec = spec
 		return nil
 	}
 	toolboxBuild = func(toolbox.BuildOpts) error {
@@ -46,13 +55,47 @@ func TestBuildImageMicrovmRoutesToVMBuild(t *testing.T) {
 	if vmImage != config.DefaultImage {
 		t.Errorf("vm build image = %q, want %q", vmImage, config.DefaultImage)
 	}
+	if vmSpec.NixpkgsRev != rev || vmSpec.LLMAgentsRev != rev {
+		t.Errorf("vm build spec revs = %q/%q, want the resolved %s", vmSpec.NixpkgsRev, vmSpec.LLMAgentsRev, rev)
+	}
+}
+
+// TestBuildImageMicrovmNoResolver: with no container engine at all the default
+// refresh degrades to the stamped pins (with a warning) instead of failing —
+// and a cold stamp is what fails, closed.
+func TestBuildImageMicrovmNoResolver(t *testing.T) {
+	newProject(t)
+	fakeSmolvmOnPath(t)
+	t.Setenv("SANDBOXER_ENGINE", "")
+	t.Setenv("PATH", t.TempDir()) // no docker/podman anywhere
+
+	oldVM := backendBuildVMImage
+	defer func() { backendBuildVMImage = oldVM }()
+	backendBuildVMImage = func(_, _ string, _ toolbox.Spec, _ io.Writer) error { return nil }
+
+	// Cold pins cache → fail-closed with image-build guidance.
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	if code, _, errs := run("image", "build", "--backend", "microvm"); code != 1 ||
+		!strings.Contains(errs, "image build") {
+		t.Errorf("cold cache without a resolver = (%d, %q), want fail-closed guidance", code, errs)
+	}
+
+	// Warm stamp → the build proceeds from it, saying the refresh was skipped.
+	warmPins(t, strings.Repeat("c", 40))
+	if code, _, errs := run("image", "build", "--backend", "microvm"); code != 0 ||
+		!strings.Contains(errs, "stamped pins") {
+		t.Errorf("warm stamp without a resolver = (%d, %q), want a build from the stamp", code, errs)
+	}
 }
 
 // TestBuildImageMicrovmVariant: a profile with image customization builds its
 // content-addressed variant tag in the microVM.
 func TestBuildImageMicrovmVariant(t *testing.T) {
+	requireExec(t, "sh")
 	newProject(t)
 	fakeSmolvmOnPath(t)
+	pinPodman(t, strings.Repeat("b", 40))
+	t.Setenv("SANDBOXER_ENGINE", "podman")
 
 	var vmImage string
 	oldVM := backendBuildVMImage

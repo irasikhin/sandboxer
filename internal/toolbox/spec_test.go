@@ -12,9 +12,15 @@ import (
 )
 
 // TestResolveSpecEmpty: a nil or customization-free profile resolves to the
-// empty spec, whose tag is the stock default image.
+// empty spec, whose tag is the stock default image. Writing the tracking
+// default down ("latest") is not a customization either — it must not divert
+// the profile to a variant tag.
 func TestResolveSpecEmpty(t *testing.T) {
-	for _, p := range []*config.Profile{nil, {}} {
+	for _, p := range []*config.Profile{
+		nil,
+		{},
+		{Image: config.ImageSpec{LLMAgentsRev: "latest", NixpkgsRev: "latest"}},
+	} {
 		s, err := ResolveSpec(p)
 		if err != nil || !s.Empty() {
 			t.Errorf("ResolveSpec(%v) = %+v, %v; want empty spec", p, s, err)
@@ -22,6 +28,11 @@ func TestResolveSpecEmpty(t *testing.T) {
 	}
 	if got := (Spec{}).Tag(); got != config.DefaultImage {
 		t.Errorf("empty spec tag = %q, want %q", got, config.DefaultImage)
+	}
+	// A concrete pin IS a customization: it must hold even when the stock
+	// image moves on, so it needs its own content-addressed variant.
+	if s := (Spec{NixpkgsRev: strings.Repeat("a", 40)}); s.Empty() {
+		t.Error("a concrete rev pin must not be an empty spec")
 	}
 }
 
@@ -71,6 +82,11 @@ func TestResolveSpecOverlayFile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// Tag() needs concrete revs (PinSpec runs before tagging in the real
+	// flow); pin both specs identically so only the overlay content differs.
+	rev := strings.Repeat("1", 40)
+	s1.NixpkgsRev, s1.LLMAgentsRev = rev, rev
+	s2.NixpkgsRev, s2.LLMAgentsRev = rev, rev
 	if s2.OverlaySHA == s1.OverlaySHA || s2.Tag() == s1.Tag() {
 		t.Error("changing the hook file's content must change OverlaySHA and the tag")
 	}
@@ -82,50 +98,53 @@ func TestResolveSpecOverlayFile(t *testing.T) {
 }
 
 // TestSpecTag pins the content-addressed tag: deterministic, 12-hex var- form,
-// sensitive to every content input, and insensitive to a rev override that
-// equals the embedded pin (same effective rev → same image).
+// and sensitive to every content input, the resolved revs included.
 func TestSpecTag(t *testing.T) {
 	tagRe := regexp.MustCompile(`^sandboxer-toolbox:var-[0-9a-f]{12}$`)
-	a := Spec{Attrs: []string{"go", "ripgrep"}}
+	revN, revL := strings.Repeat("2", 40), strings.Repeat("3", 40)
+	pin := func(s Spec) Spec {
+		s.NixpkgsRev, s.LLMAgentsRev = revN, revL
+		return s
+	}
+	a := pin(Spec{Attrs: []string{"go", "ripgrep"}})
 	if !tagRe.MatchString(a.Tag()) {
 		t.Errorf("tag form = %q, want var-<12 hex>", a.Tag())
 	}
-	if a.Tag() != (Spec{Attrs: []string{"go", "ripgrep"}}).Tag() {
+	if a.Tag() != pin(Spec{Attrs: []string{"go", "ripgrep"}}).Tag() {
 		t.Error("tag must be deterministic for the same spec")
 	}
-	if a.Tag() == (Spec{Attrs: []string{"go"}}).Tag() {
+	if a.Tag() == pin(Spec{Attrs: []string{"go"}}).Tag() {
 		t.Error("different attr sets must produce different tags")
 	}
-	if a.Tag() == (Spec{Attrs: []string{"go", "ripgrep"}, OverlaySHA: "deadbeef"}).Tag() {
+	if a.Tag() == pin(Spec{Attrs: []string{"go", "ripgrep"}, OverlaySHA: "deadbeef"}).Tag() {
 		t.Error("a user nix hash must change the tag")
 	}
 	// NUL-joined attrs: adjacent names never collide by concatenation, so a
 	// bogus comma-joined attr can't alias an already-built valid image and
 	// dodge the flake's fail-closed unknown-attribute throw.
-	if a.Tag() == (Spec{Attrs: []string{"go,ripgrep"}}).Tag() {
+	if a.Tag() == pin(Spec{Attrs: []string{"go,ripgrep"}}).Tag() {
 		t.Error(`Attrs ["go,ripgrep"] must not hash like ["go","ripgrep"]`)
 	}
 
-	embNixpkgs, embLLMAgents := EmbeddedRevs()
-	pinned := Spec{Attrs: []string{"go", "ripgrep"}, NixpkgsRev: embNixpkgs, LLMAgentsRev: embLLMAgents}
-	if pinned.Tag() != a.Tag() {
-		t.Error("rev overrides equal to the embedded pins must not change the tag")
-	}
-	if (Spec{Attrs: []string{"go", "ripgrep"}, NixpkgsRev: "deadbeef"}).Tag() == a.Tag() {
+	other := strings.Repeat("4", 40)
+	if (Spec{Attrs: []string{"go", "ripgrep"}, NixpkgsRev: other, LLMAgentsRev: revL}).Tag() == a.Tag() {
 		t.Error("a differing nixpkgs rev must change the tag")
 	}
-	if (Spec{Attrs: []string{"go", "ripgrep"}, LLMAgentsRev: "deadbeef"}).Tag() == a.Tag() {
+	if (Spec{Attrs: []string{"go", "ripgrep"}, NixpkgsRev: revN, LLMAgentsRev: other}).Tag() == a.Tag() {
 		t.Error("a differing llm-agents rev must change the tag")
 	}
 }
 
 // TestSpecTagPanicsOnLatest pins the sequencing contract: an unresolved
-// "latest" rev can never be content-addressed, so tagging it is a fail-loud
-// bug, not a tag.
+// tracking rev — the "" default as much as the explicit "latest" — can never
+// be content-addressed, so tagging it is a fail-loud bug, not a tag.
 func TestSpecTagPanicsOnLatest(t *testing.T) {
+	rev := strings.Repeat("5", 40)
 	for _, s := range []Spec{
-		{Attrs: []string{"go"}, NixpkgsRev: "latest"},
-		{Attrs: []string{"go"}, LLMAgentsRev: "latest"},
+		{Attrs: []string{"go"}, NixpkgsRev: "latest", LLMAgentsRev: rev},
+		{Attrs: []string{"go"}, NixpkgsRev: rev, LLMAgentsRev: "latest"},
+		{Attrs: []string{"go"}, NixpkgsRev: rev},
+		{Attrs: []string{"go"}},
 	} {
 		func() {
 			defer func() {

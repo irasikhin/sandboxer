@@ -53,7 +53,6 @@ type BuildVMOpts struct {
 	NixImage string    // builder image override; "" → NixImage
 	Cache    string    // host dir persisted as the guest /nix store; "" → none
 	Spec     Spec      // image variant customization; zero = stock
-	Refresh  bool      // re-fetch flake inputs
 	Stdout   io.Writer // build chatter
 	Stderr   io.Writer // progress banners
 }
@@ -75,6 +74,16 @@ func BuildImageVM(o BuildVMOpts) error {
 	if progress == nil {
 		progress = io.Discard
 	}
+
+	// Resolve tracking input revs from the stamped pins cache. There is no
+	// container engine here to resolve a cold cache against (the resolver
+	// speaks docker/podman, not smolvm), so a cold cache fails closed with
+	// image-build guidance rather than silently building the embedded pins.
+	spec, err := PinSpec(o.Spec, "", o.NixImage, false, progress)
+	if err != nil {
+		return fmt.Errorf("microvm image build: %w", err)
+	}
+	o.Spec = spec
 
 	ctxDir, err := os.MkdirTemp("", "sandboxer-vmctx-")
 	if err != nil {
@@ -152,6 +161,6 @@ func vmBuilderArgv(o BuildVMOpts, ctxDir, outDir string) []string {
 	// /bin/sh is an absolute symlink to bash in the image, so it is exec'able
 	// regardless of PATH; nixImageEnv's PATH then lets the script reach `nix`.
 	args = append(args, "--", "/bin/sh", "-lc",
-		builderScriptImage(o.Refresh, o.Spec.NixpkgsRev, o.Spec.LLMAgentsRev))
+		builderScriptImage(o.Spec.NixpkgsRev, o.Spec.LLMAgentsRev))
 	return args
 }

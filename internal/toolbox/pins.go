@@ -175,20 +175,20 @@ func ResolveLatest(engine, nixImage string, stderr io.Writer) (Pins, error) {
 	return pins, nil
 }
 
-// PinSpec replaces a spec's "latest" input revs with concrete commits so the
-// spec can be tagged and built. Concrete and empty revs pass through
-// untouched. "latest" reads the stamped pins cache; a miss (or refresh)
-// resolves the remote heads once via ResolveLatest and stamps the result —
-// so enter/exec never re-resolve a warm cache, only `image build --refresh`
-// moves the pins. A miss stamps ONLY the inputs that were missing (an
-// existing stamp another profile relies on never moves as a side effect);
-// refresh re-stamps everything. nixImage overrides the resolver's builder
-// image ("" = the pinned default). With no engine (a dry run) a cold cache
-// is a fail-closed error pointing at `image build` instead of a guessing
-// fallback.
+// PinSpec replaces a spec's tracking input revs — "" and "latest" both mean
+// "the remote head" — with concrete commits so the spec can be tagged and
+// built. Concrete (40-hex) revs pass through untouched. A tracking rev reads
+// the stamped pins cache; a miss (or refresh) resolves the remote heads once
+// via ResolveLatest and stamps the result — so enter/exec never re-resolve a
+// warm cache, only `image build` (which refreshes by default) moves the pins.
+// A miss stamps ONLY the inputs that were missing (an existing stamp another
+// profile relies on never moves as a side effect); refresh re-stamps
+// everything. nixImage overrides the resolver's builder image ("" = the
+// pinned default). With no engine (a dry run) a cold cache is a fail-closed
+// error pointing at `image build` instead of a guessing fallback.
 func PinSpec(s Spec, engine, nixImage string, refresh bool, stderr io.Writer) (Spec, error) {
-	latestNixpkgs := s.NixpkgsRev == "latest"
-	latestLLMAgents := s.LLMAgentsRev == "latest"
+	latestNixpkgs := isLatestRev(s.NixpkgsRev)
+	latestLLMAgents := isLatestRev(s.LLMAgentsRev)
 	if !latestNixpkgs && !latestLLMAgents {
 		return s, nil
 	}
@@ -200,8 +200,9 @@ func PinSpec(s Spec, engine, nixImage string, refresh bool, stderr io.Writer) (S
 	_, haveLLMAgents := pins["llm-agents"]
 	if refresh || (latestNixpkgs && !haveNixpkgs) || (latestLLMAgents && !haveLLMAgents) {
 		if engine == "" {
-			return Spec{}, errors.New(`unresolved "latest" image revs and no container engine to ` +
-				`resolve them — run 'sandboxer image build' once to resolve and stamp the pins`)
+			return Spec{}, errors.New(`unresolved image input revs (tracking latest) and no container ` +
+				`engine to resolve them — run 'sandboxer image build' once to resolve and stamp the ` +
+				`pins, or pin image.llmAgentsRev/nixpkgsRev to a commit`)
 		}
 		resolved, err := ResolveLatest(engine, nixImage, stderr)
 		if err != nil {

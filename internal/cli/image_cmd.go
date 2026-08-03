@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -61,6 +62,14 @@ func newImageRmCmd() *cobra.Command {
 					return err
 				}
 				if !spec.Empty() {
+					// Resolve tracking revs from the stamped pins cache so the
+					// variant tag matches what was built. No engine on purpose:
+					// rm must never launch a resolver container, and a cold
+					// cache means nothing was ever built to remove — the
+					// fail-closed error's image-build guidance still fits.
+					if spec, err = toolbox.PinSpec(spec, "", "", false, io.Discard); err != nil {
+						return err
+					}
 					image = spec.Tag()
 				}
 			}

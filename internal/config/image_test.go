@@ -16,7 +16,9 @@ func TestImageSpecEmpty(t *testing.T) {
 		{"zero", ImageSpec{}, true},
 		{"packages", ImageSpec{Packages: []string{"ripgrep"}}, false},
 		{"nix", ImageSpec{Overlay: "/abs/image.nix"}, false},
-		{"llmAgentsRev", ImageSpec{LLMAgentsRev: "latest"}, false},
+		// A tracking rev is the stock default written down, not a customization.
+		{"llmAgentsRev latest", ImageSpec{LLMAgentsRev: "latest"}, true},
+		{"llmAgentsRev pinned", ImageSpec{LLMAgentsRev: strings.Repeat("a", 40)}, false},
 		{"nixpkgsRev", ImageSpec{NixpkgsRev: "abcdef0"}, false},
 	}
 	for _, c := range cases {

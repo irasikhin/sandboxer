@@ -174,40 +174,38 @@ func TestResolveLatest(t *testing.T) {
 	}
 }
 
-// TestPinSpec is the resolution table: pass-throughs never touch the cache, a
-// warm stamp needs no engine, a miss resolves+stamps once, refresh re-resolves
-// over a warm stamp, and no-engine-on-a-cold-cache errors with build-image
-// guidance.
+// TestPinSpec is the resolution table: fully pinned specs never touch the
+// cache, a warm stamp needs no engine, a miss resolves+stamps once, refresh
+// re-resolves over a warm stamp, and no-engine-on-a-cold-cache errors with
+// build-image guidance.
 func TestPinSpec(t *testing.T) {
 	requireExec(t, "sh")
 	revA, revB := strings.Repeat("a", 40), strings.Repeat("b", 40)
 
-	// Concrete and empty revs pass through untouched — even with refresh, no
-	// engine and no cache at all.
+	// Concrete revs pass through untouched — even with refresh, no engine and
+	// no cache at all.
 	pinsCacheDir(t)
-	for _, s := range []Spec{
-		{},
-		{Attrs: []string{"go"}},
-		{Attrs: []string{"go"}, NixpkgsRev: "1234abcd", LLMAgentsRev: revB},
-	} {
-		got, err := PinSpec(s, "", "", true, nil)
-		if err != nil || got.NixpkgsRev != s.NixpkgsRev || got.LLMAgentsRev != s.LLMAgentsRev {
-			t.Errorf("PinSpec(%+v) = %+v, %v; want untouched pass-through", s, got, err)
-		}
+	s := Spec{Attrs: []string{"go"}, NixpkgsRev: revA, LLMAgentsRev: revB}
+	got, err := PinSpec(s, "", "", true, nil)
+	if err != nil || got.NixpkgsRev != revA || got.LLMAgentsRev != revB {
+		t.Errorf("PinSpec(%+v) = %+v, %v; want untouched pass-through", s, got, err)
 	}
 	if path, _ := PinsPath(); fileExistsForTest(path) {
 		t.Error("a pass-through must not stamp the pins cache")
 	}
 
-	// Cold cache + no engine → fail-closed with build-image guidance.
-	if _, err := PinSpec(Spec{NixpkgsRev: "latest"}, "", "", false, nil); err == nil ||
-		!strings.Contains(err.Error(), "image build") {
-		t.Errorf("cold cache without an engine = %v, want build-image guidance", err)
+	// Cold cache + no engine → fail-closed with build-image guidance, for the
+	// "" tracking default exactly as for the explicit "latest".
+	for _, s := range []Spec{{NixpkgsRev: "latest"}, {}, {Attrs: []string{"go"}}} {
+		if _, err := PinSpec(s, "", "", false, nil); err == nil ||
+			!strings.Contains(err.Error(), "image build") {
+			t.Errorf("cold cache without an engine (%+v) = %v, want build-image guidance", s, err)
+		}
 	}
 
 	// Miss → ResolveLatest via the engine, both revs replaced, cache stamped.
-	got, err := PinSpec(Spec{NixpkgsRev: "latest", LLMAgentsRev: "latest"},
-		writePinEngine(t, revA, revB), "", false, &strings.Builder{})
+	// The empty spec tracks both inputs — the stock auto-update default.
+	got, err = PinSpec(Spec{}, writePinEngine(t, revA, revB), "", false, &strings.Builder{})
 	if err != nil {
 		t.Fatalf("PinSpec miss: %v", err)
 	}
@@ -219,10 +217,11 @@ func TestPinSpec(t *testing.T) {
 		t.Errorf("stamped pins = %+v, %v", stamped, err)
 	}
 
-	// Warm cache hit: no engine needed (the dry-run case), revs from the stamp.
+	// Warm cache hit: no engine needed (the dry-run case), revs from the stamp
+	// for the explicit "latest" and the "" default alike.
 	hit, err := PinSpec(Spec{LLMAgentsRev: "latest"}, "", "", false, nil)
-	if err != nil || hit.LLMAgentsRev != revB {
-		t.Errorf("warm-cache hit = %+v, %v; want the stamped rev with no engine", hit, err)
+	if err != nil || hit.LLMAgentsRev != revB || hit.NixpkgsRev != revA {
+		t.Errorf("warm-cache hit = %+v, %v; want the stamped revs with no engine", hit, err)
 	}
 
 	// Refresh forces a re-resolve over the warm stamp and re-stamps.
@@ -252,7 +251,8 @@ func TestPinSpec(t *testing.T) {
 // TestPinSpecMissKeepsOtherStamps: a cache miss stamps ONLY the missing
 // inputs. Profile A's warm nixpkgs stamp must not move when profile B's first
 // enter resolves a cold llm-agents pin — or A's next enter would mint a new
-// tag and rebuild for no reason (only --refresh moves a warm stamp).
+// tag and rebuild for no reason (only image build's refresh moves a warm
+// stamp).
 func TestPinSpecMissKeepsOtherStamps(t *testing.T) {
 	requireExec(t, "sh")
 	pinsCacheDir(t)
@@ -358,8 +358,8 @@ func TestPinSpecThenTag(t *testing.T) {
 	if !strings.HasPrefix(tag, "sandboxer-toolbox:var-") {
 		t.Fatalf("pinned tag = %q", tag)
 	}
-	if tag == (Spec{Attrs: []string{"go"}}).Tag() {
-		t.Error("a resolved latest rev must change the tag away from the embedded pin")
+	if other := strings.Repeat("b", 40); tag == (Spec{Attrs: []string{"go"}, NixpkgsRev: other, LLMAgentsRev: other}).Tag() {
+		t.Error("the tag must be content-addressed by the resolved revs")
 	}
 }
 

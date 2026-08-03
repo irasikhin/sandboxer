@@ -16,7 +16,7 @@ import (
 // `build` verb of the `image` command group (see image.go).
 func newImageBuildCmd() *cobra.Command {
 	var engineFlag, backendFlag, nixImage, configPath, llmAgentsRev, nixpkgsRev string
-	var cache, keepBuilder, refresh bool
+	var cache, keepBuilder, noRefresh bool
 	var builderArgs []string
 	cmd := &cobra.Command{
 		Use:   "build [profile]",
@@ -25,21 +25,26 @@ func newImageBuildCmd() *cobra.Command {
 
 An ephemeral, public nixos/nix container (pulled by your engine) builds a minimal
 image from a flake embedded in the sandboxer binary — agents come from the public
-llm-agents.nix catalog and the sandboxer binary is injected by copy — then the
-engine loads the result as ` + config.DefaultImage + `.
+llm-agents.nix catalog — then the engine loads the result as ` + config.DefaultImage + `.
+
+Auto-update is the default: each build first re-resolves the flake inputs
+(nixpkgs, llm-agents — the agents) to their current remote heads and stamps the
+resolved commits into the per-user pins cache, so a rebuild picks up new agent
+releases. enter/exec only ever reuse the stamp — nothing re-resolves behind your
+back; rebuild + recreate is how an update reaches a sandbox. --no-refresh builds
+from the existing stamp (fast iteration on image.packages without moving the
+agents). To hold an input still, pin it in the config: image.llmAgentsRev /
+image.nixpkgsRev = a full 40-hex commit.
 
 With a profile (a positional name or -f, resolved like enter/exec) the profile's
-customized variant — tools packs, image.extraPkgs, an image.nix hook, pinned
-input revs — is built under its content-addressed var- tag instead. Without a
-profile and without rev flags the stock default image is built, as before.
+customized variant — tools packs, image.extraPkgs, an overlay, pinned input
+revs — is built under its content-addressed var- tag instead. Without a profile
+the stock default image is built.
 
 --llm-agents-rev/--nixpkgs-rev override the input revs for this build only (over
-the profile's values). Any rev override — flag or profile — selects a var- tag
-too: only a profile pinning the same revs runs that image, so the bare-flag form
-pre-resolves the pins and pre-builds a variant but does NOT update the stock
-image profile-less sandboxes use. A "latest" rev is resolved to the remote head
-once and stamped into the per-user pins cache; later enter/exec reuse the stamp,
-and only --refresh re-resolves it.
+the profile's values). A concrete bare-flag rev selects a var- tag: only a
+profile pinning the same revs runs that image, so it pre-builds a variant but
+does NOT update the stock image profile-less sandboxes use.
 
 Clean by default: the builder container is removed, the nixos/nix image is dropped
 again unless it was already present (or --keep-builder), and no persistent volume
@@ -82,6 +87,11 @@ gives up on it and builds from source instead:
 			}); err != nil {
 				return err
 			}
+			// Stockness is decided BEFORE pin resolution: a tracking rev ("",
+			// "latest") is the stock default, and PinSpec makes every rev
+			// concrete — judged after it, nothing would ever be stock again.
+			stock := spec.Empty()
+			refresh := !noRefresh
 			d := config.LoadDefaults()
 			backendName, engine, err := imageBackend(backendFlag, engineFlag, prof, d)
 			if err != nil {
@@ -92,14 +102,24 @@ gives up on it and builds from source instead:
 			// image store — not in a container engine's store, where enter would
 			// never look. It shares nothing with the container path below.
 			if config.IsMicrovmBackend(backendName) {
-				image := d.Image
-				if !spec.Empty() {
-					// No container engine to resolve a "latest" rev against; PinSpec
-					// is a no-op for concrete/absent revs and errors clearly for a
-					// latest one.
-					if spec, err = toolbox.PinSpec(spec, "", "", refresh, cmd.ErrOrStderr()); err != nil {
-						return err
+				// The pin resolver is a container run (docker/podman dialect) —
+				// the VM runner cannot host it. Without a container engine the
+				// stamped pins are reused (warm) or fail closed (cold), never
+				// silently downgraded to the embedded revs.
+				resEngine, derr := backend.DetectEngine(d)
+				if derr != nil {
+					resEngine = ""
+					if refresh {
+						fmt.Fprintln(cmd.ErrOrStderr(), "sandboxer: no container engine to re-resolve "+
+							"the latest input revs — building from the stamped pins")
+						refresh = false
 					}
+				}
+				if spec, err = toolbox.PinSpec(spec, resEngine, nixImage, refresh, cmd.ErrOrStderr()); err != nil {
+					return err
+				}
+				image := d.Image
+				if !stock {
 					image = spec.Tag()
 				}
 				fmt.Fprintf(cmd.ErrOrStderr(), "sandboxer: building toolbox image %q in a microVM "+
@@ -107,22 +127,23 @@ gives up on it and builds from source instead:
 				return backendBuildVMImage(engine, image, spec, cmd.ErrOrStderr())
 			}
 			// Probe the builder image BEFORE pin resolution: resolving a
-			// "latest" rev runs it (the engine auto-pulls), and clean-by-default
+			// tracking rev runs it (the engine auto-pulls), and clean-by-default
 			// must still drop a builder image that pull brought in.
 			builderImage := nixImage
 			if builderImage == "" {
 				builderImage = toolbox.NixImage
 			}
 			builderPulled := !backend.ImageExists(engine, builderImage)
-			// Pin any "latest" rev to a concrete commit, stamping the pins
-			// cache for later enter/exec; --refresh forces a re-resolve so the
-			// stamp (and every tag derived from it) moves forward.
+			// Pin the tracking revs to concrete commits, stamping the pins cache
+			// for later enter/exec. Refresh (the default) re-resolves the remote
+			// heads first, so a rebuild picks up new agent releases; --no-refresh
+			// builds from the existing stamp.
 			spec, err = toolbox.PinSpec(spec, engine, nixImage, refresh, cmd.ErrOrStderr())
 			if err != nil {
 				return err
 			}
 			image := d.Image
-			if !spec.Empty() {
+			if !stock {
 				image = spec.Tag()
 			}
 			if err := toolboxBuild(toolbox.BuildOpts{
@@ -131,7 +152,6 @@ gives up on it and builds from source instead:
 				NixImage:      nixImage,
 				Cache:         cache,
 				KeepBuilder:   keepBuilder,
-				Refresh:       refresh,
 				ExtraArgs:     builderArgs,
 				Spec:          spec,
 				BuilderPulled: builderPulled,
@@ -140,10 +160,10 @@ gives up on it and builds from source instead:
 			}); err != nil {
 				return err
 			}
-			// Bare rev flags (no profile) build a variant nothing selects by
-			// default — say so instead of letting the user believe the stock
-			// image their sandboxes run was just updated.
-			if prof == nil && !spec.Empty() {
+			// Bare concrete rev flags (no profile) build a variant nothing
+			// selects by default — say so instead of letting the user believe
+			// the stock image their sandboxes run was just updated.
+			if prof == nil && !stock {
 				fmt.Fprintf(cmd.ErrOrStderr(), "sandboxer: note: built variant %s — the stock %s was "+
 					"not rebuilt; only a profile pinning the same revs uses this image\n", image, d.Image)
 			}
@@ -157,7 +177,7 @@ gives up on it and builds from source instead:
 	fl.StringVar(&nixImage, "nix-image", "", "builder image (default: pinned "+toolbox.NixImage+")")
 	fl.BoolVar(&cache, "cache", false, "keep a persistent nix-store volume for faster rebuilds")
 	fl.BoolVar(&keepBuilder, "keep-builder", false, "keep the nixos/nix builder image afterward")
-	fl.BoolVar(&refresh, "refresh", false, "re-fetch flake inputs and re-resolve any latest rev pin")
+	fl.BoolVar(&noRefresh, "no-refresh", false, "build from the stamped input revs instead of re-resolving the remote heads")
 	fl.StringVar(&llmAgentsRev, "llm-agents-rev", "", "llm-agents input rev for this build: latest or a full 40-hex commit (overrides the profile)")
 	fl.StringVar(&nixpkgsRev, "nixpkgs-rev", "", "nixpkgs input rev for this build: latest or a full 40-hex commit (overrides the profile)")
 	fl.StringArrayVar(&builderArgs, "builder-arg", nil, "extra engine `run` flag for the builder (repeatable)")

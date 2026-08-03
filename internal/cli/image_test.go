@@ -10,14 +10,27 @@ import (
 	"github.com/irasikhin/sandboxer/internal/toolbox"
 )
 
-// TestResolveImage covers image selection: nil/empty profiles use the default
-// image with an empty spec, any customization (`tools:` or `image:`) resolves
-// to the spec's content-addressed variant tag, and resolution failures
-// (unknown pack, missing image.nix) error out.
+// TestResolveImage covers image selection: nil/empty/tracking-only profiles
+// use the default image with an empty spec, any content customization
+// (`tools:` or `image:`) resolves to the spec's content-addressed variant tag
+// (revs from the warm pins stamp), and resolution failures (unknown pack,
+// missing image.nix) error out.
 func TestResolveImage(t *testing.T) {
 	def := config.LoadDefaults().Image
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	rev := strings.Repeat("a", 40)
+	if err := toolbox.SavePins(toolbox.Pins{
+		"nixpkgs":    {Ref: "refs/heads/nixos-unstable", Rev: rev},
+		"llm-agents": {Ref: "HEAD", Rev: rev},
+	}); err != nil {
+		t.Fatal(err)
+	}
 
-	for _, prof := range []*config.Profile{nil, {}} {
+	for _, prof := range []*config.Profile{
+		nil,
+		{},
+		{Image: config.ImageSpec{LLMAgentsRev: "latest"}},
+	} {
 		img, spec, err := resolveImage(prof, "", io.Discard)
 		if err != nil || img != def || !spec.Empty() {
 			t.Errorf("profile %v → img=%q spec=%+v err=%v; want default+empty", prof, img, spec, err)
@@ -55,29 +68,38 @@ func TestResolveImage(t *testing.T) {
 	}
 }
 
-// TestResolveImageLatest covers the "latest" pin plumbing in resolveImage: a
-// cold pins cache with no engine fails with build-image guidance; a warm
-// stamp resolves without any engine and the tag is the pinned spec's own
-// content address.
+// TestResolveImageLatest covers the tracking-rev plumbing in resolveImage: a
+// variant with the tracking default and a cold pins cache and no engine fails
+// with build-image guidance; a warm stamp resolves without any engine and the
+// tag is the pinned spec's own content address. A tracking-only profile never
+// needs the stamp at all — it is the stock image.
 func TestResolveImageLatest(t *testing.T) {
 	t.Setenv("XDG_CACHE_HOME", t.TempDir())
-	prof := &config.Profile{Image: config.ImageSpec{NixpkgsRev: "latest"}}
+	prof := &config.Profile{Tools: []string{"go"}}
 
 	if _, _, err := resolveImage(prof, "", io.Discard); err == nil ||
 		!strings.Contains(err.Error(), "image build") {
 		t.Errorf("cold cache without an engine = %v, want build-image guidance", err)
 	}
+	// The stock image needs no pins: a cold cache resolves it fine.
+	if img, _, err := resolveImage(&config.Profile{Image: config.ImageSpec{NixpkgsRev: "latest"}}, "", io.Discard); err != nil ||
+		img != config.LoadDefaults().Image {
+		t.Errorf("tracking-only profile on a cold cache = %q, %v; want the stock default", img, err)
+	}
 
 	rev := strings.Repeat("a", 40)
-	if err := toolbox.SavePins(toolbox.Pins{"nixpkgs": {Rev: rev}}); err != nil {
+	if err := toolbox.SavePins(toolbox.Pins{
+		"nixpkgs":    {Rev: rev},
+		"llm-agents": {Rev: rev},
+	}); err != nil {
 		t.Fatal(err)
 	}
 	img, spec, err := resolveImage(prof, "", io.Discard)
 	if err != nil {
 		t.Fatalf("warm cache: %v", err)
 	}
-	if spec.NixpkgsRev != rev {
-		t.Errorf("NixpkgsRev = %q, want the stamped rev", spec.NixpkgsRev)
+	if spec.NixpkgsRev != rev || spec.LLMAgentsRev != rev {
+		t.Errorf("revs = %q/%q, want the stamped rev", spec.NixpkgsRev, spec.LLMAgentsRev)
 	}
 	if img != spec.Tag() || !strings.HasPrefix(img, "sandboxer-toolbox:var-") {
 		t.Errorf("image %q != pinned spec tag %q", img, spec.Tag())

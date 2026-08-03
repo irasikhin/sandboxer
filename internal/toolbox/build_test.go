@@ -70,11 +70,6 @@ func TestBuilderArgv(t *testing.T) {
 	if soIdx < 0 || imgIdx < 0 || soIdx > imgIdx {
 		t.Errorf("extra args must precede the builder image: %v", withExtra)
 	}
-
-	// --refresh threads through to the in-container build command.
-	if !strings.Contains(strings.Join(builderArgv(BuildOpts{Engine: "podman", NixImage: "n", Refresh: true}, "/c", "/o", ""), " "), "--refresh") {
-		t.Error("--refresh should add --refresh to the build command")
-	}
 }
 
 // TestBuilderScriptOverrides pins the --override-input emission rules: no
@@ -82,15 +77,12 @@ func TestBuilderArgv(t *testing.T) {
 // to a stock build; a differing rev adds exactly the matching override flag.
 func TestBuilderScriptOverrides(t *testing.T) {
 	embNixpkgs, embLLMAgents := EmbeddedRevs()
-	stock := builderScript(false, "", "")
+	stock := builderScript(embNixpkgs, embLLMAgents)
 	if strings.Contains(stock, "--override-input") {
-		t.Errorf("stock script must carry no overrides:\n%s", stock)
-	}
-	if got := builderScript(false, embNixpkgs, embLLMAgents); got != stock {
-		t.Errorf("overrides equal to the embedded pins must not change the script:\ngot  %s\nwant %s", got, stock)
+		t.Errorf("revs equal to the embedded pins must carry no overrides:\n%s", stock)
 	}
 	revA, revB := strings.Repeat("a", 40), strings.Repeat("b", 40)
-	with := builderScript(false, revA, revB)
+	with := builderScript(revA, revB)
 	for _, want := range []string{
 		"--override-input nixpkgs github:NixOS/nixpkgs/" + revA,
 		"--override-input llm-agents github:numtide/llm-agents.nix/" + revB,
@@ -99,8 +91,8 @@ func TestBuilderScriptOverrides(t *testing.T) {
 			t.Errorf("override script missing %q:\n%s", want, with)
 		}
 	}
-	// One overridden, one embedded → only the differing input gets a flag.
-	one := builderScript(false, "", revB)
+	// One differing, one embedded → only the differing input gets a flag.
+	one := builderScript(embNixpkgs, revB)
 	if strings.Contains(one, "--override-input nixpkgs") || !strings.Contains(one, "--override-input llm-agents") {
 		t.Errorf("expected only the llm-agents override:\n%s", one)
 	}
@@ -188,11 +180,26 @@ func TestWriteContextUserNix(t *testing.T) {
 	}
 }
 
+// warmPins isolates the pins cache and stamps both inputs, so a BuildImage
+// test never resolves against its fake engine (which cannot answer the
+// resolver) — the internal PinSpec fills the tracking revs from the stamp.
+func warmPins(t *testing.T) {
+	t.Helper()
+	pinsCacheDir(t)
+	if err := SavePins(Pins{
+		"nixpkgs":    {Ref: "refs/heads/nixos-unstable", Rev: strings.Repeat("d", 40)},
+		"llm-agents": {Ref: "HEAD", Rev: strings.Repeat("e", 40)},
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
+
 // TestBuildImageFakeEngine drives BuildImage with a fake engine that logs its
 // argv and exits 0 for everything, so the orchestration (run → load → cleanup)
 // is asserted without a real nix build.
 func TestBuildImageFakeEngine(t *testing.T) {
 	requireExec(t, "sh")
+	warmPins(t)
 	dir := t.TempDir()
 	logPath := filepath.Join(dir, "calls.log")
 	engine := writeFakeEngine(t, dir, logPath)
@@ -225,8 +232,12 @@ func TestBuildImageFakeEngine(t *testing.T) {
 	}
 
 	// Variant build: a non-empty spec under its content-addressed var- tag is
-	// retagged from the built default name like any custom tag.
-	spec := Spec{Attrs: []string{"ripgrep"}}
+	// retagged from the built default name like any custom tag. The spec is
+	// pinned first, as every Tag() caller must be.
+	spec, err := PinSpec(Spec{Attrs: []string{"ripgrep"}}, "", "", false, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
 	variant := spec.Tag()
 	if !strings.HasPrefix(variant, "sandboxer-toolbox:var-") {
 		t.Fatalf("unexpected variant tag %q", variant)
@@ -250,6 +261,7 @@ func TestBuildImageFakeEngine(t *testing.T) {
 // next stock enter would otherwise trigger a full rebuild).
 func TestBuildImageVariantKeepsStockTag(t *testing.T) {
 	requireExec(t, "sh")
+	warmPins(t)
 	dir := t.TempDir()
 	logPath := filepath.Join(dir, "calls.log")
 	eng := filepath.Join(dir, "engine")
@@ -263,7 +275,10 @@ func TestBuildImageVariantKeepsStockTag(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	spec := Spec{Attrs: []string{"ripgrep"}}
+	spec, err := PinSpec(Spec{Attrs: []string{"ripgrep"}}, "", "", false, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
 	variant := spec.Tag()
 	if err := BuildImage(BuildOpts{
 		Engine: eng, Image: variant, NixImage: "nixos/nix:test", Spec: spec,
@@ -288,6 +303,7 @@ func TestBuildImageVariantKeepsStockTag(t *testing.T) {
 // though BuildImage's own probe now sees it as present.
 func TestBuildImageBuilderPulledFlag(t *testing.T) {
 	requireExec(t, "sh")
+	warmPins(t)
 	dir := t.TempDir()
 	logPath := filepath.Join(dir, "calls.log")
 	eng := writeFakeEngine(t, dir, logPath) // image inspect exits 0: "present"
@@ -343,6 +359,7 @@ func TestWriteContextError(t *testing.T) {
 // failure paths via fake engines that exit selectively per subcommand.
 func TestBuildImageBranches(t *testing.T) {
 	requireExec(t, "sh")
+	warmPins(t)
 	dir := t.TempDir()
 	mk := func(name, body string) string {
 		p := filepath.Join(dir, name)

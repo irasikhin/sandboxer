@@ -266,6 +266,7 @@ func shellUnquoteToken(s string) string {
 func TestComposePrintRunImageVariant(t *testing.T) {
 	project := newProject(t)
 	fakePodman(t)
+	warmPins(t, strings.Repeat("a", 40))
 	t.Setenv("SANDBOXER_SESSION", "")
 	cfg := filepath.Join(t.TempDir(), "p.nix")
 	if err := os.WriteFile(cfg, []byte("{ name = \"feat\"; srcs = [ { src = \".\"; branch = \"feat/x\"; } ]; image.packages = [ \"ripgrep\" ]; }\n"), 0o644); err != nil {
@@ -307,10 +308,11 @@ func TestBuildImageNoEngine(t *testing.T) {
 
 func TestBuildImageCommand(t *testing.T) {
 	requireExec(t, "sh")
-	newProject(t) // sets IN_CONTAINER off
-	fakePodman(t) // podman on PATH, exits 0 for every subcommand
+	newProject(t)                         // sets IN_CONTAINER off
+	pinPodman(t, strings.Repeat("f", 40)) // podman serves the pin resolver, exits 0 otherwise
 
-	// With a no-op engine, build → load → (no retag) all succeed.
+	// The default build re-resolves the input revs (auto-update), then
+	// build → load → (no retag) all succeed.
 	if code, _, errs := run("image", "build", "--engine", "podman"); code != 0 {
 		t.Fatalf("build-image = %d %s", code, errs)
 	}
@@ -369,7 +371,8 @@ func TestBuildImageCommand(t *testing.T) {
 // pinPodman puts a podman on PATH that serves the latest-pin resolver: any run
 // with a bind-mounted /out dir gets rev files written there (the argv carries
 // the real temp path, same trick as the toolbox fake-engine tests); everything
-// else exits 0.
+// else exits 0. The pins cache is isolated so no test stamps the user's real
+// one.
 func pinPodman(t *testing.T, rev string) {
 	t.Helper()
 	bin := t.TempDir()
@@ -383,13 +386,29 @@ func pinPodman(t *testing.T, rev string) {
 	}
 	t.Setenv("PATH", bin+":"+os.Getenv("PATH"))
 	t.Setenv("HOME", t.TempDir())
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
 	t.Setenv("SANDBOXER_ENGINE", "")
 }
 
-// TestBuildImageRevFlags covers the one-shot rev flags end to end through the
-// build seam: validation fails fast (before any engine), "latest" resolves
-// once and stamps the pins cache, a warm stamp needs no resolver, --refresh
-// forces a re-resolve, and a concrete flag rev overrides the profile's value.
+// warmPins isolates the pins cache and stamps both inputs, so a command that
+// resolves a variant image never launches a resolver container in tests.
+func warmPins(t *testing.T, rev string) {
+	t.Helper()
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	if err := toolbox.SavePins(toolbox.Pins{
+		"nixpkgs":    {Ref: "refs/heads/nixos-unstable", Rev: rev},
+		"llm-agents": {Ref: "HEAD", Rev: rev},
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestBuildImageRevFlags covers the rev plumbing end to end through the build
+// seam: validation fails fast (before any engine), the default build
+// re-resolves the tracking revs and stamps the pins cache while keeping the
+// STOCK tag, --no-refresh builds from the warm stamp without a resolver, the
+// default refresh fails loudly when the resolver is dead, and a concrete flag
+// rev builds a variant.
 func TestBuildImageRevFlags(t *testing.T) {
 	requireExec(t, "sh")
 	newProject(t)
@@ -414,51 +433,78 @@ func TestBuildImageRevFlags(t *testing.T) {
 
 	rev := strings.Repeat("d", 40)
 	pinPodman(t, rev)
-	code, _, errs := run("image", "build", "--engine", "podman", "--nixpkgs-rev", "latest")
+	code, _, errs := run("image", "build", "--engine", "podman")
 	if code != 0 {
-		t.Fatalf("build-image latest = %d %s", code, errs)
+		t.Fatalf("build-image = %d %s", code, errs)
 	}
-	// Bare rev flags build a variant nothing selects by default — the command
-	// must say so instead of implying the stock image moved.
-	if !strings.Contains(errs, "note: built variant") {
-		t.Errorf("bare-flag variant build must print the not-the-stock-image note, got: %s", errs)
+	// The default build IS the auto-update: revs resolved and handed to the
+	// build, under the stock tag ("latest" is the default, not a variant), and
+	// no variant note.
+	if strings.Contains(errs, "note: built variant") {
+		t.Errorf("the default build must not print the variant note: %s", errs)
 	}
-	if captured.Spec.NixpkgsRev != rev {
-		t.Errorf("seam spec rev = %q, want the resolved %s", captured.Spec.NixpkgsRev, rev)
+	if captured.Spec.NixpkgsRev != rev || captured.Spec.LLMAgentsRev != rev {
+		t.Errorf("seam spec revs = %q/%q, want the resolved %s", captured.Spec.NixpkgsRev, captured.Spec.LLMAgentsRev, rev)
 	}
-	if captured.Image != captured.Spec.Tag() || !strings.HasPrefix(captured.Image, "sandboxer-toolbox:var-") {
-		t.Errorf("seam image = %q, want the pinned spec's var- tag", captured.Image)
+	if captured.Image != config.LoadDefaults().Image {
+		t.Errorf("seam image = %q, want the stock default", captured.Image)
 	}
 	pins, err := toolbox.LoadPins()
 	if err != nil || pins["nixpkgs"].Rev != rev {
 		t.Errorf("stamped pins = %+v, %v; want nixpkgs %s", pins, err, rev)
 	}
+	// An explicit "latest" flag is the same default, spelled out — still the
+	// stock tag, still no note.
+	if code, _, errs := run("image", "build", "--engine", "podman", "--nixpkgs-rev", "latest"); code != 0 ||
+		strings.Contains(errs, "note: built variant") {
+		t.Errorf("explicit latest = (%d, %q), want a plain stock build", code, errs)
+	}
+	if captured.Image != config.LoadDefaults().Image {
+		t.Errorf("explicit-latest image = %q, want the stock default", captured.Image)
+	}
 
-	// Warm stamp: a plain no-op podman (no resolver) still builds — the pins
-	// cache is hit, never re-resolved.
+	// --no-refresh: a plain no-op podman (no resolver) still builds — the
+	// warm stamp is used, never re-resolved.
 	fakePodman(t)
-	if code, _, errs := run("image", "build", "--engine", "podman", "--nixpkgs-rev", "latest"); code != 0 {
-		t.Errorf("warm-stamp build-image = %d %s", code, errs)
+	if code, _, errs := run("image", "build", "--engine", "podman", "--no-refresh"); code != 0 {
+		t.Errorf("no-refresh build-image = %d %s", code, errs)
+	}
+	if captured.Spec.NixpkgsRev != rev {
+		t.Errorf("no-refresh spec rev = %q, want the stamped %s", captured.Spec.NixpkgsRev, rev)
 	}
 
-	// --refresh forces a re-resolve; the no-op podman writes no rev files, so
-	// the resolve fails loudly instead of silently reusing the stamp.
-	if code, _, errs := run("image", "build", "--engine", "podman", "--nixpkgs-rev", "latest", "--refresh"); code != 1 ||
+	// The default refresh re-resolves; this no-op podman writes no rev files,
+	// so the resolve fails loudly instead of silently reusing the stamp.
+	if code, _, errs := run("image", "build", "--engine", "podman"); code != 1 ||
 		!strings.Contains(errs, "resolve latest") {
-		t.Errorf("refresh with a dead resolver = (%d, %q), want a resolve failure", code, errs)
+		t.Errorf("default refresh with a dead resolver = (%d, %q), want a resolve failure", code, errs)
 	}
 
-	// A concrete flag rev is a one-shot override of the profile's "latest" —
-	// no resolver involved, the spec carries the flag's commit.
+	// A concrete bare-flag rev is a pin → a variant nothing selects by
+	// default; the command says so instead of implying the stock image moved.
+	override := strings.Repeat("e", 40)
+	if code, _, errs := run("image", "build", "--engine", "podman", "--no-refresh",
+		"--nixpkgs-rev", override, "--llm-agents-rev", override); code != 0 ||
+		!strings.Contains(errs, "note: built variant") {
+		t.Fatalf("concrete bare-flag build = (%d, %q), want the variant note", code, errs)
+	}
+	if captured.Spec.NixpkgsRev != override {
+		t.Errorf("override spec rev = %q, want %s", captured.Spec.NixpkgsRev, override)
+	}
+	if captured.Image != captured.Spec.Tag() || !strings.HasPrefix(captured.Image, "sandboxer-toolbox:var-") {
+		t.Errorf("seam image = %q, want the pinned spec's var- tag", captured.Image)
+	}
+
+	// A concrete flag rev is a one-shot override of the profile's tracking
+	// value; the other input still resolves from the warm stamp.
 	cfg := filepath.Join(t.TempDir(), "p.nix")
 	if err := os.WriteFile(cfg, []byte("{ name = \"feat\"; image.nixpkgsRev = \"latest\"; }\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	override := strings.Repeat("e", 40)
-	if code, _, errs := run("image", "build", "--engine", "podman", "-f", cfg, "--nixpkgs-rev", override); code != 0 {
+	if code, _, errs := run("image", "build", "--engine", "podman", "--no-refresh", "-f", cfg, "--nixpkgs-rev", override); code != 0 {
 		t.Fatalf("build-image concrete override = %d %s", code, errs)
 	}
-	if captured.Spec.NixpkgsRev != override {
-		t.Errorf("override spec rev = %q, want %s", captured.Spec.NixpkgsRev, override)
+	if captured.Spec.NixpkgsRev != override || captured.Spec.LLMAgentsRev != rev {
+		t.Errorf("override spec revs = %q/%q, want %s/%s", captured.Spec.NixpkgsRev, captured.Spec.LLMAgentsRev, override, rev)
 	}
 }

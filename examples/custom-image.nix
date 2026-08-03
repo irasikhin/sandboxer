@@ -30,8 +30,10 @@
     # its own file — see custom-image-overlay.nix.
     overlay = "./custom-image-overlay.nix";
 
-    # Flake-input pin overrides: "latest" or a full 40-hex commit.
-    # llmAgentsRev = "latest";
+    # Flake-input pins. By default both inputs TRACK the remote heads — every
+    # `sandboxer image build` re-resolves them, so agents auto-update. Set a
+    # full 40-hex commit to hold one still.
+    # llmAgentsRev = "<full 40-hex commit>";
     # nixpkgsRev = "<full 40-hex commit>";
   };
 }

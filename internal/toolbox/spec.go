@@ -34,11 +34,21 @@ type Spec struct {
 	// image.env), rendered into the build context and folded into the tag.
 	Files map[string]string
 	Env   map[string]string
-	// LLMAgentsRev / NixpkgsRev override the embedded flake-input pins; ""
-	// keeps the embedded pin. A literal "latest" must be resolved to a commit
-	// before the spec is tagged or built (see effectiveRev).
+	// LLMAgentsRev / NixpkgsRev select the flake-input revs. "" and "latest"
+	// both mean "track the remote head" (the default — agents auto-update on
+	// `image build`, which stamps the resolved rev into the pins cache); a
+	// full 40-hex commit pins the input exactly. A tracking rev must be
+	// resolved to a commit before the spec is tagged or built (see PinSpec /
+	// effectiveRev).
 	LLMAgentsRev string
 	NixpkgsRev   string
+}
+
+// isLatestRev reports whether a rev tracks the remote head rather than
+// pinning a commit: the empty default and the explicit "latest" spelling are
+// the same thing (auto-update is the default, "latest" just writes it down).
+func isLatestRev(rev string) bool {
+	return rev == "" || rev == "latest"
 }
 
 // ResolveSpec resolves a profile's image customization (`tools:` packs,
@@ -88,10 +98,12 @@ func ResolveSpec(p *config.Profile) (Spec, error) {
 }
 
 // Empty reports whether the spec requests no customization — the sandbox runs
-// the stock default image.
+// the stock default image. A tracking rev ("" or "latest") is not a
+// customization: it IS the stock image's behavior, so writing it down must
+// not divert the profile to a variant tag. Only a concrete pin does.
 func (s Spec) Empty() bool {
 	return len(s.Attrs) == 0 && s.OverlayFile == "" && len(s.Files) == 0 &&
-		len(s.Env) == 0 && s.LLMAgentsRev == "" && s.NixpkgsRev == ""
+		len(s.Env) == 0 && isLatestRev(s.LLMAgentsRev) && isLatestRev(s.NixpkgsRev)
 }
 
 // Tag returns the image reference for the spec: the default image when empty,
@@ -104,7 +116,6 @@ func (s Spec) Tag() string {
 	if s.Empty() {
 		return config.DefaultImage
 	}
-	embNixpkgs, embLLMAgents := EmbeddedRevs()
 	overlaySHA := s.OverlaySHA
 	if overlaySHA == "" {
 		overlaySHA = "-"
@@ -113,8 +124,8 @@ func (s Spec) Tag() string {
 	// concatenation (["go,rg"] vs ["go","rg"]) — the session ConfigHash
 	// convention; maps are serialized in sorted key order.
 	sum := sha256.Sum256([]byte("v2\x00" +
-		"nixpkgs=" + effectiveRev("nixpkgs", s.NixpkgsRev, embNixpkgs) + "\x00" +
-		"llm-agents=" + effectiveRev("llm-agents", s.LLMAgentsRev, embLLMAgents) + "\x00" +
+		"nixpkgs=" + effectiveRev("nixpkgs", s.NixpkgsRev) + "\x00" +
+		"llm-agents=" + effectiveRev("llm-agents", s.LLMAgentsRev) + "\x00" +
 		"attrs=" + strings.Join(s.Attrs, "\x00") + "\x00" +
 		"files=" + joinSortedKV(s.Files) + "\x00" +
 		"env=" + joinSortedKV(s.Env) + "\x00" +
@@ -134,17 +145,14 @@ func joinSortedKV(m map[string]string) string {
 	return b.String()
 }
 
-// effectiveRev is the input rev a build of the spec would actually use: the
-// override when set, the embedded pin otherwise. A literal "latest" reaching
-// here is a sequencing bug — pin resolution must happen before tagging — and
-// panics in this package's fail-loud style rather than minting a tag that can
-// never be content-stable.
-func effectiveRev(input, override, embedded string) string {
-	if override == "" {
-		return embedded
+// effectiveRev is the input rev a build of the spec would actually use. Only a
+// concrete commit may reach a tag: an unresolved tracking rev ("" or "latest")
+// here is a sequencing bug — PinSpec must run before tagging — and panics in
+// this package's fail-loud style rather than minting a tag that can never be
+// content-stable.
+func effectiveRev(input, rev string) string {
+	if isLatestRev(rev) {
+		panic(fmt.Sprintf("toolbox: unresolved %q %s rev at tag time — resolve pins (PinSpec) before tagging", rev, input))
 	}
-	if override == "latest" {
-		panic(fmt.Sprintf("toolbox: unresolved %q %s rev at tag time — resolve pins before tagging", override, input))
-	}
-	return override
+	return rev
 }

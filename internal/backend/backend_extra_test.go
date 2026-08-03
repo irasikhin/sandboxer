@@ -338,8 +338,10 @@ func TestEnsureImage(t *testing.T) {
 	}
 
 	// 5. Missing VARIANT image (non-empty spec) → auto-built with the spec
-	// forwarded, even though the tag is not the default image.
-	spec := toolbox.Spec{Attrs: []string{"ripgrep"}}
+	// forwarded, even though the tag is not the default image. The spec
+	// carries concrete revs, as resolveImage's PinSpec guarantees at enter.
+	rev := strings.Repeat("a", 40)
+	spec := toolbox.Spec{Attrs: []string{"ripgrep"}, NixpkgsRev: rev, LLMAgentsRev: rev}
 	variant := spec.Tag()
 	calls = 0
 	imageExists = func(string, string) bool { calls++; return calls > 1 }

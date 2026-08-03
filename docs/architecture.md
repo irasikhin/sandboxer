@@ -145,10 +145,12 @@ overlay's bytes, a pin — is a new tag; identical profiles share one variant; t
 untouched. `create`/`enter`/`exec` auto-build a missing image (stock or
 variant) on first use.
 
-The flake's `llm-agents`/`nixpkgs` inputs are **pinned**: a full 40-hex commit
-pins exactly; `latest` is resolved to the remote head once, inside the builder,
-and stamped into `~/.cache/sandboxer/image-pins.json` so later runs reuse it and
-never silently drift. Only `image build --refresh` moves a `latest` pin.
+The flake's `llm-agents`/`nixpkgs` inputs **track the remote heads by
+default**: `image build` re-resolves them (inside the builder container) and
+stamps the result into `~/.cache/sandboxer/image-pins.json`; `enter`/`exec`
+only ever reuse the stamp, so nothing drifts between explicit builds.
+`image build --no-refresh` builds from the existing stamp; a full 40-hex
+commit in `image.llmAgentsRev`/`image.nixpkgsRev` pins the input exactly.
 
 ## Egress allowlist (squid sidecar)
 

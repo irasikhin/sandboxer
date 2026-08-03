@@ -23,8 +23,11 @@ exit 0
 `
 
 // TestBuildImageVM pins the in-VM build orchestration end to end (fake smolvm):
-// the built tar lands at DestTar.
+// the built tar lands at DestTar. The pins stamp is warm — there is no
+// container engine here to resolve a cold one, and a cold cache is asserted to
+// fail closed rather than silently building the embedded revs.
 func TestBuildImageVM(t *testing.T) {
+	warmPins(t)
 	dir := t.TempDir()
 	bin := filepath.Join(dir, "smolvm")
 	if err := os.WriteFile(bin, []byte(buildFakeSmolvm), 0o755); err != nil {
@@ -45,6 +48,14 @@ func TestBuildImageVM(t *testing.T) {
 	}
 	if err := BuildImageVM(BuildVMOpts{Smolvm: bin}); err == nil {
 		t.Error("BuildImageVM with no DestTar must error")
+	}
+
+	// A cold pins cache fails closed with image-build guidance (no engine to
+	// resolve the tracking default against).
+	pinsCacheDir(t)
+	if err := BuildImageVM(BuildVMOpts{Smolvm: bin, DestTar: dest}); err == nil ||
+		!strings.Contains(err.Error(), "image build") {
+		t.Errorf("cold pins cache = %v, want a fail-closed error with image-build guidance", err)
 	}
 }
 
@@ -72,7 +83,7 @@ func TestVMBuilderArgv(t *testing.T) {
 		"-e", "GIT_SSL_CAINFO=/nix/var/nix/profiles/default/etc/ssl/certs/ca-bundle.crt",
 		"-e", "NIX_PATH=/nix/var/nix/profiles/per-user/root/channels:/root/.nix-defexpr/channels",
 		"--max-image-size", "16GiB",
-		"--", "/bin/sh", "-lc", builderScriptImage(false, "", ""),
+		"--", "/bin/sh", "-lc", builderScriptImage("", ""),
 	}
 	if !slices.Equal(got, want) {
 		t.Errorf("vmBuilderArgv =\n%q\nwant\n%q", got, want)
@@ -110,7 +121,7 @@ func TestVMBuilderArgvProxy(t *testing.T) {
 // toolbox image (no squid proxyImage, which the microVM backend does not use)
 // and honors a rev override.
 func TestBuilderScriptImage(t *testing.T) {
-	s := builderScriptImage(false, "", "")
+	s := builderScriptImage("", "")
 	if !strings.Contains(s, "path:/src#image") {
 		t.Errorf("script does not build the image: %q", s)
 	}
@@ -118,7 +129,7 @@ func TestBuilderScriptImage(t *testing.T) {
 		t.Errorf("microVM build must not build the proxy image: %q", s)
 	}
 	// A differing nixpkgs rev becomes an override-input flag.
-	withRev := builderScriptImage(false, "0000000000000000000000000000000000000000", "")
+	withRev := builderScriptImage("0000000000000000000000000000000000000000", "")
 	if !strings.Contains(withRev, "--override-input nixpkgs") {
 		t.Errorf("rev override missing: %q", withRev)
 	}
