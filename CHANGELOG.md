@@ -6,6 +6,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.68.0] — 2026-08-03
+
+### Fixed
+
+- an empty allowedDomains means deny-all, not the defaults (a6064e6)
+- validate the backend at create, not only at enter/exec (43f8e89)
+
+### Docs
+
+- correct the smolvm allowlist grammar, record the EINVAL breakage (099417d)
+- record the 2026-07-31 four-backend verification pass (b9a546b)
+
+### Tests
+
+- cover the exit-code passthrough of exec and enter (488d060)
+
+
 ## [0.67.0] — 2026-08-03
 
 ### Added
@@ -887,3 +904,4 @@ isolated, containerized dev sandbox, on a local Linux machine:
 [0.65.0]: https://github.com/irasikhin/sandboxer/compare/v0.64.0...v0.65.0
 [0.66.0]: https://github.com/irasikhin/sandboxer/compare/v0.65.0...v0.66.0
 [0.67.0]: https://github.com/irasikhin/sandboxer/compare/v0.66.0...v0.67.0
+[0.68.0]: https://github.com/irasikhin/sandboxer/compare/v0.67.0...v0.68.0
