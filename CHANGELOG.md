@@ -6,6 +6,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.69.1] — 2026-08-03
+
+### Fixed
+
+- surface microVM machines whose host-side record was lost (a9f9072)
+
+### Build
+
+- lead the changelog section with breaking changes (d7c424b)
+
+
 ## [0.69.0] — 2026-08-03
 
 ### Added
@@ -917,3 +928,4 @@ isolated, containerized dev sandbox, on a local Linux machine:
 [0.67.0]: https://github.com/irasikhin/sandboxer/compare/v0.66.0...v0.67.0
 [0.68.0]: https://github.com/irasikhin/sandboxer/compare/v0.67.0...v0.68.0
 [0.69.0]: https://github.com/irasikhin/sandboxer/compare/v0.68.0...v0.69.0
+[0.69.1]: https://github.com/irasikhin/sandboxer/compare/v0.69.0...v0.69.1
