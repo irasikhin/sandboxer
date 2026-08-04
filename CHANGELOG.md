@@ -6,6 +6,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.69.3] — 2026-08-04
+
+### Fixed
+
+- enable tmux extended keys so Shift-Enter reaches the agent (aa907ee)
+
+
 ## [0.69.2] — 2026-08-04
 
 ### Refactored
@@ -941,3 +948,4 @@ isolated, containerized dev sandbox, on a local Linux machine:
 [0.69.0]: https://github.com/irasikhin/sandboxer/compare/v0.68.0...v0.69.0
 [0.69.1]: https://github.com/irasikhin/sandboxer/compare/v0.69.0...v0.69.1
 [0.69.2]: https://github.com/irasikhin/sandboxer/compare/v0.69.1...v0.69.2
+[0.69.3]: https://github.com/irasikhin/sandboxer/compare/v0.69.2...v0.69.3
