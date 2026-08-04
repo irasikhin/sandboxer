@@ -75,7 +75,6 @@ func TestVMBuilderArgv(t *testing.T) {
 		"--allow-host", "github.com",
 		"--allow-host", "objects.githubusercontent.com",
 		"--allow-host", "raw.githubusercontent.com",
-		"--allow-host", "numtide.cachix.org",
 		"-e", "PATH=/root/.nix-profile/bin:/nix/var/nix/profiles/default/bin:/nix/var/nix/profiles/default/sbin",
 		"-e", "USER=root",
 		"-e", "NIX_SSL_CERT_FILE=/nix/var/nix/profiles/default/etc/ssl/certs/ca-bundle.crt",

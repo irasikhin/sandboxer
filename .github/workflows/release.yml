@@ -75,8 +75,8 @@ jobs:
   # Build the container images on a tag so a release can never ship a revision
   # whose toolbox/proxy image fails to build. They are NOT published (users build
   # them locally with `sandboxer image build`); this is a build smoke test that
-  # gates publish. The proxy image is tiny; the toolbox image pulls the agents
-  # from the llm-agents binary cache (accept-flake-config), and the runner is
+  # gates publish. The proxy image is tiny; the toolbox image compiles the
+  # agents from source (the flake declares no binary cache), and the runner is
   # cleared of large preinstalled toolchains first to fit the closure.
   images:
     needs: verify

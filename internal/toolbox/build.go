@@ -336,19 +336,18 @@ func hasHostNetwork(extra []string) bool {
 
 // builderScript is the in-container shell run by the nix builder: build the
 // `#image` derivation from the mounted /src flake and copy the realized image
-// tarball to the bind-mounted /out. `--accept-flake-config` applies the
-// embedded flake's nixConfig (the llm-agents binary cache, restated there
-// because nix ignores an input's nixConfig) so no agent compiles from source —
-// but that extra cache must never WEDGE a build: connect-timeout/
-// stalled-download-timeout fail an unreachable or stalling substituter fast
-// (nix's defaults hang for minutes on a geo-blocked mirror), and fallback
-// lets nix carry on via cache.nixos.org or a source build instead of
-// aborting. Note the LIMIT of that guard: both are substituter settings. The
-// curl inside a fixed-output derivation — fetchurl pulling an agent's release
-// tarball, which is exactly where a fallback-to-source build ends up — obeys
-// nixpkgs' own 300s-with-retries instead, so an unreachable network still
-// costs minutes there. Reaching the cache at all is the real fix; see the
-// proxy passthrough in builderArgv. `--no-write-lock-file` keeps the read-only /src untouched. A rev override
+// tarball to the bind-mounted /out. `--accept-flake-config` is kept so any
+// future flake nixConfig applies without a prompt — the embedded flake
+// declares none today (llm-agents' binary cache was dropped, so agents compile
+// from source). The substituter timeouts are load-bearing regardless:
+// connect-timeout/stalled-download-timeout fail an unreachable or stalling
+// substituter fast (nix's defaults hang for minutes on a geo-blocked mirror),
+// and fallback lets nix carry on via cache.nixos.org or a source build instead
+// of aborting. Note the LIMIT of that guard: both are substituter settings.
+// The curl inside a fixed-output derivation — fetchurl pulling an agent's
+// release tarball, which is exactly where a fallback-to-source build ends up —
+// obeys nixpkgs' own 300s-with-retries instead, so an unreachable network
+// still costs minutes there. `--no-write-lock-file` keeps the read-only /src untouched. A rev override
 // becomes an --override-input flag only when it differs from the embedded pin
 // — when the effective rev IS the pin the script stays byte-identical to a
 // stock build, so nix's eval cache is shared. Revs are full 40-hex commits
@@ -394,8 +393,8 @@ func overrideFlags(nixpkgsRev, llmAgentsRev string) string {
 }
 
 // nixBuildPrefix is the shared `nix … build …` command prefix (substituter
-// timeouts + fallback so an unreachable extra cache never wedges the build; see
-// builderScript for the full rationale).
+// timeouts + fallback so an unreachable or stalling substituter never wedges
+// the build; see builderScript for the full rationale).
 func nixBuildPrefix(flags string) string {
 	return "nix --extra-experimental-features 'nix-command flakes' " +
 		"--accept-flake-config " +
