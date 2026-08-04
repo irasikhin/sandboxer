@@ -6,6 +6,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.69.4] — 2026-08-04
+
+### Fixed
+
+- seed ~/.tmux.conf so extended keys work without an image rebuild (d61d551)
+
+
 ## [0.69.3] — 2026-08-04
 
 ### Fixed
@@ -949,3 +956,4 @@ isolated, containerized dev sandbox, on a local Linux machine:
 [0.69.1]: https://github.com/irasikhin/sandboxer/compare/v0.69.0...v0.69.1
 [0.69.2]: https://github.com/irasikhin/sandboxer/compare/v0.69.1...v0.69.2
 [0.69.3]: https://github.com/irasikhin/sandboxer/compare/v0.69.2...v0.69.3
+[0.69.4]: https://github.com/irasikhin/sandboxer/compare/v0.69.3...v0.69.4
