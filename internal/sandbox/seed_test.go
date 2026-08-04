@@ -3,6 +3,8 @@ package sandbox
 import (
 	"os"
 	"path/filepath"
+	"slices"
+	"sort"
 	"strings"
 	"testing"
 )
@@ -309,13 +311,33 @@ func TestSeedHomeEmptyHost(t *testing.T) {
 	if err := b.EnsureHome("s"); err != nil {
 		t.Fatal(err)
 	}
+	// Snapshot AFTER EnsureHome: the invariant under test is that SeedHome
+	// copies nothing when the host has nothing, not that the home is empty —
+	// EnsureHome legitimately seeds its own ~/.tmux.conf, which is not a host
+	// config and must not be confused for one.
+	before := dirNames(t, b.HomeDir("s"))
+
 	var progress strings.Builder
 	b.SeedHome("s", &progress)
 	if progress.Len() != 0 {
 		t.Errorf("seed on an empty host home printed %q, want silence", progress.String())
 	}
-	entries, err := os.ReadDir(b.HomeDir("s"))
-	if err != nil || len(entries) != 0 {
-		t.Errorf("sandbox home not left empty: %v err=%v", entries, err)
+	if after := dirNames(t, b.HomeDir("s")); !slices.Equal(before, after) {
+		t.Errorf("SeedHome invented files with nothing on the host: %v -> %v", before, after)
 	}
+}
+
+// dirNames lists a directory's entry names, sorted.
+func dirNames(t *testing.T, dir string) []string {
+	t.Helper()
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatalf("read %s: %v", dir, err)
+	}
+	names := make([]string, 0, len(entries))
+	for _, e := range entries {
+		names = append(names, e.Name())
+	}
+	sort.Strings(names)
+	return names
 }

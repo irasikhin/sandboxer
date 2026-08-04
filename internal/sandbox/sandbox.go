@@ -165,7 +165,47 @@ func (b *Base) HomeDir(slug string) string { return filepath.Join(b.homeRoot(), 
 // only the owner can read the stored credentials). It is idempotent: safe to
 // call on every enter/exec, including for sandboxes created before this existed.
 func (b *Base) EnsureHome(slug string) error {
-	return os.MkdirAll(b.HomeDir(slug), 0o700)
+	if err := os.MkdirAll(b.HomeDir(slug), 0o700); err != nil {
+		return err
+	}
+	return b.seedTmuxConf(slug)
+}
+
+// tmuxExtendedKeysConf turns on extended (CSI-u) key reporting for the sandbox's
+// tmux. tmux reads /etc/tmux.conf and THEN ~/.tmux.conf, so these lines layer on
+// top of the image's config without restating it.
+const tmuxExtendedKeysConf = `# Written by sandboxer, once, if you had no ~/.tmux.conf.
+# Extended (CSI-u) key reporting: without it tmux cannot tell Shift-Enter from
+# Enter, so an agent's "insert a newline" binding submits the prompt instead.
+# The capability has to be ADVERTISED and the mode REQUESTED — one without the
+# other does nothing. csi-u rather than xterm because this tmux is nested inside
+# whatever multiplexer you ran sandboxer from, and CSI-u survives that intact.
+# Yours to edit or delete: sandboxer never rewrites this file.
+set -as terminal-features ",*:extkeys"
+set -s  extended-keys on
+set -g  extended-keys-format csi-u
+`
+
+// seedTmuxConf writes the sandbox home's ~/.tmux.conf when there is none.
+//
+// The toolbox image's own /etc/tmux.conf carries these settings, and that is
+// where they belong — but an image is ~3 GB and rebuilt rarely, so every sandbox
+// on an image built before that landed would keep flattening modified keys until
+// someone spent an hour rebuilding. Seeding the home costs nothing, needs no
+// rebuild, and reaches sandboxes that already exist (the home persists across
+// recreate). On a current image the file is redundant and sets the same values,
+// so the two can never disagree.
+//
+// Never overwrites: an existing ~/.tmux.conf is the user's, including one they
+// emptied on purpose. Best-effort — a home we cannot write to is the caller's
+// problem to report, not a reason to fail the enter.
+func (b *Base) seedTmuxConf(slug string) error {
+	path := filepath.Join(b.HomeDir(slug), ".tmux.conf")
+	if _, err := os.Stat(path); err == nil {
+		return nil
+	}
+	_ = os.WriteFile(path, []byte(tmuxExtendedKeysConf), 0o600)
+	return nil
 }
 
 // Gen returns the sandbox directory's generation: a counter bumped by SyncSrcs
