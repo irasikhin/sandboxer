@@ -38,11 +38,14 @@ func TestFlakeBakesTmux(t *testing.T) {
 func TestTmuxConfUsability(t *testing.T) {
 	s := imageDefinition(t)
 	for want, why := range map[string]string{
-		"escape-time 10":             "ESC would lag by half a second in every TUI",
-		`terminal-features ",*:RGB"`: "the 24-bit status palette would be quantized",
-		"set-clipboard on":           "a yank inside the sandbox would not reach the host clipboard",
-		"allow-passthrough on":       "image/hyperlink escape sequences would be swallowed",
-		"prefix C-Space":             "the documented prefix would not match the image",
+		"escape-time 10":                 "ESC would lag by half a second in every TUI",
+		`terminal-features ",*:RGB"`:     "the 24-bit status palette would be quantized",
+		"set-clipboard on":               "a yank inside the sandbox would not reach the host clipboard",
+		"allow-passthrough on":           "image/hyperlink escape sequences would be swallowed",
+		"prefix C-Space":                 "the documented prefix would not match the image",
+		`terminal-features ",*:extkeys"`: "tmux would not advertise extended keys, so the agent never receives them",
+		"extended-keys on":               "Shift-Enter would arrive as a plain Enter and submit instead of inserting a newline",
+		"extended-keys-format csi-u":     "the xterm encoding does not survive the operator's outer tmux; csi-u does",
 	} {
 		if !strings.Contains(s, want) {
 			t.Errorf("images.nix missing %q — %s", want, why)

@@ -130,6 +130,17 @@ let
     # quantizes every hex to the nearest xterm-256 slot (muddy, banded).
     set -as terminal-features ",*:RGB"
     set -ga terminal-overrides ",*256col*:Tc"
+    # Modified keys (Shift-Enter, Ctrl-Enter, Ctrl-Shift-*) reach the agent
+    # only if tmux both ADVERTISES the capability and is told to emit it.
+    # Without this an agent TUI cannot tell Enter from Shift-Enter — Claude
+    # Code says so on startup ("tmux extended-keys is off. Modified Enter
+    # keys may not work"), and a newline-in-prompt binding silently submits
+    # instead. csi-u, not xterm: this tmux is nested inside the operator's
+    # own multiplexer, and the CSI-u encoding is the one that survives the
+    # outer layer intact.
+    set -as terminal-features ",*:extkeys"
+    set -s  extended-keys on
+    set -g  extended-keys-format csi-u
     set -g history-limit 50000
     set -g mouse on
     set -g base-index 1
