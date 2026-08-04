@@ -6,6 +6,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.69.2] — 2026-08-04
+
+### Refactored
+
+- drop the llm-agents numtide binary cache (f92b96f)
+
+### CI
+
+- drop the stale binary-cache comment from the images job (75f960a)
+
+
 ## [0.69.1] — 2026-08-03
 
 ### Fixed
@@ -929,3 +940,4 @@ isolated, containerized dev sandbox, on a local Linux machine:
 [0.68.0]: https://github.com/irasikhin/sandboxer/compare/v0.67.0...v0.68.0
 [0.69.0]: https://github.com/irasikhin/sandboxer/compare/v0.68.0...v0.69.0
 [0.69.1]: https://github.com/irasikhin/sandboxer/compare/v0.69.0...v0.69.1
+[0.69.2]: https://github.com/irasikhin/sandboxer/compare/v0.69.1...v0.69.2
