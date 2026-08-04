@@ -13,19 +13,6 @@
   # here and the read-only /src mount is never written to.
   description = "sandboxer toolbox image (self-contained)";
 
-  # llm-agents' binary cache, restated here because nix only honors the
-  # nixConfig of the flake it is building — an input's nixConfig (llm-agents
-  # declares this same cache) is ignored. Without it, --accept-flake-config has
-  # nothing to apply and every agent compiles from source; gemini-cli's
-  # ~1400-package npm-deps fetch then OOM-kills (signal 9) the builder. Keep in
-  # sync with github:numtide/llm-agents.nix flake nixConfig.
-  nixConfig = {
-    extra-substituters = [ "https://cache.numtide.com" ];
-    extra-trusted-public-keys = [
-      "niks3.numtide.com-1:DTx8wZduET09hRmMtKdQDxNNthLQETkc/yaX7M4qK0g="
-    ];
-  };
-
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/64c08a7ca051951c8eae34e3e3cb1e202fe36786";
     llm-agents.url = "github:numtide/llm-agents.nix/9f92699e8439e36fdb9ef25343560a7598ebea15";

@@ -28,7 +28,6 @@ var vmImageAllowHosts = []string{
 	"github.com",
 	"objects.githubusercontent.com",
 	"raw.githubusercontent.com",
-	"numtide.cachix.org",
 }
 
 // nixImageEnv is the subset of the pinned nixos/nix image's Config.Env the

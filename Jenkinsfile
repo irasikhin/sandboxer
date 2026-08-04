@@ -7,8 +7,8 @@
 // coverage gate stays engine-free).
 //
 // It builds the toolbox and squid proxy images with nix — as root in the
-// nixos/nix container the numtide binary cache is trusted, so gemini-cli is
-// fetched prebuilt rather than compiled from source (which OOMs the builder) —
+// nixos/nix container (agents compile from source: llm-agents' binary cache
+// was dropped from the flake nixConfig because it stalls on some networks) —
 // loads them into a privileged docker:dind daemon, and runs the whole suite
 // against it. Full suite on every PR/push (the maintainer's choice); heavy, so
 // serialized with a generous timeout.
@@ -152,8 +152,9 @@ http-connections = 10"
             # Build the images BEST-EFFORT and load whatever succeeds. A degraded
             # egress can starve the nix caches; when an image can't be built its
             # tests SKIP (SANDBOXER_ITEST_BUILD_IMAGE is left unset) rather than
-            # failing the whole run. --accept-flake-config trusts the numtide
-            # cache (root is trusted here) so agents come prebuilt.
+            # failing the whole run. The flakes declare no nixConfig today, so
+            # --accept-flake-config applies nothing (agents build from source);
+            # the flag stays for any future flake nixConfig.
             proxy=no; toolbox=no
             # Build the toolbox FIRST — it pulls the full set of flake inputs
             # (slow through a proxy); the proxy image then reuses them from the
