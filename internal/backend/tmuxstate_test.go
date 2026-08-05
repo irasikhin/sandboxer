@@ -242,6 +242,17 @@ func TestTmuxRestoreScript_AmbiguousSameDirGetsPicker(t *testing.T) {
 	if got := strings.Count(s, "-l 'claude --continue'"); got != 3 {
 		t.Fatalf("no picker declared: continue typed %d times, want 3:\n%s", got, s)
 	}
+
+	// The mirror case: an agent that ships ONLY a picker (no "continue the
+	// latest" flag) must get the picker in every pane, crowded or not —
+	// otherwise the lone pane restores as a bare shell and the conversation is
+	// the user's problem again.
+	s = TmuxRestoreScript(sessions, "main", map[string]registry.ResumeSpec{
+		"claude": {Pick: []string{"claude", "--resume"}},
+	})
+	if got := strings.Count(s, "-l 'claude --resume'"); got != 3 {
+		t.Fatalf("picker-only agent: picker typed %d times, want 3 (every pane):\n%s", got, s)
+	}
 }
 
 func TestShjoin(t *testing.T) {

@@ -242,9 +242,11 @@ func newAgentsCmd() *cobra.Command {
 		Short: "List the coding agents baked into the toolbox image",
 		Long: `List the coding agents baked into the toolbox image. A sandbox is not bound
 to one agent: run any of them with 'sandboxer exec <slug> -- <agent>'. For
-each: its binary, whether it ships in the image, and the env vars it reads for
-auth — nothing is passed through from the host; log in or export those vars
-INSIDE the sandbox (its private $HOME persists).`,
+each: its binary, whether it ships in the image, the command a restored tmux
+pane relaunches it with (RESUME — empty means the pane comes back as a plain
+shell), and the env vars it reads for auth — nothing is passed through from
+the host; log in or export those vars INSIDE the sandbox (its private $HOME
+persists).`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			tw := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 2, ' ', 0)

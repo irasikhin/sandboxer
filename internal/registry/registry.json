@@ -15,6 +15,8 @@
     "authEnv": ["OPENAI_API_KEY", "CODEX_API_KEY"],
     "nixPackage": "codex",
     "image": false,
+    "resume": ["codex", "resume", "--last"],
+    "resumePick": ["codex", "resume"],
     "seed": [
       { "path": ".codex", "skip": ["sessions", "log", "history.jsonl"] }
     ]
@@ -23,6 +25,7 @@
     "bin": "opencode",
     "authEnv": ["OPENAI_API_KEY", "ANTHROPIC_API_KEY", "OPENROUTER_API_KEY", "DEEPSEEK_API_KEY"],
     "nixPackage": "opencode",
+    "resume": ["opencode", "--continue"],
     "seed": [
       { "path": ".config/opencode" },
       { "path": ".local/share/opencode/auth.json" }
@@ -32,6 +35,7 @@
     "bin": "crush",
     "authEnv": ["ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GROQ_API_KEY", "OPENROUTER_API_KEY"],
     "nixPackage": "crush",
+    "resume": ["crush", "--continue"],
     "seed": [
       { "path": ".config/crush" }
     ]
@@ -40,6 +44,7 @@
     "bin": "aider",
     "authEnv": ["OPENAI_API_KEY", "ANTHROPIC_API_KEY", "DEEPSEEK_API_KEY", "OPENROUTER_API_KEY"],
     "nixPackage": "aider",
+    "resume": ["aider", "--restore-chat-history"],
     "seed": [
       { "path": ".aider.conf.yml" }
     ]
@@ -47,7 +52,12 @@
   "pi": {
     "bin": "pi",
     "authEnv": ["ANTHROPIC_API_KEY", "OPENAI_API_KEY", "DEEPSEEK_API_KEY"],
-    "nixPackage": "pi"
+    "nixPackage": "pi",
+    "resume": ["pi", "--continue"],
+    "resumePick": ["pi", "--resume"],
+    "seed": [
+      { "path": ".pi/agent", "skip": ["auth.json", "sessions", "pi-debug.log", "npm", "git"] }
+    ]
   },
   "gemini": {
     "bin": "gemini",

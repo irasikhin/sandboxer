@@ -382,13 +382,15 @@ func TmuxRestoreScript(sessions []TmuxSession, attach string, resume map[string]
 		}
 	}
 	// resumeArgv picks the command a pane gets typed into it: the picker when
-	// this agent+directory pair is crowded (and a picker exists), else Last.
+	// this agent+directory pair is crowded, or when the agent ships ONLY a
+	// picker (no "continue the latest" flag) — one keystroke to the same
+	// conversation beats restoring a bare shell; else Last.
 	resumeArgv := func(p TmuxPane) []string {
 		spec, ok := resume[p.Agent]
 		if p.Agent == "" || !ok {
 			return nil
 		}
-		if crowd[p.Agent+"\x00"+p.Path] > 1 && len(spec.Pick) > 0 {
+		if crowded := crowd[p.Agent+"\x00"+p.Path] > 1; (crowded || len(spec.Last) == 0) && len(spec.Pick) > 0 {
 			return spec.Pick
 		}
 		return spec.Last

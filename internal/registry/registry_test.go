@@ -78,18 +78,65 @@ func TestSeedPaths(t *testing.T) {
 			}
 		}
 	}
+	// pi keeps its config under ~/.pi/agent (PI_CODING_AGENT_DIR's default) and
+	// stores OAuth tokens that auto-refresh in auth.json — the same rotating
+	// pair claude's .credentials.json is skipped for, so it is skipped too,
+	// alongside the per-directory session transcripts.
+	pi, _ := Get("pi")
+	if len(pi.Seed) != 1 || pi.Seed[0].Path != ".pi/agent" {
+		t.Fatalf("pi seed = %+v, want one entry for .pi/agent", pi.Seed)
+	}
+	for _, want := range []string{"auth.json", "sessions"} {
+		if !slices.Contains(pi.Seed[0].Skip, want) {
+			t.Errorf(".pi/agent seed must skip %s (got %v)", want, pi.Seed[0].Skip)
+		}
+	}
 }
 
-// TestResume pins the resume surface the session restore relies on: claude's
-// exact relaunch and picker argvs, ResumeMap carrying every declared spec (and
-// only those), and Bins mapping each binary back to its agent.
+// TestResume pins the resume surface the session restore relies on: each
+// agent's exact relaunch and picker argvs, ResumeMap carrying every declared
+// spec (and only those), and Bins mapping each binary back to its agent.
+//
+// The argvs are typed into a live shell, so they are pinned per agent against
+// the CLI they were read from rather than left to drift: claude
+// (--continue/--resume), pi (-c/-r's long forms, pi docs/usage.md), codex
+// (`codex resume [--last]`), opencode and crush (--continue; neither ships a
+// startup picker, only --session <id>), aider (--restore-chat-history, its only
+// history-restoring flag). gemini declares none: its checkpointing is a slash
+// command (/chat resume), with no startup flag to type.
 func TestResume(t *testing.T) {
-	claude, _ := Get("claude")
-	if !slices.Equal(claude.Resume, []string{"claude", "--continue"}) {
-		t.Errorf("claude resume = %v, want [claude --continue]", claude.Resume)
+	for _, tc := range []struct {
+		agent, bin string
+		last, pick []string
+	}{
+		{agent: "claude", last: []string{"claude", "--continue"}, pick: []string{"claude", "--resume"}},
+		{agent: "pi", last: []string{"pi", "--continue"}, pick: []string{"pi", "--resume"}},
+		{agent: "codex", last: []string{"codex", "resume", "--last"}, pick: []string{"codex", "resume"}},
+		{agent: "opencode", last: []string{"opencode", "--continue"}},
+		{agent: "crush", last: []string{"crush", "--continue"}},
+		{agent: "aider", last: []string{"aider", "--restore-chat-history"}},
+		{agent: "gemini"},
+	} {
+		a, err := Get(tc.agent)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !slices.Equal(a.Resume, tc.last) {
+			t.Errorf("%s resume = %v, want %v", tc.agent, a.Resume, tc.last)
+		}
+		if !slices.Equal(a.ResumePick, tc.pick) {
+			t.Errorf("%s resumePick = %v, want %v", tc.agent, a.ResumePick, tc.pick)
+		}
 	}
-	if !slices.Equal(claude.ResumePick, []string{"claude", "--resume"}) {
-		t.Errorf("claude resumePick = %v, want [claude --resume]", claude.ResumePick)
+	// A resume argv is typed into the pane's shell: its first word must be the
+	// agent's own binary, or the restore runs something else entirely.
+	for _, name := range Names() {
+		a, _ := Get(name)
+		for _, argv := range [][]string{a.Resume, a.ResumePick} {
+			if len(argv) > 0 && argv[0] != a.Bin {
+				t.Errorf("%s: resume argv %v does not start with its bin %q", name, argv, a.Bin)
+			}
+		}
 	}
 	rm := ResumeMap()
 	if !slices.Equal(rm["claude"].Last, []string{"claude", "--continue"}) ||
