@@ -12,18 +12,28 @@ import (
 	"github.com/irasikhin/sandboxer/internal/sandbox"
 )
 
-// stubRemoveSession replaces the rm seam with a recorder returning err. The
-// recorder also snapshots whether the sandbox dir still existed at call time,
-// pinning the container-before-files ordering.
+// stubRemoveSession replaces the rm/recreate teardown seam with a recorder
+// returning err. The seam is engine-less by design (it sweeps every engine
+// itself — see backend.RemoveSessionAnywhere), so the recorded call carries only
+// the sandbox it was asked about. The recorder also snapshots whether the
+// sandbox dir still existed at call time, pinning the container-before-files
+// ordering.
 func stubRemoveSession(t *testing.T, dest string, err error) (calls *[]seamCall, dirExisted *bool) {
 	t.Helper()
+	return stubRemoveSessionWith(t, dest, nil, err)
+}
+
+// stubRemoveSessionWith is stubRemoveSession with the engines the teardown
+// reports a session was actually removed from.
+func stubRemoveSessionWith(t *testing.T, dest string, removed []string, err error) (calls *[]seamCall, dirExisted *bool) {
+	t.Helper()
 	calls, dirExisted = &[]seamCall{}, new(bool)
-	old := backendRemoveSession
-	t.Cleanup(func() { backendRemoveSession = old })
-	backendRemoveSession = func(engine, slug, baseDir string) error {
-		*calls = append(*calls, seamCall{engine, slug, baseDir})
+	old := backendRemoveSessionAnywhere
+	t.Cleanup(func() { backendRemoveSessionAnywhere = old })
+	backendRemoveSessionAnywhere = func(slug, baseDir string, _ config.Defaults) ([]string, error) {
+		*calls = append(*calls, seamCall{slug: slug, baseDir: baseDir})
 		*dirExisted = fileExists(dest)
-		return err
+		return removed, err
 	}
 	return calls, dirExisted
 }
@@ -33,25 +43,68 @@ func stubRemoveSession(t *testing.T, dest string, err error) (calls *[]seamCall,
 // removes the files.
 func TestRmRemovesSessionBeforeFiles(t *testing.T) {
 	project := sessionProject(t)
-	// Pin the engine so the resolved seam value does not depend on whether the
-	// host happens to have docker on PATH (fakePodman only fakes podman).
 	t.Setenv("SANDBOXER_ENGINE", "docker")
 	dest := sandboxDir(project, "feat")
-	calls, dirExisted := stubRemoveSession(t, dest, nil)
+	calls, dirExisted := stubRemoveSessionWith(t, dest, []string{"docker"}, nil)
 
 	code, out, errs := run("rm", "feat", "--src", project)
 	if code != 0 || !strings.Contains(out, "removed sandbox") {
 		t.Fatalf("rm = (%d, %q, %q)", code, out, errs)
 	}
 	wantBase := config.StateDir(project)
-	if len(*calls) != 1 || (*calls)[0] != (seamCall{"docker", "feat", wantBase}) {
-		t.Errorf("rm session calls = %+v, want [docker feat %s]", *calls, wantBase)
+	if len(*calls) != 1 || (*calls)[0] != (seamCall{slug: "feat", baseDir: wantBase}) {
+		t.Errorf("rm session calls = %+v, want [feat %s]", *calls, wantBase)
+	}
+	// What actually went must be reported: a silent teardown is how a leaked
+	// container went unnoticed until `docker ps`.
+	if !strings.Contains(out, "removed session:") || !strings.Contains(out, "(docker)") {
+		t.Errorf("rm did not report the removed session: %q", out)
 	}
 	if !*dirExisted {
 		t.Error("the session must be removed BEFORE the sandbox files")
 	}
 	if fileExists(dest) {
 		t.Error("sandbox files were not removed")
+	}
+}
+
+// TestRmTearsDownRegardlessOfProfileBackend: the teardown must not depend on
+// the backend the profile resolves to NOW. A sandbox whose container was
+// created under one backend and removed after `backend =` was edited used to
+// have its files deleted while the container kept running — silently, and
+// unreachable forever once the state dir was gone. Here the profile names a
+// microVM backend whose runner is not even installed, and the session (on
+// podman) must still be torn down and reported.
+func TestRmTearsDownRegardlessOfProfileBackend(t *testing.T) {
+	project := newProject(t)
+	fakePodman(t) // podman is the only engine on PATH; smolvm is not
+	cfg := `{
+  name = "feat";
+  backend = "microvm";
+  srcs = [ { src = "."; branch = "feat/feat"; } ];
+  hostConfigs = false;
+}
+`
+	if err := os.WriteFile(filepath.Join(project, "sandboxer.nix"), []byte(cfg), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if code, _, errs := run("create", "feat", "--src", project); code != 0 {
+		t.Fatalf("create: %d %s", code, errs)
+	}
+	calls, _ := stubRemoveSessionWith(t, sandboxDir(project, "feat"), []string{"podman"}, nil)
+
+	code, out, errs := run("rm", "feat", "--src", project)
+	if code != 0 {
+		t.Fatalf("rm = (%d, %q, %q)", code, out, errs)
+	}
+	if len(*calls) != 1 || (*calls)[0] != (seamCall{slug: "feat", baseDir: config.StateDir(project)}) {
+		t.Errorf("rm session calls = %+v, want one for feat/%s", *calls, config.StateDir(project))
+	}
+	if strings.Contains(errs, "cleanup skipped") {
+		t.Errorf("the profile's backend must not skip the teardown: %q", errs)
+	}
+	if !strings.Contains(out, "removed session:") || !strings.Contains(out, "(podman)") {
+		t.Errorf("rm must report the engine the session actually lived on: %q", out)
 	}
 }
 
@@ -370,10 +423,12 @@ func TestCleanEngineLessHost(t *testing.T) {
 	}
 }
 
-// TestRmRuntimeErrorOnlyWarns: a profile whose runtime cannot be resolved
-// (invalid domain) skips the session cleanup with a warning — the files are
-// still removed.
-func TestRmRuntimeErrorOnlyWarns(t *testing.T) {
+// TestRmBrokenProfileStillTearsDownSession: a profile whose runtime cannot be
+// resolved (invalid domain) must not cost the sandbox its session teardown.
+// The profile once decided WHERE to look for the container, so an unresolvable
+// one skipped the cleanup entirely and leaked it; the sweep is profile-free, so
+// the container goes with the files either way.
+func TestRmBrokenProfileStillTearsDownSession(t *testing.T) {
 	project := newProject(t)
 	fakePodman(t)
 	cfg := filepath.Join(t.TempDir(), "p.nix")
@@ -393,11 +448,11 @@ func TestRmRuntimeErrorOnlyWarns(t *testing.T) {
 	if code != 0 || !strings.Contains(out, "removed sandbox") {
 		t.Fatalf("rm with a broken profile = (%d, %q, %q)", code, out, errs)
 	}
-	if len(*calls) != 0 {
-		t.Errorf("no runtime, no session call; got %+v", *calls)
+	if len(*calls) != 1 || (*calls)[0].slug != "feat" {
+		t.Errorf("a broken profile must not skip the session teardown; calls = %+v", *calls)
 	}
-	if !strings.Contains(errs, "session cleanup skipped") {
-		t.Errorf("missing skip warning on stderr: %q", errs)
+	if strings.Contains(errs, "session cleanup skipped") {
+		t.Errorf("cleanup was skipped over an unresolvable profile: %q", errs)
 	}
 	if fileExists(dest) {
 		t.Error("sandbox files were not removed")

@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/irasikhin/sandboxer/internal/config"
 	"github.com/irasikhin/sandboxer/internal/egress"
 	"github.com/irasikhin/sandboxer/internal/execx"
 )
@@ -454,6 +455,76 @@ func RemoveSession(engine, slug, baseDir string) error {
 		return vmRemoveSession(engine, slug, baseDir)
 	}
 	return removeSessionByName(engine, SessionName(slug, baseDir))
+}
+
+// RemoveSessionAnywhere removes slug's session from EVERY engine on this host —
+// both container engines and both microVM runners — and reports the engines a
+// session was actually found on.
+//
+// A teardown must look where the session IS, not where the profile says the
+// NEXT one would be created: `backend =` is an ordinary config line and
+// --backend an ordinary flag, so the engine holding a live session and the one
+// a profile resolves to today drift apart routinely. Asking only the resolved
+// engine made rm/recreate delete the sandbox's files while the container kept
+// running — silently, since a missing session is a legitimate no-op — and with
+// the state dir gone nothing was left to reclaim it. The session name is
+// derived from (slug, state dir) alone, identical on every engine, so a by-name
+// removal on a foreign engine can only ever hit this sandbox's own session.
+//
+// Best-effort by contract: engine failures are collected and returned together
+// so one unreachable engine cannot strand the others (the caller warns and
+// still removes the files).
+func RemoveSessionAnywhere(slug, baseDir string, d config.Defaults) ([]string, error) {
+	name := SessionName(slug, baseDir)
+	var removed []string
+	var errs []error
+	for _, engine := range SweepEngines(d) {
+		had := sessionPresent(engine, name)
+		var err error
+		if isVMEngine(engine) {
+			err = vmRemoveMachineByName(vmRunnerFor(engine), name)
+		} else {
+			err = removeSessionByName(engine, name)
+		}
+		switch {
+		case err != nil:
+			errs = append(errs, err)
+		case had:
+			removed = append(removed, engine)
+		}
+	}
+	return removed, errors.Join(errs...)
+}
+
+// SessionEngine reports which engine on this host actually holds the session
+// named for (slug, baseDir), or "" when none does — what an operation that acts
+// on ONE live session (stop, and its tmux capture) must target instead of the
+// engine the profile happens to resolve to now. Same reasoning as
+// RemoveSessionAnywhere; the first hit wins, which is unambiguous because the
+// name binds the session to one sandbox.
+func SessionEngine(slug, baseDir string, d config.Defaults) string {
+	name := SessionName(slug, baseDir)
+	for _, engine := range SweepEngines(d) {
+		if sessionPresent(engine, name) {
+			return engine
+		}
+	}
+	return ""
+}
+
+// sessionPresent reports whether engine still holds anything for the session
+// named name. On a microVM runner the host-side record counts as well as the
+// machine: a record left behind by a hand-deleted machine is exactly the litter
+// a teardown is there to reclaim.
+func sessionPresent(engine, name string) bool {
+	if isVMEngine(engine) {
+		r := vmRunnerFor(engine)
+		if _, ok := vmMachineByName(r, name); ok {
+			return true
+		}
+		return readVMRecord(r, name).Name != ""
+	}
+	return InspectSession(engine, name).Exists
 }
 
 func removeSessionByName(engine, name string) error {

@@ -69,12 +69,12 @@ full reset.`,
 			// enter. A --full reset drops it with the home (RemoveState below), so
 			// skip the capture there.
 			if !full {
-				saveSessionLayout(t, f)
+				saveSessionLayout(t)
 			}
 			// The session container goes first, while the engine labels still match
 			// an existing base dir; best-effort — an engine-less host must still get
 			// its sandbox rebuilt.
-			removeSessionBestEffort(t, f, cmd.ErrOrStderr())
+			removeSessionBestEffort(t, cmd.ErrOrStderr())
 			if full {
 				// Capture the recorded sources before Remove wipes the meta; the
 				// branches can only be deleted once their worktrees are gone.
@@ -118,7 +118,11 @@ full reset.`,
 			return nil
 		},
 	}
-	bindExisting(cmd, &f)
+	// Target flags only: recreate rebuilds host-side state and tears the
+	// session down on every engine (see removeSessionBestEffort); the next
+	// enter builds the container from the profile, so a runtime override here
+	// would be accepted and ignored.
+	bindTarget(cmd, &f)
 	cmd.Flags().BoolVar(&full, "full", false, "also wipe the private agent home (full rm+create)")
 	cmd.Flags().BoolVar(&force, "force", false, "discard uncommitted work in the worktrees (recreate force-removes them)")
 	return cmd

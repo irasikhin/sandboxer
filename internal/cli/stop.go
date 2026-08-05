@@ -37,9 +37,17 @@ to remove the sandbox (and its session) entirely.`,
 			if err := config.ValidateBackend(rt); err != nil {
 				return err
 			}
-			engine, err := backend.ResolveEngine(rt.Backend, config.LoadDefaults())
-			if err != nil {
-				return err
+			// Stop the session where it actually IS. The profile's backend only
+			// says where the NEXT session would be created, so resolving from it
+			// alone made `stop` report success while a session created under a
+			// since-edited `backend =` kept running (same drift rm suffered from —
+			// see backend.RemoveSessionAnywhere). Falling back to the resolved
+			// engine keeps the diagnostics for a genuinely absent session.
+			engine := backendSessionEngine(t.slug, t.base.Dir, config.LoadDefaults())
+			if engine == "" {
+				if engine, err = backend.ResolveEngine(rt.Backend, config.LoadDefaults()); err != nil {
+					return err
+				}
 			}
 			// Save the live tmux layout before the stop kills the container's
 			// processes, so the next enter's start restores it — a stop parks the

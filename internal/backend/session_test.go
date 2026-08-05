@@ -1058,6 +1058,120 @@ func TestRemoveSession(t *testing.T) {
 	})
 }
 
+// namedEngines writes stub binaries under the given names into one directory
+// and makes it the ONLY PATH entry, so InstalledEngines/SweepEngines discover
+// exactly these (and no smolvm/msb). present names the engines whose `container
+// inspect` reports a live session; every other invocation just logs and
+// succeeds. It returns each engine's call log path by name.
+func namedEngines(t *testing.T, names []string, present map[string]bool) map[string]string {
+	t.Helper()
+	dir := t.TempDir()
+	logs := map[string]string{}
+	for _, n := range names {
+		logs[n] = filepath.Join(dir, n+".log")
+		body := `[ "$1" = container ] && exit 1
+`
+		if present[n] {
+			body = `[ "$1" = container ] && { echo "true h img"; exit 0; }
+`
+		}
+		script := "#!/bin/sh\nprintf '%s\\n' \"$*\" >> " + logs[n] + "\n" + body + "exit 0\n"
+		if err := os.WriteFile(filepath.Join(dir, n), []byte(script), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Setenv("PATH", dir)
+	return logs
+}
+
+// TestRemoveSessionAnywhere: a teardown asks EVERY engine on the host, because
+// the profile's backend only says where the next session would be created — a
+// session created before a `backend =` edit lives wherever it lives, and asking
+// only the currently-resolved engine left it running with its state dir gone
+// (nothing could ever reclaim it).
+func TestRemoveSessionAnywhere(t *testing.T) {
+	requireExec(t, "sh")
+	name := SessionName("s", "/b")
+
+	t.Run("removes the session from the engine that actually holds it", func(t *testing.T) {
+		logs := namedEngines(t, []string{"podman", "docker"}, map[string]bool{"podman": true})
+		removed, err := RemoveSessionAnywhere("s", "/b", config.Defaults{})
+		if err != nil {
+			t.Fatalf("RemoveSessionAnywhere: %v", err)
+		}
+		if !slices.Equal(removed, []string{"podman"}) {
+			t.Errorf("removed = %v, want [podman]", removed)
+		}
+		if !hasLine(engineLog(t, logs["podman"]), "rm -f "+name) {
+			t.Errorf("the holding engine was not swept:\n%s", strings.Join(engineLog(t, logs["podman"]), "\n"))
+		}
+		// The other engine is still asked (and its egress leftovers swept), it
+		// just has no container to remove.
+		if hasLine(engineLog(t, logs["docker"]), "rm -f "+name) {
+			t.Error("docker held no session, nothing should have been removed there")
+		}
+		if !hasLine(engineLog(t, logs["docker"]), "rm -f "+name+"-proxy") {
+			t.Error("docker was not asked at all")
+		}
+	})
+
+	t.Run("nothing anywhere reports nothing removed", func(t *testing.T) {
+		namedEngines(t, []string{"podman", "docker"}, nil)
+		removed, err := RemoveSessionAnywhere("s", "/b", config.Defaults{})
+		if err != nil || len(removed) != 0 {
+			t.Errorf("RemoveSessionAnywhere on nothing = (%v, %v), want ([], nil)", removed, err)
+		}
+	})
+
+	t.Run("one failing engine does not strand the others", func(t *testing.T) {
+		dir := t.TempDir()
+		// Both hold the session; podman refuses to remove it, docker must still
+		// be swept and the failure must surface rather than read as "all clean".
+		podman := "#!/bin/sh\n[ \"$1\" = container ] && { echo \"true h img\"; exit 0; }\n" +
+			"[ \"$1\" = rm ] && exit 1\nexit 0\n"
+		if err := os.WriteFile(filepath.Join(dir, "podman"), []byte(podman), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		log := filepath.Join(dir, "docker.log")
+		docker := "#!/bin/sh\nprintf '%s\\n' \"$*\" >> " + log + "\n" +
+			"[ \"$1\" = container ] && { echo \"true h img\"; exit 0; }\nexit 0\n"
+		if err := os.WriteFile(filepath.Join(dir, "docker"), []byte(docker), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		t.Setenv("PATH", dir)
+		removed, err := RemoveSessionAnywhere("s", "/b", config.Defaults{})
+		if err == nil || !strings.Contains(err.Error(), "remove session") {
+			t.Errorf("RemoveSessionAnywhere = %v, want the failing engine to surface", err)
+		}
+		if !slices.Equal(removed, []string{"docker"}) {
+			t.Errorf("removed = %v, want [docker] — one bad engine cannot strand the rest", removed)
+		}
+		if !hasLine(engineLog(t, log), "rm -f "+name) {
+			t.Error("the second engine was not swept after the first failed")
+		}
+	})
+}
+
+// TestSessionEngine: the operations that act on the ONE live session (stop, the
+// tmux capture) must find it where it is, not where the profile points.
+func TestSessionEngine(t *testing.T) {
+	requireExec(t, "sh")
+
+	t.Run("names the engine holding the session", func(t *testing.T) {
+		namedEngines(t, []string{"podman", "docker"}, map[string]bool{"docker": true})
+		if got := SessionEngine("s", "/b", config.Defaults{}); got != "docker" {
+			t.Errorf("SessionEngine = %q, want docker", got)
+		}
+	})
+
+	t.Run("no session anywhere is empty", func(t *testing.T) {
+		namedEngines(t, []string{"podman", "docker"}, nil)
+		if got := SessionEngine("s", "/b", config.Defaults{}); got != "" {
+			t.Errorf("SessionEngine = %q, want \"\"", got)
+		}
+	})
+}
+
 func TestRemoveAllSessions(t *testing.T) {
 	requireExec(t, "sh")
 

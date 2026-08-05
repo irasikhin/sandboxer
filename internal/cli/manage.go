@@ -19,7 +19,14 @@ import (
 // Session-teardown seams beside backendRun (lifecycle.go), so rm/rm-all are
 // exercised in tests without a real engine.
 var (
-	backendRemoveSession     = backend.RemoveSession
+	// backendRemoveSessionAnywhere tears a sandbox's session down on whatever
+	// engine holds it (see backend.RemoveSessionAnywhere) — never only the one
+	// the profile resolves to today.
+	backendRemoveSessionAnywhere = backend.RemoveSessionAnywhere
+	// backendSessionEngine reports which engine actually holds a sandbox's
+	// session (backend.SessionEngine), for the operations that act on the ONE
+	// live session: stop and the tmux capture.
+	backendSessionEngine     = backend.SessionEngine
 	backendRemoveAllSessions = backend.RemoveAllSessions
 	// backendSweepEngines enumerates every engine a sweep or report must visit
 	// (clean, list, doctor) — sessions may live on podman AND docker, AND on
@@ -40,9 +47,10 @@ func newRmCmd() *cobra.Command {
 		Use:   "rm [slug|id ...]",
 		Short: "Remove one or more sandboxes and their state",
 		Long: `Remove a sandbox: its managed source worktrees, private agent home, logs,
-metadata and the persistent session container. The source branches are
-KEPT — the work stays reviewable in each repo; delete them with plain git
-when done. Adopted worktrees are never touched.
+metadata and the persistent session container — which is stopped and removed
+on whatever engine it runs on, not just the one the profile names today. The
+source branches are KEPT — the work stays reviewable in each repo; delete them
+with plain git when done. Adopted worktrees are never touched.
 
 Each argument is a slug in the current project, or an ID from 'sandboxer list'
 (any unambiguous prefix) — which removes that sandbox in ITS project, no cd
@@ -81,7 +89,10 @@ typo removes nothing.`,
 				// The session container goes first, while the engine labels still
 				// match an existing base dir; best-effort — an engine-less host
 				// must still get its files removed.
-				removeSessionBestEffort(t, f, cmd.ErrOrStderr())
+				for _, engine := range removeSessionBestEffort(t, cmd.ErrOrStderr()) {
+					fmt.Fprintf(cmd.OutOrStdout(), "removed session: %s (%s)\n",
+						backend.SessionName(t.slug, t.base.Dir), engine)
+				}
 				if err := t.base.Remove(t.slug); err != nil {
 					return err
 				}
@@ -90,7 +101,10 @@ typo removes nothing.`,
 			return nil
 		},
 	}
-	bindExisting(cmd, &f)
+	// Target flags only: the teardown sweeps every engine itself, so a
+	// --backend here would name a preference rm cannot honour (and used to
+	// honour wrongly, by looking for the session on the named engine alone).
+	bindTarget(cmd, &f)
 	return cmd
 }
 
@@ -128,40 +142,43 @@ func otherProject(t *target) string {
 	return " (" + t.base.Src + ")"
 }
 
-// removeSessionBestEffort tears down the sandbox's persistent session
-// container (and its egress resources) before the files go. Best-effort BY
-// DESIGN: file removal must succeed on an engine-less host, so any engine
-// problem only warns — at worst a container is left behind, which doctor
-// reports as an orphan once the base dir is gone.
-func removeSessionBestEffort(t *target, f commonFlags, errOut io.Writer) {
-	rt, err := t.runtime(f)
-	if err != nil {
-		fmt.Fprintf(errOut, "sandboxer: session cleanup skipped: %v\n", err)
-		return
+// removeSessionBestEffort tears down the sandbox's persistent session (and its
+// egress resources) before the files go, on EVERY engine installed here rather
+// than the one the profile resolves to — the profile says where the next
+// session would be created, not where this one lives (see
+// backend.RemoveSessionAnywhere). It returns the engines a session was actually
+// removed from, so the caller can report what went instead of leaving the user
+// to check with `docker ps`.
+//
+// Best-effort BY DESIGN: file removal must succeed on an engine-less host, so
+// any engine problem only warns — at worst a container is left behind, which
+// doctor reports as an orphan once the base dir is gone.
+func removeSessionBestEffort(t *target, errOut io.Writer) []string {
+	// The enumeration is consulted only to tell an engine-less host apart from
+	// a host where nothing matched — the sweep itself walks the same list.
+	if engines := backendSweepEngines(config.LoadDefaults()); len(engines) == 0 {
+		fmt.Fprintln(errOut, "sandboxer: session cleanup skipped: no container engine (docker or podman) found")
+		return nil
 	}
-	engine, err := backend.ResolveEngine(rt.Backend, config.LoadDefaults())
+	removed, err := backendRemoveSessionAnywhere(t.slug, t.base.Dir, config.LoadDefaults())
 	if err != nil {
-		fmt.Fprintf(errOut, "sandboxer: session cleanup skipped: %v\n", err)
-		return
-	}
-	if err := backendRemoveSession(engine, t.slug, t.base.Dir); err != nil {
 		fmt.Fprintf(errOut, "sandboxer: session cleanup failed: %v\n", err)
 	}
+	return removed
 }
 
 // saveSessionLayout best-effort captures the sandbox's live tmux layout to the
 // host (backend.SaveSessionState) so a teardown that KEEPS the sandbox —
-// recreate, stop — can restore it on the next attach. Silent on any engine
-// problem: a missing layout must never block the operation. NOT called by
-// rm/clean, which discard the sandbox and its saved layout on purpose.
-func saveSessionLayout(t *target, f commonFlags) {
-	rt, err := t.runtime(f)
-	if err != nil {
-		return
-	}
-	engine, err := backend.ResolveEngine(rt.Backend, config.LoadDefaults())
-	if err != nil {
-		return
+// recreate, stop — can restore it on the next attach. It captures from the
+// engine that actually holds the session, not the profile's: capturing from the
+// engine a `backend =` edit now names would read an empty layout over a good
+// one. Silent on any engine problem: a missing layout must never block the
+// operation. NOT called by rm/clean, which discard the sandbox and its saved
+// layout on purpose.
+func saveSessionLayout(t *target) {
+	engine := backendSessionEngine(t.slug, t.base.Dir, config.LoadDefaults())
+	if engine == "" {
+		return // no live session anywhere — nothing to capture
 	}
 	backend.SaveSessionState(engine, backend.SessionName(t.slug, t.base.Dir), t.base.SessionStatePath(t.slug))
 }

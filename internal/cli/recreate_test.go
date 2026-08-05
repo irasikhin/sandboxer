@@ -60,8 +60,8 @@ func TestRecreateKeepsAgentHome(t *testing.T) {
 		t.Error("profile snapshot was not restored")
 	}
 	wantBase := config.StateDir(project)
-	if len(*calls) != 1 || (*calls)[0] != (seamCall{"docker", "feat", wantBase}) {
-		t.Errorf("recreate session calls = %+v, want [docker feat %s]", *calls, wantBase)
+	if len(*calls) != 1 || (*calls)[0] != (seamCall{slug: "feat", baseDir: wantBase}) {
+		t.Errorf("recreate session calls = %+v, want [feat %s]", *calls, wantBase)
 	}
 	if !*dirExisted {
 		t.Error("the session must be removed BEFORE the sandbox files")

@@ -5,8 +5,11 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
+
+	"github.com/irasikhin/sandboxer/internal/config"
 )
 
 // fakeSmolvm is a bash stand-in for the smolvm CLI: it logs every invocation,
@@ -284,6 +287,62 @@ func TestVMRemoveAllSessions(t *testing.T) {
 	if readVMRecord(smolvmRunner{}, "m-keep").Name == "" {
 		t.Error("another base's record was swept")
 	}
+}
+
+// TestRemoveSessionAnywhereMicroVM: the every-engine teardown covers the
+// microVM runners, not just containers — a project that switched backends (or
+// ran one sandbox on smolvm and the profile now says docker) must still have
+// its machine reclaimed, and the host-side record counts on its own: a record
+// left by a hand-deleted machine is exactly the litter rm exists to sweep.
+func TestRemoveSessionAnywhereMicroVM(t *testing.T) {
+	requireExec(t, "bash")
+	base := t.TempDir()
+	name := SessionName("s", base)
+
+	t.Run("machine and record", func(t *testing.T) {
+		setupFakeSmolvm(t)
+		t.Setenv("PATH", t.TempDir()) // no container engine; smolvm is absolute
+		if err := os.MkdirAll(os.Getenv("FAKE_MACHINES"), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := writeVMRecord(smolvmRunner{}, vmRecord{Name: name, BaseDir: base, Slug: "s", Hash: "h"}); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(os.Getenv("FAKE_MACHINES"), name), []byte("running"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		removed, err := RemoveSessionAnywhere("s", base, config.Defaults{})
+		if err != nil {
+			t.Fatalf("RemoveSessionAnywhere: %v", err)
+		}
+		if !slices.Equal(removed, []string{smolvmEngine}) {
+			t.Errorf("removed = %v, want [%s]", removed, smolvmEngine)
+		}
+		if _, ok := vmMachineByName(smolvmRunner{}, name); ok {
+			t.Error("the machine survived the sweep")
+		}
+		if readVMRecord(smolvmRunner{}, name).Name != "" {
+			t.Error("the machine record survived the sweep")
+		}
+	})
+
+	t.Run("record alone still counts", func(t *testing.T) {
+		setupFakeSmolvm(t)
+		t.Setenv("PATH", t.TempDir())
+		if err := writeVMRecord(smolvmRunner{}, vmRecord{Name: name, BaseDir: base, Slug: "s", Hash: "h"}); err != nil {
+			t.Fatal(err)
+		}
+		removed, err := RemoveSessionAnywhere("s", base, config.Defaults{})
+		if err != nil {
+			t.Fatalf("RemoveSessionAnywhere: %v", err)
+		}
+		if !slices.Equal(removed, []string{smolvmEngine}) {
+			t.Errorf("removed = %v, want [%s] — an orphaned record is still litter", removed, smolvmEngine)
+		}
+		if readVMRecord(smolvmRunner{}, name).Name != "" {
+			t.Error("the orphaned record survived the sweep")
+		}
+	})
 }
 
 func readFile(t *testing.T, path string) string {
