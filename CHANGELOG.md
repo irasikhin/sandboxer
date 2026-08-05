@@ -6,6 +6,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.70.0] — 2026-08-05
+
+### Added
+
+- resume commands for pi, codex, opencode, crush and aider (43434e5)
+
+### Fixed
+
+- tear the session down on whatever engine holds it (090945f)
+
+
 ## [0.69.4] — 2026-08-04
 
 ### Fixed
@@ -957,3 +968,4 @@ isolated, containerized dev sandbox, on a local Linux machine:
 [0.69.2]: https://github.com/irasikhin/sandboxer/compare/v0.69.1...v0.69.2
 [0.69.3]: https://github.com/irasikhin/sandboxer/compare/v0.69.2...v0.69.3
 [0.69.4]: https://github.com/irasikhin/sandboxer/compare/v0.69.3...v0.69.4
+[0.70.0]: https://github.com/irasikhin/sandboxer/compare/v0.69.4...v0.70.0
