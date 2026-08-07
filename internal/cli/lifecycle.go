@@ -92,6 +92,13 @@ func newCreateCmd() *cobra.Command {
 				return err
 			}
 			fmt.Fprintln(cmd.ErrOrStderr(), configLine(rtCreate, t.slug, t.profile, backendLabel(rtCreate)))
+			// Same one-line-per-source report enter prints. create used to say
+			// only where to review each branch, which left the one thing worth
+			// knowing at create time — that a source was ADOPTED rather than
+			// given its own worktree — off the screen entirely.
+			for _, s := range t.base.Srcs(t.slug) {
+				fmt.Fprintf(cmd.ErrOrStderr(), "sandboxer: src %s\n", srcLine(s))
+			}
 			warnIgnoredRoutes(cmd.ErrOrStderr(), rtCreate)
 			warnOpenNetwork(cmd.ErrOrStderr(), rtCreate, t.profile)
 			warnMicrovmIgnored(cmd.ErrOrStderr(), rtCreate, t.profile)

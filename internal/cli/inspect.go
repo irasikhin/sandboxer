@@ -431,6 +431,10 @@ type showSource struct {
 	Include []string `json:"include,omitempty"`
 	Path    string   `json:"path"`
 	Adopted bool     `json:"adopted,omitempty"`
+	// Link is where an adopted source sits inside the sandbox directory (a
+	// symlink to Path). Absent for a managed source, whose Path is already
+	// there — so a consumer can tell the two apart without string surgery.
+	Link string `json:"link,omitempty"`
 }
 
 // showSession is the session verdict in `show --json`. Fresh is a tri-state:
@@ -455,7 +459,7 @@ func writeShowJSON(out io.Writer, t *target, rt config.Runtime) error {
 	for _, s := range t.base.Srcs(t.slug) {
 		sources = append(sources, showSource{
 			Repo: s.RepoRoot, Branch: s.Branch, Include: s.Include,
-			Path: s.Path, Adopted: !s.Managed,
+			Path: s.Path, Adopted: !s.Managed, Link: s.Link,
 		})
 	}
 	doc := struct {

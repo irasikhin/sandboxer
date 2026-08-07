@@ -125,7 +125,7 @@ func starterProfile(name string, d config.Defaults) string {
     # { src = "."; branch = "devops/thing"; include = [ "/services/api/" "**/proto/" ]; }
     # { src = "../shared-lib"; branch = "devops/thing"; }   # another repo, whole
     # { src = "https://github.com/org/proto"; branch = "main"; } # remote → cloned
-    # { src = "../proto"; branch = "feat/proto-v2"; }       # adopt an existing branch/worktree
+    # { src = "../proto"; branch = "feat/proto-v2"; }       # adopt a worktree you already made
   ];
 
   # Egress: outbound-traffic policy. allowedDomains is the ONLY domains the

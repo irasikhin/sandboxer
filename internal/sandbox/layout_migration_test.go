@@ -193,13 +193,13 @@ func TestSyncSrcsRelocateFallbackDetach(t *testing.T) {
 	}
 }
 
-// TestAssignManagedPathsRejectsNesting: branch dirs of different repos share
+// TestAssignSandboxPathsRejectsNesting: branch dirs of different repos share
 // the <slug>/ namespace, so a repo leaf can collide with another source's
 // branch path — repo "x" on branch "feat" is <slug>/feat/x, and any repo on
 // branch "feat/x" would nest INSIDE that worktree (git creates it happily;
 // removing the outer tree would take the inner with it). Refused up front,
 // in both directions.
-func TestAssignManagedPathsRejectsNesting(t *testing.T) {
+func TestAssignSandboxPathsRejectsNesting(t *testing.T) {
 	for _, srcs := range [][]Source{
 		{
 			{RepoRoot: "/r/x", Branch: "feat", Managed: true},
@@ -210,9 +210,9 @@ func TestAssignManagedPathsRejectsNesting(t *testing.T) {
 			{RepoRoot: "/r/x", Branch: "feat", Managed: true},
 		},
 	} {
-		err := assignManagedPaths("/sb/slug", srcs)
+		err := assignSandboxPaths("/sb/slug", srcs)
 		if err == nil || !strings.Contains(err.Error(), "collide") {
-			t.Fatalf("assignManagedPaths(%+v) = %v, want a collision error", srcs, err)
+			t.Fatalf("assignSandboxPaths(%+v) = %v, want a collision error", srcs, err)
 		}
 	}
 }

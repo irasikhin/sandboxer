@@ -82,7 +82,7 @@ func TestListStateColumn(t *testing.T) {
 	project := sessionProject(t)
 	for _, slug := range []string{"idle", "off"} {
 		cfg := filepath.Join(t.TempDir(), slug+".nix")
-		if err := os.WriteFile(cfg, []byte("{ name = \""+slug+"\"; srcs = [ { src = \".\"; branch = \"feat/x\"; } ]; }\n"), 0o644); err != nil {
+		if err := os.WriteFile(cfg, []byte("{ name = \""+slug+"\"; srcs = [ { src = \".\"; branch = \"feat/"+slug+"\"; } ]; }\n"), 0o644); err != nil {
 			t.Fatal(err)
 		}
 		if code, _, errs := run("create", "--src", project, "--config", cfg); code != 0 {

@@ -80,7 +80,13 @@ was extracted from:
   not is MOVED in place — `git worktree move`, uncommitted work and ignored caches kept, falling back to
   detach when the target is occupied; root relocatable per profile via `worktreesDir`). `branch:` is
   REQUIRED — no default naming, a missing branch is an error (the error hints the recorded branch); a branch
-  already checked out elsewhere (incl. the main checkout) is ADOPTED — except a set-aside `_detached/` checkout
+  already checked out in a worktree OF THE USER'S is ADOPTED (git allows one worktree per branch) — mounted at
+  its host path AND symlinked into the sandbox at `<slug>/<branch>/<repo>` (`Source.Link`), because the sandbox
+  dir is the container's workdir and a source reachable only elsewhere on the host is invisible from inside;
+  `include` is honored on an adopted source exactly as on a managed one. Two checkouts are REFUSED, not adopted
+  (`checkAdoptable`): the repo's OWN checkout (`.git` is a real dir → git would enter the container, and the
+  agent would edit the tree you work in) and one owned by another sandbox (host-wide via `Projects()` — two
+  sandboxes must not share a tree). Also not adopted: a set-aside `_detached/` checkout
   (re-attached to its managed path instead) or a stale registration whose dir was hand-deleted (pruned, checked
   out fresh — `rm -rf ./sandboxes` self-heals on the next enter; `_meta/<slug>.gen` flips the session hash so
   the pre-deletion session container is rebuilt, not reused with dead mounts). Trees are narrowed by

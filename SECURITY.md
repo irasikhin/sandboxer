@@ -155,8 +155,13 @@ important — where it stops.
   it cannot execute anything — the path it names does not exist in the
   container — but it can confuse the host-side worktree until you run
   `git worktree repair` (or `sandboxer recreate`). Also remember an **adopted**
-  source (`srcs branch:` naming your existing checkout) is your live tree,
-  mounted rw by explicit request — there is no isolation from it.
+  source (`srcs branch:` naming a branch already checked out in a worktree of
+  your own) is that live tree, mounted rw by explicit request — there is no
+  isolation from it. Two checkouts are refused rather than adopted, because
+  they would breach the boundary instead of merely widening it: the
+  repository's **own** checkout — its `.git` is a real directory, so the mount
+  would put a writable git dir (hooks, config, filters) inside the container —
+  and a checkout belonging to **another sandbox**.
 
 - **The config is code.** `sandboxer.nix` is EVALUATED on the host — under a
   restricted eval (no network access, imports/reads only inside the config's

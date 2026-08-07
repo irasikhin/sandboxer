@@ -235,18 +235,22 @@ func TestSyncSrcsLiveRefresh(t *testing.T) {
 	}
 }
 
-// TestSrcsAdoptExistingWorktree: a srcs entry with branch: adopts the checkout
-// that already has that branch — here the repo's main checkout itself — and
-// surfaces as an extra (unmanaged) mount instead of a managed worktree.
+// TestSrcsAdoptExistingWorktree: a srcs entry whose branch is already checked
+// out in a LINKED worktree the user made adopts that checkout — git allows only
+// one worktree per branch. It surfaces as an unmanaged mount AND as a symlink
+// at its slot inside the sandbox dir, so the container's workdir reaches it like
+// any other source; its include narrows the mount set exactly as a managed
+// source's does, and the checkout on disk stays complete.
 func TestSrcsAdoptExistingWorktree(t *testing.T) {
 	repo := gitRepoWithCommit(t)
+	mine := filepath.Join(t.TempDir(), "mine")
+	runGit(t, repo, "worktree", "add", "-q", "-b", "feat/mine", mine)
 	project := t.TempDir()
 	b, err := ResolveBase(project)
 	if err != nil {
 		t.Fatal(err)
 	}
-	branch := strings.TrimSpace(runGit(t, repo, "rev-parse", "--abbrev-ref", "HEAD"))
-	pj := fmt.Sprintf(`{"srcs":[{"src":%q,"branch":%q,"include":["/serviceA/"]}]}`, repo, branch)
+	pj := fmt.Sprintf(`{"srcs":[{"src":%q,"branch":"feat/mine","include":["/serviceA/"]}]}`, repo)
 	if err := b.WriteProfileJSON("adopt", []byte(pj)); err != nil {
 		t.Fatal(err)
 	}
@@ -256,24 +260,172 @@ func TestSrcsAdoptExistingWorktree(t *testing.T) {
 		t.Fatalf("MakeSandbox: %v", err)
 	}
 	srcs := b.Srcs("adopt")
-	if len(srcs) != 1 || srcs[0].Managed || srcs[0].Path != repo {
+	if len(srcs) != 1 || srcs[0].Managed || srcs[0].Path != mine {
 		t.Fatalf("adopted source wrong: %+v", srcs)
 	}
-	// include on an adopted worktree is ignored (its sparse state is the
-	// user's), with a notice; the checkout is untouched.
-	if !strings.Contains(progress.String(), "include ignored") {
-		t.Errorf("expected an include-ignored notice, got %q", progress.String())
+	// The slot inside the sandbox dir is a symlink to the adopted checkout:
+	// without it the source is mounted but unreachable from the workdir.
+	link := filepath.Join(b.SandboxDir("adopt"), "feat", "mine", filepath.Base(repo))
+	if srcs[0].Link != link {
+		t.Errorf("Link = %q, want %q", srcs[0].Link, link)
 	}
-	if _, err := os.Stat(filepath.Join(repo, "serviceB", "f.txt")); err != nil {
+	if got, err := os.Readlink(link); err != nil || got != mine {
+		t.Errorf("readlink %s = (%q, %v), want %q", link, got, err, mine)
+	}
+	// include is HONORED on an adopted source (narrowing is a mount-set
+	// concern), and the checkout itself is never narrowed.
+	if _, err := os.Stat(filepath.Join(mine, "serviceB", "f.txt")); err != nil {
 		t.Errorf("adopted checkout was narrowed: %v", err)
 	}
-	if mountDest, m, err := Mounts(srcs); err != nil || !mountDest || len(m) != 1 || m[0] != repo {
-		t.Errorf("Mounts = (%v, %v, %v), want (true, [adopted path], nil)", mountDest, m, err)
+	want := filepath.Join(mine, "serviceA")
+	if mountDest, m, err := Mounts(srcs); err != nil || mountDest || len(m) != 1 || m[0] != want {
+		t.Errorf("Mounts = (%v, %v, %v), want (false, [%s], nil)", mountDest, m, err, want)
 	}
-	// teardown never touches an adopted worktree
+	// teardown never touches an adopted worktree — only the link goes
 	b.RemoveState("adopt", false)
-	if _, err := os.Stat(filepath.Join(repo, "serviceA", "f.txt")); err != nil {
+	if _, err := os.Stat(filepath.Join(mine, "serviceA", "f.txt")); err != nil {
 		t.Errorf("RemoveState touched the adopted worktree: %v", err)
+	}
+}
+
+// TestAdoptRefusesRepoCheckout: the repository's OWN checkout is never adopted.
+// Mounting it would hand the agent the tree the user works in and carry a real
+// .git into the container with it — the escape the mount boundary exists to
+// prevent. The error names the repo and the branch, so the fix is obvious.
+func TestAdoptRefusesRepoCheckout(t *testing.T) {
+	repo := gitRepoWithCommit(t)
+	runGit(t, repo, "checkout", "-qb", "feat/live")
+	project := t.TempDir()
+	b, err := ResolveBase(project)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pj := fmt.Sprintf(`{"srcs":[{"src":%q,"branch":"feat/live"}]}`, repo)
+	if err := b.WriteProfileJSON("live", []byte(pj)); err != nil {
+		t.Fatal(err)
+	}
+	err = b.MakeSandbox("live", io.Discard)
+	if err == nil || !strings.Contains(err.Error(), "checked out in the repository itself") {
+		t.Fatalf("MakeSandbox = %v, want a refusal to adopt the repo's own checkout", err)
+	}
+	if !strings.Contains(err.Error(), repo) || !strings.Contains(err.Error(), "feat/live") {
+		t.Errorf("refusal should name the checkout and the branch: %v", err)
+	}
+}
+
+// TestAdoptRefusesOtherSandbox: a branch checked out by ANOTHER sandbox is not
+// adopted either — two sandboxes sharing one working tree defeats the point,
+// and the second one's own directory would come up empty.
+func TestAdoptRefusesOtherSandbox(t *testing.T) {
+	repo := gitRepoWithCommit(t)
+	b, err := ResolveBase(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pj := fmt.Sprintf(`{"srcs":[{"src":%q,"branch":"feat/shared"}]}`, repo)
+	for _, slug := range []string{"first", "second"} {
+		if err := b.WriteProfileJSON(slug, []byte(pj)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := b.MakeSandbox("first", io.Discard); err != nil {
+		t.Fatalf("MakeSandbox first: %v", err)
+	}
+	err = b.MakeSandbox("second", io.Discard)
+	if err == nil || !strings.Contains(err.Error(), `already checked out by sandbox "first"`) {
+		t.Fatalf("MakeSandbox second = %v, want a refusal naming the owning sandbox", err)
+	}
+}
+
+// TestAdoptedLinkRepairs: the link is CONVERGED on every sync, not created once.
+// One left pointing somewhere else is re-pointed; a slot holding something that
+// is not a symlink is an error rather than a clobber, because whatever is there
+// is real content nobody asked sandboxer to delete.
+func TestAdoptedLinkRepairs(t *testing.T) {
+	repo := gitRepoWithCommit(t)
+	mine := filepath.Join(t.TempDir(), "mine")
+	runGit(t, repo, "worktree", "add", "-q", "-b", "feat/mine", mine)
+	project := t.TempDir()
+	b, err := ResolveBase(project)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pj := fmt.Sprintf(`{"srcs":[{"src":%q,"branch":"feat/mine"}]}`, repo)
+	if err := b.WriteProfileJSON("adopt", []byte(pj)); err != nil {
+		t.Fatal(err)
+	}
+	if err := b.MakeSandbox("adopt", io.Discard); err != nil {
+		t.Fatalf("MakeSandbox: %v", err)
+	}
+	link := b.Srcs("adopt")[0].Link
+
+	// A link aimed at the wrong tree is corrected, not left to mislead.
+	if err := os.Remove(link); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(project, link); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := b.SyncSrcs("adopt", io.Discard); err != nil {
+		t.Fatalf("SyncSrcs: %v", err)
+	}
+	if got, err := os.Readlink(link); err != nil || got != mine {
+		t.Errorf("stale link not re-pointed: (%q, %v), want %q", got, err, mine)
+	}
+
+	// A real directory in the slot stops the sync and survives it.
+	if err := os.Remove(link); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(link, "keep"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	_, err = b.SyncSrcs("adopt", io.Discard)
+	if err == nil || !strings.Contains(err.Error(), "not a symlink") {
+		t.Fatalf("SyncSrcs = %v, want a refusal to clobber the occupied slot", err)
+	}
+	if _, err := os.Stat(filepath.Join(link, "keep")); err != nil {
+		t.Errorf("occupied slot was clobbered: %v", err)
+	}
+}
+
+// TestAdoptedLinkDropped: when an adopted source leaves srcs, its link goes with
+// it — a stale pointer into a tree the container no longer mounts is worse than
+// no entry at all — while the checkout it pointed at is untouched.
+func TestAdoptedLinkDropped(t *testing.T) {
+	repo := gitRepoWithCommit(t)
+	mine := filepath.Join(t.TempDir(), "mine")
+	runGit(t, repo, "worktree", "add", "-q", "-b", "feat/mine", mine)
+	other := gitRepoAt(t, filepath.Join(t.TempDir(), "other"))
+	project := t.TempDir()
+	b, err := ResolveBase(project)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pj := fmt.Sprintf(`{"srcs":[{"src":%q,"branch":"feat/keep"},{"src":%q,"branch":"feat/mine"}]}`, other, repo)
+	if err := b.WriteProfileJSON("drop", []byte(pj)); err != nil {
+		t.Fatal(err)
+	}
+	if err := b.MakeSandbox("drop", io.Discard); err != nil {
+		t.Fatalf("MakeSandbox: %v", err)
+	}
+	link := b.Srcs("drop")[1].Link
+	if link == "" {
+		t.Fatal("adopted source got no link")
+	}
+
+	pj = fmt.Sprintf(`{"srcs":[{"src":%q,"branch":"feat/keep"}]}`, other)
+	if err := b.WriteProfileJSON("drop", []byte(pj)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := b.SyncSrcs("drop", io.Discard); err != nil {
+		t.Fatalf("SyncSrcs: %v", err)
+	}
+	if _, err := os.Lstat(link); !os.IsNotExist(err) {
+		t.Errorf("stale adopted link %s survived the drop (err=%v)", link, err)
+	}
+	if _, err := os.Stat(filepath.Join(mine, "serviceA", "f.txt")); err != nil {
+		t.Errorf("dropping the source touched the adopted checkout: %v", err)
 	}
 }
 
@@ -405,12 +557,13 @@ func TestReusePreexistingBranch(t *testing.T) {
 }
 
 // TestBranchAdoptsExistingCheckout: when the configured branch is already
-// checked out outside the sandbox (here: the repo's main checkout), the
+// checked out outside the sandbox — in a linked worktree the user made — the
 // source ADOPTS that checkout instead of failing git's one-worktree-per-branch
-// rule — and never marks the branch deletable.
+// rule, and never marks the branch deletable (it is not sandboxer's).
 func TestBranchAdoptsExistingCheckout(t *testing.T) {
 	repo := gitRepoWithCommit(t)
-	runGit(t, repo, "checkout", "-qb", "feat/adopted")
+	mine := filepath.Join(t.TempDir(), "mine")
+	runGit(t, repo, "worktree", "add", "-q", "-b", "feat/adopted", mine)
 	project := t.TempDir()
 	b, err := ResolveBase(project)
 	if err != nil {
@@ -424,8 +577,8 @@ func TestBranchAdoptsExistingCheckout(t *testing.T) {
 		t.Fatal(err)
 	}
 	s := b.Srcs("adopted")[0]
-	if s.Managed || s.AutoBranch || s.Path != repo || s.Branch != "feat/adopted" {
-		t.Fatalf("default branch should adopt the existing checkout: %+v", s)
+	if s.Managed || s.AutoBranch || s.Path != mine || s.Branch != "feat/adopted" {
+		t.Fatalf("the existing checkout should be adopted: %+v", s)
 	}
 }
 

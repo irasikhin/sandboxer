@@ -144,13 +144,16 @@ func TestResetBadBase(t *testing.T) {
 	}
 }
 
-// TestResetSkipsAdopted: an adopted source (its branch is the repo's own
-// checkout) is not reset — sandboxer does not own it.
+// TestResetSkipsAdopted: an adopted source is not reset — sandboxer does not
+// own it. The adopted checkout is a LINKED worktree the user made themselves,
+// which is the only kind still adoptable: the repository's own checkout and
+// another sandbox's are refused outright (sandbox.checkAdoptable).
 func TestResetSkipsAdopted(t *testing.T) {
 	project := newProject(t)
-	def := gitIn(t, project, "rev-parse", "--abbrev-ref", "HEAD") // the checked-out branch
+	mine := filepath.Join(t.TempDir(), "mine")
+	gitIn(t, project, "worktree", "add", "-q", "-b", "feat/adopted", mine)
 	cfg := filepath.Join(t.TempDir(), "ad.nix")
-	body := "{ name = \"ad\"; srcs = [ { src = \".\"; branch = \"" + def + "\"; } ]; }\n"
+	body := "{ name = \"ad\"; srcs = [ { src = \".\"; branch = \"feat/adopted\"; } ]; }\n"
 	if err := os.WriteFile(cfg, []byte(body), 0o644); err != nil {
 		t.Fatal(err)
 	}

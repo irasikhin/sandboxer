@@ -69,6 +69,18 @@ Key invariants (`internal/sandbox`, `internal/worktree`):
   session container is rebuilt instead of reused with dead mounts).
   sandboxer is **git-only**: a non-git source (or one with no commit) is
   rejected with an init hint.
+- **Every source occupies a slot under `<slug>/`** — including an adopted one.
+  Git allows a branch in only one worktree, so a `branch:` already checked out
+  in a worktree of the user's is ADOPTED: mounted at its own host path *and*
+  symlinked at `<slug>/<branch>/<repo>`. The link is not decoration — `<slug>/`
+  is the container's workdir, so a source reachable only from somewhere else on
+  the host is one the user listed and cannot find. Two checkouts are refused
+  instead (`sandbox.checkAdoptable`): the repository's **own** checkout (its
+  `.git` is a real directory, so the mount would carry a writable git dir into
+  the container and hand the agent the tree the user works in) and one owned by
+  **another sandbox** (found host-wide via `Projects()` — two sandboxes sharing
+  one working tree is the opposite of the point). Both errors name the fix:
+  give that source its own branch.
 - **`_home/<slug>` lives outside `<slug>/`** deliberately, so the agent's `$HOME`
   is never part of the worktree. It is `0700` because an in-sandbox `claude login`
   stores credentials there; the host's real `~/.claude`/tokens are never mounted.

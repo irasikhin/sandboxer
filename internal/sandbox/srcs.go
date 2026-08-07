@@ -26,9 +26,9 @@ type Source struct {
 	Branch   string   `json:"branch"`            // branch the worktree is on
 	Include  []string `json:"include,omitempty"` // narrowing directory paths/patterns (see config.ValidateInclude)
 	// Managed marks a worktree sandboxer created under <slug>/ and may tear
-	// down. An adopted worktree (a srcs entry whose branch: was already
-	// checked out somewhere, including the repo's main checkout) is never
-	// touched by teardown — it is only mounted.
+	// down. An adopted worktree (a srcs entry whose branch: was already checked
+	// out in a worktree of the user's) is never touched by teardown — it is
+	// mounted, and reached from the sandbox through Link.
 	Managed bool `json:"managed"`
 	// AutoBranch marks a branch sandboxer MINTED itself (it did not exist at
 	// first sync); recreate --full deletes only these — a branch that existed
@@ -39,11 +39,16 @@ type Source struct {
 	// then points at the host-side cache clone under _remotes/ (kept across
 	// teardown, wiped by clean).
 	Remote string `json:"remote,omitempty"`
+	// Link is the slot an ADOPTED source occupies inside the sandbox directory
+	// (<slug>/<branch>/<repo>): a symlink to Path, the checkout git holds
+	// elsewhere. Empty for a managed source, whose Path already IS that slot.
+	// See linkAdoptedSrc for why being mounted is not enough.
+	Link string `json:"link,omitempty"`
 }
 
 // Name is the label this source is addressed by within its sandbox: the last
 // path element of its worktree — the repo-level leaf for a managed source
-// (<slug>/<branch>/<NAME>, deduped by assignManagedPaths when two repos share
+// (<slug>/<branch>/<NAME>, deduped by assignSandboxPaths when two repos share
 // a basename), the checkout's own dir name for an adopted one. Unique across
 // a sandbox's managed sources. `path <slug> <name>` selects one source by it.
 func (s Source) Name() string {
@@ -333,50 +338,118 @@ func (b *Base) resolveSrcs(slug string, specs []config.Src, prev []Source, w io.
 		if wt, ok := worktree.FindWorktree(top, src.Branch); ok &&
 			!strings.HasPrefix(wt, b.SandboxDir(slug)+string(filepath.Separator)) &&
 			!isSetAside(wt) && dirExists(wt) {
-			// The branch is already checked out somewhere OUTSIDE this sandbox
-			// (your own worktree, or the repo's main checkout): adopt that
-			// checkout as-is — git allows only one worktree per branch. This
-			// sandbox's own managed worktree is not "somewhere": it stays
-			// managed, or a re-sync would adopt it and drop its include. Nor is
-			// a checkout set aside under _detached/ or one whose directory is
-			// gone (a stale registration): those stay managed too —
+			// The branch is already checked out somewhere OUTSIDE this sandbox:
+			// adopt that checkout — git allows only one worktree per branch, so
+			// there is no second tree to make. This sandbox's own managed
+			// worktree is not "somewhere": it stays managed, or a re-sync would
+			// adopt it. Nor is a checkout set aside under _detached/ or one whose
+			// directory is gone (a stale registration): those stay managed too —
 			// materializeSrc re-attaches the one and prunes the other.
+			//
+			// Not every checkout may be adopted, though: checkAdoptable refuses
+			// the two that would hand the sandbox a tree it has no business
+			// holding. include is kept and honored — an adopted source narrows
+			// exactly like a managed one, since narrowing is a mount-set concern
+			// and says nothing about the working tree.
+			if err := checkAdoptable(spec.Src, src.Branch, wt); err != nil {
+				return nil, err
+			}
 			src.Path = wt
 			src.AutoBranch = false
-			if len(spec.Include) > 0 && w != nil {
-				fmt.Fprintf(w, "sandboxer: srcs %s: include ignored — adopting the existing worktree at %s as-is\n",
-					filepath.Base(top), wt)
-			}
-			src.Include = nil
 			out = append(out, src)
 			continue
 		}
 		src.Managed = true
 		out = append(out, src)
 	}
-	if err := assignManagedPaths(b.SandboxDir(slug), out); err != nil {
+	if err := assignSandboxPaths(b.SandboxDir(slug), out); err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-// assignManagedPaths places each managed source's worktree under root,
-// grouped by branch with the repo as the leaf — path = <root>/<branch>/<repo>,
-// branch slashes becoming directories — so one branch spanning several repos
-// reads as a unit (…/mybox/feat/BDP-5291/miko-java). Repos sharing a basename
-// are deduped with a short path hash, which is also what keeps Source.Name
-// unique. Branch dirs of DIFFERENT repos share the namespace under root, so a
-// repo leaf can collide with another source's branch path (repo "x" on branch
-// "feat" vs any repo on branch "feat/x" — git's ref rules forbid that only
-// within one repo); the pairwise check below refuses a layout that would nest
-// one worktree inside another.
-func assignManagedPaths(root string, srcs []Source) error {
+// checkAdoptable decides whether an existing checkout of the branch may be
+// adopted as a sandbox source. Both refusals are hard errors rather than
+// warnings: a sandbox that silently exposes the wrong tree is precisely the
+// failure this guards, and either case has a one-line fix the message names.
+//
+//   - The repository's OWN working checkout (its .git is a real DIRECTORY, not
+//     a linked worktree's pointer file). Mounting it gives the agent the tree
+//     the user works in — and carries .git along with it, so git works inside
+//     the sandbox and its hooks, config and filters become host-side code the
+//     agent can rewrite. That is the whole reason git never enters the
+//     container (see SECURITY.md); adoption must not be the way around it.
+//   - A checkout that belongs to a SANDBOX, this project's or another's.
+//     Adopting it makes two sandboxes share one working tree — the opposite of
+//     what a sandbox is — and leaves the adopting one's own directory empty.
+func checkAdoptable(spec, branch, wt string) error {
+	if hasGitDir(wt) {
+		return fmt.Errorf("srcs entry %q: branch %q is checked out in the repository itself (%s) — "+
+			"sandboxer will not mount your working checkout into a sandbox: the agent would edit the "+
+			"tree you work in, and the mount would carry its .git along. Give this source its own "+
+			"branch (e.g. branch = %q), or switch that checkout off %s first",
+			spec, branch, wt, branch+"-sb", branch)
+	}
+	if slug, dir, ok := sandboxOwning(wt); ok {
+		return fmt.Errorf("srcs entry %q: branch %q is already checked out by sandbox %q (%s) — "+
+			"two sandboxes cannot share one working tree; give this source its own branch",
+			spec, branch, slug, dir)
+	}
+	return nil
+}
+
+// hasGitDir reports whether path is a repository's own working checkout: its
+// .git is a real directory, so bind-mounting the tree carries the git directory
+// into the container. A LINKED worktree's .git is a pointer file naming a host
+// path that is never mounted, which is why those stay safe to adopt.
+func hasGitDir(path string) bool {
+	fi, err := os.Stat(filepath.Join(path, ".git"))
+	return err == nil && fi.IsDir()
+}
+
+// sandboxOwning reports the sandbox whose directory contains path. The lookup is
+// HOST-WIDE (Projects indexes every project sandboxer holds state for), so a
+// checkout belonging to a sandbox of a DIFFERENT project is recognized too — the
+// same branch name in two projects' configs is exactly how that happens.
+// Best-effort by construction: a sandbox whose project has no state dir cannot
+// be seen, and the caller reads "no owner" as adoptable.
+func sandboxOwning(path string) (slug, dir string, ok bool) {
+	sep := string(filepath.Separator)
+	for _, p := range Projects() {
+		for _, s := range p.Agents() {
+			if d := p.SandboxDir(s); strings.HasPrefix(path, d+sep) {
+				return s, d, true
+			}
+		}
+	}
+	return "", "", false
+}
+
+// assignSandboxPaths gives EVERY source its slot under root, grouped by branch
+// with the repo as the leaf — <root>/<branch>/<repo>, branch slashes becoming
+// directories — so one branch spanning several repos reads as a unit
+// (…/mybox/feat/BDP-5291/miko-java). Repos sharing a basename are deduped with
+// a short path hash, which is also what keeps Source.Name unique.
+//
+// A managed source's slot is its worktree (Path). An ADOPTED source's is a
+// symlink to the checkout git holds elsewhere (Link, made by linkAdoptedSrc):
+// both kinds occupy the sandbox directory, because that directory is the
+// container's workdir and a source reachable only from somewhere else on the
+// host is a source the user listed and cannot find. Sharing one namespace is
+// therefore not cosmetic — two sources must never be handed the same slot.
+//
+// Branch dirs of DIFFERENT repos share the namespace under root, so a repo leaf
+// can collide with another source's branch path (repo "x" on branch "feat" vs
+// any repo on branch "feat/x" — git's ref rules forbid that only within one
+// repo); the pairwise check below refuses a layout that would nest one source
+// inside another. For a link that check is load-bearing beyond tidiness: a
+// worktree assigned UNDER a symlink would be created through it, inside the
+// user's own tree.
+func assignSandboxPaths(root string, srcs []Source) error {
 	seenName := map[string]bool{}
 	sep := string(filepath.Separator)
+	slots := make([]string, len(srcs))
 	for i := range srcs {
-		if !srcs[i].Managed {
-			continue
-		}
 		name := filepath.Base(srcs[i].RepoRoot)
 		if seenName[name] {
 			name = name + "-" + shortPathHash(srcs[i].RepoRoot)
@@ -388,19 +461,21 @@ func assignManagedPaths(root string, srcs []Source) error {
 		if !strings.HasPrefix(p, root+sep) {
 			return fmt.Errorf("srcs branch %q escapes the sandbox directory", srcs[i].Branch)
 		}
-		srcs[i].Path = p
-	}
-	for i := range srcs {
-		if !srcs[i].Managed {
-			continue
+		if srcs[i].Managed {
+			srcs[i].Path = p
+		} else {
+			srcs[i].Link = p
 		}
-		for j := range srcs {
-			if j == i || !srcs[j].Managed {
+		slots[i] = p
+	}
+	for i := range slots {
+		for j := range slots {
+			if j == i {
 				continue
 			}
-			if strings.HasPrefix(srcs[j].Path, srcs[i].Path+sep) {
-				return fmt.Errorf("srcs collide: worktree %s (branch %q) would sit inside worktree %s (branch %q) — rename one of the branches",
-					srcs[j].Path, srcs[j].Branch, srcs[i].Path, srcs[i].Branch)
+			if strings.HasPrefix(slots[j], slots[i]+sep) {
+				return fmt.Errorf("srcs collide: %s (branch %q) would sit inside %s (branch %q) — rename one of the branches",
+					slots[j], srcs[j].Branch, slots[i], srcs[i].Branch)
 			}
 		}
 	}
@@ -532,6 +607,22 @@ func (b *Base) SyncSrcs(slug string, w io.Writer) ([]Source, error) {
 		}
 	}
 
+	// Drop adopted-source links the profile no longer names: the source was
+	// removed, its branch changed, or it became managed and now wants that slot
+	// as a real worktree. Only a symlink is ever removed (see removeLink), so a
+	// worktree that took the slot in the meantime is safe.
+	wantLink := map[string]bool{}
+	for _, s := range srcs {
+		if s.Link != "" {
+			wantLink[s.Link] = true
+		}
+	}
+	for _, p := range prev {
+		if p.Link != "" && !wantLink[p.Link] {
+			removeLink(p.Link, b.SandboxDir(slug))
+		}
+	}
+
 	for _, s := range srcs {
 		if s.Managed {
 			if worktree.IsWorktree(s.Path) {
@@ -542,12 +633,88 @@ func (b *Base) SyncSrcs(slug string, w io.Writer) ([]Source, error) {
 			} else if err := b.materializeSrc(s, w); err != nil {
 				return nil, err
 			}
+		} else if err := b.linkAdoptedSrc(s, w); err != nil {
+			return nil, err
 		}
 		if err := checkViewDirs(s); err != nil {
 			return nil, err
 		}
 	}
+	warnAdoptedUnreachable(srcs, w)
 	return srcs, b.writeSrcs(slug, srcs)
+}
+
+// linkAdoptedSrc surfaces an adopted source inside the sandbox directory: a
+// symlink at s.Link pointing at the checkout git holds elsewhere. Being mounted
+// is not enough — an adopted tree is bind-mounted at its OWN host path, which is
+// nowhere near the sandbox directory the container starts in, so without the
+// link a source the user listed simply cannot be found from inside. The link
+// resolves in the container precisely because that host path IS mounted, at the
+// same path (see Mounts).
+//
+// A slot occupied by something that is not a symlink is an error, never a
+// clobber: it is real content (a worktree the detach pass could not remove, a
+// hand-made directory) and losing it silently is worse than failing here.
+func (b *Base) linkAdoptedSrc(s Source, w io.Writer) error {
+	if s.Link == "" {
+		return nil
+	}
+	switch cur, err := os.Readlink(s.Link); {
+	case err == nil && cur == s.Path:
+		return nil // already pointing where it should
+	case err == nil:
+		if err := os.Remove(s.Link); err != nil {
+			return err
+		}
+	default:
+		if _, err := os.Lstat(s.Link); err == nil {
+			return fmt.Errorf("srcs %s: %s is not a symlink but is where the adopted checkout "+
+				"belongs in this sandbox — move it aside", filepath.Base(s.RepoRoot), s.Link)
+		}
+	}
+	if err := os.MkdirAll(filepath.Dir(s.Link), 0o755); err != nil {
+		return err
+	}
+	if err := os.Symlink(s.Path, s.Link); err != nil {
+		return err
+	}
+	if w != nil {
+		fmt.Fprintf(w, "sandboxer: srcs %s: adopted checkout %s linked into the sandbox at %s\n",
+			filepath.Base(s.RepoRoot), s.Path, s.Link)
+	}
+	return nil
+}
+
+// removeLink drops a stale adopted-source link and tidies the branch dirs it
+// leaves behind. It removes a SYMLINK and nothing else: anything real at that
+// path belongs to someone and is left where it is.
+func removeLink(path, root string) {
+	if fi, err := os.Lstat(path); err != nil || fi.Mode()&os.ModeSymlink == 0 {
+		return
+	}
+	if os.Remove(path) == nil {
+		removeEmptyParents(path, root)
+	}
+}
+
+// warnAdoptedUnreachable reports adopted sources whose in-sandbox link the
+// container cannot follow. A narrowed sandbox does not mount <slug>/ at all —
+// that absence IS the containment boundary (see Mounts) — so the links inside it
+// are not there either, and the adopted tree is reachable only at its own host
+// path. Saying so beats letting the user hunt for a source that is mounted but
+// not where every other one is.
+func warnAdoptedUnreachable(srcs []Source, w io.Writer) {
+	if w == nil || !Narrowed(srcs) {
+		return
+	}
+	for _, s := range srcs {
+		if s.Link == "" {
+			continue
+		}
+		fmt.Fprintf(w, "sandboxer: srcs %s: adopted — this sandbox is narrowed, so the sandbox root "+
+			"is not mounted and %s cannot be followed inside; the source is reachable at %s\n",
+			filepath.Base(s.RepoRoot), s.Link, s.Path)
+	}
 }
 
 // materializeSrc creates the managed worktree for s — or recovers it, when

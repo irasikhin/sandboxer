@@ -354,20 +354,23 @@ func networkOpen(rt config.Runtime) bool {
 	return (!rt.Egress || noEgress()) && rt.Proxy == ""
 }
 
-// srcLine renders one resolved source the way both enter's banner and show's
-// sources block report it: the repo, the branch it is on, any include
+// srcLine renders one resolved source the way create's and enter's banners and
+// show's sources block report it: the repo, the branch it is on, any include
 // narrowing, and where the worktree actually lives on the host —
-// "repo → branch [inc] (/path, adopted)". Shared so the two can never drift.
+// "repo → branch [inc] (/path)". An ADOPTED source names both of its places:
+// the slot it occupies inside the sandbox and the checkout that slot links to,
+// because those differ and the difference is exactly what confuses people.
+// Shared so the banners can never drift.
 func srcLine(s sandbox.Source) string {
-	mark := ""
-	if !s.Managed {
-		mark = ", adopted"
-	}
 	scope := ""
 	if len(s.Include) > 0 {
 		scope = " [" + strings.Join(s.Include, " ") + "]"
 	}
-	return fmt.Sprintf("%s → %s%s (%s%s)", filepath.Base(s.RepoRoot), s.Branch, scope, s.Path, mark)
+	where := s.Path
+	if !s.Managed {
+		where = fmt.Sprintf("%s → %s, adopted", s.Link, s.Path)
+	}
+	return fmt.Sprintf("%s → %s%s (%s)", filepath.Base(s.RepoRoot), s.Branch, scope, where)
 }
 
 // syncSnapshot refreshes the sandbox's stored profile.json from the freshly

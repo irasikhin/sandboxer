@@ -30,7 +30,10 @@
   # Patterns select directories, never files; one that matches nothing is an
   # error. Negations ("!/vendor/") and unanchored paths are refused: a mount
   # names a path, not a file set.
-  # A branch already checked out somewhere is adopted as-is.
+  # A branch already checked out in a worktree of your own is adopted: mounted
+  # as-is and linked into the sandbox at <slug>/<branch>/<repo>. A branch
+  # checked out in the repository itself, or by another sandbox, is refused —
+  # give that source its own branch.
   srcs = [
     {
       src = ".";
@@ -39,7 +42,7 @@
     }
     # { src = "../other-repo"; branch = "devops/integ"; }  # a second repo, whole
     # { src = "https://github.com/org/proto"; branch = "main"; include = [ "/proto/" ]; } # remote → cloned
-    # { src = "../protolib"; branch = "feat/proto-v2"; } # adopt an existing branch/worktree
+    # { src = "../protolib"; branch = "feat/proto-v2"; } # adopt a worktree you already made
   ];
 
   # Extra bind mounts and env (extraMounts is the way to bring in non-git

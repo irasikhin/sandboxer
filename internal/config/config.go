@@ -56,9 +56,11 @@ type Src struct {
 	Include []string `json:"include,omitempty"`
 	// Branch names the branch the source is checked out on. It is REQUIRED —
 	// there is no default naming — and it also names the worktree's location
-	// (sandboxes/<slug>/<branch>/<repo>). An existing worktree of that
-	// branch (including the repo's main checkout) is adopted as-is; a missing
-	// branch is created off HEAD.
+	// (sandboxes/<slug>/<branch>/<repo>). A missing branch is created off HEAD.
+	// A branch already checked out in a worktree of your own is adopted (git
+	// allows only one worktree per branch), and linked into the sandbox at that
+	// same location; a branch checked out in the REPOSITORY ITSELF or in
+	// another sandbox is refused — see sandbox.checkAdoptable.
 	Branch string `json:"branch,omitempty"`
 }
 

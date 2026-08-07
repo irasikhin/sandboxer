@@ -328,7 +328,7 @@ func TestRunMultiProfileSelect(t *testing.T) {
     api = {
       backend = "docker";
       session = "ephemeral";
-      srcs = [ { src = "."; branch = "feat/x"; } ];
+      srcs = [ { src = "."; branch = "feat/api"; } ];
       egress.allowedDomains = [ "api.anthropic.com" ];
     };
   };
