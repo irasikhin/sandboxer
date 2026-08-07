@@ -6,6 +6,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.71.0] — 2026-08-07
+
+### ⚠ Breaking changes
+
+- link adopted sources into the sandbox, refuse unsafe adoption (d0f5e7f)
+  a srcs entry naming a branch checked out in the repository itself, or in another sandbox, is an error instead of a silent adoption. Give that source its own branch.
+
+### Fixed
+
+- link adopted sources into the sandbox, refuse unsafe adoption (d0f5e7f)
+
+
 ## [0.70.0] — 2026-08-05
 
 ### Added
@@ -969,3 +981,4 @@ isolated, containerized dev sandbox, on a local Linux machine:
 [0.69.3]: https://github.com/irasikhin/sandboxer/compare/v0.69.2...v0.69.3
 [0.69.4]: https://github.com/irasikhin/sandboxer/compare/v0.69.3...v0.69.4
 [0.70.0]: https://github.com/irasikhin/sandboxer/compare/v0.69.4...v0.70.0
+[0.71.0]: https://github.com/irasikhin/sandboxer/compare/v0.70.0...v0.71.0
