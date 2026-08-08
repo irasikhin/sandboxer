@@ -6,6 +6,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.72.0] — 2026-08-08
+
+### Added
+
+- run nested containers under a real seccomp profile (2c45e41)
+- ship a docker CLI and compose inside the sandbox (8d71ddf)
+- tell the user whether nested containers can actually work (370d7ba)
+
+### Refactored
+
+- fold the nested-seccomp gate into one predicate (0b9cd8e)
+
+### Docs
+
+- correct why old profile files are not pruned (7f91365)
+
+### Tests
+
+- assert the nested uid on a marker, not a bare digit (71ae4a0)
+
+
 ## [0.71.0] — 2026-08-07
 
 ### ⚠ Breaking changes
@@ -982,3 +1003,4 @@ isolated, containerized dev sandbox, on a local Linux machine:
 [0.69.4]: https://github.com/irasikhin/sandboxer/compare/v0.69.3...v0.69.4
 [0.70.0]: https://github.com/irasikhin/sandboxer/compare/v0.69.4...v0.70.0
 [0.71.0]: https://github.com/irasikhin/sandboxer/compare/v0.70.0...v0.71.0
+[0.72.0]: https://github.com/irasikhin/sandboxer/compare/v0.71.0...v0.72.0
