@@ -30,6 +30,25 @@ func realRunOpts(t *testing.T, engine, image, dest string, args ...string) RunOp
 	}
 }
 
+// nestedHome is the agent home for a nested-containers run. It cannot be a
+// plain t.TempDir: the nested podman's image store lands under it owned by
+// MAPPED uids, which the invoking user cannot unlink — the cleanup fails with
+// EPERM and takes the test with it. So the removal is delegated to a container
+// whose root maps over exactly those ids.
+func nestedHome(t *testing.T, engine, image string) string {
+	t.Helper()
+	dir, err := os.MkdirTemp("", "sbx-nested-home-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = exec.Command(engine, "run", "--rm", "--volume", dir+":/h", image,
+			"rm", "-rf", "/h/.local", "/h/.config").Run()
+		_ = os.RemoveAll(dir)
+	})
+	return dir
+}
+
 // TestRun_RealEngine_NoEgress_ExitAndMount runs a real container and proves the
 // rw bind mount works end-to-end: the file the container writes under
 // $SANDBOXER_SANDBOX_DIR appears on the host under Dest.
@@ -107,6 +126,7 @@ func TestRun_RealEngine_NestedMultiUID(t *testing.T) {
 	dest := t.TempDir()
 	o := realRunOpts(t, engine, image, dest,
 		"bash", "-lc", "podman run --rm --user 999:999 docker.io/library/alpine id -u")
+	o.HomeDir = nestedHome(t, engine, image)
 	o.Profile = &config.Profile{NestedContainers: true}
 	o.NestedIDFiles = NestedIDFiles(base.NestedIDFiles("itest"))
 	// The purpose-built profile, exactly as enter passes it — this test is the
@@ -145,6 +165,7 @@ func TestRun_RealEngine_NestedSingleUID(t *testing.T) {
 	dest := t.TempDir()
 	o := realRunOpts(t, engine, image, dest,
 		"bash", "-lc", "podman run --rm docker.io/library/alpine id -u")
+	o.HomeDir = nestedHome(t, engine, image)
 	o.Profile = &config.Profile{NestedContainers: true}
 	scPath, err := seccomp.Write(t.TempDir())
 	if err != nil {

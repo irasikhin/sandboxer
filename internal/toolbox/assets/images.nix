@@ -106,6 +106,18 @@ let
     mount_program = "${pkgs.fuse-overlayfs}/bin/fuse-overlayfs"
     ignore_chown_errors = "true"
   '';
+  # Engine settings for the nested podman. Deliberately ONE setting: with a
+  # compose provider on PATH, `podman compose` prints a four-line banner
+  # about executing an external provider before every single command, which
+  # is pure noise for an agent parsing output. Everything else podman
+  # resolves correctly on its own here — measured inside the sandbox, its
+  # defaults already come out k8s-file / file / cgroupfs / netavark, so
+  # pinning them would only be a copy of the default that goes stale.
+  containersConf = pkgs.writeTextDir "etc/containers/containers.conf" ''
+    [engine]
+    compose_warning_logs = false
+  '';
+
   containersRegistries = pkgs.writeTextDir "etc/containers/registries.conf" ''
     unqualified-search-registries = ["docker.io"]
     # Mirrors (e.g. when docker.io is throttled where you are): copy
@@ -116,6 +128,18 @@ let
     #   location = "registry-1.docker.io"
     #   [[registry.mirror]]
     #   location = "mirror.gcr.io"
+  '';
+
+  # `docker` inside the sandbox — a shim, not the real client. The docker
+  # CLI speaks to a daemon over a socket, and no engine socket is ever
+  # mounted into a sandbox (that is the whole point: not docker-in-docker),
+  # so shipping it would only produce "cannot connect to the daemon".
+  # podman's CLI is docker-compatible, so `docker run|build|ps|logs|compose`
+  # all land where the user expects — an agent that types docker out of
+  # habit just works. A profile that installs a real docker client through
+  # image.packages collides with this name; that is the profile's call.
+  dockerShim = pkgs.writeShellScriptBin "docker" ''
+    exec ${pkgs.podman}/bin/podman "$@"
   '';
 
   # System tmux config at /etc/tmux.conf — tmux reads it by default.
@@ -283,6 +307,9 @@ in
         # grants SETUID/SETGID as AMBIENT caps (survive execve under
         # no-new-privileges), which is all the maps take to write.
         shadow
+        # `podman compose` / `docker compose` need an external provider;
+        # podman finds this one on PATH.
+        podman-compose
         # the multiplexer `enter` attaches (detach/reattach, wheel
         # scrolling, panes) — plus the terminfo it needs
         tmux
@@ -294,9 +321,11 @@ in
         shellRc
         gitConfig
         tmuxConf
+        dockerShim
         containersPolicy
         containersRegistries
         containersStorage
+        containersConf
       ]
       ++ userFiles;
     config = {

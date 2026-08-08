@@ -37,10 +37,13 @@ var baseProfile []byte
 // while the nested engine holds these capabilities in its OWN user namespace —
 // which a seccomp filter cannot see.
 //
-//   - caps-conditional in the base: sethostname/setdomainname/setns are
-//     allowed only with CAP_SYS_ADMIN and EPERM otherwise; the nested crun
-//     setting its container's hostname has that cap in the nested namespace
-//     and still gets EPERM from the outer filter.
+//   - caps-conditional in the base: sethostname/setdomainname/setns need
+//     CAP_SYS_ADMIN and chroot needs CAP_SYS_CHROOT, EPERM otherwise; the
+//     nested crun setting its container's hostname, or containers/image
+//     unpacking a layer through its chroot fallback, holds those caps in the
+//     nested namespace and still gets EPERM from the outer filter. (chroot is
+//     not theoretical: without it every nested pull dies with "after fallback
+//     to chroot: operation not permitted".)
 //   - absent from the base entirely (= the profile's ENOSYS default): the new
 //     mount API (fsopen and friends are present, but mount_setattr,
 //     open_tree_attr, statmount, listmount are not) and the key-management
@@ -51,8 +54,17 @@ var baseProfile []byte
 // they are listed anyway so the guarantee this package makes does not depend
 // on what a future base bump happens to contain. Sorted; the merged entry
 // keeps this order.
+//
+// What is deliberately NOT here, though the same argument would open it: the
+// caps-conditional escape primitives. bpf and perf_event_open (CAP_SYS_ADMIN),
+// open_by_handle_at (CAP_DAC_READ_SEARCH — the shocker escape), ptrace and
+// process_vm_readv (CAP_SYS_PTRACE), the module loaders, iopl/ioperm. A nested
+// engine runs without them; a nested container that genuinely needs one (a
+// debugger, eBPF tooling) is a case for a wider hand-written profile, not for
+// widening every sandbox.
 var nestedSyscalls = []string{
 	"add_key",
+	"chroot",
 	"clone",
 	"clone3",
 	"fsconfig",

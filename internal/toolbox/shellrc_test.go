@@ -70,12 +70,12 @@ func TestFlakeBakesToolingPack(t *testing.T) {
 
 // TestImageBakesNestedPodman guards the nested-podman layer end to end: the
 // runtime pieces (shadow carries newuidmap/newgidmap, what a MULTI-uid nested
-// namespace is built with), and the two image-side bits without which a
-// rootless podman inside the sandbox cannot pull anything — /var/tmp
-// (containers/image stages blobs there) and a storage.conf whose
-// ignore_chown_errors absorbs the single-uid FALLBACK mapping (docker engine,
-// or no host subordinate ranges). The launcher half is
-// backend.nestedContainerArgs.
+// namespace is built with), and the image-side bits without which a rootless
+// podman inside the sandbox cannot pull anything — /var/tmp (containers/image
+// stages blobs there), a storage.conf whose ignore_chown_errors absorbs the
+// single-uid FALLBACK mapping (docker engine, or no host subordinate ranges),
+// and a containers.conf (its one setting silences the compose provider
+// banner). The launcher half is backend.nestedContainerArgs.
 func TestImageBakesNestedPodman(t *testing.T) {
 	s := imageDefinition(t)
 	for _, want := range []string{
@@ -84,10 +84,29 @@ func TestImageBakesNestedPodman(t *testing.T) {
 		`writeTextDir "etc/containers/policy.json"`,
 		`writeTextDir "etc/containers/storage.conf"`,
 		"ignore_chown_errors",
+		`writeTextDir "etc/containers/containers.conf"`,
+		"compose_warning_logs = false",
 		"/var/tmp",
 	} {
 		if !strings.Contains(s, want) {
 			t.Errorf("images.nix missing nested-podman piece %q", want)
+		}
+	}
+}
+
+// TestImageBakesDockerShim guards the docker-compatibility layer: a `docker`
+// on PATH that execs podman (never a real client — no daemon socket is ever
+// mounted into a sandbox), and the compose provider `docker compose` needs.
+func TestImageBakesDockerShim(t *testing.T) {
+	s := imageDefinition(t)
+	for _, want := range []string{
+		`writeShellScriptBin "docker"`,
+		`exec ${pkgs.podman}/bin/podman "$@"`,
+		"dockerShim",
+		"podman-compose",
+	} {
+		if !strings.Contains(s, want) {
+			t.Errorf("images.nix missing docker-shim piece %q", want)
 		}
 	}
 }

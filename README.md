@@ -436,6 +436,12 @@ gets its own podman, and its pulls ride the sandbox's `HTTP(S)_PROXY` through
 the **egress allowlist** like any other traffic — allow the registry's domains
 or the pull is refused.
 
+Inside, type whichever you're used to: the image ships `docker` as a shim that
+execs podman (`docker run postgres`, `docker build`, `docker ps`, `docker
+logs`), and `docker compose` / `podman compose` work through the bundled
+`podman-compose`. What does *not* work is anything that talks to a Docker API
+socket — testcontainers and friends — because no socket exists to talk to.
+
 The cost is contained: podman re-execs itself into a user namespace, and the
 engine's default seccomp profile denies that to an unprivileged container — but
 instead of dropping the filter, the opt-in swaps it for **sandboxer's own
@@ -469,7 +475,9 @@ On a **docker** engine the nested podman stays **single-uid** (docker gives a
 non-root user no ambient capabilities, and lifting `no-new-privileges` is not
 a trade sandboxer makes): pulls still work — the image's `storage.conf` sets
 `ignore_chown_errors` so ordinary images unpack — but containers that switch
-user won't run.
+user won't run. `enter` says so up front, and `sandboxer doctor` reports the
+verdict for every profile that opted in (podman + host ranges → multi-uid
+works; docker → single-uid; missing host ranges → the `usermod` fix).
 
 ### Multiple profiles in one file
 
