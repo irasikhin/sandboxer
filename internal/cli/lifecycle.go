@@ -233,8 +233,11 @@ disable with autoResume = false in the profile, or SANDBOXER_NO_RESUME=1.`,
 				return err
 			}
 			seedHostConfigs(t, narrate)
-			nestedIDs := prepareNestedIDs(t, engine, narrate)
-			if err := runSetup(t, rt, engine, nestedIDs, f.noSetup, narrate); err != nil {
+			nested, err := prepareNested(t, engine, narrate)
+			if err != nil {
+				return err
+			}
+			if err := runSetup(t, rt, engine, nested, f.noSetup, narrate); err != nil {
 				return err
 			}
 			name := backend.SessionName(t.slug, t.base.Dir)
@@ -257,9 +260,10 @@ disable with autoResume = false in the profile, or SANDBOXER_NO_RESUME=1.`,
 				DestGen:          t.base.Gen(t.slug),
 				AuthEnv:          hostAuthEnv(t.profile),
 				RT:               rt, Profile: t.profile,
-				ProfileJSONPath: t.base.ProfileJSONPath(t.slug),
-				NestedIDFiles:   nestedIDs,
-				Mem:             rt.Mem, CPU: rt.CPU, Pids: rt.Pids,
+				ProfileJSONPath:   t.base.ProfileJSONPath(t.slug),
+				NestedIDFiles:     nested.IDs,
+				NestedSeccompPath: nested.Seccomp,
+				Mem:               rt.Mem, CPU: rt.CPU, Pids: rt.Pids,
 				Interactive: true, Args: tmuxEnterArgs(sessionName),
 				NoEgress: noEgress(),
 				Stdin:    cmd.InOrStdin(), Stdout: cmd.OutOrStdout(), Stderr: errOut,
@@ -457,8 +461,11 @@ composes with scripts and CI.`,
 				return err
 			}
 			seedHostConfigs(t, narrate)
-			nestedIDs := prepareNestedIDs(t, engine, narrate)
-			if err := runSetup(t, rt, engine, nestedIDs, f.noSetup, narrate); err != nil {
+			nested, err := prepareNested(t, engine, narrate)
+			if err != nil {
+				return err
+			}
+			if err := runSetup(t, rt, engine, nested, f.noSetup, narrate); err != nil {
 				return err
 			}
 			image, spec, err := resolveImage(t.profile, engine, cmd.ErrOrStderr())
@@ -479,9 +486,10 @@ composes with scripts and CI.`,
 				DestGen:   t.base.Gen(t.slug),
 				AuthEnv:   hostAuthEnv(t.profile),
 				RT:        rt, Profile: t.profile,
-				ProfileJSONPath: t.base.ProfileJSONPath(t.slug),
-				NestedIDFiles:   nestedIDs,
-				Mem:             rt.Mem, CPU: rt.CPU, Pids: rt.Pids,
+				ProfileJSONPath:   t.base.ProfileJSONPath(t.slug),
+				NestedIDFiles:     nested.IDs,
+				NestedSeccompPath: nested.Seccomp,
+				Mem:               rt.Mem, CPU: rt.CPU, Pids: rt.Pids,
 				Interactive: true, Args: rest,
 				NoEgress: noEgress(),
 				Stdin:    cmd.InOrStdin(), Stdout: cmd.OutOrStdout(), Stderr: cmd.ErrOrStderr(),
@@ -808,6 +816,9 @@ var (
 	// sandboxWriteNestedIDs is the id-file generation seam: the real thing
 	// reads the HOST's /etc/subuid, whose content a test cannot control.
 	sandboxWriteNestedIDs = (*sandbox.Base).WriteNestedIDFiles
+	// sandboxEnsureSeccomp is the seccomp-profile write seam, so tests can
+	// exercise prepareNested's fatal-write branch without a real disk failure.
+	sandboxEnsureSeccomp = (*sandbox.Base).EnsureSeccompProfile
 )
 
 // prepareNestedIDs generates the per-sandbox identity files a nestedContainers
@@ -838,13 +849,72 @@ func prepareNestedIDs(t *target, engine string, errOut io.Writer) backend.Nested
 	return backend.NestedIDFiles(t.base.NestedIDFiles(t.slug))
 }
 
+// nestedSeccompEnv is the escape hatch for an engine that rejects the
+// generated profile: =unconfined restores the pre-profile posture (no syscall
+// filter). Any other value is ignored.
+const nestedSeccompEnv = "SANDBOXER_NESTED_SECCOMP"
+
+// nestedSeccompPath is the read-only twin of prepareNestedSeccomp: the exact
+// path the argv would carry, computed without writing anything — for show and
+// compose, whose argv (and so the session hash it feeds) must match what enter
+// built. The name is content-addressed, so path equality is content equality.
+func nestedSeccompPath(t *target) (string, error) {
+	if t.profile == nil || !t.profile.NestedContainers || inContainer() {
+		return "", nil
+	}
+	if os.Getenv(nestedSeccompEnv) == "unconfined" {
+		return "", nil
+	}
+	return t.base.SeccompProfilePath()
+}
+
+// prepareNestedSeccomp materializes the nested-containers seccomp profile
+// under _meta and returns its path for RunOpts ("" = knob off, or the
+// unconfined escape hatch). Unlike the never-fatal id files, a failed WRITE is
+// a hard error: entering anyway would mean silently falling back to no syscall
+// filter — a security regression, not a degraded feature.
+func prepareNestedSeccomp(t *target, errOut io.Writer) (string, error) {
+	path, err := nestedSeccompPath(t)
+	if err != nil || path == "" {
+		if err == nil && t.profile != nil && t.profile.NestedContainers && !inContainer() &&
+			os.Getenv(nestedSeccompEnv) == "unconfined" {
+			fmt.Fprintln(errOut, "sandboxer: SANDBOXER_NESTED_SECCOMP=unconfined — the sandbox runs with NO syscall filter")
+		}
+		return "", err
+	}
+	if _, err := sandboxEnsureSeccomp(t.base); err != nil {
+		return "", fmt.Errorf("nested seccomp profile: %w", err)
+	}
+	return path, nil
+}
+
+// nestedRun bundles what a nestedContainers profile adds to a container run —
+// the multi-uid identity files and the seccomp profile path — so the enter and
+// exec paths hand one value to runSetup and RunOpts.
+type nestedRun struct {
+	IDs     backend.NestedIDFiles
+	Seccomp string
+}
+
+// prepareNested runs both nested-containers preparation steps. The id files
+// degrade with a notice; the seccomp profile is the fatal one (see
+// prepareNestedSeccomp).
+func prepareNested(t *target, engine string, errOut io.Writer) (nestedRun, error) {
+	ids := prepareNestedIDs(t, engine, errOut)
+	seccompPath, err := prepareNestedSeccomp(t, errOut)
+	if err != nil {
+		return nestedRun{}, err
+	}
+	return nestedRun{IDs: ids, Seccomp: seccompPath}, nil
+}
+
 // runSetup runs the profile's one-time `setup:` script inside the sandbox before
 // the user/agent takes over. It is gated by a per-sandbox stamp (the script's
 // hash) so it runs once and re-runs only when the script changes. Setup runs
 // under the same isolation and egress allowlist as the sandbox, so network
 // installs need their domains allowed. A non-zero setup is fatal by default —
 // we don't drop the caller into a half-prepared sandbox — and noSetup skips it.
-func runSetup(t *target, rt config.Runtime, engine string, nestedIDs backend.NestedIDFiles, noSetup bool, errOut io.Writer) error {
+func runSetup(t *target, rt config.Runtime, engine string, nested nestedRun, noSetup bool, errOut io.Writer) error {
 	if t.profile == nil {
 		return nil
 	}
@@ -878,25 +948,26 @@ func runSetup(t *target, rt config.Runtime, engine string, nestedIDs backend.Nes
 	code, err := backendRun(backend.RunOpts{
 		Engine: engine, Image: image, Spec: spec,
 		Dest: t.base.SandboxDir(t.slug), Slug: t.slug,
-		MountDest:       mountDest,
-		MountGen:        mountGen,
-		MountIDs:        mountIDs,
-		SrcMounts:       srcMounts,
-		HomeDir:         t.base.HomeDir(t.slug),
-		DestGen:         t.base.Gen(t.slug),
-		AuthEnv:         hostAuthEnv(t.profile),
-		RT:              rt,
-		Profile:         t.profile,
-		ProfileJSONPath: t.base.ProfileJSONPath(t.slug),
-		NestedIDFiles:   nestedIDs,
-		Mem:             rt.Mem,
-		CPU:             rt.CPU,
-		Pids:            rt.Pids,
-		Interactive:     false,
-		Args:            []string{"bash", "-lc", t.profile.Setup},
-		NoEgress:        noEgress(),
-		Stdout:          setupOut,
-		Stderr:          setupOut,
+		MountDest:         mountDest,
+		MountGen:          mountGen,
+		MountIDs:          mountIDs,
+		SrcMounts:         srcMounts,
+		HomeDir:           t.base.HomeDir(t.slug),
+		DestGen:           t.base.Gen(t.slug),
+		AuthEnv:           hostAuthEnv(t.profile),
+		RT:                rt,
+		Profile:           t.profile,
+		ProfileJSONPath:   t.base.ProfileJSONPath(t.slug),
+		NestedIDFiles:     nested.IDs,
+		NestedSeccompPath: nested.Seccomp,
+		Mem:               rt.Mem,
+		CPU:               rt.CPU,
+		Pids:              rt.Pids,
+		Interactive:       false,
+		Args:              []string{"bash", "-lc", t.profile.Setup},
+		NoEgress:          noEgress(),
+		Stdout:            setupOut,
+		Stderr:            setupOut,
 	})
 	if err != nil {
 		return fmt.Errorf("setup failed to start: %w", err)

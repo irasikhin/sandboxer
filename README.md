@@ -436,14 +436,20 @@ gets its own podman, and its pulls ride the sandbox's `HTTP(S)_PROXY` through
 the **egress allowlist** like any other traffic — allow the registry's domains
 or the pull is refused.
 
-The cost is real: podman re-execs itself into a user namespace, and the engine's
-default seccomp profile denies that to an unprivileged container, so the opt-in
-runs the sandbox with **`seccomp=unconfined` and `/proc` unmasked** (plus
-`/dev/net/tun` and `/dev/fuse`). It does *not* hand over privilege — no
-`--privileged`, `--cap-drop=ALL` and `no-new-privileges` stay; on a podman
-engine the opt-in additionally grants exactly **`SETUID`+`SETGID`** (as ambient
-capabilities, see below) — but the syscall filter is gone. See
-[SECURITY.md](./SECURITY.md).
+The cost is contained: podman re-execs itself into a user namespace, and the
+engine's default seccomp profile denies that to an unprivileged container — but
+instead of dropping the filter, the opt-in swaps it for **sandboxer's own
+seccomp profile**: the containers default (vendored from
+[containers/common](https://github.com/containers/common), Apache-2.0) plus
+exactly the userns/mount/keyring syscalls a nested rootless engine needs. The
+syscall filter stays on — just wider than stock. `/proc` is unmasked (scoped
+`unmask=/proc/*` on a podman engine; `systempaths=unconfined` on docker, which
+has no narrower option), plus `/dev/net/tun` and `/dev/fuse`. It does *not*
+hand over privilege — no `--privileged`, `--cap-drop=ALL` and
+`no-new-privileges` stay; on a podman engine the opt-in additionally grants
+exactly **`SETUID`+`SETGID`** (as ambient capabilities, see below). If an old
+engine rejects the profile, `SANDBOXER_NESTED_SECCOMP=unconfined` restores the
+pre-v0.72 no-filter posture. See [SECURITY.md](./SECURITY.md).
 
 **User-switching images work on a podman engine.** Images whose entrypoint
 drops to their own user (postgres, most databases) need the nested podman to

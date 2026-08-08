@@ -132,15 +132,25 @@ type RunOpts struct {
 	// sandbox.WriteNestedIDFiles). Zero value = no mounts; also ignored unless
 	// the engine is podman and the files exist (see nestedContainerArgs).
 	NestedIDFiles NestedIDFiles
-	Interactive   bool
-	NoEgress      bool   // SANDBOXER_NO_EGRESS
-	Mem           string // memory cap → --memory (e.g. 2G); empty = unlimited
-	CPU           string // CPU cap → --cpus (accepts a float or systemd "100%")
-	Pids          int    // PID-count cap → --pids-limit; 0 = unlimited
-	Args          []string
-	Stdin         io.Reader
-	Stdout        io.Writer
-	Stderr        io.Writer
+	// NestedSeccompPath is the host path of the purpose-built syscall filter a
+	// nestedContainers profile runs under (sandbox.EnsureSeccompProfile) — the
+	// containers default profile plus the userns/mount syscalls a nested
+	// rootless engine needs. The path is content-addressed, which is what
+	// folds the profile's CONTENT into the session ConfigHash: the argv only
+	// carries the path, so a profile change must move the path (see
+	// seccomp.FileName). Empty means seccomp=unconfined — the pre-profile
+	// posture, kept reachable as the SANDBOXER_NESTED_SECCOMP=unconfined
+	// escape hatch. Ignored (like NestedIDFiles) unless the profile opted in.
+	NestedSeccompPath string
+	Interactive       bool
+	NoEgress          bool   // SANDBOXER_NO_EGRESS
+	Mem               string // memory cap → --memory (e.g. 2G); empty = unlimited
+	CPU               string // CPU cap → --cpus (accepts a float or systemd "100%")
+	Pids              int    // PID-count cap → --pids-limit; 0 = unlimited
+	Args              []string
+	Stdin             io.Reader
+	Stdout            io.Writer
+	Stderr            io.Writer
 }
 
 // Run executes the container, wiring isolation, credentials, dependency mounts
@@ -351,12 +361,22 @@ func commonArgs(o RunOpts, egNet, egProxyURL string) []string {
 // The image has shipped podman for a while; what stopped it was the OUTER
 // container's own sandboxing:
 //
-//   - seccomp: the engine's default profile denies clone(CLONE_NEWUSER) to a
-//     process without CAP_SYS_ADMIN, and podman re-execs itself into a user
-//     namespace ("cannot clone: Operation not permitted").
+//   - seccomp: the engine's default profile denies (or caps-conditions) the
+//     syscalls a nested rootless engine lives on — userns creation, mount,
+//     sethostname ("cannot clone: Operation not permitted"). The answer is
+//     NOT unconfined (that was the v0.47 shape — no syscall filter at all)
+//     but a purpose-built profile: the containers default plus exactly those
+//     syscalls (internal/seccomp), passed by path in NestedSeccompPath.
+//     "" falls back to unconfined — the documented escape hatch for an
+//     engine that rejects the profile.
 //   - masked /proc: the engine overmounts paths under /proc, after which the
-//     kernel refuses the fresh procfs the nested container mounts
-//     ("crun: mount `proc` to `proc`: Operation not permitted").
+//     kernel refuses the fresh procfs the nested container mounts — procfs
+//     wants the parent mount "fully visible" ("crun: mount `proc` to `proc`:
+//     Operation not permitted"). Everything that needs lifting is under
+//     /proc, so on podman the unmask is scoped: `unmask=/proc/*` lifts the
+//     masked and read-only entries there while /sys/firmware stays masked
+//     and /sys/fs/cgroup read-only. Docker has no unmask option, so it keeps
+//     the all-paths `systempaths=unconfined`.
 //   - /dev/net/tun: pasta, podman's rootless network backend, opens it.
 //   - /dev/fuse: fuse-overlayfs, the nested podman's storage driver (see the
 //     image's storage.conf), mounts layers through it.
@@ -382,16 +402,25 @@ func commonArgs(o RunOpts, egNet, egProxyURL string) []string {
 // What it deliberately does NOT do: --privileged, blanket --cap-add, or
 // relaxing no-new-privileges. Without the multi-uid grant (docker engine, no
 // host subuid range) the nested podman maps a single uid, which the image's
-// ignore_chown_errors is there to absorb. The trade is real and documented in
-// SECURITY.md: a sandbox with nestedContainers has no syscall filter.
+// ignore_chown_errors is there to absorb. The remaining trade is documented in
+// SECURITY.md: the syscall filter stays on, but wider than stock, and /proc is
+// unmasked.
 func nestedContainerArgs(o RunOpts) []string {
 	p := o.Profile
 	if p == nil || !p.NestedContainers {
 		return nil
 	}
+	filter := "seccomp=unconfined"
+	if o.NestedSeccompPath != "" {
+		filter = "seccomp=" + o.NestedSeccompPath
+	}
+	proc := "systempaths=unconfined"
+	if o.Engine == "podman" {
+		proc = "unmask=/proc/*"
+	}
 	args := []string{
-		"--security-opt", "seccomp=unconfined",
-		"--security-opt", "systempaths=unconfined",
+		"--security-opt", filter,
+		"--security-opt", proc,
 		"--device", "/dev/net/tun",
 		"--device", "/dev/fuse",
 	}

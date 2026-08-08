@@ -70,6 +70,10 @@ equivalent — its purpose is "run it with your own tooling".`,
 			if err != nil {
 				return err
 			}
+			seccompPath, err := nestedSeccompPath(t)
+			if err != nil {
+				return err
+			}
 			opts := backend.RunOpts{
 				Engine:          engine,
 				Image:           image,
@@ -89,13 +93,14 @@ equivalent — its purpose is "run it with your own tooling".`,
 				ProfileJSONPath: t.base.ProfileJSONPath(t.slug),
 				// Paths only, no generation — compose is a dry-run renderer;
 				// the mounts appear iff a prior enter generated the files.
-				NestedIDFiles: backend.NestedIDFiles(t.base.NestedIDFiles(t.slug)),
-				Mem:           rt.Mem,
-				CPU:           rt.CPU,
-				Pids:          rt.Pids,
-				Interactive:   true,
-				Args:          []string{"bash", "-l"},
-				NoEgress:      noEgress(),
+				NestedIDFiles:     backend.NestedIDFiles(t.base.NestedIDFiles(t.slug)),
+				NestedSeccompPath: seccompPath,
+				Mem:               rt.Mem,
+				CPU:               rt.CPU,
+				Pids:              rt.Pids,
+				Interactive:       true,
+				Args:              []string{"bash", "-l"},
+				NoEgress:          noEgress(),
 			}
 			argv, err := backend.RunArgv(opts)
 			if err != nil {

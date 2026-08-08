@@ -569,6 +569,10 @@ func sessionHashOpts(t *target, rt config.Runtime, engine string) (backend.RunOp
 	if err != nil {
 		return backend.RunOpts{}, false
 	}
+	seccompPath, err := nestedSeccompPath(t)
+	if err != nil {
+		return backend.RunOpts{}, false
+	}
 	return backend.RunOpts{
 		Engine: engine, Image: image, Spec: spec,
 		Dest: t.base.SandboxDir(t.slug), Slug: t.slug, BaseDir: t.base.Dir,
@@ -583,8 +587,9 @@ func sessionHashOpts(t *target, rt config.Runtime, engine string) (backend.RunOp
 		ProfileJSONPath: t.base.ProfileJSONPath(t.slug),
 		// Paths only, no generation: the argv (and so the session hash this
 		// feeds) must match what enter built, which mounts them iff they exist.
-		NestedIDFiles: backend.NestedIDFiles(t.base.NestedIDFiles(t.slug)),
-		Mem:           rt.Mem, CPU: rt.CPU, Pids: rt.Pids,
+		NestedIDFiles:     backend.NestedIDFiles(t.base.NestedIDFiles(t.slug)),
+		NestedSeccompPath: seccompPath,
+		Mem:               rt.Mem, CPU: rt.CPU, Pids: rt.Pids,
 		NoEgress: noEgress(),
 	}, true
 }

@@ -429,17 +429,22 @@ func TestNestedContainerArgs(t *testing.T) {
 		}
 	})
 	t.Run("on adds exactly what rootless podman needs", func(t *testing.T) {
-		argv, _ := RunArgv(opts(&config.Profile{NestedContainers: true}))
+		o := opts(&config.Profile{NestedContainers: true})
+		o.NestedSeccompPath = "/meta/seccomp-abc123def456.json"
+		argv, _ := RunArgv(o)
 		s := strings.Join(argv, " ")
 		for _, want := range []string{
-			"--security-opt seccomp=unconfined",     // clone(CLONE_NEWUSER)
-			"--security-opt systempaths=unconfined", // the nested procfs mount
-			"--device /dev/net/tun",                 // pasta
-			"--device /dev/fuse",                    // fuse-overlayfs
+			"--security-opt seccomp=" + o.NestedSeccompPath, // the purpose-built filter, NOT unconfined
+			"--security-opt systempaths=unconfined",         // the nested procfs mount (docker has no unmask)
+			"--device /dev/net/tun",                         // pasta
+			"--device /dev/fuse",                            // fuse-overlayfs
 		} {
 			if !strings.Contains(s, want) {
 				t.Errorf("argv missing %q: %v", want, argv)
 			}
+		}
+		if strings.Contains(s, "seccomp=unconfined") {
+			t.Errorf("a profile path must displace seccomp=unconfined: %v", argv)
 		}
 		// The opt-in buys a user namespace, NOT privilege: the rest of the
 		// posture has to survive it.
@@ -452,6 +457,38 @@ func TestNestedContainerArgs(t *testing.T) {
 			if strings.Contains(s, never) {
 				t.Errorf("opt-in must never reach for %q: %v", never, argv)
 			}
+		}
+	})
+	t.Run("podman scopes the unmask to /proc", func(t *testing.T) {
+		o := opts(&config.Profile{NestedContainers: true})
+		o.Engine = "podman"
+		o.NestedSeccompPath = "/meta/seccomp-abc123def456.json"
+		s := strings.Join(nestedContainerArgs(o), " ")
+		if !strings.Contains(s, "--security-opt unmask=/proc/*") {
+			t.Errorf("podman argv missing the scoped unmask: %v", s)
+		}
+		if strings.Contains(s, "systempaths") {
+			t.Errorf("podman must use unmask, not the all-paths systempaths: %v", s)
+		}
+	})
+	t.Run("empty path falls back to unconfined (the escape hatch)", func(t *testing.T) {
+		s := strings.Join(nestedContainerArgs(opts(&config.Profile{NestedContainers: true})), " ")
+		if !strings.Contains(s, "--security-opt seccomp=unconfined") {
+			t.Errorf("empty NestedSeccompPath must fall back to unconfined: %v", s)
+		}
+	})
+	t.Run("seccomp path flips the session hash only with the knob on", func(t *testing.T) {
+		off := opts(&config.Profile{})
+		offPath := off
+		offPath.NestedSeccompPath = "/meta/seccomp-abc123def456.json"
+		if ConfigHash(off, "", "") != ConfigHash(offPath, "", "") {
+			t.Error("the path must be inert while the knob is off")
+		}
+		on := opts(&config.Profile{NestedContainers: true})
+		onPath := on
+		onPath.NestedSeccompPath = "/meta/seccomp-abc123def456.json"
+		if ConfigHash(on, "", "") == ConfigHash(onPath, "", "") {
+			t.Error("a profile-content change (new path) must flip a nested session's hash")
 		}
 	})
 	t.Run("docker never gets the multi-uid grant, even with id files", func(t *testing.T) {

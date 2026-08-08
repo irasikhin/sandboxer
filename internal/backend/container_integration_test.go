@@ -13,6 +13,7 @@ import (
 	"github.com/irasikhin/sandboxer/internal/config"
 	"github.com/irasikhin/sandboxer/internal/itest"
 	"github.com/irasikhin/sandboxer/internal/sandbox"
+	"github.com/irasikhin/sandboxer/internal/seccomp"
 )
 
 // realRunOpts builds a minimal RunOpts for a real engine run: egress disabled,
@@ -108,6 +109,15 @@ func TestRun_RealEngine_NestedMultiUID(t *testing.T) {
 		"bash", "-lc", "podman run --rm --user 999:999 docker.io/library/alpine id -u")
 	o.Profile = &config.Profile{NestedContainers: true}
 	o.NestedIDFiles = NestedIDFiles(base.NestedIDFiles("itest"))
+	// The purpose-built profile, exactly as enter passes it — this test is the
+	// completeness oracle for internal/seccomp's syscall list AND for the
+	// podman-scoped unmask=/proc/* (a miss surfaces as "cannot clone" /
+	// "mount `proc`" EPERM here, never in unit tests).
+	scPath, err := seccomp.Write(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	o.NestedSeccompPath = scPath
 	var out bytes.Buffer
 	o.Stdout, o.Stderr = &out, &out
 	code, err := Run(o)
@@ -119,6 +129,39 @@ func TestRun_RealEngine_NestedMultiUID(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "999") {
 		t.Errorf("nested id -u = %q, want 999", out.String())
+	}
+}
+
+// TestRun_RealEngine_NestedSingleUID proves the single-uid nested path — the
+// one docker engines (and range-less podman hosts) live on — under the
+// purpose-built seccomp profile. Runs on BOTH engines: no id files, so no
+// multi-uid grant; the nested podman maps one uid and an image that does not
+// switch user must still run, pull included.
+func TestRun_RealEngine_NestedSingleUID(t *testing.T) {
+	engine := itest.Engine(t)
+	image := itest.EnsureToolboxImage(t, engine)
+	itest.RequireLiveEgress(t) // the nested pull reaches a real registry
+
+	dest := t.TempDir()
+	o := realRunOpts(t, engine, image, dest,
+		"bash", "-lc", "podman run --rm docker.io/library/alpine id -u")
+	o.Profile = &config.Profile{NestedContainers: true}
+	scPath, err := seccomp.Write(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	o.NestedSeccompPath = scPath
+	var out bytes.Buffer
+	o.Stdout, o.Stderr = &out, &out
+	code, err := Run(o)
+	if err != nil {
+		t.Fatalf("Run: %v\n%s", err, out.String())
+	}
+	if code != 0 {
+		t.Fatalf("exit = %d, want 0 — nested single-uid run failed under the seccomp profile:\n%s", code, out.String())
+	}
+	if !strings.Contains(out.String(), "0") {
+		t.Errorf("nested id -u = %q, want 0 (nested root)", out.String())
 	}
 }
 

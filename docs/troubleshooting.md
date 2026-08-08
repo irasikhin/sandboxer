@@ -129,6 +129,24 @@ failed: Operation not permitted` — means the nested podman only has a
   run that workload under a podman engine, or `--user 0:0` the nested
   container when the image tolerates running as (namespaced) root.
 
+## Nested containers: the engine rejects the seccomp profile
+
+A `nestedContainers = true` sandbox runs under sandboxer's own seccomp profile
+(`_meta/seccomp-<hash>.json`, see SECURITY.md). An old engine that cannot parse
+it refuses to create the container — the error names the profile file, e.g.
+`decoding seccomp profile failed` / `invalid seccomp profile`. Known-good
+engines are docker ≥ 20.10 and podman ≥ 4.
+
+- First try upgrading the engine — the profile is the standard containers
+  format, and the filter is a real part of the sandbox's posture.
+- The escape hatch is `SANDBOXER_NESTED_SECCOMP=unconfined`: it restores the
+  pre-v0.72 posture (**no syscall filter at all**, the loud notice on every
+  enter is deliberate). The argv changes, so the session reads stale once and
+  is rebuilt on the next enter — the same happens in reverse when you unset it.
+- A sandboxer upgrade that changes the profile content moves the file (the name
+  is a content hash), so nested sessions read stale **once** after upgrading
+  and rebuild on the next enter. That is expected, not drift.
+
 ## microvm (smolvm): `krun_start_enter returned: -22 (EINVAL)` on every enter
 
 Symptom — every `enter`/`exec` on `backend = "microvm"` dies in a few seconds:

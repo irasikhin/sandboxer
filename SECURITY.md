@@ -116,8 +116,8 @@ important — where it stops.
   `--user` (non-root), `--cap-drop=ALL`, `--security-opt no-new-privileges`, and
   applies the profile's `limits:` (`--memory` / `--cpus` / `--pids-limit`) when
   set. This reduces, but does not eliminate, the blast radius. A profile that
-  sets `nestedContainers = true` keeps all of the above but gives up the syscall
-  filter — see below.
+  sets `nestedContainers = true` keeps all of the above but swaps the engine's
+  default seccomp profile for a wider one and unmasks `/proc` — see below.
 
 - **Egress allowlist.** The agent runs on an `--internal` network whose sole exit
   is a **squid** forward-proxy sidecar that permits only `egress.allowedDomains`
@@ -128,13 +128,27 @@ important — where it stops.
 
 ### Where it stops (know these before you trust it)
 
-- **`nestedContainers = true` turns off the sandbox's syscall filter.** The
-  toolbox image ships a rootless podman, but a container cannot create the user
-  namespace podman re-execs into while the engine's default seccomp profile is
-  active — that profile denies `clone(CLONE_NEWUSER)` to anything without
-  `CAP_SYS_ADMIN`. Opting in therefore passes `seccomp=unconfined` and
-  `systempaths=unconfined` (the latter unmasks `/proc`, which the nested
-  container's own `procfs` mount needs), plus `/dev/net/tun` and `/dev/fuse`.
+- **`nestedContainers = true` widens the sandbox's syscall filter and unmasks
+  `/proc`.** The toolbox image ships a rootless podman, but a container cannot
+  create the user namespace podman re-execs into while the engine's default
+  seccomp profile is active — that profile denies (or caps-conditions) the
+  syscalls a nested rootless engine lives on. Opting in swaps it for
+  **sandboxer's own profile** (`internal/seccomp`, passed as
+  `--security-opt seccomp=<file>`): the containers default profile — vendored
+  from containers/common, Apache-2.0, still deny-by-default — with one
+  unconditional allow group on top: userns creation (`clone`, `clone3`,
+  `unshare`, `setns`), the mount plumbing (`mount`, `umount`, `umount2`,
+  `pivot_root`, `open_tree`, `move_mount`, `fsopen`, `fsconfig`, `fsmount`,
+  `fspick`, `mount_setattr`, `open_tree_attr`, `statmount`, `listmount`),
+  hostname (`sethostname`, `setdomainname`) and the session keyring (`keyctl`,
+  `add_key`, `request_key`). Unconditional because the filter is resolved
+  against the OUTER container's `--cap-drop=ALL`, while the nested engine holds
+  these capabilities in its own user namespace — which seccomp cannot see. The
+  opt-in also unmasks `/proc` (the nested container's own `procfs` mount needs
+  the parent fully visible): scoped `unmask=/proc/*` on a podman engine —
+  `/sys/firmware` stays masked, `/sys/fs/cgroup` read-only — and the all-paths
+  `systempaths=unconfined` on docker, which has no narrower option. Plus
+  `/dev/net/tun` and `/dev/fuse`.
   On a **podman** engine it also grants exactly **`--cap-add SETUID,SETGID`**:
   podman puts added caps in the *ambient* set for a non-root user, which is
   what lets `newuidmap`/`newgidmap` write the multi-uid mapping user-switching
@@ -144,9 +158,12 @@ important — where it stops.
   user's subordinate ids — never host root). What the opt-in still does
   **not** do: no `--privileged`, no other capability, `--cap-drop=ALL` and
   `no-new-privileges` stay; on a docker engine there is no capability grant at
-  all and the nested podman runs single-uid. Net effect: an escape no longer
-  has to get past a syscall allowlist. Leave it off unless the sandbox
-  actually builds or runs containers.
+  all and the nested podman runs single-uid. Net effect: an escape must still
+  get past a syscall allowlist, but a wider one — mount and userns tricks the
+  stock filter blocks are open, `/proc` is not masked. The escape hatch
+  `SANDBOXER_NESTED_SECCOMP=unconfined` (for engines that reject the profile
+  file) removes the filter entirely — the pre-v0.72 posture. Leave the knob
+  off unless the sandbox actually builds or runs containers.
 
 - **The worktree's `.git` pointer file is writable.** Git metadata is not
   mounted (the whole hooks/config/object-store attack surface of earlier
