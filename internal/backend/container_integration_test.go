@@ -163,8 +163,10 @@ func TestRun_RealEngine_NestedSingleUID(t *testing.T) {
 	itest.RequireLiveEgress(t) // the nested pull reaches a real registry
 
 	dest := t.TempDir()
+	// The marker matters: the engine's own progress chatter is full of bare
+	// digits, so asserting on "0" alone would pass even when nothing ran.
 	o := realRunOpts(t, engine, image, dest,
-		"bash", "-lc", "podman run --rm docker.io/library/alpine id -u")
+		"bash", "-lc", `podman run --rm docker.io/library/alpine sh -c 'echo nested-uid=$(id -u)'`)
 	o.HomeDir = nestedHome(t, engine, image)
 	o.Profile = &config.Profile{NestedContainers: true}
 	scPath, err := seccomp.Write(t.TempDir())
@@ -181,7 +183,7 @@ func TestRun_RealEngine_NestedSingleUID(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit = %d, want 0 — nested single-uid run failed under the seccomp profile:\n%s", code, out.String())
 	}
-	if !strings.Contains(out.String(), "0") {
+	if !strings.Contains(out.String(), "nested-uid=0") {
 		t.Errorf("nested id -u = %q, want 0 (nested root)", out.String())
 	}
 }
