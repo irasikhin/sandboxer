@@ -186,6 +186,12 @@ func starterProfile(name string, d config.Defaults) string {
   # (node, python, go, rust, java, …):
   # tools = [ "node" "python" ];
 
+  # Let the sandbox run containers of its own — "docker run postgres",
+  # compose, a rootless podman (no engine socket is ever mounted). Opt-in
+  # because it widens the sandbox's syscall filter and unmasks /proc; see
+  # SECURITY.md. User-switching images (postgres) need backend = "podman".
+  # nestedContainers = true;
+
   # Resource caps (empty = uncapped): memory/cpus/pids.
   # limits = { memory = "4G"; cpus = "2"; pids = 512; };
 

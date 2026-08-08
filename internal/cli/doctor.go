@@ -4,9 +4,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"text/tabwriter"
 
@@ -15,6 +17,7 @@ import (
 	"github.com/irasikhin/sandboxer/internal/backend"
 	"github.com/irasikhin/sandboxer/internal/config"
 	"github.com/irasikhin/sandboxer/internal/registry"
+	"github.com/irasikhin/sandboxer/internal/sandbox"
 )
 
 func init() { register(newDoctorCmd) }
@@ -178,8 +181,9 @@ func doctorChecks() []doctorCheck {
 	cfgPath := config.ConfigPath()
 	switch {
 	case fileExists(cfgPath):
-		if _, err := config.LoadDocument(cfgPath); err == nil {
+		if doc, err := config.LoadDocument(cfgPath); err == nil {
 			checks = append(checks, okCheck(cfgPath, "parses ok"))
+			checks = append(checks, nestedChecks(doc, d)...)
 		} else {
 			checks = append(checks, warnCheck(cfgPath, err.Error()))
 		}
@@ -208,6 +212,52 @@ func doctorChecks() []doctorCheck {
 	if legacyStateLeftover(getwd()) {
 		checks = append(checks, warnCheck(config.LegacyStateDirName+"/_meta",
 			fmt.Sprintf("pre-split runtime state — data now lives in %s; safe to delete the old _meta/_home/_logs/<slug> dirs", config.StateDir(getwd()))))
+	}
+	return checks
+}
+
+// hostSubIDCounts is the subordinate-range lookup seam — the real one reads
+// the HOST's /etc/subuid, whose content a test cannot control.
+var hostSubIDCounts = sandbox.HostSubIDCounts
+
+// nestedChecks reports, per profile that opted into nestedContainers, whether
+// the host can actually give it a MULTI-uid nested podman — the difference
+// between "podman run postgres" working and dying with EINVAL. Silent for
+// profiles that did not opt in, and for microVM backends (where the knob is
+// warn-and-ignored: a VM runs container engines natively).
+func nestedChecks(doc *config.Document, d config.Defaults) []doctorCheck {
+	var checks []doctorCheck
+	for _, name := range slices.Sorted(maps.Keys(doc.Profiles)) {
+		p := doc.Profiles[name]
+		if !p.NestedContainers {
+			continue
+		}
+		row := "nestedContainers (" + name + ")"
+		backendName := firstNonEmpty(p.Backend, d.Backend)
+		if config.IsMicrovmBackend(backendName) {
+			checks = append(checks, doctorCheck{row, "info",
+				"ignored on " + backendName + " — a microVM runs container engines natively"})
+			continue
+		}
+		engine, err := backend.ResolveEngine(backendName, d)
+		if err != nil {
+			checks = append(checks, warnCheck(row, err.Error()))
+			continue
+		}
+		if engine != "podman" {
+			checks = append(checks, doctorCheck{row, "info",
+				"nested podman is single-uid on a " + engine + " engine — images that switch user " +
+					"(postgres) need backend = \"podman\""})
+			continue
+		}
+		if uids, gids := hostSubIDCounts(); uids == 0 || gids == 0 {
+			checks = append(checks, warnCheck(row,
+				"no subordinate uid/gid ranges for this user (/etc/subuid, /etc/subgid) — the nested "+
+					"podman stays single-uid, so images that switch user won't run; grant a range "+
+					"(usermod --add-subuids/--add-subgids)"))
+			continue
+		}
+		checks = append(checks, okCheck(row, "podman engine + host subordinate ranges — multi-uid nested containers work"))
 	}
 	return checks
 }

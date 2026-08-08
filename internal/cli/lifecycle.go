@@ -833,6 +833,12 @@ func prepareNestedIDs(t *target, engine string, errOut io.Writer) backend.Nested
 	if t.profile == nil || !t.profile.NestedContainers || inContainer() {
 		return backend.NestedIDFiles{}
 	}
+	if engine != "podman" {
+		// Silence here was its own trap: a docker user got no signal at all
+		// and met the limit as a postgres EINVAL inside the sandbox.
+		fmt.Fprintf(errOut, "sandboxer: nested containers run single-uid on a %s engine — images that "+
+			"switch user (postgres) need backend = \"podman\"\n", engine)
+	}
 	ok, err := sandboxWriteNestedIDs(t.base, t.slug)
 	if err != nil {
 		fmt.Fprintf(errOut, "sandboxer: nested id files: %v (nested podman stays single-uid)\n", err)

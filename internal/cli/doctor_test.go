@@ -218,3 +218,99 @@ func TestGitCheckIgnoreReal(t *testing.T) {
 		t.Error("a non-repo dir must read as not-ignored")
 	}
 }
+
+// stubHostSubIDs replaces doctor's subordinate-range lookup seam (the real one
+// reads the host's /etc/subuid, which a test cannot control).
+func stubHostSubIDs(t *testing.T, uids, gids int) {
+	t.Helper()
+	old := hostSubIDCounts
+	t.Cleanup(func() { hostSubIDCounts = old })
+	hostSubIDCounts = func() (int, int) { return uids, gids }
+}
+
+// writeNestedConfig drops a minimal nestedContainers profile in the cwd.
+func writeNestedConfig(t *testing.T, backendName string) {
+	t.Helper()
+	cfg := "{ name = \"n\"; backend = \"" + backendName + "\"; nestedContainers = true;\n" +
+		"  srcs = [ { src = \".\"; branch = \"feat/n\"; } ]; }\n"
+	if err := os.WriteFile(config.ConfigFileName, []byte(cfg), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestDoctorNestedContainers: a profile that opted in gets a verdict on
+// whether MULTI-uid nested containers can actually work here — the difference
+// between `podman run postgres` running and dying with EINVAL. The podman
+// engine needs host subordinate ranges (warn when missing); a docker engine is
+// steered at the backend that does support it.
+func TestDoctorNestedContainers(t *testing.T) {
+	doctorEnv(t)
+	stubSessionStates(t, map[string]string{}, nil)
+	stubSessionOrphans(t, nil, nil)
+
+	// podman + host ranges: the working combination.
+	writeNestedConfig(t, "podman")
+	stubHostSubIDs(t, 65536, 65536)
+	_, out, _ := run("doctor")
+	if !strings.Contains(out, "nestedContainers (n)") || !strings.Contains(out, "multi-uid nested containers work") {
+		t.Errorf("doctor missing the nested ok row:\n%s", out)
+	}
+
+	// podman without ranges: the actionable warning, and --strict must fail on it.
+	stubHostSubIDs(t, 0, 0)
+	code, out, _ := run("doctor", "--strict")
+	if !strings.Contains(out, "no subordinate uid/gid ranges") || !strings.Contains(out, "usermod") {
+		t.Errorf("doctor missing the no-ranges warning:\n%s", out)
+	}
+	if code == 0 {
+		t.Error("--strict must fail while multi-uid cannot work")
+	}
+
+	// docker: single-uid is a hard limit there, so the row steers at podman.
+	writeNestedConfig(t, "docker")
+	stubHostSubIDs(t, 65536, 65536)
+	_, out, _ = run("doctor")
+	if !strings.Contains(out, "single-uid on a docker engine") {
+		t.Errorf("doctor did not steer the docker user at podman:\n%s", out)
+	}
+
+	// A microVM backend warn-and-ignores the knob; doctor says so instead of
+	// judging host subuids that play no part there.
+	writeNestedConfig(t, "microvm")
+	_, out, _ = run("doctor")
+	if !strings.Contains(out, "ignored on microvm") {
+		t.Errorf("doctor did not report the microvm ignore:\n%s", out)
+	}
+
+	// A profile that did not opt in gets no row at all.
+	if err := os.WriteFile(config.ConfigFileName,
+		[]byte("{ name = \"n\"; srcs = [ { src = \".\"; branch = \"feat/n\"; } ]; }\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, out, _ = run("doctor")
+	if strings.Contains(out, "nestedContainers") {
+		t.Errorf("doctor reported nestedContainers for a profile that did not ask:\n%s", out)
+	}
+}
+
+// TestScaffoldMentionsNestedContainers: the knob is opt-in, so the scaffolded
+// config is the one place a user meets it — commented out, with its cost named
+// and the podman prerequisite for user-switching images. It must also stay
+// commented: uncommenting is the user's call, and the file has to keep
+// evaluating (the whole scaffold is parsed by config init's own tests).
+func TestScaffoldMentionsNestedContainers(t *testing.T) {
+	s := starterProfile("demo", config.LoadDefaults())
+	for _, want := range []string{
+		"# nestedContainers = true;",
+		"docker run postgres",
+		"SECURITY.md",
+		`backend = "podman"`,
+	} {
+		if !strings.Contains(s, want) {
+			t.Errorf("scaffold missing %q", want)
+		}
+	}
+	if strings.Contains(s, "\n  nestedContainers = true;") {
+		t.Error("the scaffold must leave nestedContainers commented out — opting in is the user's call")
+	}
+}

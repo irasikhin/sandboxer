@@ -93,6 +93,15 @@ var (
 	hostSubgidPath = "/etc/subgid"
 )
 
+// HostSubIDCounts reports how many subordinate uids and gids the host grants
+// the invoking user — the material a MULTI-uid nested podman is built from.
+// (0, 0) means a multi-uid nested namespace is impossible on this host. For
+// doctor; the generation path reads the same data through WriteNestedIDFiles.
+func HostSubIDCounts() (uids, gids int) {
+	uid := os.Getuid()
+	return hostSubIDCount(hostSubuidPath, uid), hostSubIDCount(hostSubgidPath, uid)
+}
+
 // hostSubIDCount sums the subordinate ranges /etc/subuid-style file path
 // grants the invoking user, matched by login name or numeric id (subuid(5)
 // allows either in the first field). 0 = no ranges (or no readable file).

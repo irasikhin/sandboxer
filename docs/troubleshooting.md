@@ -108,6 +108,9 @@ over. A failed setup is **fatal by default**, so the `enter`/`exec` aborts.
 
 ## Nested podman: an image that switches user fails (postgres, EINVAL)
 
+Run `sandboxer doctor` first — it reports, per profile that opted in, whether
+multi-uid nested containers can work on this host at all.
+
 Inside a `nestedContainers = true` sandbox, `podman run … postgres` (or any
 image whose entrypoint drops to its own user) dying with
 `setresuid/setresgid …: Invalid argument` — or `newuidmap: write to uid_map

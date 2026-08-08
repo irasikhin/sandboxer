@@ -183,13 +183,18 @@ func TestPrepareNestedIDs(t *testing.T) {
 		t.Errorf("expected the no-ranges warning, got %q", buf.String())
 	}
 
-	// Same on docker: empty but SILENT — multi-uid was never on offer there.
+	// Same on docker: empty, and the limit is named up front (a silent docker
+	// engine let the user meet it as a postgres EINVAL inside the sandbox)
+	// — but never the host-subuid advice, which fixes nothing there.
 	buf.Reset()
 	if got := prepareNestedIDs(tp, "docker", &buf); got != (backend.NestedIDFiles{}) {
 		t.Errorf("docker no-ranges = %+v, want zero", got)
 	}
-	if buf.Len() != 0 {
-		t.Errorf("docker engine must not warn about host subuids, got %q", buf.String())
+	if !strings.Contains(buf.String(), "single-uid on a docker engine") {
+		t.Errorf("docker engine must name the single-uid limit, got %q", buf.String())
+	}
+	if strings.Contains(buf.String(), "subordinate uid/gid ranges") {
+		t.Errorf("docker engine must not advise host subuids, got %q", buf.String())
 	}
 
 	// Generation failure: a notice, an empty set, no error escapes.
