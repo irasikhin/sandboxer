@@ -860,15 +860,20 @@ func prepareNestedIDs(t *target, engine string, errOut io.Writer) backend.Nested
 // filter). Any other value is ignored.
 const nestedSeccompEnv = "SANDBOXER_NESTED_SECCOMP"
 
+// wantsNestedSeccomp reports whether this invocation runs the sandbox under
+// the generated profile at all: the profile has to have opted in, and the
+// escape hatch has to be unset.
+func wantsNestedSeccomp(t *target) bool {
+	return t.profile != nil && t.profile.NestedContainers && !inContainer() &&
+		os.Getenv(nestedSeccompEnv) != "unconfined"
+}
+
 // nestedSeccompPath is the read-only twin of prepareNestedSeccomp: the exact
 // path the argv would carry, computed without writing anything — for show and
 // compose, whose argv (and so the session hash it feeds) must match what enter
 // built. The name is content-addressed, so path equality is content equality.
 func nestedSeccompPath(t *target) (string, error) {
-	if t.profile == nil || !t.profile.NestedContainers || inContainer() {
-		return "", nil
-	}
-	if os.Getenv(nestedSeccompEnv) == "unconfined" {
+	if !wantsNestedSeccomp(t) {
 		return "", nil
 	}
 	return t.base.SeccompProfilePath()
@@ -880,13 +885,15 @@ func nestedSeccompPath(t *target) (string, error) {
 // a hard error: entering anyway would mean silently falling back to no syscall
 // filter — a security regression, not a degraded feature.
 func prepareNestedSeccomp(t *target, errOut io.Writer) (string, error) {
-	path, err := nestedSeccompPath(t)
-	if err != nil || path == "" {
-		if err == nil && t.profile != nil && t.profile.NestedContainers && !inContainer() &&
-			os.Getenv(nestedSeccompEnv) == "unconfined" {
+	if !wantsNestedSeccomp(t) {
+		if t.profile != nil && t.profile.NestedContainers && !inContainer() {
 			fmt.Fprintln(errOut, "sandboxer: SANDBOXER_NESTED_SECCOMP=unconfined — the sandbox runs with NO syscall filter")
 		}
-		return "", err
+		return "", nil
+	}
+	path, err := t.base.SeccompProfilePath()
+	if err != nil {
+		return "", fmt.Errorf("nested seccomp profile: %w", err)
 	}
 	if _, err := sandboxEnsureSeccomp(t.base); err != nil {
 		return "", fmt.Errorf("nested seccomp profile: %w", err)
