@@ -175,10 +175,14 @@ func FileName() (string, error) {
 // Write puts the profile into dir under FileName and returns the full path.
 // Idempotent: an existing file is left alone (same name = same content), and
 // the write goes through a temp file + rename so a concurrent invocation can
-// never expose a half-written filter to the engine. Old-hash files from
-// previous binaries are deliberately NOT pruned here: a stopped session's
-// `start` re-reads the profile path it was created with, so the files live as
-// long as the _meta dir they sit in.
+// never expose a half-written filter to the engine.
+//
+// Old-hash files from previous binaries are not pruned. Pruning would in fact
+// be safe — both engines resolve the profile at container CREATE and keep the
+// resolved filter, so a container whose profile file was deleted still starts
+// (measured, docker 27) — it is simply not worth the code: the files are ~16
+// KiB, a stale one is never referenced again once the hash moves, and they go
+// away with the _meta dir they sit in.
 func Write(dir string) (string, error) {
 	data, err := merged()
 	if err != nil {
