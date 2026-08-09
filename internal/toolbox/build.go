@@ -59,16 +59,10 @@ type BuildOpts struct {
 	// engine auto-pulls), so clean-by-default still removes it afterward even
 	// though BuildImage's own probe now sees it as present.
 	BuilderPulled bool
-	// DestTar, when set, copies the built image tarball there and SKIPS the
-	// engine load / retag / proxy-image steps. It is how the microVM backend
-	// gets a toolbox tar for its own store using a container engine to build
-	// (reliable) instead of the in-VM builder (which a smolvm registry-pull bug
-	// on nix-store images currently breaks). The proxy image is not built.
-	DestTar   string
-	ExtraArgs []string  // extra engine `run` flags for the builder (escape hatch)
-	Spec      Spec      // image variant customization (attrs, user nix, rev overrides); zero = stock
-	Stdout    io.Writer // build chatter / engine stdout
-	Stderr    io.Writer // progress banners / engine stderr
+	ExtraArgs     []string  // extra engine `run` flags for the builder (escape hatch)
+	Spec          Spec      // image variant customization (attrs, user nix, rev overrides); zero = stock
+	Stdout        io.Writer // build chatter / engine stdout
+	Stderr        io.Writer // progress banners / engine stderr
 }
 
 // BuildImage assembles the build context, runs the ephemeral nix builder, loads
@@ -100,8 +94,9 @@ func BuildImage(o BuildOpts) error {
 	// commits so every build, including the enter-time auto-build of a missing
 	// stock image, bakes the stamped agent set — never a silently stale pin.
 	// A spec the caller already pinned (image build does, for the tag) passes
-	// through untouched.
-	spec, err := PinSpec(o.Spec, o.Engine, o.NixImage, false, progress)
+	// through untouched. Revs resolve on the HOST via git (git is a hard
+	// requirement) — no engine in this path.
+	spec, err := PinSpec(o.Spec, false, progress)
 	if err != nil {
 		return err
 	}
@@ -137,19 +132,6 @@ func BuildImage(o BuildOpts) error {
 	build.Stderr = o.Stderr
 	if err := build.Run(); err != nil {
 		return fmt.Errorf("toolbox image build failed: %w", err)
-	}
-
-	// microVM store path: take the built tar and stop — no engine load/retag,
-	// no proxy image. The caller (backend.vmBuildImageToStore) moves it into the
-	// microVM image store.
-	if o.DestTar != "" {
-		if err := copyFile(filepath.Join(outDir, "image.tar.gz"), o.DestTar); err != nil {
-			return fmt.Errorf("copy built image to %s: %w", o.DestTar, err)
-		}
-		if pulledBuilder && !o.KeepBuilder {
-			_ = exec.Command(o.Engine, "rmi", o.NixImage).Run()
-		}
-		return nil
 	}
 
 	// The flake always produces builtName:latest, and `engine load` re-points
@@ -305,14 +287,10 @@ func builderArgv(o BuildOpts, ctxDir, outDir, cacheVol string) []string {
 	}
 	// Last, so an explicit --builder-arg overrides anything chosen above.
 	args = append(args, o.ExtraArgs...)
-	// A DestTar build (the microVM store) needs only the toolbox image, not the
-	// egress squid proxyImage — building the proxy too would download its whole
-	// closure for nothing.
-	script := builderScript(o.Spec.NixpkgsRev, o.Spec.LLMAgentsRev)
-	if o.DestTar != "" {
-		script = builderScriptImage(o.Spec.NixpkgsRev, o.Spec.LLMAgentsRev)
-	}
-	args = append(args, o.NixImage, "sh", "-lc", script)
+	// The builder realizes BOTH the toolbox image and the egress squid proxyImage
+	// in one nix invocation (shared eval); the microVM store is fed by the host
+	// nix build instead (BuildImageHostNix), which never builds the proxy.
+	args = append(args, o.NixImage, "sh", "-lc", builderScript(o.Spec.NixpkgsRev, o.Spec.LLMAgentsRev))
 	return args
 }
 
@@ -363,16 +341,6 @@ func builderScript(nixpkgsRev, llmAgentsRev string) string {
 		`cp -L "$(cat /out/storepath)" /out/image.tar.gz && ` +
 		nixBuild + "path:/src#proxyImage > /out/proxypath && " +
 		`cp -L "$(cat /out/proxypath)" /out/proxy.tar.gz`
-}
-
-// builderScriptImage is builderScript's image-only variant, run by the microVM
-// builder: the toolbox backend has no squid proxyImage (egress is smolvm's own
-// --allow-host), so only path:/src#image is realized and copied to /out.
-func builderScriptImage(nixpkgsRev, llmAgentsRev string) string {
-	nixBuild := nixBuildPrefix(overrideFlags(nixpkgsRev, llmAgentsRev))
-	return "set -e; " +
-		nixBuild + "path:/src#image > /out/storepath && " +
-		`cp -L "$(cat /out/storepath)" /out/image.tar.gz`
 }
 
 // overrideFlags renders the shared nix build flags: an --override-input for

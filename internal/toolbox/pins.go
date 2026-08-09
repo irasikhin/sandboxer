@@ -109,68 +109,53 @@ func pinInputs() []pinInput {
 	}
 }
 
-// resolveRevsArgv builds the engine `run` argv for the one-shot resolver
-// container: a `git ls-remote` per input inside the nix builder image (the
-// same no-host-nix stance as the build itself), each head rev written to the
-// bind-mounted outDir as rev.<name>. Pure: no exec, env or filesystem —
-// asserted directly in tests.
-func resolveRevsArgv(nixImage, outDir string, inputs []pinInput) []string {
-	var script strings.Builder
-	script.WriteString("set -e")
-	for _, in := range inputs {
-		fmt.Fprintf(&script, "; git ls-remote %s %s | cut -f1 > /out/rev.%s", in.url, in.ref, in.name)
-	}
-	return []string{
-		"run", "--rm",
-		"--volume", outDir + ":/out:rw",
-		nixImage, "sh", "-lc", script.String(),
-	}
-}
-
 // revHexRe is the only shape a resolved rev may take — a full 40-hex commit.
 var revHexRe = regexp.MustCompile(`^[0-9a-f]{40}$`)
 
-// ResolveLatest resolves every input's remote head in one quick resolver run
-// (well before any image build) and returns the freshly stamped pins.
-// Fail-closed: a missing or non-40-hex rev file is an error, never a silent
+// resolveRevsHostGit resolves every input's remote head with the host's `git`
+// ls-remote — the same operation the old resolver ran inside a container, on
+// the host because git is already a hard requirement (every source is a git
+// worktree). No engine, no guest, no builder image: a cold pins cache now
+// resolves on a container-less host instead of failing closed. Fail-closed on
+// the VALUE: a missing ref or a non-40-hex rev is an error, never a silent
 // fallback to the embedded pin.
-func ResolveLatest(engine, nixImage string, stderr io.Writer) (Pins, error) {
-	if engine == "" {
-		return nil, errors.New("no container engine to resolve latest image revs")
-	}
-	if nixImage == "" {
-		nixImage = NixImage
-	}
-	if stderr == nil {
-		stderr = io.Discard
-	}
-	outDir, err := os.MkdirTemp("", "sandboxer-pins-")
-	if err != nil {
-		return nil, err
-	}
-	defer func() { _ = os.RemoveAll(outDir) }()
-
-	inputs := pinInputs()
-	fmt.Fprintf(stderr, "sandboxer: resolving latest flake-input revs via %s…\n", nixImage)
-	resolve := exec.Command(engine, resolveRevsArgv(nixImage, outDir, inputs)...)
-	resolve.Stdout = stderr
-	resolve.Stderr = stderr
-	if err := resolve.Run(); err != nil {
-		return nil, fmt.Errorf("resolve latest input revs: %w", err)
-	}
-
-	now := time.Now().UTC().Format(time.RFC3339)
-	pins := make(Pins, len(inputs))
+func resolveRevsHostGit(inputs []pinInput) (map[string]string, error) {
+	revs := make(map[string]string, len(inputs))
 	for _, in := range inputs {
-		data, err := os.ReadFile(filepath.Join(outDir, "rev."+in.name))
+		out, err := exec.Command("git", "ls-remote", in.url, in.ref).Output()
 		if err != nil {
-			return nil, fmt.Errorf("resolve latest %s rev: %w", in.name, err)
+			return nil, fmt.Errorf("resolve latest %s rev (git ls-remote %s %s): %w",
+				in.name, in.url, in.ref, err)
 		}
-		rev := strings.TrimSpace(string(data))
+		// `git ls-remote` prints one "<sha>\t<ref>" line per match; take the sha.
+		rev := ""
+		if fields := strings.Fields(string(out)); len(fields) > 0 {
+			rev = fields[0]
+		}
 		if !revHexRe.MatchString(rev) {
 			return nil, fmt.Errorf("resolve latest %s rev: got %q, want a 40-hex commit", in.name, rev)
 		}
-		pins[in.name] = Pin{Ref: in.ref, Rev: rev, ResolvedAt: now}
+		revs[in.name] = rev
+	}
+	return revs, nil
+}
+
+// ResolveLatest resolves every input's remote head with the host's git (see
+// resolveRevsHostGit) and returns the freshly stamped pins.
+func ResolveLatest(stderr io.Writer) (Pins, error) {
+	if stderr == nil {
+		stderr = io.Discard
+	}
+	inputs := pinInputs()
+	fmt.Fprintf(stderr, "sandboxer: resolving latest flake-input revs via host git…\n")
+	revs, err := resolveRevsHostGit(inputs)
+	if err != nil {
+		return nil, err
+	}
+	now := time.Now().UTC().Format(time.RFC3339)
+	pins := make(Pins, len(inputs))
+	for _, in := range inputs {
+		pins[in.name] = Pin{Ref: in.ref, Rev: revs[in.name], ResolvedAt: now}
 	}
 	return pins, nil
 }
@@ -179,14 +164,14 @@ func ResolveLatest(engine, nixImage string, stderr io.Writer) (Pins, error) {
 // "the remote head" — with concrete commits so the spec can be tagged and
 // built. Concrete (40-hex) revs pass through untouched. A tracking rev reads
 // the stamped pins cache; a miss (or refresh) resolves the remote heads once
-// via ResolveLatest and stamps the result — so enter/exec never re-resolve a
-// warm cache, only `image build` (which refreshes by default) moves the pins.
-// A miss stamps ONLY the inputs that were missing (an existing stamp another
-// profile relies on never moves as a side effect); refresh re-stamps
-// everything. nixImage overrides the resolver's builder image ("" = the
-// pinned default). With no engine (a dry run) a cold cache is a fail-closed
-// error pointing at `image build` instead of a guessing fallback.
-func PinSpec(s Spec, engine, nixImage string, refresh bool, stderr io.Writer) (Spec, error) {
+// via ResolveLatest (host git — no engine, no guest) and stamps the result —
+// so enter/exec never re-resolve a warm cache, only `image build` (which
+// refreshes by default) moves the pins. A miss stamps ONLY the inputs that
+// were missing (an existing stamp another profile relies on never moves as a
+// side effect); refresh re-stamps everything. A cold cache resolves on a
+// container-less host exactly as it does on one with docker/podman — there is
+// no engine anywhere in this path.
+func PinSpec(s Spec, refresh bool, stderr io.Writer) (Spec, error) {
 	latestNixpkgs := isLatestRev(s.NixpkgsRev)
 	latestLLMAgents := isLatestRev(s.LLMAgentsRev)
 	if !latestNixpkgs && !latestLLMAgents {
@@ -199,12 +184,7 @@ func PinSpec(s Spec, engine, nixImage string, refresh bool, stderr io.Writer) (S
 	_, haveNixpkgs := pins["nixpkgs"]
 	_, haveLLMAgents := pins["llm-agents"]
 	if refresh || (latestNixpkgs && !haveNixpkgs) || (latestLLMAgents && !haveLLMAgents) {
-		if engine == "" {
-			return Spec{}, errors.New(`unresolved image input revs (tracking latest) and no container ` +
-				`engine to resolve them — run 'sandboxer image build' once to resolve and stamp the ` +
-				`pins, or pin image.llmAgentsRev/nixpkgsRev to a commit`)
-		}
-		resolved, err := ResolveLatest(engine, nixImage, stderr)
+		resolved, err := ResolveLatest(stderr)
 		if err != nil {
 			return Spec{}, err
 		}

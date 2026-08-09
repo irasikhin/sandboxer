@@ -9,7 +9,6 @@ import (
 	"testing"
 
 	"github.com/irasikhin/sandboxer/internal/config"
-	"github.com/irasikhin/sandboxer/internal/toolbox"
 )
 
 // The microVM backends' failure and edge paths — the branches a happy-path
@@ -235,22 +234,6 @@ func TestVMCreateSessionAdoptsRaceWinner(t *testing.T) {
 	got, err := vmCreateSession(o, msbRunner{}, name, hash)
 	if err != nil || got != name {
 		t.Fatalf("vmCreateSession = %q, %v; want the adopted %q", got, err, name)
-	}
-}
-
-// TestBuildVMImageRefusesWithoutBuilder pins the build fallback's error: with
-// neither a container engine nor smolvm there is nothing to build the toolbox
-// image WITH, and the user is told that instead of an exec failure for a binary
-// they never asked for.
-func TestBuildVMImageRefusesWithoutBuilder(t *testing.T) {
-	t.Setenv("SANDBOXER_STATE", t.TempDir())
-	t.Setenv("SANDBOXER_SMOLVM", "/nonexistent/smolvm-xyz")
-	t.Setenv("SANDBOXER_ENGINE", "")
-	t.Setenv("PATH", t.TempDir()) // no docker, no podman, no smolvm
-
-	err := vmBuildImageToStore(RunOpts{Image: "img:1", Spec: toolbox.Spec{}})
-	if err == nil || !strings.Contains(err.Error(), "smolvm") {
-		t.Errorf("error = %v, want a no-builder-available explanation", err)
 	}
 }
 

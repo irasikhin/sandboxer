@@ -5,10 +5,8 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
-	"net/url"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"github.com/irasikhin/sandboxer/internal/config"
 	"github.com/irasikhin/sandboxer/internal/toolbox"
@@ -155,7 +153,7 @@ func BuildVMImage(engine, image string, spec toolbox.Spec, stderr io.Writer) err
 	} else if _, err := resolveSmolvm(); err != nil {
 		return err
 	}
-	if err := vmBuildImageToStore(RunOpts{Image: image, Spec: spec, Stderr: stderr}); err != nil {
+	if err := vmBuildImageToStore(RunOpts{Engine: engine, Image: image, Spec: spec, Stderr: stderr}); err != nil {
 		return err
 	}
 	if engine == msbEngine {
@@ -164,8 +162,10 @@ func BuildVMImage(engine, image string, spec toolbox.Spec, stderr io.Writer) err
 	return nil
 }
 
-// vmBuildImageToStore builds the toolbox image inside a microVM (no container
-// engine anywhere) and stores the resulting tar. A package var so a test can
+// vmBuildImageToStore builds the toolbox image and stores it under o.Image's
+// name. The image is built with HOST NIX — nix is already a hard requirement of
+// the CLI (sandboxer.nix eval), so there is no builder container and no builder
+// guest, and both microVM runners share the one tar. A package var so a test can
 // stand in for the minutes-long, network-bound real build.
 var vmBuildImageToStore = func(o RunOpts) error {
 	tmp, err := os.MkdirTemp("", "sandboxer-vm-img-")
@@ -175,75 +175,16 @@ var vmBuildImageToStore = func(o RunOpts) error {
 	defer func() { _ = os.RemoveAll(tmp) }()
 	out := filepath.Join(tmp, "image.tar")
 
-	// Prefer a container engine for the one-time image build when one is present:
-	// it is reliable and the resulting tar boots under smolvm. The in-VM builder
-	// (no engine) is the fallback — but a smolvm registry-pull bug currently
-	// leaves a nixos/nix guest without its /nix/store, so it is best-effort until
-	// that is fixed upstream or the builder image is loaded rather than pulled.
-	if engine, derr := DetectEngine(config.LoadDefaults()); derr == nil {
-		if o.Stderr != nil {
-			fmt.Fprintf(o.Stderr, "sandboxer: building the toolbox image with %s, then storing it for the microvm backend…\n", engine)
-		}
-		bo := toolbox.BuildOpts{
-			Engine: engine, Image: o.Image, Spec: o.Spec, DestTar: out,
-			// A persistent nix-store cache makes the download resumable — key on a
-			// flaky link where individual NAR fetches stall and retry.
-			Cache:  true,
-			Stdout: o.Stderr, Stderr: o.Stderr,
-		}
-		// A loopback-bound host proxy (the common tunnel-client case) is
-		// unreachable from the builder's bridge network — the default
-		// host.docker.internal rewrite points at the gateway, not the
-		// loopback port, and the build stalls fetching flake inputs. Give the
-		// builder the host network so localhost really is the host's loopback.
-		if hostProxyIsLoopback() {
-			bo.ExtraArgs = []string{"--network=host"}
-		}
-		if err := toolbox.BuildImage(bo); err != nil {
-			return err
-		}
-		return vmStoreImage(o.Image, out)
+	if o.Stderr != nil {
+		fmt.Fprintf(o.Stderr, "sandboxer: building the toolbox image with host nix, "+
+			"then storing it for the microVM backend…\n")
 	}
-	// No container engine: fall back to building inside a microVM. That builder
-	// is smolvm's, so say so plainly when smolvm is not installed either —
-	// otherwise the failure surfaces as a bare exec error from a binary the user
-	// never asked for.
-	if !hasExec(smolvmBin()) {
-		return fmt.Errorf("the toolbox image is built either with a container engine or in a smolvm " +
-			"microVM, and neither docker/podman nor smolvm is installed — install one of them and retry")
-	}
-	if err := toolbox.BuildImageVM(toolbox.BuildVMOpts{
-		Smolvm:  smolvmBin(),
-		DestTar: out,
-		Spec:    o.Spec,
-		Stdout:  o.Stderr,
-		Stderr:  o.Stderr,
+	if err := toolbox.BuildImageHostNix(toolbox.BuildHostNixOpts{
+		Spec: o.Spec, DestTar: out, Stdout: o.Stderr, Stderr: o.Stderr,
 	}); err != nil {
 		return err
 	}
 	return vmStoreImage(o.Image, out)
-}
-
-// hostProxyIsLoopback reports whether the host's proxy env points at a loopback
-// address — a proxy a bridge-networked builder cannot reach (its
-// host.docker.internal rewrite hits the gateway, not the loopback-bound port),
-// so the build must run on the host network instead.
-func hostProxyIsLoopback() bool {
-	for _, name := range []string{"https_proxy", "HTTPS_PROXY", "http_proxy", "HTTP_PROXY", "all_proxy", "ALL_PROXY"} {
-		v := os.Getenv(name)
-		if v == "" {
-			continue
-		}
-		u, err := url.Parse(v)
-		if err != nil {
-			continue
-		}
-		h := u.Hostname()
-		if h == "localhost" || h == "::1" || strings.HasPrefix(h, "127.") {
-			return true
-		}
-	}
-	return false
 }
 
 // fileSHA256 returns the hex sha256 of a file's contents, streamed so a

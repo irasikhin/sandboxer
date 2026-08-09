@@ -157,7 +157,7 @@ func removeSessionBestEffort(t *target, errOut io.Writer) []string {
 	// The enumeration is consulted only to tell an engine-less host apart from
 	// a host where nothing matched — the sweep itself walks the same list.
 	if engines := backendSweepEngines(config.LoadDefaults()); len(engines) == 0 {
-		fmt.Fprintln(errOut, "sandboxer: session cleanup skipped: no container engine (docker or podman) found")
+		fmt.Fprintln(errOut, "sandboxer: session cleanup skipped: no isolation engine (docker, podman, smolvm or microsandbox) found")
 		return nil
 	}
 	removed, err := backendRemoveSessionAnywhere(t.slug, t.base.Dir, config.LoadDefaults())

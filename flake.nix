@@ -127,11 +127,13 @@
             program = "${pkgs.microsandbox}/bin/msb";
           };
 
-          # Build the toolbox + egress-proxy images and load them into host
-          # podman/docker. Does not touch host systemd.
+          # Build the toolbox + egress-proxy images: place the toolbox tar into
+          # the microVM store (the shared artifact both runners boot from) and,
+          # while the container backend still exists, also load both into host
+          # podman/docker when one is present. Does not touch host systemd.
           build-image = {
             type = "app";
-            meta.description = "Build the sandboxer toolbox + proxy images and load them into podman/docker";
+            meta.description = "Build the sandboxer toolbox + proxy images and load them into podman/docker / the microVM store";
             program = "${
               pkgs.writeShellApplication {
                 name = "sandboxer-build-image";
@@ -139,11 +141,21 @@
                   load() {
                     if command -v podman >/dev/null 2>&1; then podman load < "$1";
                     elif command -v docker >/dev/null 2>&1; then docker load < "$1";
-                    else echo "need podman or docker on the host" >&2; exit 1; fi
+                    else echo "no docker/podman on the host — image placed in the microVM store only" >&2; fi
                   }
-                  img=$(nix build --no-link --print-out-paths "${self}#image")
+                  # The microVM store root: SANDBOXER_STATE, else
+                  # $XDG_STATE_HOME/sandboxer, else ~/.local/state/sandboxer —
+                  # mirroring config.StateRoot. The tar name is the default image
+                  # reference with ':' mapped to '-' (sanitizeContainerName).
+                  store_root="''${SANDBOXER_STATE:-''${XDG_STATE_HOME:-$HOME/.local/state}/sandboxer}"
+                  store_dir="$store_root/images"
+                  mkdir -p "$store_dir"
+                  img=$(nix build --no-link --print-out-paths "''${self}#image")
+                  tar="$store_dir/sandboxer-toolbox-latest.tar"
+                  cp -L "$img" "$tar"
+                  sha256sum -b "$tar" | cut -d' ' -f1 | tr -d '\n' > "$tar.sha256"
                   load "$img"
-                  prox=$(nix build --no-link --print-out-paths "${self}#proxyImage")
+                  prox=$(nix build --no-link --print-out-paths "''${self}#proxyImage")
                   load "$prox"
                 '';
               }

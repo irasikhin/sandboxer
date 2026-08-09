@@ -9,7 +9,9 @@ package backend
 //
 // Everything a runner is asked for is either an ARGV (pure, golden-tested
 // without a hypervisor) or a narrow engine query. The lifecycle itself lives in
-// vm_session.go and never branches on the engine.
+// vm_session.go and never branches on the engine. The toolbox image build is NOT
+// here: it is runner-agnostic host nix (toolbox.BuildImageHostNix), so no runner
+// has a build dialect of its own.
 type vmRunner interface {
 	// bin is the actual binary to exec (an override path or the default name).
 	bin() string
@@ -54,6 +56,12 @@ func isVMEngine(engine string) bool {
 	return engine == smolvmEngine || engine == msbEngine
 }
 
+// IsVMEngine is the exported form of isVMEngine: whether an engine identity
+// names one of the microVM runners. Callers outside the package use it to treat
+// the runner identities ("smolvm"/"microsandbox") distinctly from the container
+// engines — e.g. the CLI must not hand a runner a container-dialect argv.
+func IsVMEngine(engine string) bool { return isVMEngine(engine) }
+
 // vmRunnerFor returns the dialect for a microVM engine identity. smolvm is the
 // default so a zero/unknown engine keeps the original behaviour: only an
 // explicit microsandbox identity selects msb.
@@ -74,15 +82,15 @@ func (smolvmRunner) bin() string { return smolvmBin() }
 // entirely in the host-side record (vm_state.go).
 func (smolvmRunner) createArgv(o RunOpts, name, _ string) []string { return vmCreateArgv(o, name) }
 
-func (smolvmRunner) hashArgv(o RunOpts) []string           { return vmSessionHashArgv(o) }
-func (smolvmRunner) startArgv(name string) []string        { return vmStartArgv(name) }
-func (smolvmRunner) stopArgv(name string) []string         { return vmStopArgv(name) }
-func (smolvmRunner) removeArgv(name string) []string       { return vmRemoveArgv(name) }
-func (smolvmRunner) runArgv(o RunOpts) []string            { return vmRunArgv(o) }
-func (smolvmRunner) listMachines() []vmMachine             { return vmListMachines() }
-func (smolvmRunner) startsOnCreate() bool                  { return false }
-func (smolvmRunner) imageID(image string) string           { return vmImageID(image) }
-func (smolvmRunner) recordDir() string                     { return "" }
+func (smolvmRunner) hashArgv(o RunOpts) []string     { return vmSessionHashArgv(o) }
+func (smolvmRunner) startArgv(name string) []string  { return vmStartArgv(name) }
+func (smolvmRunner) stopArgv(name string) []string   { return vmStopArgv(name) }
+func (smolvmRunner) removeArgv(name string) []string { return vmRemoveArgv(name) }
+func (smolvmRunner) runArgv(o RunOpts) []string      { return vmRunArgv(o) }
+func (smolvmRunner) listMachines() []vmMachine       { return vmListMachines() }
+func (smolvmRunner) startsOnCreate() bool            { return false }
+func (smolvmRunner) imageID(image string) string     { return vmImageID(image) }
+func (smolvmRunner) recordDir() string               { return "" }
 func (smolvmRunner) preflight(RunOpts) error               { return nil }
 func (smolvmRunner) ensureImage(o RunOpts) (string, error) { return vmEnsureImage(o) }
 

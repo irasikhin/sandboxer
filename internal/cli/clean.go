@@ -109,7 +109,7 @@ to remove a single sandbox instead.`,
 			engines := backendSweepEngines(config.LoadDefaults())
 			if len(engines) == 0 {
 				fmt.Fprintln(cmd.ErrOrStderr(),
-					"sandboxer: session cleanup skipped: no container engine (docker or podman) found")
+					"sandboxer: session cleanup skipped: no isolation engine (docker, podman, smolvm or microsandbox) found")
 			}
 			for _, engine := range engines {
 				if err := backendRemoveAllSessions(engine, dir); err != nil {

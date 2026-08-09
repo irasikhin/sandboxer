@@ -308,8 +308,9 @@ func TestBuildImageNoEngine(t *testing.T) {
 
 func TestBuildImageCommand(t *testing.T) {
 	requireExec(t, "sh")
-	newProject(t)                         // sets IN_CONTAINER off
-	pinPodman(t, strings.Repeat("f", 40)) // podman serves the pin resolver, exits 0 otherwise
+	newProject(t)                                                    // sets IN_CONTAINER off
+	pinPodman(t, strings.Repeat("f", 40))                            // a fake engine for the build/load steps
+	fakeGitRevs(t, strings.Repeat("f", 40), strings.Repeat("f", 40)) // the rev resolver (host git)
 
 	// The default build re-resolves the input revs (auto-update), then
 	// build → load → (no retag) all succeed.
@@ -433,6 +434,7 @@ func TestBuildImageRevFlags(t *testing.T) {
 
 	rev := strings.Repeat("d", 40)
 	pinPodman(t, rev)
+	fakeGitRevs(t, rev, rev)
 	code, _, errs := run("image", "build", "--engine", "podman")
 	if code != 0 {
 		t.Fatalf("build-image = %d %s", code, errs)
@@ -473,11 +475,12 @@ func TestBuildImageRevFlags(t *testing.T) {
 		t.Errorf("no-refresh spec rev = %q, want the stamped %s", captured.Spec.NixpkgsRev, rev)
 	}
 
-	// The default refresh re-resolves; this no-op podman writes no rev files,
-	// so the resolve fails loudly instead of silently reusing the stamp.
+	// The default refresh re-resolves; a failing git run makes the resolve
+	// fail loudly instead of silently reusing the stamp.
+	failingGit(t)
 	if code, _, errs := run("image", "build", "--engine", "podman"); code != 1 ||
 		!strings.Contains(errs, "resolve latest") {
-		t.Errorf("default refresh with a dead resolver = (%d, %q), want a resolve failure", code, errs)
+		t.Errorf("default refresh with a failing git = (%d, %q), want a resolve failure", code, errs)
 	}
 
 	// A concrete bare-flag rev is a pin → a variant nothing selects by

@@ -241,7 +241,7 @@ disable with autoResume = false in the profile, or SANDBOXER_NO_RESUME=1.`,
 				return err
 			}
 			name := backend.SessionName(t.slug, t.base.Dir)
-			image, spec, err := resolveImage(t.profile, engine, errOut)
+			image, spec, err := resolveImage(t.profile, errOut)
 			if err != nil {
 				return err
 			}
@@ -468,7 +468,7 @@ composes with scripts and CI.`,
 			if err := runSetup(t, rt, engine, nested, f.noSetup, narrate); err != nil {
 				return err
 			}
-			image, spec, err := resolveImage(t.profile, engine, cmd.ErrOrStderr())
+			image, spec, err := resolveImage(t.profile, cmd.ErrOrStderr())
 			if err != nil {
 				return err
 			}
@@ -939,7 +939,7 @@ func runSetup(t *target, rt config.Runtime, engine string, nested nestedRun, noS
 		fmt.Fprintf(errOut, "sandboxer: skipping setup for %q (--no-setup)\n", t.slug)
 		return nil
 	}
-	image, spec, rerr := resolveImage(t.profile, engine, errOut)
+	image, spec, rerr := resolveImage(t.profile, errOut)
 	if rerr != nil {
 		return rerr
 	}

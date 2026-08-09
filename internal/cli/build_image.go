@@ -100,29 +100,18 @@ gives up on it and builds from source instead:
 			// A microVM profile stores the built image where ITS backend reads it
 			// — the tar store both runners build into, plus microsandbox's own
 			// image store — not in a container engine's store, where enter would
-			// never look. It shares nothing with the container path below.
+			// never look. It shares nothing with the container path below. Pins
+			// resolve on the HOST via git (no engine anywhere), so a cold cache
+			// resolves exactly as on a container host.
 			if config.IsMicrovmBackend(backendName) {
-				// The pin resolver is a container run (docker/podman dialect) —
-				// the VM runner cannot host it. Without a container engine the
-				// stamped pins are reused (warm) or fail closed (cold), never
-				// silently downgraded to the embedded revs.
-				resEngine, derr := backend.DetectEngine(d)
-				if derr != nil {
-					resEngine = ""
-					if refresh {
-						fmt.Fprintln(cmd.ErrOrStderr(), "sandboxer: no container engine to re-resolve "+
-							"the latest input revs — building from the stamped pins")
-						refresh = false
-					}
-				}
-				if spec, err = toolbox.PinSpec(spec, resEngine, nixImage, refresh, cmd.ErrOrStderr()); err != nil {
+				if spec, err = toolbox.PinSpec(spec, refresh, cmd.ErrOrStderr()); err != nil {
 					return err
 				}
 				image := d.Image
 				if !stock {
 					image = spec.Tag()
 				}
-				fmt.Fprintf(cmd.ErrOrStderr(), "sandboxer: building toolbox image %q in a microVM "+
+				fmt.Fprintf(cmd.ErrOrStderr(), "sandboxer: building toolbox image %q with host nix "+
 					"(several minutes on first run)…\n", image)
 				return backendBuildVMImage(engine, image, spec, cmd.ErrOrStderr())
 			}
@@ -136,9 +125,9 @@ gives up on it and builds from source instead:
 			builderPulled := !backend.ImageExists(engine, builderImage)
 			// Pin the tracking revs to concrete commits, stamping the pins cache
 			// for later enter/exec. Refresh (the default) re-resolves the remote
-			// heads first, so a rebuild picks up new agent releases; --no-refresh
-			// builds from the existing stamp.
-			spec, err = toolbox.PinSpec(spec, engine, nixImage, refresh, cmd.ErrOrStderr())
+			// heads first (host git), so a rebuild picks up new agent releases;
+			// --no-refresh builds from the existing stamp.
+			spec, err = toolbox.PinSpec(spec, refresh, cmd.ErrOrStderr())
 			if err != nil {
 				return err
 			}

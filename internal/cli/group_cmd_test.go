@@ -177,9 +177,9 @@ func TestImageRm(t *testing.T) {
 	}
 }
 
-// TestImageRmVariant: with a customized profile, rm resolves the variant tag
-// via the warm pins stamp (never a resolver container); a cold stamp is a
-// fail-closed error — nothing was ever built to remove.
+// TestImageRmVariant: with a customized profile, rm resolves the variant tag via
+// the pins stamp — resolved on the HOST via git on a cold cache (no engine), so
+// a docker-less host removes a variant without a resolver container.
 func TestImageRmVariant(t *testing.T) {
 	fakePodman(t)
 	t.Setenv("SANDBOXER_ENGINE", "podman")
@@ -188,12 +188,10 @@ func TestImageRmVariant(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	// Cold pins cache → the variant tag resolves via host git and the var-
+	// image is removed.
 	t.Setenv("XDG_CACHE_HOME", t.TempDir())
-	if code, _, errs := run("image", "rm", "-f", cfg); code != 1 || !strings.Contains(errs, "image build") {
-		t.Errorf("variant rm on a cold pins cache = (%d, %q), want fail-closed guidance", code, errs)
-	}
-
-	warmPins(t, strings.Repeat("a", 40))
+	fakeGitRevs(t, strings.Repeat("a", 40), strings.Repeat("a", 40))
 	var gotImage string
 	old := backendRemoveImage
 	t.Cleanup(func() { backendRemoveImage = old })
@@ -202,7 +200,7 @@ func TestImageRmVariant(t *testing.T) {
 		return nil
 	}
 	if code, _, errs := run("image", "rm", "-f", cfg); code != 0 {
-		t.Fatalf("variant rm = %d, %s", code, errs)
+		t.Fatalf("variant rm on a cold cache = %d, %s", code, errs)
 	}
 	if !strings.HasPrefix(gotImage, "sandboxer-toolbox:var-") {
 		t.Errorf("variant rm removed %q, want a var- tag", gotImage)

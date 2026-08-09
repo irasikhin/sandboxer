@@ -234,7 +234,7 @@ func TestBuildImageFakeEngine(t *testing.T) {
 	// Variant build: a non-empty spec under its content-addressed var- tag is
 	// retagged from the built default name like any custom tag. The spec is
 	// pinned first, as every Tag() caller must be.
-	spec, err := PinSpec(Spec{Attrs: []string{"ripgrep"}}, "", "", false, nil)
+	spec, err := PinSpec(Spec{Attrs: []string{"ripgrep"}}, false, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -275,7 +275,7 @@ func TestBuildImageVariantKeepsStockTag(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	spec, err := PinSpec(Spec{Attrs: []string{"ripgrep"}}, "", "", false, nil)
+	spec, err := PinSpec(Spec{Attrs: []string{"ripgrep"}}, false, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

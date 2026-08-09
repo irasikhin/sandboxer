@@ -561,7 +561,7 @@ func printSessionBlock(out io.Writer, t *target, rt config.Runtime) {
 // nothing) degrades the same way: show stays read-only and diagnostic, the
 // hard error belongs to enter/exec.
 func sessionHashOpts(t *target, rt config.Runtime, engine string) (backend.RunOpts, bool) {
-	image, spec, err := resolveImage(t.profile, "", io.Discard)
+	image, spec, err := resolveImage(t.profile, io.Discard)
 	if err != nil {
 		return backend.RunOpts{}, false
 	}

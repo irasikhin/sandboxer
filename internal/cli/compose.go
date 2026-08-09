@@ -62,7 +62,7 @@ equivalent — its purpose is "run it with your own tooling".`,
 			// instead of the stock default. A cold "latest" pin resolves here
 			// too (the printed argv must match a real enter), with the banner
 			// on stderr so the one-time container run is visible.
-			image, spec, err := resolveImage(t.profile, engine, cmd.ErrOrStderr())
+			image, spec, err := resolveImage(t.profile, cmd.ErrOrStderr())
 			if err != nil {
 				return err
 			}

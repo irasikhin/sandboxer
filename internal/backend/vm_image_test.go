@@ -78,27 +78,6 @@ func TestVMImageIDRecomputes(t *testing.T) {
 	}
 }
 
-// TestHostProxyIsLoopback pins the loopback-proxy detection that decides whether
-// the container image build needs --network=host to reach a loopback-bound proxy.
-func TestHostProxyIsLoopback(t *testing.T) {
-	for _, n := range []string{"http_proxy", "https_proxy", "all_proxy", "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY"} {
-		t.Setenv(n, "")
-	}
-	if hostProxyIsLoopback() {
-		t.Error("no proxy → not loopback")
-	}
-	for _, v := range []string{"http://127.0.0.1:8888", "http://localhost:3128", "http://[::1]:8080", "http://127.1.2.3:9"} {
-		t.Setenv("https_proxy", v)
-		if !hostProxyIsLoopback() {
-			t.Errorf("%s should be detected as loopback", v)
-		}
-	}
-	t.Setenv("https_proxy", "http://proxy.lan:3128")
-	if hostProxyIsLoopback() {
-		t.Error("a LAN proxy is not loopback")
-	}
-}
-
 // TestVMEnsureImagePublicRef pins that a custom public image is handed to smolvm
 // untouched (no local build).
 func TestVMEnsureImagePublicRef(t *testing.T) {

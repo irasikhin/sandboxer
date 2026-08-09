@@ -139,10 +139,36 @@ func doctorChecks() []doctorCheck {
 		checks = append(checks, okCheck("git", "available"))
 	}
 
-	// Container engine.
+	// Container engine. Missing docker/podman is only a problem if a profile
+	// still resolves to a container backend — the microVM backends never touch
+	// one, so a docker/podman-less host running every profile on a microVM is
+	// healthy (that is the migration `doctor` is here to shepherd). The
+	// per-profile backend check below is what flags the profiles that would
+	// still fail.
 	engine, engineErr := backend.DetectEngine(d)
 	if engineErr != nil {
-		checks = append(checks, warnCheck("container engine", engineErr.Error()))
+		detail := engineErr.Error()
+		status := "warn"
+		if vmRunnerInstalled(d) {
+			detail = "no docker/podman — fine if every profile selects a microVM backend " +
+				"(microvm/microsandbox); the default backend is still docker, so a profile " +
+				"without `backend:` needs one"
+			status = "info"
+		}
+		checks = append(checks, doctorCheck{"container engine", status, detail})
+
+		// On a VM-only host the engine-present branch below never runs, so the
+		// toolbox-image check would be silently missing. Report it from the
+		// microVM store (the shared tar both runners boot from) instead.
+		if engine := firstVMEngine(d); engine != "" {
+			image := d.Image
+			if backend.ImageExists(engine, image) {
+				checks = append(checks, okCheck("toolbox image "+image, "present in the microVM store"))
+			} else {
+				checks = append(checks, warnCheck("toolbox image "+image,
+					"not found — build with: sandboxer image build --backend "+engine))
+			}
+		}
 	} else {
 		checks = append(checks, okCheck("container engine", engine+" available"))
 
@@ -184,6 +210,7 @@ func doctorChecks() []doctorCheck {
 		if doc, err := config.LoadDocument(cfgPath); err == nil {
 			checks = append(checks, okCheck(cfgPath, "parses ok"))
 			checks = append(checks, nestedChecks(doc, d)...)
+			checks = append(checks, profileBackendChecks(doc, d)...)
 		} else {
 			checks = append(checks, warnCheck(cfgPath, err.Error()))
 		}
@@ -258,6 +285,49 @@ func nestedChecks(doc *config.Document, d config.Defaults) []doctorCheck {
 			continue
 		}
 		checks = append(checks, okCheck(row, "podman engine + host subordinate ranges — multi-uid nested containers work"))
+	}
+	return checks
+}
+
+// vmRunnerInstalled reports whether any microVM runner is actually installed on
+// this host, so doctor can tell a healthy docker/podman-less VM-only host from a
+// host with no isolation engine at all.
+func vmRunnerInstalled(d config.Defaults) bool {
+	for _, e := range backend.SweepEngines(d) {
+		if backend.IsVMEngine(e) {
+			return true
+		}
+	}
+	return false
+}
+
+// firstVMEngine returns the engine identity of the first installed microVM
+// runner, or "" when none is installed. It backs the VM-only toolbox-image row
+// (the tar store check is runner-independent, so the first installed runner is
+// as good as any).
+func firstVMEngine(d config.Defaults) string {
+	for _, e := range backend.SweepEngines(d) {
+		if backend.IsVMEngine(e) {
+			return e
+		}
+	}
+	return ""
+}
+
+// profileBackendChecks reports, per profile, whether its effective backend can
+// actually run on this host — the migration signal `doctor` exists to surface.
+// A profile whose `backend:` (or the default) still names an engine that is not
+// installed will fail at enter/exec, and the error would otherwise come late
+// and out of context. Silent for profiles whose backend resolves.
+func profileBackendChecks(doc *config.Document, d config.Defaults) []doctorCheck {
+	var checks []doctorCheck
+	for _, name := range slices.Sorted(maps.Keys(doc.Profiles)) {
+		p := doc.Profiles[name]
+		backendName := firstNonEmpty(p.Backend, d.Backend)
+		if _, err := backend.ResolveEngine(backendName, d); err != nil {
+			checks = append(checks, warnCheck("profile "+name,
+				fmt.Sprintf("backend %q cannot run here: %v", backendName, err)))
+		}
 	}
 	return checks
 }
