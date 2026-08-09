@@ -185,10 +185,10 @@ func TestMSB_EgressAllowlist_RealEngine(t *testing.T) {
 // microsandbox guest "runs container engines natively" (the reason the
 // nestedContainers knob is ignored and the postgres-in-the-sandbox use case that
 // started the migration): docker/podman inside the toolbox image boot, pull and
-// run, and a user-switching image (postgres, which setresuids to uid 999) works
-// against the guest's own kernel. It skips unless a REAL toolbox image (which
-// carries docker/podman/compose) is pointed at via SANDBOXER_ITEST_MSB_IMAGE —
-// the default alpine itest image has no engine to probe.
+// run, and a USER-SWITCHING image works against the guest's own kernel. It
+// skips unless a REAL toolbox image (which carries docker/podman/compose) is
+// pointed at via SANDBOXER_ITEST_MSB_IMAGE — the default alpine itest image has
+// no engine to probe.
 func TestMSB_NestedContainer_RealEngine(t *testing.T) {
 	engine := itest.Microsandbox(t)
 	if os.Getenv("SANDBOXER_ITEST_MSB_IMAGE") == "" {
@@ -222,11 +222,40 @@ func TestMSB_NestedContainer_RealEngine(t *testing.T) {
 		"docker.io/library/alpine:3.21", "sh", "-c", "echo NESTED-OK"}); code != 0 {
 		t.Errorf("docker run alpine inside the guest = %d, want 0", code)
 	}
-	// A user-switching image works against the guest kernel (postgres'
-	// entrypoint runs as uid 999).
-	if code, _ := ExecSession(o, name, []string{"docker", "run", "--rm",
-		"docker.io/library/postgres:16-alpine", "id"}); code != 0 {
-		t.Errorf("docker run postgres (user switch) inside the guest = %d, want 0", code)
+	// An explicit non-root container user maps correctly.
+	if code, _ := ExecSession(o, name, []string{"docker", "run", "--rm", "--user", "999:999",
+		"docker.io/library/alpine:3.21", "id", "-u"}); code != 0 {
+		t.Errorf("docker run --user 999:999 inside the guest = %d, want 0", code)
+	}
+
+	// The REAL user-switching case: postgres started as a SERVICE. `docker run
+	// --rm postgres id` would be a false pass — `id` replaces the image's CMD,
+	// so the entrypoint skips the data-dir chown and the gosu step-down (it
+	// gates both on `[ "$1" = 'postgres' ]`), and the command exits 0 even where
+	// the uid machinery is broken. Start it, wait for readiness, run a query and
+	// check the uid it actually drops to.
+	if code, _ := ExecSession(o, name, []string{"docker", "run", "-d", "--name", "pg",
+		"-e", "POSTGRES_PASSWORD=x", "docker.io/library/postgres:16-alpine"}); code != 0 {
+		t.Fatalf("docker run -d postgres inside the guest = %d, want 0", code)
+	}
+	ready := []string{"sh", "-c",
+		"for i in $(seq 1 60); do docker exec pg pg_isready -U postgres >/dev/null 2>&1 && exit 0; sleep 1; done; exit 1"}
+	if code, _ := ExecSession(o, name, ready); code != 0 {
+		t.Errorf("postgres never became ready inside the guest (code %d)", code)
+	}
+	var qOut bytes.Buffer
+	qo := o
+	qo.Stdout = &qOut
+	if code, _ := ExecSession(qo, name, []string{"docker", "exec", "pg",
+		"psql", "-U", "postgres", "-tAc", "select 42"}); code != 0 || strings.TrimSpace(qOut.String()) != "42" {
+		t.Errorf("postgres query = %q (code %d), want 42", qOut.String(), code)
+	}
+	var idOut bytes.Buffer
+	io2 := o
+	io2.Stdout = &idOut
+	if code, _ := ExecSession(io2, name, []string{"docker", "exec", "pg",
+		"id", "-u", "postgres"}); code != 0 || strings.TrimSpace(idOut.String()) != "70" {
+		t.Errorf("postgres uid = %q (code %d), want the postgres user (70)", idOut.String(), code)
 	}
 }
 
