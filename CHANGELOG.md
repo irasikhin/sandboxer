@@ -6,6 +6,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.73.2] — 2026-08-09
+
+### Fixed
+
+- build the image tar inside the store — EXDEV on tmpfs /tmp (cc5b903)
+
+
 ## [0.73.1] — 2026-08-09
 
 ### Fixed
@@ -1043,3 +1050,4 @@ isolated, containerized dev sandbox, on a local Linux machine:
 [0.72.0]: https://github.com/irasikhin/sandboxer/compare/v0.71.0...v0.72.0
 [0.73.0]: https://github.com/irasikhin/sandboxer/compare/v0.72.0...v0.73.0
 [0.73.1]: https://github.com/irasikhin/sandboxer/compare/v0.73.0...v0.73.1
+[0.73.2]: https://github.com/irasikhin/sandboxer/compare/v0.73.1...v0.73.2
