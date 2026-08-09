@@ -68,7 +68,7 @@ Run each and confirm the expected result. Substitute a real profile/slug.
 | 10 | Recreate on change | edit `limits`/`allowedDomains`, re-enter | "recreating session" notice, new machine |
 | 11 | Image build (host nix) | `sandboxer image build --backend microvm` (needs network) | builds with host nix into the microVM store, no docker/podman and no builder guest |
 | 12 | Clean teardown | `sandboxer clean` then `smolvm machine ls` | no leftover machines |
-| 13 | **Nested containers in the guest** | in a microsandbox sandbox (toolbox image), `docker run --rm alpine id` then a user-switching image, e.g. `docker run --rm postgres:16-alpine id` | both exit 0 — container engines run natively inside the VM (uid 0, own kernel) |
+| 13 | **Nested containers in the guest** | in a microsandbox sandbox (toolbox image), `docker run --rm alpine id` then a user-switching image, e.g. `docker run --rm postgres:16-alpine id` | both exit 0 — container engines run natively inside the VM (uid 0, own kernel). **Passing on Linux/KVM** (msb 0.6.7: whole-range uid map, podman runs alpine + postgres with its uid-70 user-switch); macOS / Windows/WSL2 pending |
 
 Run 1–12 again with `--backend microsandbox` (teardown check: `msb list`). One
 runner-specific extra: a sandbox root under `/tmp` must be REFUSED with the

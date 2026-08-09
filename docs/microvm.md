@@ -87,7 +87,7 @@ What **drops**, and how it surfaces:
 |---|---|
 | `egress.routes` | hard config error (no squid `cache_peer` analogue) |
 | `limits.pids` | ignored with a warning |
-| `nestedContainers` | ignored — a real VM runs container engines natively (e2e-covered, hardware verification pending) |
+| `nestedContainers` | ignored — a real VM runs container engines natively (row 13 measured on Linux/KVM) |
 | `extraMounts` pointing at a regular **file** | hard error: virtio-fs shares directories only |
 | `sandboxer compose` | hard error (container-only) |
 
@@ -292,10 +292,14 @@ Rejected or ignored under `backend = microvm` / `microsandbox`:
   rounding / 4 GiB fallback is worse than a clear message.
 - `nestedContainers` — ignored (a real VM runs container engines natively; the
   toolbox image's docker/podman/compose run inside the guest without the outer
-  seccomp/userns dance). Covered by the e2e checklist's nested-containers row
-  ([e2e-checklist.md](e2e-checklist.md)) and the gated
-  `TestMSB_NestedContainer_RealEngine` integration test — hardware verification
-  pending, like every microVM e2e item.
+  seccomp/userns dance). **Measured, not asserted:** e2e-checklist row 13 passes
+  on Linux/KVM — an msb guest maps the whole uid range natively, and podman
+  inside it runs plain images and the user-switching postgres image (its
+  entrypoint drops to uid 70 and postgres serves queries) with no `/etc/subuid`
+  grant, no capability grant and no seccomp widening. macOS / Windows/WSL2 still
+  need their hardware runs (phase C). See
+  [e2e-checklist.md](e2e-checklist.md) and the gated
+  `TestMSB_NestedContainer_RealEngine` integration test.
 - an `extraMounts` whose `source` is a regular **file** — error: virtio-fs
   shares directory trees only, so a docker-style single-file bind mount has no
   share analogue; mount a directory that holds the file instead.
