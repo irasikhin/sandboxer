@@ -87,7 +87,7 @@ What **drops**, and how it surfaces:
 |---|---|
 | `egress.routes` | hard config error (no squid `cache_peer` analogue) |
 | `limits.pids` | ignored with a warning |
-| `nestedContainers` | ignored — a real VM runs container engines natively (row 13 measured on Linux/KVM) |
+| `nestedContainers` | ignored — a real VM runs container engines natively (row 13 partially passing on Linux/KVM) |
 | `extraMounts` pointing at a regular **file** | hard error: virtio-fs shares directories only |
 | `sandboxer compose` | hard error (container-only) |
 
@@ -292,12 +292,15 @@ Rejected or ignored under `backend = microvm` / `microsandbox`:
   rounding / 4 GiB fallback is worse than a clear message.
 - `nestedContainers` — ignored (a real VM runs container engines natively; the
   toolbox image's docker/podman/compose run inside the guest without the outer
-  seccomp/userns dance). **Measured, not asserted:** e2e-checklist row 13 passes
-  on Linux/KVM — an msb guest maps the whole uid range natively, and podman
-  inside it runs plain images and the user-switching postgres image (its
-  entrypoint drops to uid 70 and postgres serves queries) with no `/etc/subuid`
-  grant, no capability grant and no seccomp widening. macOS / Windows/WSL2 still
-  need their hardware runs (phase C). See
+  seccomp/userns dance). **Measured, not asserted — scoped to what was run:** on
+  Linux/KVM an msb guest maps the whole uid range natively, and podman inside it
+  runs plain images and a user-switching postgres SERVICE (entrypoint drops to
+  uid 70, postgres answers `select 42`) with no `/etc/subuid` grant, no
+  capability grant and no seccomp widening — measured with
+  `quay.io/podman/stable` as the guest image (the toolbox build OOMs on the test
+  host). The toolbox image's OWN engine stack (storage.conf, policy.json,
+  registries.conf, the pre-created `/var/tmp`) still needs one run, and macOS /
+  Windows/WSL2 still need their hardware runs (phase C). See
   [e2e-checklist.md](e2e-checklist.md) and the gated
   `TestMSB_NestedContainer_RealEngine` integration test.
 - an `extraMounts` whose `source` is a regular **file** — error: virtio-fs
