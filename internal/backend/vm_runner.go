@@ -91,7 +91,12 @@ func (smolvmRunner) listMachines() []vmMachine       { return vmListMachines() }
 func (smolvmRunner) startsOnCreate() bool            { return false }
 func (smolvmRunner) imageID(image string) string     { return vmImageID(image) }
 func (smolvmRunner) recordDir() string               { return "" }
-func (smolvmRunner) preflight(RunOpts) error               { return nil }
+func (smolvmRunner) preflight(o RunOpts) error {
+	if err := vmSharePreflight(o); err != nil {
+		return err
+	}
+	return vmLimitsPreflight(o)
+}
 func (smolvmRunner) ensureImage(o RunOpts) (string, error) { return vmEnsureImage(o) }
 
 func (smolvmRunner) execArgv(o RunOpts, name string, cmdArgs []string) []string {

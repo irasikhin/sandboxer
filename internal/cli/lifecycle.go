@@ -453,6 +453,8 @@ composes with scripts and CI.`,
 			fmt.Fprintln(narrate, configLine(rt, t.slug, t.profile, backendLabel(rt)))
 			warnIgnoredRoutes(cmd.ErrOrStderr(), rt)
 			warnOpenNetwork(cmd.ErrOrStderr(), rt, t.profile)
+			warnMicrovmIgnored(cmd.ErrOrStderr(), rt, t.profile)
+			warnMicrovmProxy(cmd.ErrOrStderr(), rt)
 			engine, err := backend.ResolveEngine(rt.Backend, config.LoadDefaults())
 			if err != nil {
 				return err

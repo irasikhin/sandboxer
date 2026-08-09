@@ -60,6 +60,61 @@ $ SANDBOXER_BACKEND=microsandbox sandboxer enter mybox
 Measured comparison (boot/exec latency, share I/O, the escape matrix):
 [microsandbox-spike.md](microsandbox-spike.md) and [microvm-spike.md](microvm-spike.md).
 
+## Migrating to `microsandbox` (decommissioning docker/podman)
+
+`microsandbox` is the runner that can fully replace the container backend: it
+has the lossless name-bound egress allowlist (no unresolvable-domain drop, raw
+IPs refused), a real image store, labels, and it boots the stock profile that
+smolvm 1.6.13 rejects with EINVAL. The container backend stays supported, but
+the switch is a per-profile config line:
+
+```nix
+{ backend = "microsandbox"; srcs = [ { src = "."; branch = "feat/x"; } ]; }
+```
+
+What carries over **unchanged** (backend-agnostic, no action needed): srcs
+worktrees and `include` narrowing, remote srcs, the per-sandbox home and
+`hostConfigs` seeding, profile.json, session hashing/staleness, tmux
+capture/restore and agent auto-resume, resource limits (`memory`/`cpus`), and
+the auth-env channel. A session created under a container engine keeps its
+deterministic name (`SessionName` is engine-independent), so switching the
+profile recreates the machine with that same name while `clean`/`rm` sweep the
+old container on every engine — nothing strands.
+
+What **drops**, and how it surfaces:
+
+| feature | on `microsandbox` |
+|---|---|
+| `egress.routes` | hard config error (no squid `cache_peer` analogue) |
+| `limits.pids` | ignored with a warning |
+| `nestedContainers` | ignored — a real VM runs container engines natively (e2e-covered, hardware verification pending) |
+| `extraMounts` pointing at a regular **file** | hard error: virtio-fs shares directories only |
+| `sandboxer compose` | hard error (container-only) |
+
+**Image build without docker/podman.** The toolbox image is built with **host
+nix** — nix is already a hard requirement of the CLI (it evaluates
+`sandboxer.nix` on every invocation), so there is no builder container and no
+builder guest:
+
+```console
+$ sandboxer image build --backend microsandbox          # or: microsandbox <profile>
+```
+
+The build context is the same embedded flake the container builder used
+(`path:<ctx>#image`); the realized tar goes straight into the microVM store both
+runners boot from. The "latest" input-rev pins resolve on the **host via `git
+ls-remote`** (git is also a hard requirement), so a **cold pins cache on a
+docker-less host resolves exactly like a warm one** — the first-ever build on a
+machine with no docker/podman just works. `sandboxer image build --backend
+microvm` behaves identically (host nix is runner-agnostic), and `nix run
+.#build-image` also places the tar into the microVM store.
+
+**Verifying the move:** `sandboxer doctor` reports the container engine row as
+*info* on a VM-only host (and checks the image in the microVM store there),
+warns per profile when its backend cannot run here — the signal that a profile
+still names docker/podman after removal — and `doctor --strict` can be green on
+an msb-only host.
+
 ## Requirements
 
 The runner is a **preinstalled host requirement** (like `nix-instantiate`,
@@ -145,10 +200,12 @@ $ sandboxer image build --backend microsandbox <prof>  # a profile's variant
 $ sandboxer image rm --backend microsandbox            # drop the stored image
 ```
 
-Both runners share ONE build artifact: `<state>/images/<tag>.tar`. The build
-prefers a container engine when one is installed (reliable, and the tar boots
-under either runner) and otherwise runs a `nixos/nix` microVM. For
-`microsandbox` the tar is then imported (`msb load`) into its image store, which
+Both runners share ONE build artifact: `<state>/images/<tag>.tar`. The image is
+built with **host nix** — the same `path:<ctx>#image` derivation the container
+backend realizes in an ephemeral `nixos/nix` builder — so no builder container,
+no builder guest, and no container engine anywhere in the path (nix and git are
+both already hard requirements of the CLI). The tar boots under either runner;
+for `microsandbox` it is then imported (`msb load`) into its image store, which
 is what its `create` reads — so `image rm --backend microsandbox` drops both the
 cached image and the tar. A container-built *image in a container engine's own
 store* is never reused here. `--engine` is container-only and ignored.
@@ -230,7 +287,18 @@ Rejected or ignored under `backend = microvm` / `microsandbox`:
 - `egress.routes` — config error (per-domain upstream proxies are a squid
   cache_peer feature with no analogue in either runner).
 - `limits.pids` — ignored with a warning.
-- `nestedContainers` — ignored (a real VM runs container engines natively).
+- a **fractional** `limits.cpus`, or an **unparseable** `limits.memory` — error:
+  the runners take a whole number of vCPUs and a parseable size, and a silent
+  rounding / 4 GiB fallback is worse than a clear message.
+- `nestedContainers` — ignored (a real VM runs container engines natively; the
+  toolbox image's docker/podman/compose run inside the guest without the outer
+  seccomp/userns dance). Covered by the e2e checklist's nested-containers row
+  ([e2e-checklist.md](e2e-checklist.md)) and the gated
+  `TestMSB_NestedContainer_RealEngine` integration test — hardware verification
+  pending, like every microVM e2e item.
+- an `extraMounts` whose `source` is a regular **file** — error: virtio-fs
+  shares directory trees only, so a docker-style single-file bind mount has no
+  share analogue; mount a directory that holds the file instead.
 
 Default machine size is **2 vCPU / 4 GiB** (smaller than either runner's own
 default, for the parallel-agent workload); raise it with `limits.memory` /

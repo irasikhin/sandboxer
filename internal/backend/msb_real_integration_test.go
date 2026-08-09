@@ -181,6 +181,55 @@ func TestMSB_EgressAllowlist_RealEngine(t *testing.T) {
 	}
 }
 
+// TestMSB_NestedContainer_RealEngine verifies the load-bearing claim that a
+// microsandbox guest "runs container engines natively" (the reason the
+// nestedContainers knob is ignored and the postgres-in-the-sandbox use case that
+// started the migration): docker/podman inside the toolbox image boot, pull and
+// run, and a user-switching image (postgres, which setresuids to uid 999) works
+// against the guest's own kernel. It skips unless a REAL toolbox image (which
+// carries docker/podman/compose) is pointed at via SANDBOXER_ITEST_MSB_IMAGE —
+// the default alpine itest image has no engine to probe.
+func TestMSB_NestedContainer_RealEngine(t *testing.T) {
+	engine := itest.Microsandbox(t)
+	if os.Getenv("SANDBOXER_ITEST_MSB_IMAGE") == "" {
+		t.Skip("nested-container check needs the REAL toolbox image — set SANDBOXER_ITEST_MSB_IMAGE to the toolbox tar (it carries docker/podman/compose)")
+	}
+	if exec.Command("sh", "-c", "getent hosts registry-1.docker.io >/dev/null 2>&1").Run() != nil {
+		t.Skip("no outbound DNS on this host — skipping the nested-container check")
+	}
+	dest := itest.MSBTempDir(t)
+	// The guest pulls from Docker Hub, so the allowlist covers the registry.
+	o := msbITOpts(t, engine, "itmsbctr", dest)
+	o.RT = config.Runtime{Egress: true, Domains: []string{
+		"docker.io", "registry-1.docker.io", "auth.docker.io",
+		"production.cloudflare.docker.com",
+	}}
+	name := SessionName(o.Slug, o.BaseDir)
+	itest.CleanupSandbox(t, name)
+	if _, err := EnsureSession(o); err != nil {
+		t.Fatalf("EnsureSession: %v", err)
+	}
+
+	// The toolbox image carries the engines; the guest runs them natively.
+	if code, _ := ExecSession(o, name, []string{"docker", "--version"}); code != 0 {
+		t.Fatalf("docker absent inside the guest (code %d)", code)
+	}
+	if code, _ := ExecSession(o, name, []string{"podman", "--version"}); code != 0 {
+		t.Fatalf("podman absent inside the guest (code %d)", code)
+	}
+	// A plain container pulls and runs.
+	if code, _ := ExecSession(o, name, []string{"docker", "run", "--rm",
+		"docker.io/library/alpine:3.21", "sh", "-c", "echo NESTED-OK"}); code != 0 {
+		t.Errorf("docker run alpine inside the guest = %d, want 0", code)
+	}
+	// A user-switching image works against the guest kernel (postgres'
+	// entrypoint runs as uid 999).
+	if code, _ := ExecSession(o, name, []string{"docker", "run", "--rm",
+		"docker.io/library/postgres:16-alpine", "id"}); code != 0 {
+		t.Errorf("docker run postgres (user switch) inside the guest = %d, want 0", code)
+	}
+}
+
 // TestMSB_SecretsMode_RealEngine pins the opt-in host-scoped secret channel on a
 // live sandbox: the real VALUE never enters the host process table (only a KEY
 // reference does) and never lands in the machine's own configuration.

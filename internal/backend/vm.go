@@ -1,6 +1,7 @@
 package backend
 
 import (
+	"fmt"
 	"maps"
 	"math"
 	"os"
@@ -269,6 +270,31 @@ func vmAllowHosts(domains []string) []string {
 	return out
 }
 
+// vmSharePreflight rejects a profile extraMount the microVM runners cannot
+// expose. virtio-fs shares DIRECTORY trees only — a docker-style file bind
+// mount (source is a regular file, e.g. a single dotfile or config) has no
+// microVM share analogue, and silently sharing nothing would be worse than an
+// upfront error. Only an EXISTING regular-file source is rejected; a missing
+// source is left for the runner to answer (it materializes the path as an
+// empty dir, like the container engines do).
+func vmSharePreflight(o RunOpts) error {
+	if o.Profile == nil {
+		return nil
+	}
+	var bad []string
+	for _, m := range o.Profile.ExtraMounts {
+		if fi, err := os.Stat(m.Source); err == nil && !fi.IsDir() {
+			bad = append(bad, m.Source)
+		}
+	}
+	if len(bad) == 0 {
+		return nil
+	}
+	return fmt.Errorf("the microVM backends cannot expose %s: virtio-fs shares directories only, "+
+		"and a regular file has no share analogue — mount a directory that holds it",
+		strings.Join(bad, ", "))
+}
+
 // vmSecretEnvArgs renders the agents' auth env (RunOpts.AuthEnv, "KEY=value")
 // as smolvm --secret-env references, one per key: `--secret-env KEY=KEY` tells
 // smolvm to read KEY from the host process env at launch. Only the key name
@@ -304,13 +330,13 @@ func vmExtraMountsAndEnv(p *config.Profile) []string {
 	return out
 }
 
-// vmMemMiB converts a container-style memory cap ("2G", "512M", a raw byte
-// count, "") into smolvm's integer MiB, applying the microvm default when
-// unset. A value that does not parse falls back to the default rather than
-// emitting a bad flag.
-func vmMemMiB(s string) string {
+// parseMemMiB is vmMemMiB's core: the MiB value of a container-style memory cap
+// ("2G", "512M", a raw byte count), with ok=false for anything unparseable.
+// vmMemMiB falls back to the default on !ok; vmLimitsPreflight REJECTS instead,
+// so a bad value is a clear error on the microVM backends, never a silent 4 GiB.
+func parseMemMiB(s string) (int, bool) {
 	if s == "" {
-		return vmDefaultMemMiB
+		return 0, false
 	}
 	mult := 1.0 / (1024 * 1024) // a bare number is bytes
 	num := s
@@ -326,13 +352,52 @@ func vmMemMiB(s string) string {
 	}
 	n, err := strconv.ParseFloat(num, 64)
 	if err != nil {
-		return vmDefaultMemMiB
+		return 0, false
 	}
 	mib := int(math.Ceil(n * mult))
 	if mib < 1 {
 		mib = 1
 	}
-	return strconv.Itoa(mib)
+	return mib, true
+}
+
+// vmMemMiB converts a container-style memory cap ("2G", "512M", a raw byte
+// count, "") into smolvm's integer MiB, applying the microvm default when
+// unset. A value that does not parse falls back to the default rather than
+// emitting a bad flag (vmLimitsPreflight rejects such a value up front).
+func vmMemMiB(s string) string {
+	if s == "" {
+		return vmDefaultMemMiB
+	}
+	if mib, ok := parseMemMiB(s); ok {
+		return strconv.Itoa(mib)
+	}
+	return vmDefaultMemMiB
+}
+
+// vmLimitsPreflight rejects a resource limit the microVM runners cannot honor,
+// before the silent conversions in vmMemMiB/vmCPUs paper over it: a fractional
+// CPU count (the runners accept only a whole number of vCPUs, and rounding up
+// changes what the user asked for) and an unparseable memory cap (silently
+// becoming 4 GiB is worse than an error).
+func vmLimitsPreflight(o RunOpts) error {
+	if cpus := cpusFromQuota(o.CPU); cpus != "" {
+		n, err := strconv.ParseFloat(cpus, 64)
+		if err != nil {
+			return fmt.Errorf("limits.cpus %q is not a value the microVM backends understand "+
+				"(a whole number of vCPUs like 2, or a systemd quota like 400%%)", o.CPU)
+		}
+		if math.Trunc(n) != n {
+			return fmt.Errorf("limits.cpus %q is a fraction — the microVM backends take a whole "+
+				"number of vCPUs (e.g. 2)", o.CPU)
+		}
+	}
+	if o.Mem != "" {
+		if _, ok := parseMemMiB(o.Mem); !ok {
+			return fmt.Errorf("limits.memory %q is not a valid memory size (e.g. 2G, 512M)", o.Mem)
+		}
+	}
+	return nil
 }
 
 // vmCPUs converts a CPU quota (cpusFromQuota's "2"/"1.5"/"") into an integer

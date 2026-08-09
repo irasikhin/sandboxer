@@ -178,11 +178,15 @@ func TestMSBAuthEnvDefault(t *testing.T) {
 	t.Setenv("TERM", "xterm-256color")
 	got := msbExecArgv(o, "n", []string{"claude", "--continue"})
 	want := []string{
-		"exec", "-w", "/d", "-e", "TERM=xterm-256color",
+		"exec", "-i", "-w", "/d", "-e", "TERM=xterm-256color",
 		"-e", "ANTHROPIC_API_KEY=k", "n", "--", "claude", "--continue",
 	}
 	if !slices.Equal(got, want) {
 		t.Errorf("msbExecArgv =\n%q\nwant\n%q", got, want)
+	}
+	// -i must be unconditional so piped stdin reaches the command.
+	if got[1] != "-i" {
+		t.Errorf("msbExecArgv = %q, want -i right after exec", got)
 	}
 	if len(msbSecretArgs(o)) != 0 {
 		t.Error("--secret must be opt-in")
@@ -222,8 +226,9 @@ func TestMSBSecretsMode(t *testing.T) {
 	}
 }
 
-// TestMSBRunArgv pins the one-shot argv: -t only on a real TTY, the command
-// after the image and a `--` separator.
+// TestMSBRunArgv pins the one-shot argv: -i for an interactive run (so piped
+// stdin reaches the workload), -t only on a real TTY, the command after the
+// image and a `--` separator.
 func TestMSBRunArgv(t *testing.T) {
 	o := RunOpts{
 		Interactive: true, Image: "img:1", Dest: "/d", Slug: "s",
@@ -234,9 +239,16 @@ func TestMSBRunArgv(t *testing.T) {
 	if slices.Contains(got, "-t") {
 		t.Errorf("-t on non-TTY stdio: %q", got)
 	}
+	if !slices.Contains(got, "-i") {
+		t.Errorf("an interactive run must carry -i: %q", got)
+	}
 	tail := got[len(got)-5:]
 	if !slices.Equal(tail, []string{"img:1", "--", "sh", "-c", "true"}) {
 		t.Errorf("run argv tail = %q", tail)
+	}
+	// A non-interactive run has no -i.
+	if j := strings.Join(msbRunArgv(RunOpts{Image: "img:1", Dest: "/d"}), " "); strings.Contains(j, " -i ") {
+		t.Errorf("non-interactive run must not add -i: %q", j)
 	}
 }
 

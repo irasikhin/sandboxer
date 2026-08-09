@@ -66,8 +66,9 @@ Run each and confirm the expected result. Substitute a real profile/slug.
 | 8 | Exit codes | `sandboxer exec box -- sh -c 'exit 7'; echo $?` | `7` |
 | 9 | Session persist | enter, start a tmux window, detach; `sandboxer enter box` again | the window is restored |
 | 10 | Recreate on change | edit `limits`/`allowedDomains`, re-enter | "recreating session" notice, new machine |
-| 11 | Image build in VM | `sandboxer image build --backend microvm` (needs network) | builds via a nixos/nix microVM, no docker/podman |
+| 11 | Image build (host nix) | `sandboxer image build --backend microvm` (needs network) | builds with host nix into the microVM store, no docker/podman and no builder guest |
 | 12 | Clean teardown | `sandboxer clean` then `smolvm machine ls` | no leftover machines |
+| 13 | **Nested containers in the guest** | in a microsandbox sandbox (toolbox image), `docker run --rm alpine id` then a user-switching image, e.g. `docker run --rm postgres:16-alpine id` | both exit 0 — container engines run natively inside the VM (uid 0, own kernel) |
 
 Run 1–12 again with `--backend microsandbox` (teardown check: `msb list`). One
 runner-specific extra: a sandbox root under `/tmp` must be REFUSED with the

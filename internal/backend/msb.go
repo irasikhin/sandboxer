@@ -101,12 +101,13 @@ func msbRemoveArgv(name string) []string { return []string{"remove", "-f", name}
 // msbListArgv lists sandboxes as JSON (name + status + image).
 func msbListArgv() []string { return []string{"list", "--format", "json"} }
 
-// msbExecArgv runs cmdArgs inside the running sandbox name. -t only with a real
-// TTY (same rule as every other backend); -w pins the workdir; TERM rides along
-// so full-screen TUIs render; and the agents' auth env travels per exec so a
-// rotated token reaches the sandbox with no rebuild (see msbAuthEnvArgs).
+// msbExecArgv runs cmdArgs inside the running sandbox name. -i is unconditional
+// so piped stdin reaches the command (same rule as every other backend); -t only
+// with a real TTY; -w pins the workdir; TERM rides along so full-screen TUIs
+// render; and the agents' auth env travels per exec so a rotated token reaches
+// the sandbox with no rebuild (see msbAuthEnvArgs).
 func msbExecArgv(o RunOpts, name string, cmdArgs []string) []string {
-	args := []string{"exec"}
+	args := []string{"exec", "-i"}
 	if IsTerminal(o.Stdin) && IsTerminal(o.Stdout) {
 		args = append(args, "-t")
 	}
@@ -127,11 +128,16 @@ func msbGuestExecArgv(name string, argv []string) []string {
 
 // msbRunArgv assembles the argv for a one-shot ephemeral sandbox — msb removes
 // it when the command exits, so there is no --rm analogue to pass (msb's own
-// --rm hides a path from the guest rootfs, an unrelated flag).
+// --rm hides a path from the guest rootfs, an unrelated flag). -i is added for
+// an interactive run so piped stdin reaches the workload (the same rule as the
+// container runArgs / vmRunArgv).
 func msbRunArgv(o RunOpts) []string {
 	args := []string{"run"}
-	if o.Interactive && IsTerminal(o.Stdin) && IsTerminal(o.Stdout) {
-		args = append(args, "-t")
+	if o.Interactive {
+		args = append(args, "-i")
+		if IsTerminal(o.Stdin) && IsTerminal(o.Stdout) {
+			args = append(args, "-t")
+		}
 	}
 	args = append(args, msbAuthEnvArgs(o)...)
 	args = append(args, msbCommonArgs(o)...)
@@ -346,6 +352,14 @@ func msbExtraMountsAndEnv(p *config.Profile) []string {
 // project's ./sandboxes and the XDG state dir, so this only bites a profile that
 // deliberately points somewhere under /tmp.
 func msbPreflight(o RunOpts) error {
+	// A regular-file extraMount is unshareable on any microVM runner (virtio-fs
+	// shares directories only) — check it before the runner-specific trap.
+	if err := vmSharePreflight(o); err != nil {
+		return err
+	}
+	if err := vmLimitsPreflight(o); err != nil {
+		return err
+	}
 	paths := append([]string{o.Dest, o.HomeDir}, o.SrcMounts...)
 	if o.Profile != nil {
 		for _, m := range o.Profile.ExtraMounts {

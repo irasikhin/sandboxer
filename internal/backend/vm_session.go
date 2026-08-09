@@ -247,9 +247,16 @@ func vmRecreateSession(o RunOpts, r vmRunner, name, hash string) (string, error)
 // code — the microVM counterpart of ExecSession. The auth VALUES travel with
 // the exec (as smolvm --secret-env references resolved from this process's
 // environment, or as microsandbox --env flags), so a rotated token reaches the
-// sandbox on the next shell with no rebuild.
+// sandbox on the next shell with no rebuild. profile.json is re-staged first:
+// the share is a SNAPSHOT taken at create/run time, so an exec that reads it
+// would otherwise see the stale copy; re-staging puts the current profile in
+// front of the guest with no recreate (the file contents are not part of the
+// session hash).
 func vmExecSession(o RunOpts, name string, cmdArgs []string) (int, error) {
 	r := vmRunnerFor(o.Engine)
+	if err := stageProfileJSON(o); err != nil {
+		return 1, fmt.Errorf("stage profile.json for %s: %w", name, err)
+	}
 	cmd := exec.Command(r.bin(), r.execArgv(o, name, cmdArgs)...)
 	cmd.Stdin = o.Stdin
 	cmd.Stdout = o.Stdout
@@ -322,14 +329,28 @@ func vmRemoveMachineByName(r vmRunner, name string) error {
 }
 
 // vmRemoveAllSessions deletes every machine this runner recorded from baseDir,
-// each with its record. Failures are collected so one stubborn machine does not
-// strand the rest.
+// each with its record, plus any RECORDLESS live machine whose SessionName still
+// binds it to baseDir — a machine whose record was lost (a wiped state dir, a
+// changed SANDBOXER_STATE) would otherwise be invisible to clean and survive it.
+// The name suffix is this project's 8-hex base hash, so only this project's
+// machines are matched, never another project's recordless leftovers. Failures
+// are collected so one stubborn machine does not strand the rest.
 func vmRemoveAllSessions(engine, baseDir string) error {
 	r := vmRunnerFor(engine)
 	var errs []error
+	removed := map[string]bool{}
 	for _, rec := range listVMRecords(r) {
 		if rec.BaseDir == baseDir {
+			removed[rec.Name] = true
 			errs = append(errs, vmRemoveMachineByName(r, rec.Name))
+		}
+	}
+	for _, m := range r.listMachines() {
+		if removed[m.Name] || !strings.HasPrefix(m.Name, sessionNamePrefix) {
+			continue
+		}
+		if strings.HasSuffix(m.Name, "-"+shortHash(baseDir)) {
+			errs = append(errs, vmRemoveMachineByName(r, m.Name))
 		}
 	}
 	return errors.Join(errs...)
@@ -352,17 +373,23 @@ func vmSessionStates(engine, baseDir string) (map[string]string, error) {
 }
 
 // vmAllSessionStates is AllSessionStates for a microVM runner: every recorded
-// machine grouped by the base dir its record names. There is no per-project
-// query to save here — the records are host-side files that listVMRecords reads
-// whole either way — so the per-project view is a lookup into this one.
+// machine grouped by the base dir its record names, plus live machines whose
+// record was lost surfaced under the synthetic "(unrecorded)" bucket so a
+// host-wide listing is never blind to them (their base/slug lived in the record,
+// so they cannot be attributed; doctor reports them for removal). There is no
+// per-project query to save here — the records are host-side files that
+// listVMRecords reads whole either way — so the per-project view is a lookup
+// into this one.
 func vmAllSessionStates(engine string) (map[string]map[string]string, error) {
 	r := vmRunnerFor(engine)
 	live := map[string]string{}
+	recorded := map[string]bool{}
 	for _, m := range r.listMachines() {
 		live[m.Name] = m.State
 	}
 	states := map[string]map[string]string{}
 	for _, rec := range listVMRecords(r) {
+		recorded[rec.Name] = true
 		if rec.BaseDir == "" {
 			continue // no base dir — attributable to no project
 		}
@@ -374,6 +401,15 @@ func vmAllSessionStates(engine string) (map[string]map[string]string, error) {
 			states[rec.BaseDir] = map[string]string{}
 		}
 		states[rec.BaseDir][rec.Slug] = st
+	}
+	for _, m := range r.listMachines() {
+		if recorded[m.Name] || !strings.HasPrefix(m.Name, sessionNamePrefix) {
+			continue
+		}
+		if states["(unrecorded)"] == nil {
+			states["(unrecorded)"] = map[string]string{}
+		}
+		states["(unrecorded)"][m.Name] = m.State
 	}
 	return states, nil
 }
