@@ -6,6 +6,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.73.0] — 2026-08-09
+
+### Added
+
+- build the toolbox image with host nix, resolve pins via host git (ecdec51)
+- close the microVM parity gaps (4a4c867)
+
+### Changed
+
+- On a microVM backend, `limits.cpus` and `limits.memory` are now VALIDATED
+  instead of silently coerced: a fractional `limits.cpus` (e.g. `"0.5"`) and an
+  unparseable `limits.memory` are hard errors, where they previously rounded up
+  to a whole vCPU and fell back to the 4 GiB default. Container backends are
+  unchanged. (4a4c867)
+
+### Fixed
+
+- harden the host-nix build and correct the image-rm comment (4ecdaa9)
+- make the nested-container probe discriminating (postgres as a service) (8ec7dd2)
+
+### Docs
+
+- cite the measured nested-containers verification (b5bd254)
+- scope the nested-containers claim to the measured guest (b4f6630)
+
+### Chores
+
+- gitignore the inter-agent comm files (d4d44f5)
+
+
 ## [0.72.0] — 2026-08-08
 
 ### Added
@@ -1004,3 +1034,4 @@ isolated, containerized dev sandbox, on a local Linux machine:
 [0.70.0]: https://github.com/irasikhin/sandboxer/compare/v0.69.4...v0.70.0
 [0.71.0]: https://github.com/irasikhin/sandboxer/compare/v0.70.0...v0.71.0
 [0.72.0]: https://github.com/irasikhin/sandboxer/compare/v0.71.0...v0.72.0
+[0.73.0]: https://github.com/irasikhin/sandboxer/compare/v0.72.0...v0.73.0
