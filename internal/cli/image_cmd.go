@@ -62,11 +62,12 @@ func newImageRmCmd() *cobra.Command {
 					return err
 				}
 				if !spec.Empty() {
-					// Resolve tracking revs from the stamped pins cache so the
-					// variant tag matches what was built (host git on a miss). rm
-					// must never launch a resolver container, and a cold cache
-					// means nothing was ever built to remove — the fail-closed
-					// error's image-build guidance still fits.
+					// Resolve tracking revs so the variant tag matches what would
+					// be built (host git on a cold cache — no engine, no resolver
+					// container). A cold cache simply resolves the latest revs,
+					// which is exactly how the tag was computed at build time;
+					// there is no fail-closed "nothing was ever built" wall
+					// anymore.
 					if spec, err = toolbox.PinSpec(spec, false, io.Discard); err != nil {
 						return err
 					}

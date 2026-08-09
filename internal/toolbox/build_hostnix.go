@@ -24,8 +24,7 @@ import (
 type BuildHostNixOpts struct {
 	Spec    Spec      // image variant customization; zero = stock
 	DestTar string    // where the built image tar is placed (required)
-	Stdout  io.Writer // build chatter
-	Stderr  io.Writer // progress banners
+	Stderr  io.Writer // progress banners (nix's own chatter goes to stderr)
 }
 
 // hostNixArgv is the nix argv that realizes path:<ctx>#image and prints the
@@ -86,7 +85,16 @@ func BuildImageHostNix(o BuildHostNixOpts) error {
 	if err != nil {
 		return fmt.Errorf("toolbox image build (host nix) failed: %w", err)
 	}
-	storePath := strings.TrimSpace(string(out))
+	// `--print-out-paths` prints one output path per line; the image derivation
+	// has a single output, but take the LAST non-empty line so a future
+	// multi-output derivation resolves to its final path instead of failing on a
+	// path that includes a newline.
+	storePath := ""
+	for _, line := range strings.Split(string(out), "\n") {
+		if line = strings.TrimSpace(line); line != "" {
+			storePath = line
+		}
+	}
 	if storePath == "" {
 		return errors.New("toolbox image build (host nix) produced no store path")
 	}

@@ -180,7 +180,7 @@ var vmBuildImageToStore = func(o RunOpts) error {
 			"then storing it for the microVM backend…\n")
 	}
 	if err := toolbox.BuildImageHostNix(toolbox.BuildHostNixOpts{
-		Spec: o.Spec, DestTar: out, Stdout: o.Stderr, Stderr: o.Stderr,
+		Spec: o.Spec, DestTar: out, Stderr: o.Stderr,
 	}); err != nil {
 		return err
 	}

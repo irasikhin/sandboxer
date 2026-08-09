@@ -76,3 +76,30 @@ func TestHostNixArgv(t *testing.T) {
 		t.Errorf("hostNixArgv =\n%q\nwant\n%q", got, want)
 	}
 }
+
+// TestBuildImageHostNixMultiLineOutput pins the --print-out-paths parse: a
+// multi-output derivation prints one path per line, and the build must resolve
+// to the LAST non-empty line rather than failing on a path with an embedded
+// newline. The fake nix prints a junk first line then the real store path.
+func TestBuildImageHostNixMultiLineOutput(t *testing.T) {
+	warmPins(t)
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "nix")
+	real := filepath.Join(dir, "built.tar")
+	script := "#!/bin/sh\n" +
+		"printf 'IMAGE-TAR' > \"" + real + "\"\n" +
+		"printf '/nix/store/aaaa-other-output\\n%s\\n' \"" + real + "\"\n" +
+		"exit 0\n"
+	if err := os.WriteFile(bin, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir+":"+os.Getenv("PATH"))
+	dest := filepath.Join(dir, "toolbox.tar")
+	if err := BuildImageHostNix(BuildHostNixOpts{DestTar: dest}); err != nil {
+		t.Fatalf("BuildImageHostNix (multi-line): %v", err)
+	}
+	data, err := os.ReadFile(dest)
+	if err != nil || string(data) != "IMAGE-TAR" {
+		t.Errorf("built tar = %q, %v; want IMAGE-TAR from the last printed line", data, err)
+	}
+}
