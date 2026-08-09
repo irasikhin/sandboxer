@@ -11,6 +11,10 @@
 /.pre-commit-cache
 /.golangci-lint-cache
 
+# Inter-agent coordination scratch (review findings, replies) — not product docs
+/agent-comm.md
+/message-comm.md
+
 # Editor / tooling state
 /.claude/
 /.praxis/
