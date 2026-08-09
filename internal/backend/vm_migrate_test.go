@@ -15,8 +15,16 @@ import (
 // "store path" that points at a tar it drops (the shim writes the tar first),
 // so BuildImageHostNix's orchestration (pins → nix build → store) runs without
 // nix or a real build. /bin/sh is an absolute path, so it runs regardless of
-// PATH (which the test empties of engines on purpose).
+// PATH (which the test empties of engines on purpose). When FAKE_LS is set it
+// also snapshots the image store's .build-* temp dirs mid-build, so a test can
+// observe the build's temp dir while it exists — with shell builtins only,
+// since the stripped PATH has no coreutils.
 const fakeNix = `#!/bin/sh
+if [ -n "$FAKE_LS" ]; then
+	for d in "$SANDBOXER_STATE/images"/.build-*; do
+		[ -e "$d" ] && printf '%s\n' "$d"
+	done > "$FAKE_LS"
+fi
 printf 'IMAGE-TAR' > "$FAKE_TAR"
 echo "$FAKE_TAR"
 exit 0
@@ -43,6 +51,7 @@ func TestVMBuildImageToStoreHostNix(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv("FAKE_TAR", filepath.Join(dir, "built.tar"))
+	t.Setenv("FAKE_LS", filepath.Join(dir, "store-ls.txt"))
 	// A PATH with no container engine forces the host-nix path; the fake nix is
 	// reached by name on this same PATH.
 	t.Setenv("PATH", dir)
@@ -53,6 +62,27 @@ func TestVMBuildImageToStoreHostNix(t *testing.T) {
 	}
 	if !vmImageExists(image) {
 		t.Error("image tar not stored after the host-nix build")
+	}
+
+	// The mid-build store listing must show the build's temp dir: the tar is
+	// assembled INSIDE the image store, so vmStoreImage's rename never crosses
+	// a filesystem boundary (/tmp is often tmpfs — EXDEV).
+	ls, err := os.ReadFile(filepath.Join(dir, "store-ls.txt"))
+	if err != nil {
+		t.Fatalf("read the mid-build store listing: %v", err)
+	}
+	if !strings.Contains(string(ls), ".build-") {
+		t.Errorf("mid-build store listing has no .build-* temp dir — the tar is "+
+			"built outside the store and the rename can hit EXDEV:\n%s", ls)
+	}
+	entries, err := os.ReadDir(vmImagesDir())
+	if err != nil {
+		t.Fatalf("read the image store: %v", err)
+	}
+	for _, e := range entries {
+		if strings.HasPrefix(e.Name(), ".build-") {
+			t.Errorf("leftover build temp dir %s in the image store", e.Name())
+		}
 	}
 }
 

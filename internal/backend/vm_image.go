@@ -168,7 +168,16 @@ func BuildVMImage(engine, image string, spec toolbox.Spec, stderr io.Writer) err
 // guest, and both microVM runners share the one tar. A package var so a test can
 // stand in for the minutes-long, network-bound real build.
 var vmBuildImageToStore = func(o RunOpts) error {
-	tmp, err := os.MkdirTemp("", "sandboxer-vm-img-")
+	dir := vmImagesDir()
+	if dir == "" {
+		return errNoStateRoot
+	}
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return err
+	}
+	// The temp dir lives INSIDE the store so vmStoreImage's rename never
+	// crosses a filesystem boundary (/tmp is often tmpfs — EXDEV).
+	tmp, err := os.MkdirTemp(dir, ".build-")
 	if err != nil {
 		return err
 	}
