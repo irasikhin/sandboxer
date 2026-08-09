@@ -7,6 +7,7 @@ import (
 
 	"github.com/irasikhin/sandboxer/internal/backend"
 	"github.com/irasikhin/sandboxer/internal/config"
+	"github.com/irasikhin/sandboxer/internal/sandbox"
 )
 
 // seamCall records one (engine, slug, baseDir) lifecycle-seam invocation.
@@ -120,4 +121,52 @@ func TestStopBlockedInContainer(t *testing.T) {
 	if code != 1 || !strings.Contains(errs, "not available inside the sandbox") {
 		t.Errorf("in-container stop = (%d, %q)", code, errs)
 	}
+}
+
+// TestStopBatch: several slugs/ids stop in one invocation, each through the
+// seam, with the resume hint naming the slug and (for a foreign project) the
+// project. Every argument is resolved before anything is stopped, so a typo
+// stops nothing — pinned by the unknown-id subtest.
+func TestStopBatch(t *testing.T) {
+	t.Setenv("SANDBOXER_STATE", t.TempDir()) // isolate the host-wide index
+	here := sessionProject(t)                // the cwd project, with "feat"
+	other := newProject(t)
+	if code, _, errs := run("create", "away", "--src", other); code != 0 {
+		t.Fatalf("create away: %d %s", code, errs)
+	}
+	calls := stubStopSession(t, nil)
+	t.Chdir(here)
+
+	t.Run("an unknown id-shaped token stops nothing", func(t *testing.T) {
+		code, _, errs := run("stop", "feat", "ffffffff")
+		if code == 0 {
+			t.Fatal("stop with an unknown id = 0, want a failure")
+		}
+		if len(*calls) != 0 {
+			t.Errorf("a failed batch stopped something anyway (calls=%+v, errs=%q)", *calls, errs)
+		}
+	})
+
+	t.Run("slug and id prefix stop together", func(t *testing.T) {
+		awayID := sandbox.ID(config.StateDir(other), "away")
+		code, out, errs := run("stop", "feat", awayID[:sandbox.MinIDPrefix])
+		if code != 0 {
+			t.Fatalf("stop batch = %d, %s", code, errs)
+		}
+		wantBase := config.StateDir(here)
+		want := []seamCall{
+			{(*calls)[0].engine, "feat", wantBase},
+			{(*calls)[1].engine, "away", config.StateDir(other)},
+		}
+		if len(*calls) != 2 || (*calls)[0] != want[0] || (*calls)[1] != want[1] {
+			t.Errorf("stop calls = %+v, want %+v", *calls, want)
+		}
+		// The foreign sandbox must be named WITH its project, so "stopped
+		// session: …away…" does not read like something in the cwd project went.
+		if !strings.Contains(out, "sandboxer enter feat") ||
+			!strings.Contains(out, "sandboxer enter away") ||
+			!strings.Contains(out, other) {
+			t.Errorf("stop output = %q, want both resume hints and the foreign project %s", out, other)
+		}
+	})
 }
