@@ -6,6 +6,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.76.0] — 2026-08-10
+
+### ⚠ Breaking changes
+
+- the combined wall — allowlist stays enforced beside a proxy (e1531f2)
+  with egress enabled and egress.proxy set, the VM network is no longer open — direct traffic outside egress.allowedDomains is refused. Session hashes flip, so existing machines recreate on the next enter.
+
+### Added
+
+- default to the prebuilt GHCR toolbox image; add `image pull` (bedfde3)
+- the combined wall — allowlist stays enforced beside a proxy (e1531f2)
+
+### Docs
+
+- prebuilt-image flow — pull first, build for variants/offline (66c5104)
+
+### CI
+
+- re-run the flaky -race test leg (f1efc94)
+- publish the prebuilt toolbox image to GHCR (nightly + release tags) (d77b739)
+
+### Chores
+
+- sweep the post-migration comment and lint tails (68d8892)
+
+
 ## [0.75.0] — 2026-08-10
 
 ### ⚠ Breaking changes
@@ -1160,3 +1186,4 @@ isolated, containerized dev sandbox, on a local Linux machine:
 [0.73.7]: https://github.com/irasikhin/sandboxer/compare/v0.73.6...v0.73.7
 [0.74.0]: https://github.com/irasikhin/sandboxer/compare/v0.73.7...v0.74.0
 [0.75.0]: https://github.com/irasikhin/sandboxer/compare/v0.74.0...v0.75.0
+[0.76.0]: https://github.com/irasikhin/sandboxer/compare/v0.75.0...v0.76.0
