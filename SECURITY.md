@@ -44,43 +44,64 @@ agent you actively distrust and assume it is contained.
 The rest of this section is what the isolation actually gives you, and — just as
 important — where it stops.
 
+### The isolation boundary is a hypervisor
+
+Every sandbox is a real **microVM** on [microsandbox](https://microsandbox.dev)
+(`msb`, libkrun — KVM on Linux, Hypervisor.framework on macOS). The agent runs
+under its **own guest kernel**; the wall between it and the host is hardware
+virtualization, not a shared-kernel namespace. There is no `--cap-drop`, no
+seccomp profile and no user-namespace mapping to get right — an escape must
+break the hypervisor, not win a syscall-filter argument.
+
+Two consequences worth stating plainly:
+
+- **The guest runs as uid 0, and that is fine.** Root inside the VM is root
+  over the VM's own kernel and nothing else; the VM boundary is the privilege
+  boundary, not the uid. Files the guest writes into a shared directory land on
+  the host owned by **the invoking host user** (virtio-fs maps the identity),
+  so guest-root never mints host-root files.
+- **Nested containers work natively.** docker/podman inside the sandbox run
+  against the guest's own kernel with a full uid range — no opt-in, no widened
+  syscall filter, no capability grant on the host side. Their blast radius is
+  the VM's.
+
+Host requirements for that boundary: **nix** (a hard requirement of the CLI —
+it evaluates `sandboxer.nix` and builds the toolbox image), the **msb** binary,
+and **`/dev/kvm`** on Linux (nested KVM inside WSL2 on Windows). `sandboxer
+doctor` checks all three. macOS (Apple Silicon / Hypervisor.framework) and
+Windows/WSL2 are **cross-platform in code but not live-verified** — see
+"Platform status" below.
+
 ### What the isolation gives you
 
-- **Sources are git worktrees; git never enters the container.** Each source
+- **Sources are git worktrees; git never enters the sandbox.** Each source
   repo is checked out host-side into a complete worktree on its configured
-  branch. The container is bind-mounted ONLY the directories the profile's
+  branch. The guest is shared ONLY the directories the profile's
   `include` lists (all of it when `include` is absent) — **the mount set is the
-  boundary**: an excluded path is not mounted, so it does not exist inside the
-  container, and the agent cannot reach it by any path. No git metadata is
-  mounted either, so the agent cannot read repo history, widen the selection,
+  boundary**: an excluded path is not shared, so it does not exist inside the
+  sandbox, and the agent cannot reach it by any path. No git metadata is
+  shared either, so the agent cannot read repo history, widen the selection,
   touch refs, or reach hooks/config at all; you review and commit its file
   edits on the host (`git log`/`git diff`/`git merge <branch>`). There is no
   copy-back over host files.
 
   Note what this means for the host side: a narrowed sandbox's worktree holds
-  the excluded files in full, one directory above the mounted ones. That is
+  the excluded files in full, one directory above the shared ones. That is
   deliberate (it is what lets an IDE open the branch), and it makes the absence
-  of a `<slug>/` root mount load-bearing rather than incidental — see
-  `sandbox.Mounts` and the tests that pin it (`TestRunArgvNarrowedNeverMountsDest`,
-  `TestRun_RealEngine_SrcsWall`). A write to a path the sandbox does not expose
-  fails rather than silently landing in the container's ephemeral layer,
-  because the engine materializes the unmounted parents as root-owned
-  directories and the sandbox runs as the host uid. Clearing
-  `SANDBOXER_CONTAINER_USER` (the documented macOS escape hatch) runs the
-  container as root and gives up that last property — the mount boundary itself
-  still holds.
+  of a `<slug>/` root share load-bearing rather than incidental — see
+  `sandbox.Mounts` and the tests that pin it (`TestRunArgvNarrowedNeverMountsDest`).
 
-  One subtlety a narrowed view must defend against: the engine resolves a
-  bind-mount SOURCE on the HOST before mounting, so an `include` that names a
+  One subtlety a narrowed view must defend against: a virtio-fs share SOURCE is
+  resolved on the HOST before sharing, so an `include` that names a
   directory which is (or traverses) a **symlink pointing outside the worktree**
-  would bind-mount the host target past the wall. `sandbox.checkViewDirs`
+  would share the host target past the wall. `sandbox.checkViewDirs`
   resolves every include's real path and refuses one that escapes the worktree
-  (`TestCheckViewDirsRejectsSymlinkEscape`); symlinks INSIDE the mounted content
-  are fine — the container dereferences those in its own namespace.
+  (`TestCheckViewDirsRejectsSymlinkEscape`); symlinks INSIDE the shared content
+  are fine — the guest dereferences those in its own namespace.
 
 - **Isolated `$HOME` — host configs only by opt-in, and only as a copy.** Each
   sandbox has its own private home (`_home/<slug>` under the XDG state dir,
-  `0700`), mounted as `$HOME`. The host's real agent config — `~/.claude`,
+  `0700`), shared as `$HOME`. The host's real agent config — `~/.claude`,
   `~/.claude.json`, tokens, project history, MCP servers — and your `~/.ssh`,
   `~/.aws`, etc. are **never mounted** in, and API-key env vars are never
   passed through by default. A profile may set `hostConfigs = true` (the
@@ -91,125 +112,76 @@ important — where it stops.
   rotation and could hijack the host session), and the agents' auth env vars
   set on the host (API keys, a `claude setup-token` long-lived token) are
   passed into the environment of the process that needs them — the one-shot
-  run, or each session `exec` — and never baked into the long-lived session
-  container, so they are not sitting in its inspectable environment and a
-  rotated token reaches the next shell without a rebuild. The trade is
-  explicit: code
-  running in that sandbox can read those copied credentials, and its egress
-  allowlist is the wall between them and an exfiltration attempt — but it
-  still cannot touch the host's real config (a hook written into the
-  sandbox's settings.json never executes on the host), copies are per-sandbox
-  (no cross-sandbox races), and an in-sandbox login/logout is never
-  overwritten by a later seed. Keeping `hostConfigs` off returns the old
-  posture: log in or export a key inside the sandbox when a task needs it.
+  run, or each session `exec` (msb `--env`) — and never baked into the
+  long-lived machine's configuration, so they are not sitting in its
+  inspectable config and a rotated token reaches the next shell without a
+  rebuild. Opt-in DLP hardening: `SANDBOXER_MSB_SECRETS=1` switches to msb's
+  host-scoped `--secret KEY@host,…` (scoped to the egress allowlist, with
+  `--on-secret-violation block-and-log`) — the guest then sees only a
+  stand-in value that msb refuses to send anywhere off the list. It stays
+  opt-in because the substitution direction is unverified upstream (a wrong
+  assumption silently breaks agent auth) and the value binds at boot, so a
+  rotation needs a machine restart. The `hostConfigs` trade is explicit
+  either way: code running in that sandbox can read the copied credentials,
+  and the egress policy is the wall between them and an exfiltration
+  attempt — but it still cannot touch the host's real config (a hook written
+  into the sandbox's settings.json never executes on the host), copies are
+  per-sandbox (no cross-sandbox races), and an in-sandbox login/logout is
+  never overwritten by a later seed. Keeping `hostConfigs` off returns the
+  old posture: log in or export a key inside the sandbox when a task needs it.
 
-- **Clean container environment.** The agent runs in a podman/docker container
-  from a clean, explicit environment: it does **not** inherit your host shell, so
-  an `AWS_*` / `GITHUB_*` / `*_TOKEN` left in your environment is invisible to it
-  unless you wire it in. The config cannot wire one in behind your back:
+- **Clean guest environment.** The agent boots from an explicit, clean
+  environment: it does **not** inherit your host shell, so an `AWS_*` /
+  `GITHUB_*` / `*_TOKEN` left in your environment is invisible to it unless you
+  wire it in. The config cannot wire one in behind your back:
   `sandboxer.nix` is evaluated with `restrict-eval` and an empty `NIX_PATH`, and
   under that setting `builtins.getEnv` returns `""` — a host variable cannot be
   read into the resolved profile. The config is still code you read before
   running an untrusted repo's copy (see "The config is code" below).
 
-- **Unprivileged container + resource caps.** The backend runs the agent
-  `--user` (non-root), `--cap-drop=ALL`, `--security-opt no-new-privileges`, and
-  applies the profile's `limits:` (`--memory` / `--cpus` / `--pids-limit`) when
-  set. This reduces, but does not eliminate, the blast radius. A profile that
-  sets `nestedContainers = true` keeps all of the above but swaps the engine's
-  default seccomp profile for a wider one and unmasks `/proc` — see below.
+- **Resource caps.** Every machine is sized (a microVM must be — the default is
+  a modest 2 vCPU / 4 GiB for the parallel-agent workload); the profile's
+  `limits:` (`memory` / `cpus`) raises it. A runaway agent is bounded by the
+  VM's allocation, not by the host's free RAM.
 
-- **Egress allowlist.** The agent runs on an `--internal` network whose sole exit
-  is a **squid** forward-proxy sidecar that permits only `egress.allowedDomains`
-  (everything else → 403). It **fails closed**: if the allowlist is required but
-  the proxy cannot start (or no domains are allowed) the run is refused, never
-  silently opened. Disable deliberately with `egress.enabled = false` /
-  `SANDBOXER_NO_EGRESS=1`.
+- **Egress: a name-bound network policy, default-deny.** With the allowlist on
+  (the default), the machine boots `--no-net` — **no route at all** — plus one
+  msb `--net-rule` pair per allowed domain: `allow@*.domain:tcp:80` and
+  `allow@*.domain:tcp:443`. The rules are matched by **name at connect time**:
+  the domain and its subdomains, those two ports, and nothing else — a raw-IP
+  dial is refused **even for an allowed domain's own address**, so resolving a
+  name and dialing the IP is not a bypass. There is no proxy sidecar and
+  nothing of sandboxer's in the network path — enforcement is the runner's.
+  An explicitly **empty** allowlist (`allowedDomains = [ ]`) means what it
+  says: a fully offline machine, DNS included. The policy is part of the
+  machine's create argv (folded into the session hash), so changing it
+  recreates the machine — it cannot drift live. Disable deliberately with
+  `egress.enabled = false` / `SANDBOXER_NO_EGRESS=1`.
 
 ### Where it stops (know these before you trust it)
 
-- **`nestedContainers = true` widens the sandbox's syscall filter and unmasks
-  `/proc`.** The toolbox image ships a rootless podman, but a container cannot
-  create the user namespace podman re-execs into while the engine's default
-  seccomp profile is active — that profile denies (or caps-conditions) the
-  syscalls a nested rootless engine lives on. Opting in swaps it for
-  **sandboxer's own profile** (`internal/seccomp`, passed as
-  `--security-opt seccomp=<file>`): the containers default profile — vendored
-  from containers/common, Apache-2.0, still deny-by-default — with one
-  unconditional allow group on top: userns creation (`clone`, `clone3`,
-  `unshare`, `setns`), the mount plumbing (`mount`, `umount`, `umount2`,
-  `pivot_root`, `open_tree`, `move_mount`, `fsopen`, `fsconfig`, `fsmount`,
-  `fspick`, `mount_setattr`, `open_tree_attr`, `statmount`, `listmount`),
-  hostname (`sethostname`, `setdomainname`) and the session keyring (`keyctl`,
-  `add_key`, `request_key`). Unconditional because the filter is resolved
-  against the OUTER container's `--cap-drop=ALL`, while the nested engine holds
-  these capabilities in its own user namespace — which seccomp cannot see. The
-  opt-in also unmasks `/proc` (the nested container's own `procfs` mount needs
-  the parent fully visible): scoped `unmask=/proc/*` on a podman engine —
-  `/sys/firmware` stays masked, `/sys/fs/cgroup` read-only — and the all-paths
-  `systempaths=unconfined` on docker, which has no narrower option. Plus
-  `/dev/net/tun` and `/dev/fuse`.
-  On a **podman** engine it also grants exactly **`--cap-add SETUID,SETGID`**:
-  podman puts added caps in the *ambient* set for a non-root user, which is
-  what lets `newuidmap`/`newgidmap` write the multi-uid mapping user-switching
-  images (postgres) need — with `no-new-privileges` still on and no setuid
-  binaries involved. The grant is real: a process in the sandbox can assume
-  any uid/gid of the sandbox's own user namespace (all of them the host
-  user's subordinate ids — never host root). What the opt-in still does
-  **not** do: no `--privileged`, no other capability, `--cap-drop=ALL` and
-  `no-new-privileges` stay; on a docker engine there is no capability grant at
-  all and the nested podman runs single-uid. Net effect: an escape must still
-  get past a syscall allowlist, but a wider one — mount and userns tricks the
-  stock filter blocks are open, `/proc` is not masked. The escape hatch
-  `SANDBOXER_NESTED_SECCOMP=unconfined` (for engines that reject the profile
-  file) removes the filter entirely — the pre-v0.72 posture. Leave the knob
-  off unless the sandbox actually builds or runs containers.
+- **The allowlist is name/port-level — no TLS inspection, no request
+  filtering.** The policy engine decides which (domain, port) pairs a
+  connection may target; it never looks inside the connection. Exfiltration
+  **through an allowed domain** (an allowed API, a git host, a paste service on
+  an allowed CDN) is out of scope, as is anything a permitted endpoint chooses
+  to relay. Note the **default** list includes `cloudfront.net` — registry
+  blobs (docker.io for some regions, all of `public.ecr.aws`) redirect there,
+  but the entry admits *any* CloudFront distribution, i.e. an exfiltration
+  channel anyone can stand up; set `egress.allowedDomains` without it if that
+  outweighs registry pulls for you.
 
-- **The worktree's `.git` pointer file is writable.** Git metadata is not
-  mounted (the whole hooks/config/object-store attack surface of earlier
-  releases is gone with it), but a managed worktree's root still contains the
-  one-line `.git` *pointer file*, and the mount is rw. Corrupting or deleting
-  it cannot execute anything — the path it names does not exist in the
-  container — but it can confuse the host-side worktree until you run
-  `git worktree repair` (or `sandboxer recreate`). Also remember an **adopted**
-  source (`srcs branch:` naming a branch already checked out in a worktree of
-  your own) is that live tree, mounted rw by explicit request — there is no
-  isolation from it. Two checkouts are refused rather than adopted, because
-  they would breach the boundary instead of merely widening it: the
-  repository's **own** checkout — its `.git` is a real directory, so the mount
-  would put a writable git dir (hooks, config, filters) inside the container —
-  and a checkout belonging to **another sandbox**.
-
-- **The config is code.** `sandboxer.nix` is EVALUATED on the host — under a
-  restricted eval (no network access, imports/reads only inside the config's
-  own directory), so it cannot exfiltrate or fetch, but it is still a program.
-  Beyond that, `setup` is a shell script run in the sandbox and the image
-  overlay (`image.overlay`, a plain nixpkgs overlay file) executes nix code at
-  image-build time inside the builder container. A committed `sandboxer.nix` therefore carries
-  **executable content** on three levels — treat it as code and read an
-  untrusted repo's config before `create`/`enter`.
-
-- **`extraMounts` are read-write by default.** An `extraMounts` entry grants the
-  agent access to that host path — **rw unless you set `mode: ro`**. Scope them
-  narrowly; a broad rw mount hands the agent a hole straight to the host FS.
-
-- **The allowlist is domain-level, not a guarantee.** Even when active it is a
-  best-effort guardrail: domain-fronting, abuse of an already-allowed domain
-  (e.g. exfiltration through a permitted API or git host), and DNS tricks can
-  defeat it. `egress.routes` and `egress.proxy` change *where* allowed traffic
-  goes, not *what* is allowed. Note the **default** list includes
-  `cloudfront.net` — registry blobs (docker.io for some regions, all of
-  `public.ecr.aws`) redirect there, but the entry admits *any* CloudFront
-  distribution, i.e. an exfiltration channel anyone can stand up; set
-  `egress.allowedDomains` without it if that outweighs registry pulls for you.
-
-  > **`egress.enabled = false` replaces the allowlist.** An `egress.proxy` URL
-  > with `egress.enabled = false` makes sandboxer treat that proxy as the
-  > boundary: it does **not** start the allowlist sidecar, so egress is governed
-  > by your proxy's policy, not by `egress.allowedDomains`. With the allowlist on
-  > (the default) the proxy is chained *through* the allowlist, which keeps
-  > applying — don't run `egress.enabled = false` + proxy expecting the domain
-  > allowlist to also apply.
+  > **`egress.proxy` delegates enforcement to the proxy.** With a proxy set,
+  > the machine boots with an **open** network and the guest's HTTP(S) clients
+  > are pointed at the proxy — the proxy IS the egress control point.
+  > `egress.allowedDomains` is then enforced by the proxy (or not at all), not
+  > by the VM's network rules — reaching the proxy needs the open network,
+  > which cannot also filter — and sandboxer says so with a warning on every
+  > run that has both. A loopback proxy URL is rewritten to
+  > `host.microsandbox.internal` and the policy set to `allow@public` + the
+  > host on the proxy's port. Nothing forces the guest's traffic THROUGH the
+  > proxy — a process that ignores `HTTP(S)_PROXY` has the open network — so
+  > use proxy mode only with a proxy you trust to be the boundary.
   >
   > **`egress.enabled = false` with NO proxy is a fully open network** — no
   > allowlist and no proxy, so the agent has unrestricted outbound. sandboxer
@@ -219,7 +191,44 @@ important — where it stops.
   > with an open exit is the worst-case pairing). It is never the safe default;
   > reach for it only when you truly want the agent on the open internet.
 
+- **The worktree's `.git` pointer file is writable.** Git metadata is not
+  shared (the whole hooks/config/object-store attack surface of earlier
+  releases is gone with it), but a managed worktree's root still contains the
+  one-line `.git` *pointer file*, and the share is rw. Corrupting or deleting
+  it cannot execute anything — the path it names does not exist in the
+  guest — but it can confuse the host-side worktree until you run
+  `git worktree repair` (or `sandboxer recreate`). Also remember an **adopted**
+  source (`srcs branch:` naming a branch already checked out in a worktree of
+  your own) is that live tree, shared rw by explicit request — there is no
+  isolation from it. Two checkouts are refused rather than adopted, because
+  they would breach the boundary instead of merely widening it: the
+  repository's **own** checkout — its `.git` is a real directory, so the share
+  would put a writable git dir (hooks, config, filters) inside the sandbox —
+  and a checkout belonging to **another sandbox**.
+
+- **The config is code.** `sandboxer.nix` is EVALUATED on the host — under a
+  restricted eval (no network access, imports/reads only inside the config's
+  own directory), so it cannot exfiltrate or fetch, but it is still a program.
+  Beyond that, `setup` is a shell script run in the sandbox, and the image
+  overlay (`image.overlay`, a plain nixpkgs overlay file) executes nix code at
+  image-build time **on the host** (the toolbox image is built with host nix).
+  A committed `sandboxer.nix` therefore carries **executable content** on three
+  levels — treat it as code and read an untrusted repo's config before
+  `create`/`enter`.
+
+- **`extraMounts` are read-write by default.** An `extraMounts` entry grants the
+  agent access to that host path — **rw unless you set `mode: ro`**. Scope them
+  narrowly; a broad rw share hands the agent a hole straight to the host FS.
+  (virtio-fs shares directories only — a single-file mount is refused.)
+
+- **Platform status.** Linux/KVM is where every release is exercised end to
+  end. The macOS (Apple Silicon / Hypervisor.framework) and Windows (WSL2 +
+  nested KVM) paths are **compiled and designed for, but not live-verified on
+  real hardware** — the maintainer consciously shipped without that gate. On
+  those platforms, treat the isolation as unproven until you have run
+  `sandboxer doctor` and the basic lifecycle yourself; reports welcome.
+
 - **Not a multi-tenant boundary.** Assume an adversarial agent can reach anything
-  the sandbox can reach (the allowed domains, the mounted paths). sandboxer
-  raises the cost of a bad agent on your own machine; it is not a
-  container-escape-proof jail.
+  the sandbox can reach (the allowed domains, the shared paths). sandboxer
+  raises the cost of a bad agent on your own machine; it is not an
+  escape-proof jail — hypervisor and virtio-fs bugs exist too.

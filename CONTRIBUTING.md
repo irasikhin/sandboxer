@@ -34,32 +34,34 @@ go build ./cmd/sandboxer        # local binary
 
 The default `go test ./...` runs only the in-process unit tests. A separate
 real end-to-end suite, behind the `integration` build tag, drives a **real**
-container engine (podman or docker), real networks and the real **squid** egress
-proxy sidecar — only the coding agent is stubbed (the proprietary `claude`/`codex`
-binaries are never invoked). Run it explicitly, inside `nix develop`:
+microsandbox (`msb`) on KVM (HVF on macOS), real machines and the real
+network-policy egress boundary — only the coding agent is stubbed (the
+proprietary `claude`/`codex` binaries are never invoked). Prerequisites: `msb`
+on `PATH` (or `SANDBOXER_MSB`), `/dev/kvm` on Linux, and a **short**
+`MSB_HOME` (e.g. `/tmp/msb` — every sandbox's agent socket derives from it and
+must fit sun_path). Run it explicitly, inside `nix develop` (which puts `msb`
+on `PATH`):
 
 ```bash
 scripts/itest.sh                                   # whole suite (./...)
-scripts/itest.sh ./internal/egress/                # one package
+scripts/itest.sh -run TestMSB_ ./internal/backend/ # the msb e2e tests
 go test -tags integration -count=1 ./...           # equivalent to the script
 
-# Pin the engine when both are installed but only one has images pulled:
-SANDBOXER_ITEST_ENGINE=docker scripts/itest.sh ./internal/egress/
+# Boot a specific image instead of the default public `alpine` ref:
+SANDBOXER_ITEST_MSB_IMAGE=sandboxer-toolbox:latest scripts/itest.sh ./internal/backend/
 ```
 
-Each test skips cleanly when its prerequisite is missing — no usable engine, no
-pre-pulled smoke image (`docker pull alpine`), or no built image (the egress
-tests need the `sandboxer-proxy` image; the sandbox tests need the toolbox
-image) — so a partial environment never fails the run. The tests that need a
-built image build it only when `SANDBOXER_ITEST_BUILD_IMAGE=1` (one build
-produces both images).
+Each test skips cleanly when its prerequisite is missing — no `msb`, no
+`/dev/kvm` — so a partial environment never fails the run; read the skips, not
+just the exit status.
 
-These tests are excluded from the **GitHub Actions** CI and its 90% coverage
-gate (the tag excludes them from the normal build, so they contribute neither
-lines nor coverage) — that gate stays engine-free. Instead the full container
-suite runs on the **homelab Jenkins** e2e job (`Jenkinsfile`), which builds the
-images and runs `scripts/itest.sh` against a real Docker daemon on every PR. The
-mapping of every exported function to its unit/integration coverage lives in
+These tests are excluded from the coverage measurement of the **GitHub
+Actions** CI 90% gate (the tag excludes them from the normal build, so they
+contribute neither lines nor coverage) — that gate stays hypervisor-free.
+The msb slice runs in CI on KVM-capable runners (`ci.yml`'s `itest` job), and
+the **homelab Jenkins** e2e job (`Jenkinsfile`) builds the real toolbox image
+with nix, loads it into msb's store and runs the whole suite. The mapping of
+every exported function to its unit/integration coverage lives in
 [`docs/test-coverage-audit.md`](docs/test-coverage-audit.md).
 
 ## Code quality tools

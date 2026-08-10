@@ -1,9 +1,10 @@
 # Architecture
 
 A one-page tour of how sandboxer is put together: where state lives on disk, the
-lifecycle of a sandbox, how the toolbox container image is built, how outbound
-network is fenced, and how the agent catalog stays single-source. For usage see
-the [README](../README.md); for the trust model see [SECURITY.md](../SECURITY.md).
+lifecycle of a sandbox, the microVM backend, how the toolbox image is built, how
+outbound network is fenced, and how the agent catalog stays single-source. For
+usage see the [README](../README.md); for the trust model see
+[SECURITY.md](../SECURITY.md).
 
 ## On-disk layout
 
@@ -41,8 +42,14 @@ $XDG_STATE_HOME/sandboxer/<project-id>/     # runtime state, outside the repo
 │                            #   created from nothing; folds into the session hash)
 ├── _logs/                # rotating per-sandbox logs (<slug>.json, .err, …)
 └── _home/
-    └── <slug>/           # private $HOME mounted into the container,
+    └── <slug>/           # private $HOME shared into the guest,
                           #   0700 — holds in-sandbox login tokens
+
+$XDG_STATE_HOME/sandboxer/                  # host-wide (not per-project)
+├── images/               # the toolbox build tars + .sha256 sidecars
+│                         #   (msb imports from here; see "Toolbox image")
+└── machines/microsandbox/<name>.json  # per-machine session records: slug,
+                          #   base dir, config hash, image id, mount ids
 ```
 
 Key invariants (`internal/sandbox`, `internal/worktree`):
@@ -51,11 +58,11 @@ Key invariants (`internal/sandbox`, `internal/worktree`):
   repo checked out **complete** at `<slug>/<branch>/<repo>/` — every entry names
   its branch explicitly (no default naming; a missing `branch:` is an error) and
   the branch names the dirs the worktree sits under. Editing `branch:` is the one way
-  to move a sandbox's worktree. What the CONTAINER sees is decided by the mount
+  to move a sandbox's worktree. What the SANDBOX sees is decided by the mount
   set, not by the tree (`sandbox.Mounts`): with no `include`, `<slug>/` is
-  mounted whole; with `include`, `<slug>/` is **not mounted at all** and each
-  listed directory is mounted at its own path instead. Either way **no git
-  metadata is mounted** — the mount set IS the access boundary; work returns as
+  shared whole; with `include`, `<slug>/` is **not shared at all** and each
+  listed directory is shared at its own path instead. Either way **no git
+  metadata is shared** — the mount set IS the access boundary; work returns as
   ordinary branches committed on the host. Keeping the host tree complete is
   what lets an IDE open a narrowed sandbox's branch. The resolved list is recorded at
   `_meta/<slug>.srcs.json`; every enter/exec re-syncs it (a live session sees
@@ -66,18 +73,18 @@ Key invariants (`internal/sandbox`, `internal/worktree`):
   whose directory was deleted by hand is pruned and the branch checked out
   fresh — `rm -rf ./sandboxes` self-heals on the next enter (the sandbox-dir
   generation `_meta/<slug>.gen` flips the session hash, so the pre-deletion
-  session container is rebuilt instead of reused with dead mounts).
+  session machine is rebuilt instead of reused with dead mounts).
   sandboxer is **git-only**: a non-git source (or one with no commit) is
   rejected with an init hint.
 - **Every source occupies a slot under `<slug>/`** — including an adopted one.
   Git allows a branch in only one worktree, so a `branch:` already checked out
-  in a worktree of the user's is ADOPTED: mounted at its own host path *and*
+  in a worktree of the user's is ADOPTED: shared at its own host path *and*
   symlinked at `<slug>/<branch>/<repo>`. The link is not decoration — `<slug>/`
-  is the container's workdir, so a source reachable only from somewhere else on
+  is the guest's workdir, so a source reachable only from somewhere else on
   the host is one the user listed and cannot find. Two checkouts are refused
   instead (`sandbox.checkAdoptable`): the repository's **own** checkout (its
-  `.git` is a real directory, so the mount would carry a writable git dir into
-  the container and hand the agent the tree the user works in) and one owned by
+  `.git` is a real directory, so the share would carry a writable git dir into
+  the sandbox and hand the agent the tree the user works in) and one owned by
   **another sandbox** (found host-wide via `Projects()` — two sandboxes sharing
   one working tree is the opposite of the point). Both errors name the fix:
   give that source its own branch.
@@ -91,62 +98,98 @@ Key invariants (`internal/sandbox`, `internal/worktree`):
   init ──────────►  scaffold sandboxer.nix   [optional]
                     │
   create <slug> ──► per srcs entry: full git worktree at <slug>/<branch>/<repo>/
-                    │   (include narrows the MOUNTS, not the tree); mkdir _home/<slug>; snapshot
+                    │   (include narrows the SHARES, not the tree); mkdir _home/<slug>; snapshot
                     │   profile.json + srcs.json; register slug
                     ▼
-  enter / exec ───► run the agent inside the container:
-                    │   • bring up the egress allowlist sidecar (unless disabled)
+  enter / exec ───► run the agent inside the microVM:
+                    │   • boot the machine with its network policy baked in
+                    │     (default-deny + per-domain rules, unless disabled)
                     │   • run the one-time `setup:` if its hash changed
-                    │   • shell into the persistent session container, or one-shot
+                    │   • shell into the persistent session machine, or one-shot
                     ▼
   review ─────────► per source, ON THE HOST: git -C <repo> log <branch>,
                     │   commit in the worktree, git diff / merge / cherry-pick
-  stop ───────────► park the persistent session container (enter resumes it)
+  stop ───────────► park the persistent session machine (enter resumes it)
                     │
   rm ─────────────► git worktree remove + prune (managed sources only), delete
-                    │   _home/<slug>, meta, logs, session container — KEEPS the
+                    │   _home/<slug>, meta, logs, session machine — KEEPS the
                     │   branches; adopted worktrees are never touched
   recreate --full ► also delete the branches sandboxer minted, for a clean slate
 ```
 
 Notes:
 
-- `enter` attaches an in-container **tmux session** (`tmux -L sandboxer`,
+- `enter` attaches an in-guest **tmux session** (`tmux -L sandboxer`,
   system /etc/tmux.conf: mouse on, rc.sh panes) inside a **persistent session
-  container**; `exec` reuses a running session; `stop` parks it; `rm` removes
+  machine**; `exec` reuses a running session; `stop` parks it; `rm` removes
   it. Full semantics
   and escape hatches: README "Persistent sessions"; decisions:
   [sessions-design.md](./sessions-design.md).
 - The agent's work is a git branch in your repo's shared object store; you review
   and merge it with plain git. There is no `pull`/`push`/`diff`.
-- The whole flow refuses to run **inside** the container — every command is
+- The whole flow refuses to run **inside** the sandbox — every command is
   deny-all there (sandboxer is a host tool, not baked into the image).
 
-## Toolbox image (built with nix, no host nix)
+## Isolation backend (`internal/backend`)
 
-The container backend runs the agents inside the `sandboxer-toolbox:latest` OCI
-image, with the coding agents (claude, opencode, crush, aider, …) baked in. The
-image is built **without nix on the host** (`internal/toolbox`):
+There is exactly **one backend**: `microsandbox` — a real microVM per sandbox
+on [microsandbox](https://microsandbox.dev) (`msb`, libkrun: KVM on Linux, HVF
+on macOS). sandboxer shells out to `msb` the way it once shelled out to
+docker/podman, so the backend stays a set of **pure argv builders** a golden
+test pins without a hypervisor. The layout:
+
+- `msb.go` — the msb dialect: create/exec/run argv builders, the network
+  policy (`msbNetworkArgs`), auth-env/`--secret` rendering, the msb image-store
+  handoff, and the msb-specific preflights (`/tmp` shares, file mounts,
+  fractional limits).
+- `vm_session.go` — the session lifecycle over the pure `planSession` policy:
+  hash the canonical create argv, inspect, then exec / start / recreate /
+  create; plus the sweeps (remove-all, states, orphans).
+- `vm_state.go` — the host-side machine records
+  (`<state>/machines/microsandbox/<name>.json`): the identity a session needs
+  (slug, base dir, config hash, image id, mount ids). msb labels carry the
+  same identity for `msb list` discoverability, but the record is the source
+  of truth — one mechanism, one set of sweeps.
+- `vm_image.go` — the build-artifact image store (`<state>/images/<name>.tar`
+  + `.sha256` sidecar); the tar's content id is the freshness authority that
+  makes a rebuilt image read as stale.
+
+Retired values of `backend:` (docker/podman/"auto"/"", the smolvm `microvm`,
+`native`) fail with a migration error — nothing silently falls back, which
+would quietly change the isolation boundary.
+
+## Toolbox image (built with host nix)
+
+The agents run inside the `sandboxer-toolbox:latest` OCI image, with the coding
+agents (claude, opencode, crush, aider, …) baked in. The image is built with
+**host nix** — nix is already a hard requirement of the CLI (it evaluates
+`sandboxer.nix`), so there is no builder container and no builder guest
+(`internal/toolbox`):
 
 ```
   sandboxer image build
         │
+        │   write flake + agents/          realizes the embedded flake
+        │   tools/overlay into a ctx ────► (assets/flake.nix) with HOST nix:
+        │                                    • agents.nix → the agents
+        │                                    • dockerTools.buildLayeredImage
+        │                                          │
+        │                                          ▼
+        │                                    image tarball
+        │                                          │
+        ▼                                          ▼
+  <state>/images/<tag>.tar  ◄── stored (+ .sha256 sidecar; the content id
+        │                        is the image-freshness authority)
         ▼
-  host docker/podman ── runs ──► ephemeral nixos/nix:<pinned> container
-        │                               │
-        │   write flake + agents/       │ realizes the embedded flake
-        │   tools/overlay into the ctx  │ (assets/flake.nix):
-        │                               │   • agents.nix     → the agents
-        │                               │   • dockerTools.buildLayeredImage
-        │                               ▼
-        │                         image tarball
-        ◄─── engine `load` ────────────┘
-        │
-        ▼
-  sandboxer-toolbox:latest        (clean-by-default: builder container and the
-                                   nixos/nix image are removed afterward;
-                                   --cache keeps a nix-store volume for rebuilds)
+  msb load ── imports it into microsandbox's own image store, which is what
+              `msb create` boots — after that every create is boot-only
 ```
+
+`create`/`enter`/`exec` auto-build a missing image on first use
+(`SANDBOXER_NO_AUTOBUILD=1` disables); a rebuilt tar makes the cached msb copy
+read as stale (a load-marker sidecar records which tar was imported), so a
+rebuild + `recreate` is how a new image reaches a live sandbox. `image rm`
+drops both the msb-cached image and the tar.
 
 Per-profile customization is **content-addressed**. A profile's `image:` section
 (extra packages, files/env, a nixpkgs overlay, input-pin overrides) produces a
@@ -158,44 +201,50 @@ untouched. `create`/`enter`/`exec` auto-build a missing image (stock or
 variant) on first use.
 
 The flake's `llm-agents`/`nixpkgs` inputs **track the remote heads by
-default**: `image build` re-resolves them (inside the builder container) and
-stamps the result into `~/.cache/sandboxer/image-pins.json`; `enter`/`exec`
+default**: `image build` re-resolves them (on the host, via `git ls-remote`)
+and stamps the result into `~/.cache/sandboxer/image-pins.json`; `enter`/`exec`
 only ever reuse the stamp, so nothing drifts between explicit builds.
 `image build --no-refresh` builds from the existing stamp; a full 40-hex
 commit in `image.llmAgentsRev`/`image.nixpkgsRev` pins the input exactly.
 
-## Egress allowlist (squid sidecar)
+## Egress (name-bound network policy)
 
-Outbound network is fenced by an allowlist forward-proxy — a stock **squid**
-sidecar (the `sandboxer-proxy` image, built beside the toolbox image), NOT the
-sandboxer binary (nothing of sandboxer's is ever in the network path):
+Outbound network is fenced by microsandbox's **policy engine** — rules on the
+machine itself, matched by NAME at connect time. There is no proxy sidecar and
+nothing of sandboxer's in the network path (`backend.msbNetworkArgs` renders
+the rules):
 
 ```
-   ┌───────────────────── internal network (no outbound) ──────────────────┐
+   ┌──────────────── microVM, boots --no-net (no route at all) ────────────┐
    │                                                                        │
-   │   agent container ──HTTP(S)_PROXY──►  squid allowlist sidecar ──► internet
-   │   (git worktree + $HOME)               • host on allowlist  → dial     │
-   │                                        • otherwise          → 403/deny │
+   │   agent ── connect(host, port) ──►  msb --net-rule engine  ──► internet
+   │   (git worktrees + $HOME shares)     • allow@*.domain:tcp:80/443 → dial│
+   │                                      • anything else (raw IPs too)     │
+   │                                        → refused                       │
    └────────────────────────────────────────────────────────────────────────┘
 ```
 
-- The agent sits on an `--internal` network with **no direct route out**; its
-  only exit is the squid sidecar, which permits only the hosts in
-  `egress.allowedDomains` / `--allow-domains` (and their subdomains) and denies
-  everything else. It is **fail-closed**: if the allowlist is required but the
-  proxy can't start (or no domains are allowed) the run is **refused**, never
-  opened. Disable deliberately with `egress.enabled = false` / `SANDBOXER_NO_EGRESS=1`.
-- **`egress.proxy`** — a single upstream the sidecar chains all allowed traffic
-  through (squid `cache_peer`, http:// only). A `localhost` proxy is rewritten to
-  the host gateway so a proxy on the host is reachable from the sidecar.
-- **`egress.routes`** — per-domain overrides: each route sends its domains
-  through a dedicated upstream (a named `cache_peer`), never direct, so a routed
-  peer being down fails closed. Every routed domain must also be in
-  `allowedDomains`. Deterministic squid config; its fingerprint is folded into the
-  session's freshness hash, so editing domains/proxy/routes recreates the session.
-- With egress **off** the proxy **replaces** the allowlist — the agent talks to
-  `egress.proxy` directly via `HTTP(S)_PROXY` (routes are ignored) and that proxy
-  is trusted to police egress (http:// or https://).
+- **Allowlist on (the default):** the machine boots `--no-net` — default-deny —
+  plus one `--net-rule allow@*.domain:tcp:80,allow@*.domain:tcp:443` per
+  domain in `egress.allowedDomains` / `--allow-domains`: the domain **and its
+  subdomains**, HTTP and HTTPS, nothing else. Rules are name-bound, so a
+  raw-IP dial is refused even for an allowed domain's own address. An
+  explicitly **empty** allowlist is `--no-net` alone — a fully offline
+  machine, a valid state. Disable deliberately with `egress.enabled = false`
+  / `SANDBOXER_NO_EGRESS=1` (an open network; every run labels it).
+- **`egress.proxy`** — proxy-delegated egress: the network stays open and the
+  guest's HTTP(S) clients are pointed at the proxy (`HTTP_PROXY`/`HTTPS_PROXY`
+  env; `egress.noProxy` → `NO_PROXY`) — the proxy IS the control point, and an
+  `allowedDomains` set alongside is enforced by the proxy, not the VM
+  (sandboxer warns). A loopback proxy URL is rewritten to
+  `host.microsandbox.internal` (the guest's loopback is its own stack) and the
+  policy set to `allow@public` plus the host on exactly the proxy's port.
+- The policy lives in the **create argv**, so it folds into the session hash:
+  editing domains/proxy/egress recreates the machine — enforcement can never
+  drift from the config on a live session.
+- **`egress.routes`** (per-domain upstream proxies) was a squid `cache_peer`
+  feature and is retired with the container backend; the config key errors
+  with a migration hint.
 
 ## Agent registry (single source)
 

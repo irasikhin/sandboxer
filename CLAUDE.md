@@ -1,6 +1,6 @@
 # sandboxer — agent guide
 
-Config-driven, multi-agent, containerized dev sandboxes (a Go CLI). This file is the agent-facing entry point.
+Config-driven, multi-agent dev sandboxes, each a real microVM (a Go CLI). This file is the agent-facing entry point.
 The generalizable engineering conventions live in vendored **praktik skills** (below) — stated once there and
 never restated here (`proc-skill-single-source`). This file holds only the delta: which skills are active, this
 repo's parameters/deviations, and knowledge no skill owns.
@@ -34,7 +34,7 @@ was extracted from:
   `Run(args, stdin, stdout, stderr) int` stdio seam is exactly as `arch-go-cli` describes.
 - **Config = NIX** (kpass uses TOML): `sandboxer.nix` at the project root, evaluated to JSON via host
   `nix-instantiate --eval --strict --json` under restrict-eval (`config.EvalConfig`; nix on the host is a
-  HARD requirement of the CLI — image builds still run in a container). Scalars resolve flag →
+  HARD requirement of the CLI — the toolbox image is built with host nix too). Scalars resolve flag →
   `SANDBOXER_*` env → default; structured fields (srcs/extraMounts/env/image) come from the config — one
   profile or several under a `profiles` attrset, reuse via ordinary nix (let//). Image customization is
   FLAT data — `image.{packages,files,env}` + `image.overlay` (a file with a PLAIN nixpkgs overlay
@@ -54,17 +54,24 @@ was extracted from:
 
 ## Repo-only knowledge (owned by no skill)
 
-- **Isolation backend** (`internal/backend`): `container` (podman/docker via the toolbox image) or a real microVM
-  on libkrun, with TWO runners behind one implementation — `backend = "microvm"` (smolvm) and
-  `backend = "microsandbox"` (msb). The only seam between them is `vmRunner` (`vm_runner.go`): argv dialect +
-  image store + inventory. Everything else (planSession, the host-side record, tmux capture/restore) is shared,
-  and the records are per-runner subdirs so switching runners cannot strand the other's machines. msb's rules
-  are name-bound (`*.domain` = squid's leading dot, no allowlist narrowing); its `--secret` DLP mode is opt-in
-  behind `SANDBOXER_MSB_SECRETS=1` (unverified substitution + boot-time binding). See `docs/microvm.md`.
+- **Isolation backend** (`internal/backend`): ONE backend — `backend = "microsandbox"` (msb), a real microVM
+  on libkrun (KVM/HVF; guest runs as uid 0 — the VM is the boundary, and virtio-fs writes land host-user-owned).
+  The docker/podman container backend and the smolvm `microvm` runner were REMOVED (retired values get
+  migration errors in `ValidateBackend`; the `vmRunner` seam went with them). Layout: `msb.go` = the argv
+  dialect (pure builders, golden-tested without a hypervisor: create/exec/run, `msbNetworkArgs`,
+  `--secret`/auth-env, preflights — /tmp shares, file mounts, fractional limits) + the msb image-store handoff;
+  `vm_session.go` = the lifecycle over the pure `planSession` policy + sweeps; `vm_state.go` = the host-side
+  records at `<state>/machines/microsandbox/<name>.json` (SOURCE OF TRUTH; msb labels are discoverability only,
+  and the subdir name is load-bearing — old machines must still be found); `vm_image.go` = the build-tar store
+  `<state>/images/<name>.tar` + `.sha256` (the content id is the freshness authority). msb's egress rules are
+  name-bound (`*.domain` = squid's leading dot, no allowlist narrowing, raw IPs refused); its `--secret` DLP
+  mode is opt-in behind `SANDBOXER_MSB_SECRETS=1` (unverified substitution + boot-time binding). Nested
+  containers run natively against the guest kernel — no seccomp/subid machinery, no opt-in. macOS (HVF) and
+  Windows/WSL2 compile but are NOT live-verified. See `docs/microvm.md`.
   sandboxer is a
   HOST tool — its binary is NOT baked into the toolbox image, so it is normally absent inside the sandbox;
   `PersistentPreRunE` in `cli.go` is a belt-and-suspenders **deny-all** (every command refuses when
-  `SANDBOXER_IN_CONTAINER` is set, injected per-run by `commonArgs`).
+  `SANDBOXER_IN_CONTAINER` is set, injected per-run by `msbCommonArgs`).
 - **Config vs data split** (`internal/config`, `internal/sandbox`): the committed config is ONE file at
   the repo root — `sandboxer.nix` (image customization included; overlay is a separate .nix file).
   The sandbox WORKTREES live IN the project at `sandbox.SandboxesRoot(project)` = `./sandboxes/`
@@ -81,23 +88,23 @@ was extracted from:
   not is MOVED in place — `git worktree move`, uncommitted work and ignored caches kept, falling back to
   detach when the target is occupied; root relocatable per profile via `worktreesDir`). `branch:` is
   REQUIRED — no default naming, a missing branch is an error (the error hints the recorded branch); a branch
-  already checked out in a worktree OF THE USER'S is ADOPTED (git allows one worktree per branch) — mounted at
+  already checked out in a worktree OF THE USER'S is ADOPTED (git allows one worktree per branch) — shared at
   its host path AND symlinked into the sandbox at `<slug>/<branch>/<repo>` (`Source.Link`), because the sandbox
-  dir is the container's workdir and a source reachable only elsewhere on the host is invisible from inside;
+  dir is the guest's workdir and a source reachable only elsewhere on the host is invisible from inside;
   `include` is honored on an adopted source exactly as on a managed one. Two checkouts are REFUSED, not adopted
-  (`checkAdoptable`): the repo's OWN checkout (`.git` is a real dir → git would enter the container, and the
+  (`checkAdoptable`): the repo's OWN checkout (`.git` is a real dir → git would enter the sandbox, and the
   agent would edit the tree you work in) and one owned by another sandbox (host-wide via `Projects()` — two
   sandboxes must not share a tree). Also not adopted: a set-aside `_detached/` checkout
   (re-attached to its managed path instead) or a stale registration whose dir was hand-deleted (pruned, checked
   out fresh — `rm -rf ./sandboxes` self-heals on the next enter; `_meta/<slug>.gen` flips the session hash so
-  the pre-deletion session container is rebuilt, not reused with dead mounts). Trees are narrowed by
+  the pre-deletion session machine is rebuilt, not reused with dead mounts). Trees are narrowed by
   `include` — a list of DIRECTORIES (literal anchored paths or ant-style directory patterns: `/services/*/`,
   `**/proto/` — a whole `**` segment matches any depth, expanded on disk per mount computation, zero matches =
-  error) that narrows the container's MOUNT SET, never the worktree (the host tree is always a complete
+  error) that narrows the guest's MOUNT SET, never the worktree (the host tree is always a complete
   checkout, so an IDE can open it; negations/unanchored paths are rejected, and patterns match directories
   only, never files — a mount names a path, not a file set; see `docs/view-mounts-design.md`). srcs is ALWAYS explicit — an empty list is rejected;
   the scaffolded config seeds `srcs = [{src = "."; branch = "feat/<name>";}]`. Relative src paths
-  resolve against the PROJECT ROOT (not the profile file's dir). **Git never enters the container**: no git-dir mounts, no `GIT_CONFIG_*` — the
+  resolve against the PROJECT ROOT (not the profile file's dir). **Git never enters the sandbox**: no git-dir shares, no `GIT_CONFIG_*` — the
   MOUNT SET is the wall (`sandbox.Mounts` decides it): unnarrowed = one stable rw mount of `<slug>/` (plus
   adopted paths), so srcs edits are picked up by every enter/exec (a LIVE session sees them immediately);
   narrowed = `<slug>/` is NOT mounted at all (the host worktrees under it are complete — that absence IS the
@@ -113,11 +120,15 @@ was extracted from:
   as a normal local repo — `RepoRoot` = the cache. Clone-once: `resolveSrcs` clones if absent; `recreate`
   re-fetches (`RefreshRemotes` → `worktree.Fetch`, ff-safe). `branch:` on a remote → `PrepareBranch` checks out
   `origin/<branch>`. The cache is kept across teardown (shared, like a local repo), wiped by `clean`.
-- **Egress** (`internal/egress`): outbound traffic is restricted to an allowlist
-  (`egress.allowedDomains` / `--allow-domains`) through a **squid** sidecar (the `sandboxer-proxy` image, built
-  beside the toolbox image; `config.ProxyImage()`) running a generated `squid.conf` — the binary is never in the
-  network path. The config block is `egress` (`egress.enabled` = false drops to a direct proxy; default on).
-  Disable with `SANDBOXER_NO_EGRESS=1`.
+- **Egress** (`backend.msbNetworkArgs`): outbound traffic is restricted to an allowlist
+  (`egress.allowedDomains` / `--allow-domains`) by msb's NAME-BOUND policy engine — the machine boots
+  `--no-net` (default deny) + `--net-rule allow@*.domain:tcp:80,allow@*.domain:tcp:443` per domain (domain +
+  subdomains, raw IPs refused; empty list = fully offline, a valid state). No sidecar — the squid
+  `sandboxer-proxy` image no longer exists and the binary is never in the network path. `egress.proxy` =
+  proxy-delegated mode: open network + guest HTTP(S)_PROXY env, loopback rewritten to
+  `host.microsandbox.internal` + `allow@public,allow@host:tcp:<port>` (proxy alongside an allowlist = the
+  proxy enforces it — warning, not error). The policy is in the create argv → session hash. The config block
+  is `egress` (`egress.enabled` = false = open network; default on). Disable with `SANDBOXER_NO_EGRESS=1`.
 - **Agent registry** (`internal/registry/registry.json`): the single-source catalog of agents — embedded in the
   binary AND consumed by the Nix flake (`llm-agents.nix`). Edit the JSON, never duplicate it. An agent may
   declare `resume` (argv, e.g. `claude --continue`) and `resumePick` (the interactive picker, used when
@@ -131,10 +142,12 @@ was extracted from:
   `.claude/.credentials.json` is seed-SKIPPED: rotating refresh tokens die as copies (401) or hijack the
   host session — subscription auth = `claude setup-token` + export CLAUDE_CODE_OAUTH_TOKEN.
 - **Toolbox image** (`internal/toolbox` + flake `dockerTools.buildLayeredImage`): the OCI image with the agents
-  baked in; built via `nix run .#build-image`.
-- **Integration tests** (`internal/itest`, `//go:build integration`): drive a real engine and skip cleanly when
-  prerequisites are missing; run via `scripts/itest.sh`. Excluded from CI and the coverage gate. (The general
-  test conventions are `lang-go-testing`; this is only the harness delta.)
+  baked in; built with HOST nix (`toolbox.BuildImageHostNix` — no builder container) into the tar store, then
+  `msb load`-ed; `nix run .#build-image` is the maintainer equivalent.
+- **Integration tests** (`internal/itest`, `//go:build integration`): drive a real msb on KVM/HVF and skip
+  cleanly when prerequisites are missing (no msb, no /dev/kvm); run via `scripts/itest.sh`. Excluded from the
+  coverage gate; ci.yml runs the msb slice on KVM-capable runners. (The general test conventions are
+  `lang-go-testing`; this is only the harness delta.)
 
 ## Working in this repo
 
