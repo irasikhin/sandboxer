@@ -165,17 +165,22 @@ require-sigs = false"
             rm /var/tmp/toolbox.tar
             export SANDBOXER_ITEST_MSB_IMAGE=sandboxer-toolbox:itest
 
-            # The whole -tags integration suite. Container-engine tests skip
-            # (no docker/podman here — that is the point); the msb suite runs
-            # for real, nested containers included. The log capture avoids
+            # The msb real-engine suite against the REAL image — this job's
+            # whole purpose. Scoped with -run, NOT ./... : the devShell also
+            # carries smolvm (three of its tests are known-broken upstream on
+            # 1.6.13) and podman (whose presence confuses the engine-less cli
+            # itests without a usable runtime in this pod); both families die
+            # in phase D, when the full sweep returns. The log capture avoids
             # `| tee` on purpose: this shell has no pipefail, and a pipe would
-            # swallow the test exit code. The required-tests assert below runs
-            # even on failure — it names WHAT broke — and rc fails the stage.
+            # swallow the test exit code. The required-tests assert runs even
+            # on failure — inside the devShell (this container has no sed) —
+            # it names WHAT broke, and rc fails the stage.
             rc=0
-            nix develop --accept-flake-config --command bash -c 'export PATH="$HOME/.nix-profile/bin:$PATH"; gotestsum --junitfile itest-report.xml --format standard-verbose -- -tags integration -count=1 -timeout 40m ./...' > itest.log 2>&1 || rc=$?
+            nix develop --accept-flake-config --command bash -c 'export PATH="$HOME/.nix-profile/bin:$PATH"; gotestsum --junitfile itest-report.xml --format standard-verbose -- -tags integration -count=1 -timeout 40m -run "TestMSB_.*_RealEngine" ./internal/backend/...' > itest.log 2>&1 || rc=$?
             tail -n 100 itest.log
 
-            scripts/assert-tests-ran.sh itest.log \\
+            nix develop --accept-flake-config --command \\
+              scripts/assert-tests-ran.sh itest.log \\
               TestMSB_Lifecycle_RealEngine \\
               TestMSB_NarrowingWall_RealEngine \\
               TestMSB_GuestWriteUID_RealEngine \\
