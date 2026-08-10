@@ -6,6 +6,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.73.7] — 2026-08-10
+
+### Fixed
+
+- bake /etc/passwd + /etc/group into the toolbox image (9557375)
+- survive the real toolbox image — getent probe, Hub's new CDN (605461b)
+- probe host DNS in-process, not via getent (b190337)
+- read image freshness from the build tar, not msb's cached digest (b4f0041)
+
+### CI
+
+- msb legs replace docker — itest on KVM, Jenkins without dind (7778138)
+- node-local nix cache + serialized heavy builds — the pod OOMed (172f4d3)
+- scope the run to the msb real-engine suite (32673c6)
+
+### Chores
+
+- migrate praxis -> praktik author-tooling (4689d29)
+
+
 ## [0.73.6] — 2026-08-10
 
 ### Fixed
@@ -1083,3 +1103,4 @@ isolated, containerized dev sandbox, on a local Linux machine:
 [0.73.4]: https://github.com/irasikhin/sandboxer/compare/v0.73.3...v0.73.4
 [0.73.5]: https://github.com/irasikhin/sandboxer/compare/v0.73.4...v0.73.5
 [0.73.6]: https://github.com/irasikhin/sandboxer/compare/v0.73.5...v0.73.6
+[0.73.7]: https://github.com/irasikhin/sandboxer/compare/v0.73.6...v0.73.7
