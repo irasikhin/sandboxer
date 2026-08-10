@@ -102,13 +102,14 @@ func msbRemoveArgv(name string) []string { return []string{"remove", "-f", name}
 // msbListArgv lists sandboxes as JSON (name + status + image).
 func msbListArgv() []string { return []string{"list", "--format", "json"} }
 
-// msbExecArgv runs cmdArgs inside the running sandbox name. -i is unconditional
-// so piped stdin reaches the command (same rule as every other backend); -t only
-// with a real TTY; -w pins the workdir; TERM rides along so full-screen TUIs
-// render; and the agents' auth env travels per exec so a rotated token reaches
-// the sandbox with no rebuild (see msbAuthEnvArgs).
+// msbExecArgv runs cmdArgs inside the running sandbox name. msb has NO -i flag
+// (docker's grammar, not msb's — exec pipes stdin by default, and --stream
+// exists for byte-faithful piping), so interactivity is -t alone, only with a
+// real TTY; -w pins the workdir; TERM rides along so full-screen TUIs render;
+// and the agents' auth env travels per exec so a rotated token reaches the
+// sandbox with no rebuild (see msbAuthEnvArgs).
 func msbExecArgv(o RunOpts, name string, cmdArgs []string) []string {
-	args := []string{"exec", "-i"}
+	args := []string{"exec"}
 	if IsTerminal(o.Stdin) && IsTerminal(o.Stdout) {
 		args = append(args, "-t")
 	}
@@ -129,16 +130,13 @@ func msbGuestExecArgv(name string, argv []string) []string {
 
 // msbRunArgv assembles the argv for a one-shot ephemeral sandbox — msb removes
 // it when the command exits, so there is no --rm analogue to pass (msb's own
-// --rm hides a path from the guest rootfs, an unrelated flag). -i is added for
-// an interactive run so piped stdin reaches the workload (the same rule as the
-// container runArgs / vmRunArgv).
+// --rm hides a path from the guest rootfs, an unrelated flag). Like exec, msb
+// run has NO -i flag — stdin is piped by default — so an interactive run adds
+// only -t, and only on a real TTY.
 func msbRunArgv(o RunOpts) []string {
 	args := []string{"run"}
-	if o.Interactive {
-		args = append(args, "-i")
-		if IsTerminal(o.Stdin) && IsTerminal(o.Stdout) {
-			args = append(args, "-t")
-		}
+	if o.Interactive && IsTerminal(o.Stdin) && IsTerminal(o.Stdout) {
+		args = append(args, "-t")
 	}
 	args = append(args, msbAuthEnvArgs(o)...)
 	args = append(args, msbCommonArgs(o)...)
