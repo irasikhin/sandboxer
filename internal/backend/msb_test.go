@@ -794,3 +794,46 @@ func TestMSBEnsureImageNoAutobuild(t *testing.T) {
 		t.Errorf("error = %v, want a microsandbox build hint", err)
 	}
 }
+
+// TestMSBImageIDPrefersStoreTar pins the freshness authority for a store-built
+// image: the build tar's content id, not msb's own cached digest. The cached
+// digest only moves after msbEnsureImage re-imports the tar — inside
+// create/recreate, AFTER planSession already ruled — so comparing it against
+// the record compared the old copy with itself: a rebuilt image never read as
+// stale and a live machine kept its old rootfs forever (`image build` looked
+// like a no-op).
+func TestMSBImageIDPrefersStoreTar(t *testing.T) {
+	t.Setenv("SANDBOXER_STATE", t.TempDir())
+	restore := msbImageInspect
+	msbImageInspect = func(string) string { return "cached-digest" }
+	t.Cleanup(func() { msbImageInspect = restore })
+
+	name := "sandboxer-toolbox:latest"
+	// No store tar (a public/pulled ref): msb's cached copy is the only id.
+	if got := (msbRunner{}).imageID(name); got != "cached-digest" {
+		t.Fatalf("imageID with no store tar = %q, want the msb digest", got)
+	}
+
+	p := vmImagePath(name)
+	if err := os.MkdirAll(filepath.Dir(p), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(p, []byte("build-1"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	first := (msbRunner{}).imageID(name)
+	if len(first) != 64 {
+		t.Fatalf("imageID with a store tar = %q, want the tar's 64-hex id", first)
+	}
+	// A REBUILT tar (new bytes, fresh sidecar — vmStoreImage rewrites both)
+	// must flip the id even though msb's cached digest is unchanged.
+	if err := os.Remove(p + ".sha256"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(p, []byte("build-2"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if second := (msbRunner{}).imageID(name); second == first {
+		t.Fatal("rebuilt tar kept the old image id — a live machine would never read stale")
+	}
+}

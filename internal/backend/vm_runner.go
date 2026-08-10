@@ -125,8 +125,22 @@ func (msbRunner) listMachines() []vmMachine       { return msbListMachines() }
 
 // startsOnCreate: `msb create` boots the sandbox in the background, so the
 // lifecycle must NOT follow it with a start (which would fail on a running one).
-func (msbRunner) startsOnCreate() bool                  { return true }
-func (msbRunner) imageID(image string) string           { return msbImageInspect(image) }
+func (msbRunner) startsOnCreate() bool { return true }
+
+// imageID answers "what would a create boot NOW", which for a store-built
+// toolbox image is the build tar's content id — NOT msb's own cached digest.
+// The cached digest only changes after msbEnsureImage re-imports the tar, and
+// that runs inside create/recreate — after planSession already ruled. Reading
+// it here compared the old copy against itself, so a rebuilt image never went
+// stale and a live machine kept its old rootfs forever (`image build` looked
+// like a no-op). A public ref has no store tar (vmImageID "") — msb's cached
+// copy is all there is, and "" skips the freshness check as before.
+func (msbRunner) imageID(image string) string {
+	if id := vmImageID(image); id != "" {
+		return id
+	}
+	return msbImageInspect(image)
+}
 func (msbRunner) recordDir() string                     { return msbEngine }
 func (msbRunner) preflight(o RunOpts) error             { return msbPreflight(o) }
 func (msbRunner) ensureImage(o RunOpts) (string, error) { return msbEnsureImage(o) }
