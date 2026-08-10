@@ -145,8 +145,9 @@ func TestMSBNetworkArgs(t *testing.T) {
 		{
 			// The guest's 127.0.0.1 is its own stack, so a loopback proxy is
 			// rewritten to msb's host alias AND the host group is opened on the
-			// proxy port — with `public` restated, since any explicit --net
-			// replaces the implicit open default.
+			// proxy port — with public restated in the same rule token, since
+			// any explicit rule replaces the implicit open default (and --net
+			// profiles only exist since msb 0.6.7).
 			name: "loopback proxy is rewritten to the host alias",
 			o:    RunOpts{RT: config.Runtime{Egress: true, Proxy: "http://127.0.0.1:8888"}},
 			want: []string{
@@ -154,7 +155,7 @@ func TestMSBNetworkArgs(t *testing.T) {
 				"-e", "http_proxy=http://host.microsandbox.internal:8888",
 				"-e", "HTTPS_PROXY=http://host.microsandbox.internal:8888",
 				"-e", "https_proxy=http://host.microsandbox.internal:8888",
-				"--net", "public", "--net-rule", "allow@host:tcp:8888",
+				"--net-rule", "allow@public,allow@host:tcp:8888",
 			},
 		},
 	}

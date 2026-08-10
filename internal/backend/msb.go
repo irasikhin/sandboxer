@@ -225,10 +225,12 @@ func msbNetworkArgs(o RunOpts) []string {
 			args = append(args, "-e", "NO_PROXY="+o.RT.NoProxy, "-e", "no_proxy="+o.RT.NoProxy)
 		}
 		if hostRule != "" {
-			// Any explicit --net flag replaces the implicit open default, so
-			// `public` must be restated alongside the host rule to keep this
-			// the "open network + proxy" mode.
-			args = append(args, "--net", "public", "--net-rule", hostRule)
+			// Rule-only invocation: any explicit rule replaces the implicit
+			// open default with deny-by-default + exactly these rules, so
+			// public is restated beside the host rule. Spelled as --net-rule
+			// tokens, NOT `--net public` profiles: the --net flag only exists
+			// since msb 0.6.7, while this vocabulary parses on every 0.6.x.
+			args = append(args, "--net-rule", "allow@public,"+hostRule)
 		}
 		return args
 	}
