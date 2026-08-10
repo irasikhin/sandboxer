@@ -130,6 +130,19 @@ let
     #   location = "mirror.gcr.io"
   '';
 
+  # Guest identity files (/etc/passwd, /etc/group). Container engines never
+  # consult them for exec (the uid is numeric), but microsandbox >= 0.6.7
+  # resolves the exec user against the GUEST's /etc/passwd, and without these
+  # every exec into the machine dies with "failed to resolve guest uid 0".
+  # Entries mirror the generated files the nestedContainers container path
+  # bind-mounts (internal/sandbox/subid.go) — and those mounts land OVER
+  # these, so on that path this pair only ever back-fills.
+  guestNss = pkgs.runCommand "guest-nss" { } ''
+    mkdir -p $out/etc
+    printf 'root:x:0:0:root:/root:/bin/bash\nnobody:x:65534:65534:nobody:/var/empty:/bin/sh\n' > $out/etc/passwd
+    printf 'root:x:0:\nnobody:x:65534:\n' > $out/etc/group
+  '';
+
   # `docker` inside the sandbox — a shim, not the real client. The docker
   # CLI speaks to a daemon over a socket, and no engine socket is ever
   # mounted into a sandbox (that is the whole point: not docker-in-docker),
@@ -322,6 +335,7 @@ in
         gitConfig
         tmuxConf
         dockerShim
+        guestNss
         containersPolicy
         containersRegistries
         containersStorage
@@ -353,8 +367,9 @@ in
     # blob there, so the nested podman's first pull dies with
     # "stat /var/tmp: no such file or directory" without it.
     fakeRootCommands = ''
-      mkdir -p /work /tmp /var/tmp
+      mkdir -p /work /tmp /var/tmp /root /var/empty
       chmod 1777 /tmp /var/tmp
+      chmod 700 /root
     '';
     enableFakechroot = true; # let npm-agent postinstall scripts run
   };
