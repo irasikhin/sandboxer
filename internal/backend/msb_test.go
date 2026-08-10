@@ -563,7 +563,7 @@ func TestMSBEngineResolution(t *testing.T) {
 	}
 
 	t.Setenv("SANDBOXER_MSB", "/nonexistent/msb-xyz")
-	if _, err := ResolveEngine("microsandbox", config.Defaults{Engine: "docker"}); err == nil {
+	if _, err := ResolveEngine("microsandbox", config.Defaults{}); err == nil {
 		t.Error("a missing msb must error, never fall back to a container engine")
 	}
 	if p, _, _, _ := MsbStatus(); p {

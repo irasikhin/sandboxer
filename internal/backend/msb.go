@@ -208,9 +208,8 @@ func msbCommonArgs(o RunOpts) []string {
 //     over HTTP and HTTPS, and a raw IP — even the allowed domain's own — is
 //     refused.
 //   - egress on with an EMPTY allowlist → --no-net alone: a fully offline
-//     machine, a valid state here (the container path's errEmptyAllowlist exists
-//     because a container with no sidecar would be OPEN, which is not true of a
-//     default-deny VM).
+//     machine, a valid state (a default-deny VM with no rules simply reaches
+//     nothing).
 //
 // These flags live in the create argv, so they fold into the session hash: a
 // domain added or egress toggled recreates the machine.
@@ -255,9 +254,9 @@ func msbNetworkArgs(o RunOpts) []string {
 // own smoltcp stack, so dialing 127.0.0.1 in-guest is refused immediately.
 const msbHostAlias = "host.microsandbox.internal"
 
-// msbGuestProxyURL adapts egress.proxy for the msb guest, mirroring
-// config.ContainerProxyURL: a loopback proxy host (the common tunnel-client
-// case) becomes msbHostAlias, everything else passes through untouched. The
+// msbGuestProxyURL adapts egress.proxy for the msb guest: a loopback proxy
+// host (the common tunnel-client case) becomes msbHostAlias, everything else
+// passes through untouched — a guest cannot dial the HOST's loopback. The
 // second return is the --net-rule that dial needs — gateway IPs classify as
 // the `host` destination group, which the default allow@public policy DENIES —
 // scoped to the proxy's port ("" when nothing was rewritten: a public proxy is

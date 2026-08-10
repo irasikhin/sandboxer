@@ -215,8 +215,8 @@ func stageProfileJSON(o RunOpts) error {
 //   - egress on with an allowlist → --allow-host per domain (each implies --net),
 //     the fail-closed default: only the listed hosts resolve;
 //   - egress on with an EMPTY allowlist → no flag at all, a fully offline machine
-//     (a VALID state here, unlike the container path's errEmptyAllowlist — with no
-//     route by default, "allow nothing" is simply "reach nothing").
+//     (a VALID state: with no route by default, "allow nothing" is simply
+//     "reach nothing").
 //
 // The flags live in the create argv, so they fold into vmSessionWantHash: adding
 // a domain, toggling egress, or changing the proxy recreates the machine (the

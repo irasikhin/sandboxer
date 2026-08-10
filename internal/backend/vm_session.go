@@ -454,20 +454,13 @@ func vmOrphanSessions(engine string) ([]string, error) {
 }
 
 // RemoveCommand renders a copy-pasteable command that removes the named
-// sessions on this engine, for a hint like doctor's orphan line.
-//
-// The container engines take every name in one `rm -f`. The microVM runners do
-// not: they remove one machine per call and their verbs differ (smolvm `machine
-// delete --name X -f`, microsandbox `remove -f X`), so the container spelling a
-// hint would otherwise hardcode is simply not a command there. This went
-// unnoticed because microVM orphans never surfaced in the first place — the
-// sweep read only the host-side records (see vmOrphanSessions).
+// sessions on this runner, for a hint like doctor's orphan line. The runners
+// remove one machine per call and their verbs differ (smolvm `machine delete
+// --name X -f`, microsandbox `remove -f X`), so the hint renders one command
+// per machine in the runner's own dialect.
 func RemoveCommand(engine string, names []string) string {
 	if len(names) == 0 {
 		return ""
-	}
-	if !isVMEngine(engine) {
-		return engine + " rm -f " + strings.Join(names, " ")
 	}
 	r := vmRunnerFor(engine)
 	cmds := make([]string, 0, len(names))

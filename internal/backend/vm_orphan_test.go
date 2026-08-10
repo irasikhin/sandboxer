@@ -123,15 +123,11 @@ func TestVMOrphansSorted(t *testing.T) {
 }
 
 // TestRemoveCommandPerEngine pins the removal hint doctor prints. It must be a
-// command the user can actually paste: the container spelling (`<engine> rm -f
-// a b`) is not a smolvm or microsandbox command at all, and nothing caught that
-// while microVM orphans were invisible.
+// command the user can actually paste, in each runner's own dialect — never a
+// container-era `<engine> rm -f a b` spelling.
 func TestRemoveCommandPerEngine(t *testing.T) {
-	if got := RemoveCommand("docker", nil); got != "" {
+	if got := RemoveCommand(smolvmEngine, nil); got != "" {
 		t.Errorf("no names should render no command, got %q", got)
-	}
-	if got := RemoveCommand("docker", []string{"a", "b"}); got != "docker rm -f a b" {
-		t.Errorf("docker: %q", got)
 	}
 	for _, tc := range []struct{ engine, want string }{
 		{smolvmEngine, "machine delete --name a -f"},

@@ -437,7 +437,6 @@ func (b *Base) RemoveState(slug string, keepHome bool) {
 			_ = worktree.Remove(top, dest)
 		}
 	}
-	ids := b.NestedIDFiles(slug)
 	paths := []string{
 		dest,
 		b.MetaFilePath(slug),
@@ -445,9 +444,6 @@ func (b *Base) RemoveState(slug string, keepHome bool) {
 		b.SrcsMetaPath(slug),
 		b.setupStampPath(slug),
 		b.genPath(slug),
-		// Generated nested-podman identity files: regenerated on the next
-		// enter, never user data.
-		ids.Passwd, ids.Group, ids.Subuid, ids.Subgid,
 	}
 	if !keepHome {
 		// A full removal (rm/clean/recreate --full) discards the saved session

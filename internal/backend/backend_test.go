@@ -20,16 +20,6 @@ func requireExec(t *testing.T, names ...string) {
 	}
 }
 
-// writeEngineScript writes an executable stub that appends each invocation's
-// argv to logPath and exits with $SBX_EXIT (default 0).
-func writeEngineScript(t *testing.T, path, logPath string) {
-	t.Helper()
-	script := "#!/bin/sh\nprintf '%s\\n' \"$*\" >> \"" + logPath + "\"\nexit ${SBX_EXIT:-0}\n"
-	if err := os.WriteFile(path, []byte(script), 0o755); err != nil {
-		t.Fatal(err)
-	}
-}
-
 // --- pure helpers -----------------------------------------------------------
 
 func TestExitCode(t *testing.T) {
@@ -63,7 +53,7 @@ func TestIsTerminal(t *testing.T) {
 
 // TestIsInteractiveTerminalRejectsDevNull is the reason the stricter check
 // exists. /dev/null IS a character device, so IsTerminal answers yes for it —
-// harmless when choosing the engine's -t flag, and not harmless for a blocking
+// harmless when choosing the runner's -t flag, and not harmless for a blocking
 // prompt: `sandboxer enter < /dev/null` printed a question into the void.
 // Observed on a real engine before this split.
 func TestIsInteractiveTerminalRejectsDevNull(t *testing.T) {
@@ -96,28 +86,10 @@ func TestPathExists(t *testing.T) {
 	}
 }
 
-func TestExtraMountsAndEnv(t *testing.T) {
-	if extraMountsAndEnv(nil) != nil {
-		t.Error("nil profile should yield nil")
-	}
-	p := &config.Profile{
-		ExtraMounts: []config.Mount{
-			{Source: "/s", Target: "/t"}, // default mode rw
-			{Source: "/a", Target: "/b", Mode: "ro"},
-		},
-		Env: map[string]string{"K": "V"},
-	}
-	got := strings.Join(extraMountsAndEnv(p), " ")
-	for _, want := range []string{"--volume /s:/t:rw", "--volume /a:/b:ro", "--env K=V"} {
-		if !strings.Contains(got, want) {
-			t.Errorf("extraMountsAndEnv missing %q in %q", want, got)
-		}
-	}
-}
-
 // TestNoCredentialPassthrough pins the auth posture: NOTHING credential-like
-// leaves the host — no API-key env vars, no credential-dir mounts. The user
-// logs in or exports keys INSIDE the sandbox (its private $HOME persists).
+// leaves the host implicitly — no ambient API-key env vars, no credential-dir
+// mounts. Credentials travel only through the explicit AuthEnv channel (and on
+// the microVM runners only as key REFERENCES in argv, never values).
 func TestNoCredentialPassthrough(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
@@ -126,199 +98,76 @@ func TestNoCredentialPassthrough(t *testing.T) {
 	}
 	t.Setenv("ANTHROPIC_API_KEY", "secret")
 
-	argv, err := RunArgv(RunOpts{MountDest: true, Engine: "docker", Image: "img:1", Dest: "/d", Slug: "s", Args: []string{"true"}})
-	if err != nil {
-		t.Fatal(err)
+	for name, argv := range map[string][]string{
+		"smolvm run":       vmRunArgv(RunOpts{MountDest: true, Engine: smolvmEngine, Image: "img:1", Dest: "/d", Slug: "s", Args: []string{"true"}}),
+		"microsandbox run": msbRunArgv(RunOpts{MountDest: true, Engine: msbEngine, Image: "img:1", Dest: "/d", Slug: "s", Args: []string{"true"}}),
+	} {
+		got := strings.Join(argv, " ")
+		if strings.Contains(got, "ANTHROPIC_API_KEY") || strings.Contains(got, "secret") {
+			t.Errorf("%s: host API key leaked into the argv: %q", name, got)
+		}
+		if strings.Contains(got, ".claude") {
+			t.Errorf("%s: host credential dir leaked into the argv: %q", name, got)
+		}
 	}
+
+	// Even an explicit AuthEnv entry never puts the VALUE into smolvm's argv —
+	// only the key reference (--secret-env KEY=KEY).
+	argv := vmRunArgv(RunOpts{Engine: smolvmEngine, Image: "img:1", Dest: "/d", Slug: "s",
+		AuthEnv: []string{"ANTHROPIC_API_KEY=sk-tokenvalue"}, Args: []string{"true"}})
 	got := strings.Join(argv, " ")
-	if strings.Contains(got, "ANTHROPIC_API_KEY") || strings.Contains(got, "secret") {
-		t.Errorf("host API key leaked into the argv: %q", got)
+	if strings.Contains(got, "sk-tokenvalue") {
+		t.Errorf("auth VALUE leaked into smolvm argv: %q", got)
 	}
-	if strings.Contains(got, ".claude") {
-		t.Errorf("host credential dir leaked into the argv: %q", got)
-	}
-}
-
-func TestDetectEngine(t *testing.T) {
-	if e, err := DetectEngine(config.Defaults{Engine: "custom"}); err != nil || e != "custom" {
-		t.Errorf("explicit engine = %q, %v; want custom", e, err)
-	}
-
-	bin := t.TempDir()
-	t.Setenv("PATH", bin)
-	if _, err := DetectEngine(config.Defaults{}); err == nil {
-		t.Error("DetectEngine with no engines should error")
-	}
-	// docker only.
-	if err := os.WriteFile(filepath.Join(bin, "docker"), []byte("#!/bin/sh\n"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if e, err := DetectEngine(config.Defaults{}); err != nil || e != "docker" {
-		t.Errorf("docker-only = %q, %v; want docker", e, err)
-	}
-	// docker takes precedence over podman.
-	if err := os.WriteFile(filepath.Join(bin, "podman"), []byte("#!/bin/sh\n"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if e, err := DetectEngine(config.Defaults{}); err != nil || e != "docker" {
-		t.Errorf("podman+docker = %q, %v; want docker", e, err)
+	if !strings.Contains(got, "--secret-env ANTHROPIC_API_KEY=ANTHROPIC_API_KEY") {
+		t.Errorf("auth key reference missing from smolvm argv: %q", got)
 	}
 }
 
+// TestResolveEngine: only the microVM backends resolve, each to its runner's
+// engine identity; the removed container-era names and anything unknown error
+// with the migration hint.
 func TestResolveEngine(t *testing.T) {
-	// SANDBOXER_ENGINE wins regardless of the requested backend.
-	if e, err := ResolveEngine("docker", config.Defaults{Engine: "custom"}); err != nil || e != "custom" {
-		t.Errorf("explicit engine = %q, %v; want custom", e, err)
-	}
-
+	// given a host where both runner binaries exist
 	bin := t.TempDir()
 	t.Setenv("PATH", bin)
-	for _, name := range []string{"podman", "docker"} {
+	for _, name := range []string{"smolvm", "msb"} {
 		if err := os.WriteFile(filepath.Join(bin, name), []byte("#!/bin/sh\n"), 0o755); err != nil {
 			t.Fatal(err)
 		}
 	}
-	// An explicitly requested, installed engine is honored even though docker
-	// would otherwise win the auto-detect — the --backend choice must pin it.
-	if e, err := ResolveEngine("docker", config.Defaults{}); err != nil || e != "docker" {
-		t.Errorf("backend=docker (both installed) = %q, %v; want docker", e, err)
+	t.Setenv("SANDBOXER_SMOLVM", "")
+	t.Setenv("SANDBOXER_MSB", "")
+
+	// when/then: the two microVM backends resolve to their engine identities
+	if e, err := ResolveEngine("microvm", config.Defaults{}); err != nil || e != smolvmEngine {
+		t.Errorf("ResolveEngine(microvm) = %q, %v; want %q", e, err, smolvmEngine)
 	}
-	if e, err := ResolveEngine("podman", config.Defaults{}); err != nil || e != "podman" {
-		t.Errorf("backend=podman (both installed) = %q, %v; want podman", e, err)
+	if e, err := ResolveEngine("microsandbox", config.Defaults{}); err != nil || e != msbEngine {
+		t.Errorf("ResolveEngine(microsandbox) = %q, %v; want %q", e, err, msbEngine)
 	}
 
-	// A requested-but-missing engine falls back to whatever is installed, so a
-	// requested "podman" still works on a docker-only host.
-	dockerOnly := t.TempDir()
-	t.Setenv("PATH", dockerOnly)
-	if err := os.WriteFile(filepath.Join(dockerOnly, "docker"), []byte("#!/bin/sh\n"), 0o755); err != nil {
-		t.Fatal(err)
+	// then: container-era and unknown names error, naming the removal
+	for _, be := range []string{"", "auto", "docker", "podman", "native", "bogus"} {
+		e, err := ResolveEngine(be, config.Defaults{})
+		if err == nil {
+			t.Errorf("ResolveEngine(%q) = %q, want error", be, e)
+			continue
+		}
+		if !strings.Contains(err.Error(), "container backend was removed") {
+			t.Errorf("ResolveEngine(%q) error %q must name the container-backend removal", be, err)
+		}
 	}
-	if e, err := ResolveEngine("podman", config.Defaults{}); err != nil || e != "docker" {
-		t.Errorf("backend=podman on docker-only host = %q, %v; want docker fallback", e, err)
-	}
-	// EngineLabel never errors and reflects that fallback.
-	if l := EngineLabel("podman", config.Defaults{}); l != "docker" {
-		t.Errorf("EngineLabel(podman) on docker-only = %q; want docker", l)
-	}
-	// With no engine installed, EngineLabel returns the requested backend as-is.
+
+	// then: a requested runner whose binary is absent errors with the install hint
 	t.Setenv("PATH", t.TempDir())
-	if l := EngineLabel("podman", config.Defaults{}); l != "podman" {
-		t.Errorf("EngineLabel(podman) with no engine = %q; want podman", l)
+	if _, err := ResolveEngine("microvm", config.Defaults{}); err == nil ||
+		!strings.Contains(err.Error(), "smolvm") {
+		t.Errorf("ResolveEngine(microvm) without smolvm = %v, want install hint", err)
 	}
-}
-
-// --- container backend (fake engine) ---------------------------------------
-
-func TestContainerRun(t *testing.T) {
-	requireExec(t, "sh")
-	dir := t.TempDir()
-	logPath := filepath.Join(dir, "calls.log")
-	engine := filepath.Join(dir, "engine")
-	writeEngineScript(t, engine, logPath)
-	dest := t.TempDir()
-
-	code, err := Run(RunOpts{
-		MountDest: true, Engine: engine, Image: "toolbox:latest", Dest: dest, Slug: "s",
-		RT: config.Runtime{}, NoEgress: true, Args: []string{"echo", "hi"},
-		Stdin: strings.NewReader(""), Stdout: &bytes.Buffer{}, Stderr: &bytes.Buffer{},
-	})
-	if err != nil || code != 0 {
-		t.Fatalf("Run = (%d,%v)", code, err)
-	}
-	log, _ := os.ReadFile(logPath)
-	s := string(log)
-	for _, want := range []string{
-		"run --rm", "--cap-drop=ALL", "no-new-privileges",
-		"--workdir " + dest, dest + ":" + dest + ":rw",
-		"SANDBOXER_IN_CONTAINER=1", "SANDBOXER_SLUG=s",
-		"toolbox:latest", "echo hi",
-	} {
-		if !strings.Contains(s, want) {
-			t.Errorf("Run args missing %q in %q", want, s)
-		}
-	}
-	// A non-podman engine and a non-interactive run omit these.
-	if strings.Contains(s, "--userns=keep-id") {
-		t.Error("non-podman engine should not set --userns=keep-id")
-	}
-	if strings.Contains(s, " -i ") {
-		t.Error("non-interactive run should not pass -i")
-	}
-}
-
-func TestContainerRunProxyAndExit(t *testing.T) {
-	requireExec(t, "sh")
-	dir := t.TempDir()
-	logPath := filepath.Join(dir, "calls.log")
-	engine := filepath.Join(dir, "engine")
-	writeEngineScript(t, engine, logPath)
-	t.Setenv("SBX_EXIT", "7")
-
-	code, err := Run(RunOpts{
-		MountDest: true, Engine: engine, Image: "img", Dest: t.TempDir(), Slug: "s",
-		RT:       config.Runtime{Proxy: "http://p", Domains: []string{"x.com"}},
-		NoEgress: true, Interactive: true, Args: []string{"true"},
-		Stdin: strings.NewReader(""), Stdout: &bytes.Buffer{}, Stderr: &bytes.Buffer{},
-	})
-	if err != nil {
-		t.Fatalf("Run err: %v", err)
-	}
-	if code != 7 {
-		t.Errorf("exit code = %d, want 7 (propagated from engine)", code)
-	}
-	log, _ := os.ReadFile(logPath)
-	s := string(log)
-	for _, want := range []string{"HTTP_PROXY=http://p", "SANDBOXER_ALLOW_DOMAINS=x.com", " -i "} {
-		if !strings.Contains(s, want) {
-			t.Errorf("Run args missing %q in %q", want, s)
-		}
-	}
-}
-
-func TestContainerRunPodman(t *testing.T) {
-	requireExec(t, "sh")
-	bin := t.TempDir()
-	logPath := filepath.Join(t.TempDir(), "calls.log")
-	writeEngineScript(t, filepath.Join(bin, "podman"), logPath)
-	t.Setenv("PATH", bin+":"+os.Getenv("PATH"))
-
-	code, err := Run(RunOpts{
-		MountDest: true, Engine: "podman", Image: "img", Dest: t.TempDir(), Slug: "s",
-		RT: config.Runtime{}, NoEgress: true, Args: []string{"true"},
-		Stdin: strings.NewReader(""), Stdout: &bytes.Buffer{}, Stderr: &bytes.Buffer{},
-	})
-	if err != nil || code != 0 {
-		t.Fatalf("Run podman = (%d,%v)", code, err)
-	}
-	log, _ := os.ReadFile(logPath)
-	if !strings.Contains(string(log), "--userns=keep-id") {
-		t.Errorf("podman engine should set --userns=keep-id:\n%s", log)
-	}
-}
-
-func TestContainerRunLimits(t *testing.T) {
-	requireExec(t, "sh")
-	dir := t.TempDir()
-	logPath := filepath.Join(dir, "calls.log")
-	engine := filepath.Join(dir, "engine")
-	writeEngineScript(t, engine, logPath)
-
-	code, err := Run(RunOpts{
-		MountDest: true, Engine: engine, Image: "img", Dest: t.TempDir(), Slug: "s",
-		RT: config.Runtime{}, NoEgress: true,
-		Mem: "2G", CPU: "100%",
-		Args:  []string{"bash", "-lc", "true"},
-		Stdin: strings.NewReader(""), Stdout: &bytes.Buffer{}, Stderr: &bytes.Buffer{},
-	})
-	if err != nil || code != 0 {
-		t.Fatalf("Run = (%d,%v)", code, err)
-	}
-	s, _ := os.ReadFile(logPath)
-	for _, want := range []string{"--memory 2G", "--cpus 1"} {
-		if !strings.Contains(string(s), want) {
-			t.Errorf("limit flag %q missing from engine argv:\n%s", want, s)
-		}
+	if _, err := ResolveEngine("microsandbox", config.Defaults{}); err == nil ||
+		!strings.Contains(err.Error(), "msb") {
+		t.Errorf("ResolveEngine(microsandbox) without msb = %v, want install hint", err)
 	}
 }
 

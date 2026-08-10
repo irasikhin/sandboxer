@@ -491,7 +491,8 @@ func TestTmuxRestoreScript_NoTrailingNewline(t *testing.T) {
 }
 
 func TestCaptureTmuxState_EngineFailureIsNil(t *testing.T) {
-	if got := CaptureTmuxState("sandboxer-no-such-engine-xyz", "c"); got != nil {
+	t.Setenv("SANDBOXER_SMOLVM", "/nonexistent/smolvm-xyz")
+	if got := CaptureTmuxState(smolvmEngine, "c"); got != nil {
 		t.Fatalf("a failing engine must capture nil, got %#v", got)
 	}
 }
@@ -508,7 +509,7 @@ func TestCaptureTmuxState_TagsAgents(t *testing.T) {
 		"  110     1 -bash"
 
 	t.Run("tags the claude pane only", func(t *testing.T) {
-		engine, logPath := sessionEngine(t)
+		engine, logPath := guestEngine(t)
 		t.Setenv("SBX_PANES_OUT", panes)
 		t.Setenv("SBX_PSEO_OUT", ps)
 		got := CaptureTmuxState(engine, "c")
@@ -521,13 +522,13 @@ func TestCaptureTmuxState_TagsAgents(t *testing.T) {
 		if a := got[0].Windows[0].Panes[1].Agent; a != "" {
 			t.Errorf("pane 1 Agent = %q, want empty", a)
 		}
-		if lines := engineLog(t, logPath); !hasLine(lines, "exec c ps -eo pid=,ppid=,args=") {
+		if lines := engineLog(t, logPath); !hasLine(lines, "machine exec --name c -- ps -eo pid=,ppid=,args=") {
 			t.Errorf("missing the one ps listing:\n%s", strings.Join(lines, "\n"))
 		}
 	})
 
 	t.Run("ps failure keeps the layout untagged", func(t *testing.T) {
-		engine, _ := sessionEngine(t)
+		engine, _ := guestEngine(t)
 		t.Setenv("SBX_PANES_OUT", panes)
 		t.Setenv("SBX_PSEO_FAIL", "1")
 		got := CaptureTmuxState(engine, "c")
@@ -542,12 +543,12 @@ func TestCaptureTmuxState_TagsAgents(t *testing.T) {
 	})
 
 	t.Run("no pane pids skips the ps exec", func(t *testing.T) {
-		engine, logPath := sessionEngine(t)
+		engine, logPath := guestEngine(t)
 		t.Setenv("SBX_PANES_OUT", strings.Join([]string{"main", "0", "w", "1", "L", "0", "1", "/x", "bash"}, "\t"))
 		if got := CaptureTmuxState(engine, "c"); len(got) != 1 {
 			t.Fatalf("nine-field capture = %#v", got)
 		}
-		if lines := engineLog(t, logPath); findPrefixLine(lines, "exec c ps") != "" {
+		if lines := engineLog(t, logPath); findPrefixLine(lines, "machine exec --name c -- ps") != "" {
 			t.Errorf("pid-less capture must not run ps:\n%s", strings.Join(lines, "\n"))
 		}
 	})
@@ -571,7 +572,7 @@ func TestSyncSessionState(t *testing.T) {
 	}
 
 	t.Run("live layout refreshes the save", func(t *testing.T) {
-		engine, _ := sessionEngine(t)
+		engine, _ := guestEngine(t)
 		path := seed(t)
 		t.Setenv("SBX_PANES_OUT", line("main", "0", "w", "1", "L", "0", "1", "/new", "bash", "0"))
 		SyncSessionState(engine, "c", path)
@@ -582,7 +583,7 @@ func TestSyncSessionState(t *testing.T) {
 	})
 
 	t.Run("positive idleness resets to empty", func(t *testing.T) {
-		engine, _ := sessionEngine(t)
+		engine, _ := guestEngine(t)
 		path := seed(t)
 		// Every exec fails with tmux's own "no server" answer: the capture is
 		// empty AND the idleness probe positively confirms it.
@@ -599,7 +600,7 @@ func TestSyncSessionState(t *testing.T) {
 	})
 
 	t.Run("unexplained failure keeps the last save", func(t *testing.T) {
-		engine, _ := sessionEngine(t)
+		engine, _ := guestEngine(t)
 		path := seed(t)
 		t.Setenv("SBX_FAIL_ON", "exec")
 		t.Setenv("SBX_STDERR", "cannot connect to the engine")
@@ -610,7 +611,7 @@ func TestSyncSessionState(t *testing.T) {
 	})
 
 	t.Run("empty statePath is a no-op", func(t *testing.T) {
-		engine, logPath := sessionEngine(t)
+		engine, logPath := guestEngine(t)
 		SyncSessionState(engine, "c", "")
 		if lines := engineLog(t, logPath); lines != nil {
 			t.Fatalf("no state path, no engine calls:\n%s", strings.Join(lines, "\n"))
@@ -619,14 +620,15 @@ func TestSyncSessionState(t *testing.T) {
 }
 
 func TestSaveSessionState(t *testing.T) {
+	t.Setenv("SANDBOXER_SMOLVM", "/nonexistent/smolvm-xyz")
 	path := filepath.Join(t.TempDir(), "s.session.json")
 	// No path → never saves.
-	if SaveSessionState("docker", "c", "") {
+	if SaveSessionState(smolvmEngine, "c", "") {
 		t.Error("empty statePath must not save")
 	}
-	// A failed capture (bogus engine) reports no save and writes no file — an
-	// earlier saved layout must never be overwritten with emptiness.
-	if SaveSessionState("sandboxer-no-such-engine-xyz", "c", path) {
+	// A failed capture (missing runner binary) reports no save and writes no
+	// file — an earlier saved layout must never be overwritten with emptiness.
+	if SaveSessionState(smolvmEngine, "c", path) {
 		t.Error("a failed capture must not report a save")
 	}
 	if _, err := os.Stat(path); !os.IsNotExist(err) {

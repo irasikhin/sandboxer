@@ -1,32 +1,21 @@
 package backend
 
 import (
-	"errors"
 	"strings"
 )
 
-// This file holds the backend-neutral session policy: the pure decisions that
+// This file holds the runner-neutral session policy: the pure decisions that
 // converge a persistent session, plus the data shape an inspect reveals. None
 // of it shells out to an engine, so it is unit-testable without one AND shared
-// verbatim by every isolation backend (container today, microVM next) — a
-// second backend supplies its own inspect and argv, but reuses this decision
-// table so the two can never disagree on when a session is stale.
+// verbatim by both microVM runners — each supplies its own inspect and argv,
+// but reuses this decision table so the two can never disagree on when a
+// session is stale.
 
-// errEmptyAllowlist rejects an egress-required run with nothing on the
-// allowlist: that is always a misconfiguration, never a "block everything"
-// mode. Shared by the one-shot Run and the persistent-session paths so both
-// fail closed with the same guidance.
-var errEmptyAllowlist = errors.New("egress allowlist is enabled but no domains are allowed — " +
-	"set --allow-domains / egress.allowedDomains, or disable the allowlist " +
-	"(egress.enabled = false, or SANDBOXER_NO_EGRESS=1)")
-
-// egressRequired reports whether o must run behind the egress allowlist
-// sidecar: enabled (egress.enabled = true, the default) and not killed by the
-// operator (NoEgress / SANDBOXER_NO_EGRESS). A configured proxy no longer
-// disables the allowlist — with the allowlist on the proxy is CHAINED through
-// the sidecar; only egress.enabled = false drops to direct mode. The single
-// policy predicate for Run and the session lifecycle — they must never disagree,
-// because the session ConfigHash depends on it.
+// egressRequired reports whether o must run behind the egress allowlist:
+// enabled (egress.enabled = true, the default) and not killed by the operator
+// (NoEgress / SANDBOXER_NO_EGRESS). The single policy predicate for Run and
+// the session lifecycle — they must never disagree, because the session hash
+// depends on it.
 func egressRequired(o RunOpts) bool {
 	return !o.NoEgress && o.RT.Egress
 }
@@ -65,9 +54,9 @@ func ImageFresh(got, want string) bool {
 type sessionAction int
 
 const (
-	actCreate   sessionAction = iota // no container — create one
-	actStart                         // stopped container, fresh config — start it
-	actExec                          // running container, fresh config — use as-is
+	actCreate   sessionAction = iota // no machine — create one
+	actStart                         // stopped machine, fresh config — start it
+	actExec                          // running machine, fresh config — use as-is
 	actRecreate                      // config changed — replace it (announced)
 )
 

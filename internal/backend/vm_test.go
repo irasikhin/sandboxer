@@ -315,7 +315,7 @@ func TestSweepEngines(t *testing.T) {
 // install hint.
 func TestResolveSmolvmMissing(t *testing.T) {
 	t.Setenv("SANDBOXER_SMOLVM", "/nonexistent/smolvm-definitely-not-here")
-	_, err := ResolveEngine("microvm", config.Defaults{Engine: "docker"})
+	_, err := ResolveEngine("microvm", config.Defaults{})
 	if err == nil {
 		t.Fatal("microvm with a missing smolvm must error, not fall back to docker")
 	}
