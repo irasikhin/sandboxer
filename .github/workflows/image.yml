@@ -1,0 +1,66 @@
+# Prebuilt toolbox image → GHCR.
+#
+# Builds the stock toolbox image (`nix build .#image` — the same derivation
+# `sandboxer image build` realizes locally) and pushes it to
+# ghcr.io/irasikhin/sandboxer-toolbox, the ref config.DefaultImage names.
+# A stock `sandboxer enter` then PULLS a prebuilt image (msb caches it
+# host-side) instead of compiling the multi-GB closure with host nix.
+#
+#   - The NIGHTLY run keeps `latest` fresh: the flake's agent pins re-resolve
+#     at build time, so a daily rebuild is what keeps the baked-in agents
+#     current. Hosts refresh an already-cached `latest` with
+#     `sandboxer image pull` (a create only pulls a MISSING ref).
+#   - A v* tag push ALSO copies the image to :vX.Y.Z, pinning the image that
+#     release shipped with (SANDBOXER_IMAGE selects a pin).
+#   - Pushing uses skopeo straight from the nix-built docker-archive (skopeo
+#     reads the gzipped tar fine) — no docker daemon anywhere in the path.
+#
+# ── OWNER ACTION REQUIRED, ONCE ──────────────────────────────────────────────
+# The FIRST push creates the GHCR package as PRIVATE, and the workflow's
+# GITHUB_TOKEN CANNOT change package visibility. After the first successful
+# run, flip
+#   https://github.com/users/irasikhin/packages/container/sandboxer-toolbox
+# to PUBLIC in the package settings — until then an anonymous `msb pull` of
+# the default image fails for every user.
+# ─────────────────────────────────────────────────────────────────────────────
+name: image
+
+on:
+  schedule:
+    - cron: "0 3 * * *"
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      # The toolbox closure needs the space the preinstalled toolchains hog
+      # (same step as release.yml's image smoke build).
+      - name: free disk space
+        run: sudo rm -rf /opt/hostedtoolcache /usr/local/lib/android /usr/share/dotnet || true
+      - uses: cachix/install-nix-action@v31
+        with:
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+            accept-flake-config = true
+      - run: nix build .#image -o result-toolbox --print-build-logs
+      - name: push to GHCR (skopeo, no docker daemon)
+        run: |
+          nix run nixpkgs#skopeo -- login ghcr.io -u "${{ github.actor }}" --password-stdin \
+            <<< "${{ secrets.GITHUB_TOKEN }}"
+          nix run nixpkgs#skopeo -- copy \
+            docker-archive:./result-toolbox \
+            docker://ghcr.io/irasikhin/sandboxer-toolbox:latest
+          # A release tag additionally pins the image that release shipped with.
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            nix run nixpkgs#skopeo -- copy \
+              docker-archive:./result-toolbox \
+              "docker://ghcr.io/irasikhin/sandboxer-toolbox:${GITHUB_REF_NAME}"
+          fi
