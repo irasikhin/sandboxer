@@ -4,6 +4,7 @@ package backend
 
 import (
 	"bytes"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -14,6 +15,16 @@ import (
 	"github.com/irasikhin/sandboxer/internal/config"
 	"github.com/irasikhin/sandboxer/internal/itest"
 )
+
+// hostResolves reports whether the HOST can resolve name — the "is there an
+// outbound path at all" gate for the tests that need the real internet. In-
+// process on purpose: shelling out to getent skipped these tests on any runner
+// whose PATH lacks it (the CI pod), reading a missing binary as a missing
+// network.
+func hostResolves(name string) bool {
+	_, err := net.LookupHost(name)
+	return err == nil
+}
 
 // These exercise the REAL microsandbox backend end to end (a live msb sandbox),
 // driving the exported dispatch (EnsureSession/ExecSession/…) exactly as the CLI
@@ -146,7 +157,7 @@ func TestMSB_GuestWriteUID_RealEngine(t *testing.T) {
 // outbound path, so it never fails for the network's reasons.
 func TestMSB_EgressAllowlist_RealEngine(t *testing.T) {
 	engine := itest.Microsandbox(t)
-	if exec.Command("sh", "-c", "getent hosts example.com >/dev/null 2>&1").Run() != nil {
+	if !hostResolves("example.com") {
 		t.Skip("no outbound DNS on this host — skipping the egress allowlist check")
 	}
 	dest := itest.MSBTempDir(t)
@@ -197,7 +208,7 @@ func TestMSB_NestedContainer_RealEngine(t *testing.T) {
 	if os.Getenv("SANDBOXER_ITEST_MSB_IMAGE") == "" {
 		t.Skip("nested-container check needs the REAL toolbox image — set SANDBOXER_ITEST_MSB_IMAGE to the toolbox tar (it carries docker/podman/compose)")
 	}
-	if exec.Command("sh", "-c", "getent hosts registry-1.docker.io >/dev/null 2>&1").Run() != nil {
+	if !hostResolves("registry-1.docker.io") {
 		t.Skip("no outbound DNS on this host — skipping the nested-container check")
 	}
 	dest := itest.MSBTempDir(t)
