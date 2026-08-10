@@ -6,6 +6,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.73.5] — 2026-08-10
+
+### Fixed
+
+- reach a host-loopback egress proxy from the guest (3e83739)
+
+
 ## [0.73.4] — 2026-08-10
 
 ### Fixed
@@ -1067,3 +1074,4 @@ isolated, containerized dev sandbox, on a local Linux machine:
 [0.73.2]: https://github.com/irasikhin/sandboxer/compare/v0.73.1...v0.73.2
 [0.73.3]: https://github.com/irasikhin/sandboxer/compare/v0.73.2...v0.73.3
 [0.73.4]: https://github.com/irasikhin/sandboxer/compare/v0.73.3...v0.73.4
+[0.73.5]: https://github.com/irasikhin/sandboxer/compare/v0.73.4...v0.73.5
