@@ -1,6 +1,7 @@
 package backend
 
 import (
+	"compress/gzip"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -510,13 +511,61 @@ func msbLoadStoredImage(image string, stderr io.Writer) error {
 	if stderr != nil {
 		fmt.Fprintf(stderr, "sandboxer: importing %s into the microsandbox image store…\n", image)
 	}
-	if err := msbLoadImage(image, tar, stderr); err != nil {
+	src, cleanup, err := msbLoadableTar(tar)
+	if err != nil {
+		return fmt.Errorf("load image %q into microsandbox: %w", image, err)
+	}
+	defer cleanup()
+	if err := msbLoadImage(image, src, stderr); err != nil {
 		return fmt.Errorf("load image %q into microsandbox: %w", image, err)
 	}
 	if p := msbLoadMarkerPath(image); p != "" {
 		_ = os.WriteFile(p, []byte(vmImageID(image)), 0o600)
 	}
 	return nil
+}
+
+// msbLoadableTar returns a path holding the store tar in the form `msb load`
+// accepts, with a cleanup for any temp file it made. The store artifact is the
+// nix buildLayeredImage output — a GZIPPED docker tarball, which docker load and
+// smolvm's importer decompress transparently — but msb opens the outer archive
+// raw and dies parsing gzip bytes as a tar header ("numeric field did not have
+// utf-8 text… when getting cksum"). A gzipped tar is therefore streamed out
+// BESIDE the store tar (never /tmp — often a tmpfs too small for a multi-GB
+// image; the sibling temp also inherits the store's filesystem, the EXDEV
+// lesson) for the one-time import; a plain tar passes through as-is.
+func msbLoadableTar(tarPath string) (string, func(), error) {
+	f, err := os.Open(tarPath)
+	if err != nil {
+		return "", nil, err
+	}
+	defer func() { _ = f.Close() }()
+	magic := make([]byte, 2)
+	if n, _ := io.ReadFull(f, magic); n < 2 || magic[0] != 0x1f || magic[1] != 0x8b {
+		return tarPath, func() {}, nil
+	}
+	if _, err := f.Seek(0, io.SeekStart); err != nil {
+		return "", nil, err
+	}
+	gz, err := gzip.NewReader(f)
+	if err != nil {
+		return "", nil, fmt.Errorf("decompress %s: %w", tarPath, err)
+	}
+	defer func() { _ = gz.Close() }()
+	tmp, err := os.CreateTemp(filepath.Dir(tarPath), ".msb-load-*.tar")
+	if err != nil {
+		return "", nil, err
+	}
+	if _, err := io.Copy(tmp, gz); err != nil {
+		_ = tmp.Close()
+		_ = os.Remove(tmp.Name())
+		return "", nil, fmt.Errorf("decompress %s: %w", tarPath, err)
+	}
+	if err := tmp.Close(); err != nil {
+		_ = os.Remove(tmp.Name())
+		return "", nil, err
+	}
+	return tmp.Name(), func() { _ = os.Remove(tmp.Name()) }, nil
 }
 
 // msbLoadMarkerPath is the sidecar recording WHICH build tar was imported under

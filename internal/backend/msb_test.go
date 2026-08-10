@@ -2,6 +2,7 @@ package backend
 
 import (
 	"bytes"
+	"compress/gzip"
 	"io"
 	"os"
 	"path/filepath"
@@ -621,6 +622,78 @@ func TestMSBEnsureImage(t *testing.T) {
 	_ = os.Remove(vmImagePath(o.Image) + ".sha256")
 	if _, err := msbEnsureImage(o); err != nil || built != 1 || loaded != config.DefaultImage {
 		t.Errorf("a rebuilt tar was not reimported (built=%d loaded=%q, err=%v)", built, loaded, err)
+	}
+}
+
+// TestMSBLoadStoredImageGzip pins the store-tar handoff format: the stored
+// artifact is nix's buildLayeredImage output — a GZIPPED docker tarball — and
+// msb's load reads the outer archive raw, so the import must hand msb an
+// uncompressed temp copy (made beside the store tar, never /tmp) and remove it
+// afterwards. A plain tar passes through under its own store path.
+func TestMSBLoadStoredImageGzip(t *testing.T) {
+	t.Setenv("SANDBOXER_STATE", t.TempDir())
+	restoreLoad := msbLoadImage
+	t.Cleanup(func() { msbLoadImage = restoreLoad })
+	if err := os.MkdirAll(vmImagesDir(), 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	var gzTar bytes.Buffer
+	zw := gzip.NewWriter(&gzTar)
+	if _, err := zw.Write([]byte("docker-save tar bytes")); err != nil {
+		t.Fatal(err)
+	}
+	if err := zw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	store := vmImagePath("img:1")
+	if err := os.WriteFile(store, gzTar.Bytes(), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	var loadedTar string
+	msbLoadImage = func(_, tar string, _ io.Writer) error {
+		loadedTar = tar
+		data, err := os.ReadFile(tar)
+		if err != nil {
+			t.Errorf("read the tar handed to msb load: %v", err)
+		}
+		if string(data) != "docker-save tar bytes" {
+			t.Errorf("msb load got %q, want the DECOMPRESSED tar", data)
+		}
+		return nil
+	}
+	if err := msbLoadStoredImage("img:1", nil); err != nil {
+		t.Fatalf("msbLoadStoredImage: %v", err)
+	}
+	if loadedTar == store {
+		t.Error("a gzipped store tar was handed to msb load raw")
+	}
+	if filepath.Dir(loadedTar) != vmImagesDir() {
+		t.Errorf("temp tar %q not beside the store (avoid tmpfs /tmp)", loadedTar)
+	}
+	if pathExists(loadedTar) {
+		t.Errorf("temp tar %q left behind after the import", loadedTar)
+	}
+
+	// A plain (uncompressed) tar is handed over under its own store path.
+	if err := os.WriteFile(store, []byte("plain tar"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	msbLoadImage = func(_, tar string, _ io.Writer) error { loadedTar = tar; return nil }
+	if err := msbLoadStoredImage("img:1", nil); err != nil {
+		t.Fatalf("msbLoadStoredImage(plain): %v", err)
+	}
+	if loadedTar != store {
+		t.Errorf("a plain tar was copied to %q, want the store path handed over as-is", loadedTar)
+	}
+
+	// A gzip magic with a corrupt body is an error, not a truncated import.
+	if err := os.WriteFile(store, []byte{0x1f, 0x8b, 0xff, 0xff}, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := msbLoadStoredImage("img:1", nil); err == nil {
+		t.Error("a corrupt gzipped tar must fail the import")
 	}
 }
 
