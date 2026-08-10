@@ -7,6 +7,7 @@ import (
 	"io"
 	"maps"
 	"math"
+	"net"
 	"net/url"
 	"os"
 	"os/exec"
@@ -30,7 +31,7 @@ import (
 // Three msb capabilities this adapter leans on:
 //
 //   - a NAME-BOUND network policy engine (--net-rule) whose `*.suffix` targets
-//     are exactly squid's leading-dot grammar, so the allowlist survives the
+//     cover the domain and its subdomains, so the allowlist survives the
 //     translation intact instead of narrowing to exact hosts;
 //   - an image STORE (msb load) — the toolbox tar is imported once and every
 //     later create is boot-only, instead of re-importing a multi-GB tar;
@@ -196,50 +197,75 @@ func msbCommonArgs(o RunOpts) []string {
 // an OPEN network (an implicit allow@public when no rule is given), so the
 // states are:
 //
-//   - egress.proxy set → proxy-delegated egress: leave the network open and
-//     point the guest's HTTP(S) clients at the proxy. There is no squid in the
-//     path, so the proxy IS the control point. A loopback proxy is REWRITTEN
-//     to msbHostAlias and the host group opened on its port (msbGuestProxyURL)
-//     — msb's guest has a real network stack where 127.0.0.1 is guest-local.
-//   - egress disabled (egress.enabled = false / SANDBOXER_NO_EGRESS) → open, no
-//     flags at all.
-//   - egress on with an allowlist → --no-net (default deny) plus one allow rule
-//     per domain. The rules are NAME-bound and per-port, so they mirror the
-//     squid sidecar they replace: the domain AND its subdomains over HTTP and
-//     HTTPS, and a raw IP — even the allowed domain's own — is refused.
-//   - egress on with an EMPTY allowlist → --no-net alone: a fully offline
-//     machine, a valid state (a default-deny VM with no rules simply reaches
-//     nothing).
+//   - egress on + proxy → the COMBINED WALL: --no-net (default deny), the
+//     allowlist rules, exactly one extra door — the proxy's port — and the
+//     guest's HTTP(S) clients pointed at the proxy. A loopback proxy is
+//     REWRITTEN to msbHostAlias (msb's guest has a real network stack where
+//     127.0.0.1 is guest-local); a remote proxy gets a name-bound door rule
+//     of its own (msbGuestProxyURL). An empty allowlist leaves only the door:
+//     all egress rides the proxy.
+//   - egress on, no proxy → --no-net plus one allow rule per domain: the
+//     domain AND its subdomains over HTTP and HTTPS, matched by NAME — a raw
+//     IP, even an allowed domain's own, is refused. An EMPTY allowlist is
+//     --no-net alone: a fully offline machine, a valid state (a default-deny
+//     VM with no rules simply reaches nothing).
+//   - egress disabled + proxy → an open network with the proxy env set:
+//     routing convenience, no wall.
+//   - egress disabled (egress.enabled = false / SANDBOXER_NO_EGRESS) → open,
+//     no flags at all.
 //
 // These flags live in the create argv, so they fold into the session hash: a
-// domain added or egress toggled recreates the machine.
+// domain added, a proxy set or egress toggled recreates the machine.
 func msbNetworkArgs(o RunOpts) []string {
 	if p := o.RT.Proxy; p != "" {
-		p, hostRule := msbGuestProxyURL(p)
+		guestURL, doorRule := msbGuestProxyURL(p)
 		args := []string{
-			"-e", "HTTP_PROXY=" + p, "-e", "http_proxy=" + p,
-			"-e", "HTTPS_PROXY=" + p, "-e", "https_proxy=" + p,
+			"-e", "HTTP_PROXY=" + guestURL, "-e", "http_proxy=" + guestURL,
+			"-e", "HTTPS_PROXY=" + guestURL, "-e", "https_proxy=" + guestURL,
 		}
 		if o.RT.NoProxy != "" {
 			args = append(args, "-e", "NO_PROXY="+o.RT.NoProxy, "-e", "no_proxy="+o.RT.NoProxy)
 		}
-		if hostRule != "" {
-			// Rule-only invocation: any explicit rule replaces the implicit
-			// open default with deny-by-default + exactly these rules, so
-			// public is restated beside the host rule. Spelled as --net-rule
-			// tokens, NOT `--net public` profiles: the --net flag only exists
-			// since msb 0.6.7, while this vocabulary parses on every 0.6.x.
-			args = append(args, "--net-rule", "allow@public,"+hostRule)
+		if !egressRequired(o) {
+			// Egress disabled but a proxy configured: an open network with the
+			// env set — routing convenience, no wall. A loopback proxy still
+			// needs its host door opened, and any explicit rule replaces the
+			// implicit open default, so public is restated beside it. Spelled
+			// as --net-rule tokens, NOT `--net public` profiles: the --net
+			// flag only exists since msb 0.6.7, while this vocabulary parses
+			// on every 0.6.x.
+			if strings.HasPrefix(doorRule, "allow@host") {
+				args = append(args, "--net-rule", "allow@public,"+doorRule)
+			}
+			return args
+		}
+		// The COMBINED WALL: default-deny, the allowlist rules, and exactly
+		// one extra door — the proxy's own port. Direct traffic (including
+		// anything that ignores proxy env) is enforced by the VM; traffic that
+		// rides the proxy is constrained by the PROXY, the trade a CONNECT
+		// proxy forces (the VM sees only the dial to the proxy, never the
+		// target names). An empty allowlist leaves only the door: all egress
+		// rides the proxy.
+		args = append(args, "--no-net")
+		args = append(args, msbAllowlistRules(o.RT.Domains)...)
+		if doorRule != "" {
+			args = append(args, "--net-rule", doorRule)
 		}
 		return args
 	}
 	if !egressRequired(o) {
 		return nil
 	}
-	args := []string{"--no-net"}
-	for _, t := range msbNetTargets(o.RT.Domains) {
-		// One flag, two comma-separated rule tokens: HTTP and HTTPS, the same
-		// two the squid sidecar allows (it denies CONNECT to anything but 443).
+	return append([]string{"--no-net"}, msbAllowlistRules(o.RT.Domains)...)
+}
+
+// msbAllowlistRules renders one --net-rule flag per allowlisted domain: the
+// domain AND its subdomains (the *.suffix target) over HTTP and HTTPS, matched
+// by NAME — the policy engine binds each rule to what the guest actually
+// resolved, so a raw-IP dial is refused even at an allowed domain's address.
+func msbAllowlistRules(domains []string) []string {
+	var args []string
+	for _, t := range msbNetTargets(domains) {
 		args = append(args, "--net-rule",
 			"allow@"+t+":tcp:80,allow@"+t+":tcp:443")
 	}
@@ -254,37 +280,57 @@ func msbNetworkArgs(o RunOpts) []string {
 // own smoltcp stack, so dialing 127.0.0.1 in-guest is refused immediately.
 const msbHostAlias = "host.microsandbox.internal"
 
-// msbGuestProxyURL adapts egress.proxy for the msb guest: a loopback proxy
-// host (the common tunnel-client case) becomes msbHostAlias, everything else
-// passes through untouched — a guest cannot dial the HOST's loopback. The
-// second return is the --net-rule that dial needs — gateway IPs classify as
-// the `host` destination group, which the default allow@public policy DENIES —
-// scoped to the proxy's port ("" when nothing was rewritten: a public proxy is
-// already covered by allow@public).
-func msbGuestProxyURL(raw string) (guestURL, hostRule string) {
+// msbGuestProxyURL adapts egress.proxy for the msb guest and derives the ONE
+// --net-rule that reaching it needs (the wall's "door"):
+//
+//   - a loopback proxy host (the common tunnel-client case) becomes
+//     msbHostAlias — a guest cannot dial the HOST's loopback — and the door is
+//     allow@host on the proxy port (gateway dials classify as the `host`
+//     destination group, which every default-deny policy refuses);
+//   - a remote proxy passes through untouched with a name-bound door on its
+//     own host and port (domain= for a single-label name, which would
+//     otherwise parse as a rule-group keyword);
+//   - an IPv6-literal or unparseable proxy yields no door ("") — the wall
+//     stands, the caller decides what that means.
+func msbGuestProxyURL(raw string) (guestURL, doorRule string) {
 	u, err := url.Parse(raw)
 	if err != nil || u.Host == "" {
 		return raw, ""
 	}
 	h := u.Hostname()
-	if h != "localhost" && h != "::1" && !strings.HasPrefix(h, "127.") {
-		return raw, ""
-	}
-	newHost := msbHostAlias
-	rule := "allow@host:tcp"
+	tail := ":tcp"
 	if port := u.Port(); port != "" {
-		newHost += ":" + port
-		rule += ":" + port
+		tail += ":" + port
 	}
-	u.Host = newHost
-	return u.String(), rule
+	if h == "localhost" || h == "::1" || strings.HasPrefix(h, "127.") {
+		newHost := msbHostAlias
+		if port := u.Port(); port != "" {
+			newHost += ":" + port
+		}
+		u.Host = newHost
+		return u.String(), "allow@host" + tail
+	}
+	if ip := net.ParseIP(h); ip != nil {
+		if ip.To4() == nil {
+			// A v6 literal cannot be spelled in the colon-separated rule
+			// grammar; leave the wall doorless rather than emit a token msb
+			// would reject.
+			return raw, ""
+		}
+		return raw, "allow@" + h + tail
+	}
+	target := h
+	if !strings.Contains(h, ".") {
+		target = "domain=" + h
+	}
+	return raw, "allow@" + target + tail
 }
 
 // msbNetTargets maps the allowlist onto microsandbox rule targets. Every entry
 // becomes a `*.domain` SUFFIX target, which matches the domain and its
-// subdomains — the lossless translation of squid's leading-dot dstdomain, and of
-// the leading dot the config itself accepts. Blanks and duplicates are dropped
-// and the result sorted, so the machine hash is stable.
+// subdomains — the same coverage the config's optional leading-dot shorthand
+// promises. Blanks and duplicates are dropped and the result sorted, so the
+// machine hash is stable.
 func msbNetTargets(domains []string) []string {
 	seen := map[string]bool{}
 	var out []string

@@ -127,22 +127,44 @@ func TestMSBNetworkArgs(t *testing.T) {
 			want: nil,
 		},
 		{
-			name: "proxy delegates egress",
-			o:    RunOpts{RT: config.Runtime{Egress: true, Proxy: "http://p:8080", NoProxy: "localhost"}},
+			// The COMBINED WALL: default-deny + the allowlist + one door on the
+			// proxy's own host:port. Direct traffic is enforced by the VM; only
+			// what rides the proxy is the proxy's to constrain.
+			name: "proxy plus allowlist is the combined wall",
+			o: RunOpts{RT: config.Runtime{Egress: true, Proxy: "http://p.corp.example:8080",
+				NoProxy: "localhost", Domains: []string{"github.com"}}},
 			want: []string{
-				"-e", "HTTP_PROXY=http://p:8080", "-e", "http_proxy=http://p:8080",
-				"-e", "HTTPS_PROXY=http://p:8080", "-e", "https_proxy=http://p:8080",
+				"-e", "HTTP_PROXY=http://p.corp.example:8080", "-e", "http_proxy=http://p.corp.example:8080",
+				"-e", "HTTPS_PROXY=http://p.corp.example:8080", "-e", "https_proxy=http://p.corp.example:8080",
 				"-e", "NO_PROXY=localhost", "-e", "no_proxy=localhost",
+				"--no-net",
+				"--net-rule", "allow@*.github.com:tcp:80,allow@*.github.com:tcp:443",
+				"--net-rule", "allow@p.corp.example:tcp:8080",
 			},
 		},
 		{
 			// The guest's 127.0.0.1 is its own stack, so a loopback proxy is
-			// rewritten to msb's host alias AND the host group is opened on the
-			// proxy port — with public restated in the same rule token, since
-			// any explicit rule replaces the implicit open default (and --net
-			// profiles only exist since msb 0.6.7).
-			name: "loopback proxy is rewritten to the host alias",
+			// rewritten to msb's host alias and its door is the host group on
+			// the proxy port. No allowlist = only the door: all egress rides
+			// the proxy.
+			name: "loopback proxy without domains is proxy-only egress",
 			o:    RunOpts{RT: config.Runtime{Egress: true, Proxy: "http://127.0.0.1:8888"}},
+			want: []string{
+				"-e", "HTTP_PROXY=http://host.microsandbox.internal:8888",
+				"-e", "http_proxy=http://host.microsandbox.internal:8888",
+				"-e", "HTTPS_PROXY=http://host.microsandbox.internal:8888",
+				"-e", "https_proxy=http://host.microsandbox.internal:8888",
+				"--no-net",
+				"--net-rule", "allow@host:tcp:8888",
+			},
+		},
+		{
+			// Egress disabled but a proxy configured: open network + env — a
+			// routing convenience with no wall. The loopback door still needs
+			// opening, and any explicit rule replaces the implicit open
+			// default, so public is restated in the same token.
+			name: "egress off keeps the proxy on an open network",
+			o:    RunOpts{RT: config.Runtime{Egress: false, Proxy: "http://127.0.0.1:8888"}},
 			want: []string{
 				"-e", "HTTP_PROXY=http://host.microsandbox.internal:8888",
 				"-e", "http_proxy=http://host.microsandbox.internal:8888",
@@ -162,8 +184,7 @@ func TestMSBNetworkArgs(t *testing.T) {
 }
 
 // TestMSBNetTargetsKeepSubdomains pins the suffix property: an allowlist entry
-// covers the domain AND its subdomains, exactly as the squid sidecar's
-// leading-dot dstdomain did — never a narrowing to exact hosts.
+// covers the domain AND its subdomains — never a narrowing to exact hosts.
 func TestMSBNetTargetsKeepSubdomains(t *testing.T) {
 	got := msbNetTargets([]string{"cloudfront.net", ".github.com", "cloudfront.net", " "})
 	want := []string{"*.cloudfront.net", "*.github.com"}
@@ -875,10 +896,11 @@ esac
 	}
 }
 
-// TestMSBGuestProxyURL pins the loopback rewrite: msb's guest loopback is
-// guest-local (no TSI passthrough), so a host-loopback proxy must become the
-// host.microsandbox.internal alias plus an allow@host rule on its port, while
-// any other proxy passes through with no rule (allow@public covers it).
+// TestMSBGuestProxyURL pins the guest URL and the wall's door rule: a
+// host-loopback proxy becomes the host.microsandbox.internal alias (msb's
+// guest loopback is guest-local) with an allow@host door; a remote proxy
+// passes through with a name-bound door on its own host and port (domain= for
+// a single-label name); a v6 literal or garbage yields no door.
 func TestMSBGuestProxyURL(t *testing.T) {
 	tests := []struct {
 		raw, url, rule string
@@ -888,8 +910,10 @@ func TestMSBGuestProxyURL(t *testing.T) {
 		{"http://[::1]:3128", "http://host.microsandbox.internal:3128", "allow@host:tcp:3128"},
 		{"http://127.1.2.3:80", "http://host.microsandbox.internal:80", "allow@host:tcp:80"},
 		{"http://localhost", "http://host.microsandbox.internal", "allow@host:tcp"},
-		{"http://proxy.corp:3128", "http://proxy.corp:3128", ""},
-		{"http://10.0.0.5:3128", "http://10.0.0.5:3128", ""},
+		{"http://proxy.corp.example:3128", "http://proxy.corp.example:3128", "allow@proxy.corp.example:tcp:3128"},
+		{"http://proxybox:3128", "http://proxybox:3128", "allow@domain=proxybox:tcp:3128"},
+		{"http://10.0.0.5:3128", "http://10.0.0.5:3128", "allow@10.0.0.5:tcp:3128"},
+		{"http://[2001:db8::1]:3128", "http://[2001:db8::1]:3128", ""},
 		{"not a url", "not a url", ""},
 	}
 	for _, tt := range tests {

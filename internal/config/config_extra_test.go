@@ -132,8 +132,8 @@ func TestValidateDomains(t *testing.T) {
 		t.Errorf("leading-dot domain should pass: %v", err)
 	}
 	// Security: a value carrying a control char (newline/tab/CR) would inject a
-	// squid.conf directive; a bare/only-dot value would match every host. All
-	// must be rejected before they can reach egress.squidConf.
+	// rule token; a bare/only-dot value would match every host. All
+	// must be rejected before they can reach the network-policy argv.
 	for _, bad := range []string{
 		"a.com\nhttp_access allow all",
 		"a.com\thttp_access\tallow\tall",

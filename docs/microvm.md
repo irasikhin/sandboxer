@@ -24,9 +24,8 @@ docker/podman. `backend = "microsandbox"` is the default and the only value;
 Three msb capabilities the backend leans on:
 
 - a **name-bound network policy engine** (`--net-rule`) whose `*.suffix`
-  targets are exactly squid's leading-dot grammar, so the allowlist keeps its
-  subdomain coverage — and raw-IP dials are refused (rules match names, not
-  addresses);
+  targets cover the domain and its subdomains — and raw-IP dials are refused
+  (rules match names, not addresses);
 - an **image store** (`msb load`) — the toolbox tar is imported once and every
   later create is boot-only, never a multi-GB re-import;
 - **labels**, so a sandboxer machine is identifiable through `msb list` alone
@@ -105,7 +104,7 @@ microsandbox (msb)   ✓  msb 0.6.7 available
 | `podman/docker run … IMAGE` | `msb run/create/exec …` |
 | bind mount `-v H:H:rw` | virtio-fs share `-v H:H` (directories only) |
 | `--cap-drop=ALL`, `--userns=keep-id`, seccomp | subsumed by the VM boundary (absent) |
-| squid sidecar + allowlist | `--net-rule` policy engine (no sidecar) |
+| host-side proxy + allowlist | `--net-rule` policy engine in the VMM |
 | toolbox image in the engine store | prebuilt GHCR ref pulled into msb's image store (variants: a docker-save tar in `<state>/images/`, imported) |
 | image built in a `nixos/nix` container | prebuilt image pulled; local builds with **host nix** |
 
@@ -146,36 +145,38 @@ the store.
 ## Egress
 
 Egress is a create-time policy folded into the session hash (changing it
-recreates the machine). There is no squid sidecar — enforcement is the
-runner's. microsandbox defaults to an open network, and the four config states
-map onto its policy engine (`backend.msbNetworkArgs`):
+recreates the machine). Enforcement lives in the microVM runner's own network
+policy engine — no side process on the host. The config states map onto
+`backend.msbNetworkArgs`:
 
-1. **`egress.proxy` set → proxy-delegated egress** (open network + proxy env:
-   `HTTP_PROXY`/`HTTPS_PROXY`, `egress.noProxy` → `NO_PROXY`), with one
+1. **egress on + `egress.proxy` → the combined wall.** The machine gets
+   `--no-net` (default deny), the allowlist rules, exactly one extra door —
+   the proxy's own port — and the guest's HTTP(S) clients pointed at the proxy
+   (`HTTP_PROXY`/`HTTPS_PROXY`, `egress.noProxy` → `NO_PROXY`). Direct
+   traffic, including anything that ignores proxy env, is enforced by the VM;
+   traffic that RIDES the proxy is constrained by the **proxy**, which is the
+   trade a CONNECT proxy forces — the VM sees only the dial to the proxy,
+   never the target names (sandboxer prints exactly this warning). An empty
+   allowlist leaves only the door: all egress rides the proxy. One
    translation: microsandbox's guest has a **real network stack**, so
-   `127.0.0.1` in the guest is the guest itself. A loopback proxy URL is
-   therefore rewritten to `host.microsandbox.internal` (msb's DNS resolves it
-   to the gateway, and a gateway dial lands on the host's loopback) and the
-   policy gets `--net-rule allow@public,allow@host:tcp:<port>`, because
-   gateway dials classify as the `host` group, which the default
-   `allow@public` policy denies — and any explicit rule replaces that implicit
-   default, so public is restated in the same token (the `--net` profile flag
-   would say the same but only exists since msb 0.6.7). A non-loopback proxy
-   passes through untouched (a LAN-private proxy address is not reachable
-   under the default public-only policy today). An `allowedDomains` set
-   alongside a proxy is enforced by the proxy, not the VM — sandboxer warns.
-2. **egress off** (`egress.enabled = false` / `SANDBOXER_NO_EGRESS=1`) → open
-   network, no rules (labeled OPEN on every run when no proxy polices it).
-3. **an allowlist** → `--no-net` (default deny) plus, per domain, an allow rule
-   for HTTP and HTTPS: `allow@*.domain:tcp:80,allow@*.domain:tcp:443`. This is
-   the **lossless** translation of the squid sidecar's leading-dot
-   `dstdomain`: the domain and its subdomains, those two ports, DNS via the
-   gateway, and nothing else. Rules are matched by NAME, so a raw IP — even
-   the allowed domain's own — is refused.
-4. **an empty allowlist** → `--no-net` alone: fully offline, DNS included.
+   `127.0.0.1` in the guest is the guest itself — a loopback proxy URL is
+   rewritten to `host.microsandbox.internal` (msb's DNS resolves it to the
+   gateway, and a gateway dial lands on the host's loopback) with an
+   `allow@host:tcp:<port>` door; a remote proxy keeps its URL and gets a
+   name-bound door on its own host and port.
+2. **egress on + an allowlist (no proxy)** → `--no-net` plus, per domain, an
+   allow rule for HTTP and HTTPS: `allow@*.domain:tcp:80,allow@*.domain:tcp:443`
+   — the domain and its subdomains, those two ports, DNS via the gateway, and
+   nothing else. Rules are matched by NAME, so a raw IP — even the allowed
+   domain's own — is refused.
+3. **egress on + an empty allowlist (no proxy)** → `--no-net` alone: fully
+   offline.
+4. **egress off** (`egress.enabled = false` / `SANDBOXER_NO_EGRESS=1`) → open
+   network; with a proxy configured the env is still set (routing convenience,
+   no wall).
 
-`egress.routes` (per-domain upstream proxies) was a squid `cache_peer` feature;
-the key is retired and errors with a migration hint.
+`egress.routes` (per-domain upstream proxies) was a container-era feature; the
+key is retired and errors with a migration hint.
 
 ## Credentials
 
@@ -217,7 +218,7 @@ is several agents in parallel); raise it with `limits.memory` / `limits.cpus`.
 
 The decommission is **done**: the docker/podman container backend and the
 smolvm runner are removed, `microsandbox` is the default and only backend, and
-the squid `sandboxer-proxy` sidecar image no longer exists. A config still
+the `sandboxer-proxy` egress sidecar image no longer exists. A config still
 naming a retired backend or a retired key (`egress.routes`, `limits.pids`,
 `nestedContainers`) fails with a targeted migration hint; `sandboxer doctor`
 warns per profile whose backend cannot run here. Old smolvm machine records

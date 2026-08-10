@@ -255,7 +255,7 @@ the rules):
 - The policy lives in the **create argv**, so it folds into the session hash:
   editing domains/proxy/egress recreates the machine — enforcement can never
   drift from the config on a live session.
-- **`egress.routes`** (per-domain upstream proxies) was a squid `cache_peer`
+- **`egress.routes`** (per-domain upstream proxies) was a container-era `cache_peer`-style
   feature and is retired with the container backend; the config key errors
   with a migration hint.
 

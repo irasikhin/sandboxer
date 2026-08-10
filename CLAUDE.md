@@ -64,7 +64,7 @@ was extracted from:
   records at `<state>/machines/microsandbox/<name>.json` (SOURCE OF TRUTH; msb labels are discoverability only,
   and the subdir name is load-bearing — old machines must still be found); `vm_image.go` = the build-tar store
   `<state>/images/<name>.tar` + `.sha256` (the content id is the freshness authority). msb's egress rules are
-  name-bound (`*.domain` = squid's leading dot, no allowlist narrowing, raw IPs refused); its `--secret` DLP
+  name-bound (`*.domain` covers the domain and subdomains, raw IPs refused); its `--secret` DLP
   mode is opt-in behind `SANDBOXER_MSB_SECRETS=1` (unverified substitution + boot-time binding). Nested
   containers run natively against the guest kernel — no seccomp/subid machinery, no opt-in. macOS (HVF) and
   Windows/WSL2 compile but are NOT live-verified. See `docs/microvm.md`.
@@ -123,7 +123,7 @@ was extracted from:
 - **Egress** (`backend.msbNetworkArgs`): outbound traffic is restricted to an allowlist
   (`egress.allowedDomains` / `--allow-domains`) by msb's NAME-BOUND policy engine — the machine boots
   `--no-net` (default deny) + `--net-rule allow@*.domain:tcp:80,allow@*.domain:tcp:443` per domain (domain +
-  subdomains, raw IPs refused; empty list = fully offline, a valid state). No sidecar — the squid
+  subdomains, raw IPs refused; empty list = fully offline, a valid state). No sidecar — the
   `sandboxer-proxy` image no longer exists and the binary is never in the network path. `egress.proxy` =
   proxy-delegated mode: open network + guest HTTP(S)_PROXY env, loopback rewritten to
   `host.microsandbox.internal` + `allow@public,allow@host:tcp:<port>` (proxy alongside an allowlist = the

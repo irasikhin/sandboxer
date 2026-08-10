@@ -583,12 +583,12 @@ func noEgress() bool { return os.Getenv("SANDBOXER_NO_EGRESS") == "1" }
 // enforces the intended allowlist. Not an error: a proxy + a default allowlist
 // is the common case.
 func warnMicrovmProxy(w io.Writer, rt config.Runtime) {
-	if rt.Proxy == "" || len(rt.Domains) == 0 {
+	if rt.Proxy == "" || !rt.Egress {
 		return
 	}
-	fmt.Fprintln(w, "sandboxer: egress.proxy is set — the agent's egress goes through the proxy over "+
-		"an open VM network; egress.allowedDomains is then enforced by the proxy, not by the microVM. "+
-		"Make sure the proxy restricts egress to the intended allowlist.")
+	fmt.Fprintln(w, "sandboxer: egress.proxy is set — direct traffic is walled by the VM allowlist, and "+
+		"the proxy is reachable on its one port. Traffic that RIDES the proxy is constrained by the "+
+		"proxy itself, not the VM — make sure it restricts egress to what you intend.")
 }
 
 // warnOpenNetwork warns when the resolved network is fully open — no allowlist

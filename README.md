@@ -507,7 +507,7 @@ both are set). A `localhost`/`127.0.0.1` proxy is rewritten to
 loopback is guest-local) and the policy opens exactly the host proxy's port —
 so a tunnel client on your host works with the obvious URL.
 
-`egress.routes` (per-domain upstream proxies) was a squid-era feature and is
+`egress.routes` (per-domain upstream proxies) was a container-era feature and is
 retired — the key errors with a migration hint; use one `egress.proxy` that
 routes by destination itself.
 

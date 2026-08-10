@@ -17,7 +17,7 @@ import (
 // invocation), because it reuses the user's own nix store and binary caches, and
 // because it deletes the whole builder-guest machinery (proxy-env inheritance,
 // per-host egress rules, an image's Config.Env, machine sizing, a cache share).
-// Like the container DestTar build there is no squid proxyImage (microVM egress
+// There is no separate proxy image to build (microVM egress
 // is the runner's own policy engine), so only path:/src#image is realized.
 
 // BuildHostNixOpts configures a host-nix toolbox image build.

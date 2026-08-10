@@ -368,7 +368,7 @@ var removedKeys = map[string]string{
 	"agentProxy": "removed — use egress.proxy (the proxy is the egress control point)",
 	"nestedContainers": "removed with the container backend — a microVM runs container engines natively, " +
 		"so docker/podman work inside every sandbox with no opt-in",
-	"routes": "removed with the container backend — per-domain upstream proxies were a squid cache_peer " +
+	"routes": "removed with the container backend — per-domain upstream proxies were a proxy-chaining " +
 		"feature; use a single egress.proxy that routes by destination itself",
 	"pids": "removed with the container backend — the microVM backends have no PID-count cap " +
 		"(limits.memory / limits.cpus bound the machine instead)",

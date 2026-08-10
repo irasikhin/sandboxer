@@ -171,17 +171,18 @@ Windows/WSL2 are **cross-platform in code but not live-verified** — see
   channel anyone can stand up; set `egress.allowedDomains` without it if that
   outweighs registry pulls for you.
 
-  > **`egress.proxy` delegates enforcement to the proxy.** With a proxy set,
-  > the machine boots with an **open** network and the guest's HTTP(S) clients
-  > are pointed at the proxy — the proxy IS the egress control point.
-  > `egress.allowedDomains` is then enforced by the proxy (or not at all), not
-  > by the VM's network rules — reaching the proxy needs the open network,
-  > which cannot also filter — and sandboxer says so with a warning on every
-  > run that has both. A loopback proxy URL is rewritten to
-  > `host.microsandbox.internal` and the policy set to `allow@public` + the
-  > host on the proxy's port. Nothing forces the guest's traffic THROUGH the
-  > proxy — a process that ignores `HTTP(S)_PROXY` has the open network — so
-  > use proxy mode only with a proxy you trust to be the boundary.
+  > **`egress.proxy` opens exactly one door in the wall.** With egress on and
+  > a proxy set, the machine still boots **default-deny with the allowlist
+  > rules** — plus a single extra rule admitting the proxy's own host and
+  > port, and the guest's HTTP(S) clients pointed at it (a loopback proxy URL
+  > is rewritten to `host.microsandbox.internal`). Direct traffic — including
+  > anything that ignores `HTTP(S)_PROXY` — is enforced by the VM. The
+  > remaining trade is inherent to a CONNECT proxy: the VM sees only the dial
+  > *to the proxy*, never the target names, so traffic that rides the proxy is
+  > constrained by the **proxy** — a dumb tunnel imposes nothing. sandboxer
+  > prints exactly this warning on every proxied run; pick a proxy you trust
+  > to be that half of the boundary. With an empty allowlist the door is the
+  > only rule: all egress rides the proxy.
   >
   > **`egress.enabled = false` with NO proxy is a fully open network** — no
   > allowlist and no proxy, so the agent has unrestricted outbound. sandboxer
