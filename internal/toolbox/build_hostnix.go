@@ -33,12 +33,28 @@ type BuildHostNixOpts struct {
 // flake's (currently empty) nixConfig from prompting; --no-link avoids leaving a
 // ./result beside the context; --print-out-paths is how the caller learns where
 // the tar landed. Pure, so it is golden-tested without nix.
-func hostNixArgv(ctxDir string) []string {
-	return []string{
+//
+// The spec's resolved revs ride as --override-input: writeContext copies the
+// embedded flake VERBATIM, so its committed input pins are what nix would
+// otherwise build — every image build would silently reproduce the embedded
+// snapshot no matter what PinSpec stamped, and "latest" agents would never
+// arrive (that was live: guests stayed on a May claude-code while the pins
+// cache said August). A rev that is still tracking ("", "latest") is skipped —
+// nothing concrete to override with — which keeps the argv valid for callers
+// that never pinned.
+func hostNixArgv(ctxDir string, spec Spec) []string {
+	args := []string{
 		"--extra-experimental-features", "nix-command flakes",
 		"--accept-flake-config",
-		"build", "--no-link", "--print-out-paths", "path:" + ctxDir + "#image",
+		"build", "--no-link", "--print-out-paths",
 	}
+	if !isLatestRev(spec.NixpkgsRev) {
+		args = append(args, "--override-input", "nixpkgs", "github:NixOS/nixpkgs/"+spec.NixpkgsRev)
+	}
+	if !isLatestRev(spec.LLMAgentsRev) {
+		args = append(args, "--override-input", "llm-agents", "github:numtide/llm-agents.nix/"+spec.LLMAgentsRev)
+	}
+	return append(args, "path:"+ctxDir+"#image")
 }
 
 // BuildImageHostNix assembles the build context and realizes path:<ctx>#image on
@@ -78,7 +94,7 @@ func BuildImageHostNix(o BuildHostNixOpts) error {
 	fmt.Fprintf(progress, "sandboxer: building toolbox image with host nix "+
 		"(several minutes on first run)…\n")
 
-	build := exec.Command("nix", hostNixArgv(ctxDir)...)
+	build := exec.Command("nix", hostNixArgv(ctxDir, o.Spec)...)
 	// nix's progress goes to stderr; stdout carries only the printed store path.
 	build.Stderr = o.Stderr
 	out, err := build.Output()

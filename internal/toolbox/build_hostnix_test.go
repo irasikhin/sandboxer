@@ -64,9 +64,10 @@ func TestBuildImageHostNix(t *testing.T) {
 
 // TestHostNixArgv pins the nix argv: the exact reviewer-approved invocation
 // (experimental features, accept-flake-config, build, no-link, print-out-paths)
-// for path:<ctx>#image — image only, no proxyImage.
+// for path:<ctx>#image — image only, no proxyImage. Tracking revs add no
+// override (nothing concrete to point at).
 func TestHostNixArgv(t *testing.T) {
-	got := hostNixArgv("/ctx")
+	got := hostNixArgv("/ctx", Spec{})
 	want := []string{
 		"--extra-experimental-features", "nix-command flakes",
 		"--accept-flake-config",
@@ -74,6 +75,28 @@ func TestHostNixArgv(t *testing.T) {
 	}
 	if !slices.Equal(got, want) {
 		t.Errorf("hostNixArgv =\n%q\nwant\n%q", got, want)
+	}
+}
+
+// TestHostNixArgvOverridesPinnedRevs pins the fix for the stale-agents trap:
+// writeContext copies the embedded flake verbatim, so the spec's resolved revs
+// MUST reach nix as --override-input — without them every build silently
+// reproduced the embedded snapshot (guests stayed on a months-old claude-code
+// no matter how often `image build` re-stamped the pins cache).
+func TestHostNixArgvOverridesPinnedRevs(t *testing.T) {
+	nixRev := strings.Repeat("a", 40)
+	agentsRev := strings.Repeat("b", 40)
+	got := hostNixArgv("/ctx", Spec{NixpkgsRev: nixRev, LLMAgentsRev: agentsRev})
+	want := []string{
+		"--extra-experimental-features", "nix-command flakes",
+		"--accept-flake-config",
+		"build", "--no-link", "--print-out-paths",
+		"--override-input", "nixpkgs", "github:NixOS/nixpkgs/" + nixRev,
+		"--override-input", "llm-agents", "github:numtide/llm-agents.nix/" + agentsRev,
+		"path:/ctx#image",
+	}
+	if !slices.Equal(got, want) {
+		t.Errorf("hostNixArgv(pinned) =\n%q\nwant\n%q", got, want)
 	}
 }
 
