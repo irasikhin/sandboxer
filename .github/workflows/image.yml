@@ -58,6 +58,10 @@ jobs:
       - name: push to GHCR (skopeo, no docker daemon)
         env:
           GHCR_CREDS: ${{ github.actor }}:${{ secrets.GITHUB_TOKEN }}
+          # The ubuntu runner ships a v1-format /etc/containers/registries.conf
+          # that skopeo >= 1.24 refuses to parse; an empty file is valid v2 and
+          # we address the registry by full URL anyway.
+          CONTAINERS_REGISTRIES_CONF: /dev/null
         run: |
           # --insecure-policy: the nix-run skopeo has no /etc/containers/
           # policy.json on a bare runner and refuses to copy without one; the
