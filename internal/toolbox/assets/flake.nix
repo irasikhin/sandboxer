@@ -1,9 +1,8 @@
 {
   # Self-contained toolbox-image flake, embedded in the sandboxer binary and
-  # built inside an ephemeral `nixos/nix` container (so the host needs only
-  # docker/podman, never nix). It references ONLY public inputs — never the
-  # sandboxer repo. The sandboxer binary is NOT baked in (it is a host tool);
-  # egress is a separate squid sidecar built from the proxyImage output.
+  # built with host nix (BuildImageHostNix). It references ONLY public inputs —
+  # never the sandboxer repo. The sandboxer binary is NOT baked in (it is a
+  # host tool); egress is the microVM runner's own network policy.
   #
   # WHAT is in the images lives in ./images.nix, shared verbatim with the repo's
   # root flake — this file only resolves the profile's context and hands it over.

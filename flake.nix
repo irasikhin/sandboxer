@@ -95,7 +95,7 @@
           sandboxer = pkgs.sandboxer;
           smolvm = pkgs.smolvm;
           microsandbox = pkgs.microsandbox;
-          inherit (images) image proxyImage;
+          inherit (images) image;
           smokeImage = smokeImage;
         };
 
@@ -127,13 +127,14 @@
             program = "${pkgs.microsandbox}/bin/msb";
           };
 
-          # Build the toolbox + egress-proxy images: place the toolbox tar into
-          # the microVM store (the shared artifact both runners boot from) and,
-          # while the container backend still exists, also load both into host
-          # podman/docker when one is present. Does not touch host systemd.
+          # Build the toolbox image: place the toolbox tar into the microVM
+          # store (the shared artifact both runners boot from). Also loads it
+          # into host podman/docker when one is present — convenient for
+          # inspecting the image, though no backend runs it there anymore.
+          # Does not touch host systemd.
           build-image = {
             type = "app";
-            meta.description = "Build the sandboxer toolbox + proxy images and load them into podman/docker / the microVM store";
+            meta.description = "Build the sandboxer toolbox image into the microVM store (and podman/docker when present)";
             program = "${
               pkgs.writeShellApplication {
                 name = "sandboxer-build-image";
@@ -155,8 +156,6 @@
                   cp -L "$img" "$tar"
                   sha256sum -b "$tar" | cut -d' ' -f1 | tr -d '\n' > "$tar.sha256"
                   load "$img"
-                  prox=$(nix build --no-link --print-out-paths "''${self}#proxyImage")
-                  load "$prox"
                 '';
               }
             }/bin/sandboxer-build-image";

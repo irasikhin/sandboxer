@@ -1,5 +1,5 @@
-# The toolbox + egress-proxy image definitions — the SINGLE source of truth for
-# what is in the images, imported by both flakes that build them:
+# The toolbox image definition — the SINGLE source of truth for what is in the
+# image, imported by both flakes that build it:
 #
 #   - assets/flake.nix — embedded in the sandboxer binary and built inside an
 #     ephemeral `nixos/nix` container by `sandboxer image build`. This is the
@@ -375,28 +375,5 @@ in
       chmod 700 /root
     '';
     enableFakechroot = true; # let npm-agent postinstall scripts run
-  };
-
-  # Egress proxy image: a minimal squid enforcing the domain allowlist
-  # via our generated /etc/sandboxer/squid.conf (bind-mounted at run
-  # time). No sandboxer binary in the network path.
-  proxyImage = pkgs.dockerTools.buildLayeredImage {
-    name = "sandboxer-proxy";
-    tag = "latest";
-    contents = [ pkgs.squid ];
-    config = {
-      Entrypoint = [
-        "${pkgs.squid}/bin/squid"
-        "-N"
-        "-f"
-        "/etc/sandboxer/squid.conf"
-      ];
-      WorkingDir = "/tmp";
-    };
-    fakeRootCommands = ''
-      mkdir -p /tmp /etc/sandboxer
-      chmod 1777 /tmp
-    '';
-    enableFakechroot = true;
   };
 }
