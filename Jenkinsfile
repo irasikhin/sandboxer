@@ -56,7 +56,9 @@ def proxyEnv = { String indent ->
 pipeline {
   agent none
   options {
-    timeout(time: 60, unit: 'MINUTES')
+    // 120: a COLD node cache rebuilds the from-source agents at max-jobs 2,
+    // which does not fit in 60. A warm cache substitutes and finishes fast.
+    timeout(time: 120, unit: 'MINUTES')
     disableConcurrentBuilds()
   }
   stages {
@@ -87,6 +89,12 @@ spec:
         limits: {memory: "8Gi"}
       volumeMounts:
         - {name: dev-kvm, mountPath: /dev/kvm}
+        # Persistent file:// nix binary cache on the node. The pod's /nix is
+        # containerfs and starts EMPTY every run, so without this each push
+        # recompiles the from-source agents (llm-agents publishes no usable
+        # cache) — tens of minutes of CPU, and the crush Go build alone OOMed
+        # the 8Gi pod. Populated by `nix copy` after a successful build.
+        - {name: nix-cache, mountPath: /nix-cache}
     # The auto-injected agent container — declared here only so the SCM checkout
     # (git clone of the repo) inherits the egress proxy when one is configured.
     # The kubernetes plugin fills in the inbound-agent image + connection args.
@@ -95,6 +103,8 @@ spec:
   volumes:
     - name: dev-kvm
       hostPath: {path: /dev/kvm, type: CharDevice}
+    - name: nix-cache
+      hostPath: {path: /var/lib/sandboxer-ci/nix-cache, type: DirectoryOrCreate}
 """
         }
       }
@@ -105,11 +115,20 @@ spec:
             NIXPKGS=https://channels.nixos.org/nixos-25.05/nixexprs.tar.xz
             # More patient/resilient nix downloads — a throttled or proxied
             # egress makes binary-cache transfers slow and occasionally truncated.
+            # max-jobs 2: the from-source agent builds (Go/npm) are memory-hogs
+            # and two of them in parallel already OOMed this pod at 8Gi —
+            # serialize the heavy tail instead of raising the limit forever.
+            # The file:// substituter is the node-local cache seeded by the
+            # `nix copy` below; require-sigs off because it is unsigned and
+            # writable only by this pipeline's node path.
             export NIX_CONFIG="experimental-features = nix-command flakes
 download-attempts = 5
 connect-timeout = 30
 stalled-download-timeout = 120
-http-connections = 10"
+http-connections = 10
+max-jobs = 2
+extra-substituters = file:///nix-cache
+require-sigs = false"
             # gotestsum: writes JUnit and propagates the exit code.
             nix-env -iA gotestsum -f "$NIXPKGS" >/dev/null 2>&1
             export PATH="$HOME/.nix-profile/bin:$PATH"
@@ -135,6 +154,12 @@ http-connections = 10"
             # (the sandboxer binary does the same at import). Loaded under a
             # dedicated ref the suite is then pointed at.
             nix build --accept-flake-config .#image -o result-toolbox
+            # Seed the node-local cache so the NEXT run substitutes instead of
+            # rebuilding the agents from source: --all copies every path this
+            # run realized (agents included), so even an images.nix edit only
+            # rebuilds the layers that actually changed. Best-effort: a full
+            # cache disk must not fail a green build.
+            nix copy --all --to file:///nix-cache || true
             gunzip -c result-toolbox > /var/tmp/toolbox.tar
             "$SANDBOXER_MSB" load -i /var/tmp/toolbox.tar -t sandboxer-toolbox:itest -q
             rm /var/tmp/toolbox.tar
