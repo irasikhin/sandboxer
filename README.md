@@ -392,8 +392,7 @@ build time (an overlay) is a separate file:
     files."/etc/sandboxer/rc.d/10-aliases.sh" = "alias mci='mvn clean install'";
     env.SANDBOX_FLAVOR = "custom";                    # static image OCI env
     # overlay = "./overlay.nix";  # a PLAIN nixpkgs overlay, for computed pkgs
-    # llmAgentsRev = "<commit>";  # PIN the agents (full 40-hex); default: track latest
-    # nixpkgsRev = "<commit>";    # PIN nixpkgs (full 40-hex); default: track latest
+    # nixpkgsRev = "<commit>";    # PIN nixpkgs+agents (full 40-hex); default: track latest
   };
 }
 ```
@@ -424,14 +423,15 @@ content — auto-built on first use and shared by identical profiles; the stock
 persistent session recreates itself on the next `enter`. Full commented
 example: [examples/custom-image.nix](./examples/custom-image.nix).
 
-The image's flake inputs (`nixpkgs`, `llm-agents` — the agents) **track the
-remote heads by default**: `sandboxer image build` re-resolves them, stamps the
-result into the per-user pins cache (`~/.cache/sandboxer/image-pins.json`) and
-builds from it — so a rebuild + `recreate` is how agents update.
-`enter`/`exec` only ever reuse the stamp, never re-resolve — nothing moves
-behind your back. `--no-refresh` builds from the existing stamp. To hold an
-input still, set `llmAgentsRev`/`nixpkgsRev` to a full 40-hex commit — a pin
-selects a content-addressed `var-` image that never moves.
+The image's `nixpkgs` flake input — the single input everything, agents
+included, comes from — **tracks the remote head by default**:
+`sandboxer image build` re-resolves it, stamps the result into the per-user
+pins cache (`~/.cache/sandboxer/image-pins.json`) and builds from it — so a
+rebuild + `recreate` is how agents update. `enter`/`exec` only ever reuse the
+stamp, never re-resolve — nothing moves behind your back. `--no-refresh`
+builds from the existing stamp. To hold the input still, set `nixpkgsRev` to a
+full 40-hex commit — a pin selects a content-addressed `var-` image that never
+moves.
 
 ### Nested containers
 
@@ -567,8 +567,8 @@ container anywhere in the path):
 sandboxer image build      # build with host nix + import into msb's image store
 ```
 
-The build realizes a minimal OCI image (agents from
-[llm-agents.nix](https://github.com/numtide/llm-agents.nix)) as a docker-save
+The build realizes a minimal OCI image (agents are plain nixpkgs packages,
+prebuilt on cache.nixos.org; pi is vendored in the binary) as a docker-save
 tar in the microVM image store (`<state>/images/<tag>.tar`), then imports it
 into microsandbox's own image store (`msb load`) — after that every create is
 boot-only, never a re-import. The `sandboxer` binary is **not** baked in — it
@@ -579,19 +579,19 @@ is a host tool. `sandboxer image rm` drops both the cached image and the tar.
 variant alike; a rebuilt image reads as stale, so the next `enter` recreates
 the session on the fresh rootfs.
 
-Every `image build` first re-resolves the flake inputs (nixpkgs and the
-llm-agents catalog) to their current remote heads — on the host, via
-`git ls-remote` — and stamps them into the pins cache, so a rebuild picks up
-new agent releases; `--no-refresh` builds from the existing stamp instead (see
+Every `image build` first re-resolves the nixpkgs flake input to its current
+remote head — on the host, via `git ls-remote` — and stamps it into the pins
+cache, so a rebuild picks up new agent releases; `--no-refresh` builds from
+the existing stamp instead (see
 [Custom toolbox image](#custom-toolbox-image-image)).
 
 `sandboxer image build [profile]` (a positional name or `-f`, resolved like
 enter/exec) builds that profile's customized variant instead of the stock
-image. `--llm-agents-rev`/`--nixpkgs-rev` override the input revs for this one
-build, on top of the profile's values. A **concrete** rev override selects a
-`var-` tag: concrete rev flags **without** a profile pre-build a pinned
-variant, but the stock image profile-less sandboxes run is not touched — only
-a profile pinning the same revs uses the result (the command prints a note).
+image. `--nixpkgs-rev` overrides the input rev for this one build, on top of
+the profile's value. A **concrete** rev override selects a `var-` tag: a
+concrete rev flag **without** a profile pre-builds a pinned variant, but the
+stock image profile-less sandboxes run is not touched — only a profile pinning
+the same rev uses the result (the command prints a note).
 Variant tags hash the effective input revs, so an `image build` that moves the
 stamp rebuilds a tracking variant once on first use.
 

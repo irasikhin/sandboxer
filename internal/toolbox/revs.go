@@ -5,20 +5,19 @@ import (
 	"regexp"
 )
 
-// EmbeddedRevs returns the nixpkgs and llm-agents revision pins from the
-// embedded toolbox flake (assets/flake.nix). These are the effective input
-// revs of a default image build (a profile/flag override replaces them
-// per-build via --override-input); a guard test keeps them in sync with the
-// repo-root flake.lock. The pins are a build-time invariant baked into the
+// EmbeddedRevs returns the nixpkgs revision pin from the embedded toolbox
+// flake (assets/flake.nix) — the flake's single input. It is the effective
+// input rev of a default image build (a profile/flag override replaces it
+// per-build via --override-input); a guard test keeps it in sync with the
+// repo-root flake.lock. The pin is a build-time invariant baked into the
 // binary, so a malformed embedded asset panics — mirroring the registry
 // package's stance on its embedded JSON.
-func EmbeddedRevs() (nixpkgs, llmAgents string) {
+func EmbeddedRevs() (nixpkgs string) {
 	flake, err := assets.ReadFile("assets/flake.nix")
 	if err != nil {
 		panic("toolbox: embedded assets/flake.nix unreadable: " + err.Error())
 	}
-	return embeddedRev(flake, "nixpkgs", "NixOS/nixpkgs"),
-		embeddedRev(flake, "llm-agents", "numtide/llm-agents.nix")
+	return embeddedRev(flake, "nixpkgs", "NixOS/nixpkgs")
 }
 
 // embeddedRev extracts the 40-hex commit pin from the named input's

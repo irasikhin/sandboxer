@@ -4,11 +4,6 @@
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
     flake-utils.url = "github:numtide/flake-utils";
-    # Catalog of coding agents (claude-code, codex, opencode, crush, gemini-cli,
-    # aider, pi, …), refreshed daily — the lever for rebuilding the toolbox
-    # image regularly.
-    llm-agents.url = "github:numtide/llm-agents.nix";
-    llm-agents.inputs.nixpkgs.follows = "nixpkgs";
   };
 
   outputs =
@@ -16,7 +11,6 @@
       self,
       nixpkgs,
       flake-utils,
-      llm-agents,
     }:
     let
       overlay = final: prev: {
@@ -25,6 +19,9 @@
         # repackaged upstream binary — not in nixpkgs, needs patching to run
         # on NixOS. See docs/microsandbox-spike.md).
         microsandbox = final.callPackage ./nix/microsandbox.nix { };
+        # The one image agent nixpkgs does not carry — vendored beside the
+        # embedded flake, which grafts it the same way (single source).
+        pi = final.callPackage ./internal/toolbox/assets/pi/package.nix { };
       };
     in
     {
@@ -35,22 +32,30 @@
       let
         pkgs = import nixpkgs {
           inherit system;
+          # The toolbox image bakes agents that are unfree in nixpkgs
+          # (claude-code); mirror the embedded flake's stance.
+          config.allowUnfree = true;
           overlays = [ overlay ];
         };
         lib = pkgs.lib;
-        llmAgents = llm-agents.packages.${system};
 
         # Agents baked into the toolbox image, derived from the SAME source of
-        # truth the Go binary embeds (internal/registry/registry.json): take each
-        # agent's nixPackage from llm-agents, skip those with "image": false
-        # (codex — Rust, dominates build time) and any missing for this platform.
+        # truth the Go binary embeds (internal/registry/registry.json): each
+        # agent's nixPackage is a plain nixpkgs attr (prebuilt on
+        # cache.nixos.org; pi comes via the overlay above), skipping agents
+        # with "image": false (codex). Fail-closed on a vanished attr — an
+        # image quietly missing an agent is worse than a broken build.
         registry = builtins.fromJSON (builtins.readFile ./internal/registry/registry.json);
         imageAgentNames = lib.filter (n: (registry.${n}.image or true) != false) (
           builtins.attrNames registry
         );
-        agentPkgs = lib.filter (p: p != null) (
-          map (n: llmAgents.${registry.${n}.nixPackage or n} or null) imageAgentNames
-        );
+        agentPkgs = map (
+          n:
+          let
+            attr = registry.${n}.nixPackage or n;
+          in
+          pkgs.${attr} or (throw "sandboxer: unknown agent package '${attr}' (registry.json nixPackage)")
+        ) imageAgentNames;
 
         # The toolbox + egress-proxy images. Their CONTENTS are defined once, in
         # internal/toolbox/assets/images.nix, and shared with the flake embedded

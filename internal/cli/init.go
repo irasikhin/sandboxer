@@ -194,7 +194,7 @@ func starterProfile(name string, d config.Defaults) string {
   #   files."/etc/sandboxer/rc.d/10-aliases.sh" = "alias mci='mvn clean install'";
   #   env = { SANDBOX_FLAVOR = "custom"; };
   #   overlay = "./overlay.nix";                        # final: prev: { ... }
-  #   # llmAgentsRev = "<40-hex>"; nixpkgsRev = "<40-hex>";  # pin; default tracks latest
+  #   # nixpkgsRev = "<40-hex>";  # pin the input; default tracks latest
   # };
 }
 `, name, d.Backend, domains)

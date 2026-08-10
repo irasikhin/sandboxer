@@ -200,12 +200,14 @@ overlay's bytes, a pin — is a new tag; identical profiles share one variant; t
 untouched. `create`/`enter`/`exec` auto-build a missing image (stock or
 variant) on first use.
 
-The flake's `llm-agents`/`nixpkgs` inputs **track the remote heads by
-default**: `image build` re-resolves them (on the host, via `git ls-remote`)
-and stamps the result into `~/.cache/sandboxer/image-pins.json`; `enter`/`exec`
-only ever reuse the stamp, so nothing drifts between explicit builds.
+The flake's `nixpkgs` input — the single input everything, agents included,
+comes from (prebuilt on cache.nixos.org; pi alone is vendored in the binary
+and grafted in by an overlay) — **tracks the remote head by default**:
+`image build` re-resolves it (on the host, via `git ls-remote`) and stamps the
+result into `~/.cache/sandboxer/image-pins.json`; `enter`/`exec` only ever
+reuse the stamp, so nothing drifts between explicit builds.
 `image build --no-refresh` builds from the existing stamp; a full 40-hex
-commit in `image.llmAgentsRev`/`image.nixpkgsRev` pins the input exactly.
+commit in `image.nixpkgsRev` pins the input exactly.
 
 ## Egress (name-bound network policy)
 
@@ -256,8 +258,8 @@ both **embedded in the binary** (via `go:embed`) and **read by the nix flake**
         internal/registry/registry.json
         ┌──────────────┴───────────────┐
    go:embed                       builtins.fromJSON
-   (the CLI: bin, auth-env,           (the flake: which llm-agents
-    image inclusion)                   packages to bake into the image)
+   (the CLI: bin, auth-env,           (the flake: which nixpkgs
+    image inclusion)                   attrs to bake into the image)
 ```
 
 Each entry declares only the agent's binary name (`bin`), the env vars it reads

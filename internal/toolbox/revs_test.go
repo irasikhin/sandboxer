@@ -6,19 +6,13 @@ import (
 	"testing"
 )
 
-// TestEmbeddedRevsShape guards that both pins parse out of the embedded flake
-// as full 40-hex commit hashes — never empty, never a branch name or a
+// TestEmbeddedRevsShape guards that the pin parses out of the embedded flake
+// as a full 40-hex commit hash — never empty, never a branch name or a
 // shortened rev that nix would have to resolve at build time.
 func TestEmbeddedRevsShape(t *testing.T) {
-	nixpkgs, llmAgents := EmbeddedRevs()
-	hex40 := regexp.MustCompile(`^[0-9a-f]{40}$`)
-	for name, rev := range map[string]string{
-		"nixpkgs":    nixpkgs,
-		"llm-agents": llmAgents,
-	} {
-		if !hex40.MatchString(rev) {
-			t.Errorf("%s rev %q is not a 40-hex commit pin", name, rev)
-		}
+	nixpkgs := EmbeddedRevs()
+	if !regexp.MustCompile(`^[0-9a-f]{40}$`).MatchString(nixpkgs) {
+		t.Errorf("nixpkgs rev %q is not a 40-hex commit pin", nixpkgs)
 	}
 }
 
@@ -31,14 +25,10 @@ func TestEmbeddedRevsMatchAsset(t *testing.T) {
 		t.Fatal(err)
 	}
 	s := string(data)
-	nixpkgs, llmAgents := EmbeddedRevs()
-	for _, want := range []string{
-		`nixpkgs.url = "github:NixOS/nixpkgs/` + nixpkgs + `";`,
-		`llm-agents.url = "github:numtide/llm-agents.nix/` + llmAgents + `";`,
-	} {
-		if !strings.Contains(s, want) {
-			t.Errorf("embedded flake.nix missing %q — EmbeddedRevs drifted from the asset", want)
-		}
+	nixpkgs := EmbeddedRevs()
+	want := `nixpkgs.url = "github:NixOS/nixpkgs/` + nixpkgs + `";`
+	if !strings.Contains(s, want) {
+		t.Errorf("embedded flake.nix missing %q — EmbeddedRevs drifted from the asset", want)
 	}
 }
 

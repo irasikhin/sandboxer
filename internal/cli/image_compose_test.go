@@ -54,7 +54,7 @@ func TestBuildImageCommand(t *testing.T) {
 	fakeMsb(t)
 	rev := strings.Repeat("f", 40)
 	t.Setenv("XDG_CACHE_HOME", t.TempDir())
-	fakeGitRevs(t, rev, rev)
+	fakeGitRevs(t, rev)
 	captured := stubVMBuild(t)
 
 	// The default build re-resolves the input revs (auto-update) and hands the
@@ -134,10 +134,6 @@ func TestBuildImageRevFlags(t *testing.T) {
 
 	// A malformed rev is rejected by the ValidateImageSpec rules before
 	// profile or runner work.
-	if code, _, errs := run("image", "build", "--llm-agents-rev", "ZZZ"); code != 1 ||
-		!strings.Contains(errs, "image.llmAgentsRev") {
-		t.Errorf("bad --llm-agents-rev = (%d, %q)", code, errs)
-	}
 	if code, _, errs := run("image", "build", "--nixpkgs-rev", "also bad"); code != 1 ||
 		!strings.Contains(errs, "image.nixpkgsRev") {
 		t.Errorf("bad --nixpkgs-rev = (%d, %q)", code, errs)
@@ -146,7 +142,7 @@ func TestBuildImageRevFlags(t *testing.T) {
 	captured := stubVMBuild(t)
 
 	rev := strings.Repeat("d", 40)
-	fakeGitRevs(t, rev, rev)
+	fakeGitRevs(t, rev)
 	code, _, errs := run("image", "build")
 	if code != 0 {
 		t.Fatalf("build-image = %d %s", code, errs)
@@ -157,8 +153,8 @@ func TestBuildImageRevFlags(t *testing.T) {
 	if strings.Contains(errs, "note: built variant") {
 		t.Errorf("the default build must not print the variant note: %s", errs)
 	}
-	if captured.Spec.NixpkgsRev != rev || captured.Spec.LLMAgentsRev != rev {
-		t.Errorf("seam spec revs = %q/%q, want the resolved %s", captured.Spec.NixpkgsRev, captured.Spec.LLMAgentsRev, rev)
+	if captured.Spec.NixpkgsRev != rev {
+		t.Errorf("seam spec rev = %q, want the resolved %s", captured.Spec.NixpkgsRev, rev)
 	}
 	if captured.Image != config.LoadDefaults().Image {
 		t.Errorf("seam image = %q, want the stock default", captured.Image)
@@ -198,7 +194,7 @@ func TestBuildImageRevFlags(t *testing.T) {
 	// default; the command says so instead of implying the stock image moved.
 	override := strings.Repeat("e", 40)
 	if code, _, errs := run("image", "build", "--no-refresh",
-		"--nixpkgs-rev", override, "--llm-agents-rev", override); code != 0 ||
+		"--nixpkgs-rev", override); code != 0 ||
 		!strings.Contains(errs, "note: built variant") {
 		t.Fatalf("concrete bare-flag build = (%d, %q), want the variant note", code, errs)
 	}
@@ -210,7 +206,7 @@ func TestBuildImageRevFlags(t *testing.T) {
 	}
 
 	// A concrete flag rev is a one-shot override of the profile's tracking
-	// value; the other input still resolves from the warm stamp.
+	// value.
 	cfg := filepath.Join(t.TempDir(), "p.nix")
 	if err := os.WriteFile(cfg, []byte("{ name = \"feat\"; image.nixpkgsRev = \"latest\"; }\n"), 0o644); err != nil {
 		t.Fatal(err)
@@ -218,7 +214,7 @@ func TestBuildImageRevFlags(t *testing.T) {
 	if code, _, errs := run("image", "build", "--no-refresh", "-f", cfg, "--nixpkgs-rev", override); code != 0 {
 		t.Fatalf("build-image concrete override = %d %s", code, errs)
 	}
-	if captured.Spec.NixpkgsRev != override || captured.Spec.LLMAgentsRev != rev {
-		t.Errorf("override spec revs = %q/%q, want %s/%s", captured.Spec.NixpkgsRev, captured.Spec.LLMAgentsRev, override, rev)
+	if captured.Spec.NixpkgsRev != override {
+		t.Errorf("override spec rev = %q, want %s", captured.Spec.NixpkgsRev, override)
 	}
 }

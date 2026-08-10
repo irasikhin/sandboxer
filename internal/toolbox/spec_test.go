@@ -19,7 +19,7 @@ func TestResolveSpecEmpty(t *testing.T) {
 	for _, p := range []*config.Profile{
 		nil,
 		{},
-		{Image: config.ImageSpec{LLMAgentsRev: "latest", NixpkgsRev: "latest"}},
+		{Image: config.ImageSpec{NixpkgsRev: "latest"}},
 	} {
 		s, err := ResolveSpec(p)
 		if err != nil || !s.Empty() {
@@ -85,8 +85,8 @@ func TestResolveSpecOverlayFile(t *testing.T) {
 	// Tag() needs concrete revs (PinSpec runs before tagging in the real
 	// flow); pin both specs identically so only the overlay content differs.
 	rev := strings.Repeat("1", 40)
-	s1.NixpkgsRev, s1.LLMAgentsRev = rev, rev
-	s2.NixpkgsRev, s2.LLMAgentsRev = rev, rev
+	s1.NixpkgsRev = rev
+	s2.NixpkgsRev = rev
 	if s2.OverlaySHA == s1.OverlaySHA || s2.Tag() == s1.Tag() {
 		t.Error("changing the hook file's content must change OverlaySHA and the tag")
 	}
@@ -101,9 +101,9 @@ func TestResolveSpecOverlayFile(t *testing.T) {
 // and sensitive to every content input, the resolved revs included.
 func TestSpecTag(t *testing.T) {
 	tagRe := regexp.MustCompile(`^sandboxer-toolbox:var-[0-9a-f]{12}$`)
-	revN, revL := strings.Repeat("2", 40), strings.Repeat("3", 40)
+	revN := strings.Repeat("2", 40)
 	pin := func(s Spec) Spec {
-		s.NixpkgsRev, s.LLMAgentsRev = revN, revL
+		s.NixpkgsRev = revN
 		return s
 	}
 	a := pin(Spec{Attrs: []string{"go", "ripgrep"}})
@@ -127,11 +127,8 @@ func TestSpecTag(t *testing.T) {
 	}
 
 	other := strings.Repeat("4", 40)
-	if (Spec{Attrs: []string{"go", "ripgrep"}, NixpkgsRev: other, LLMAgentsRev: revL}).Tag() == a.Tag() {
+	if (Spec{Attrs: []string{"go", "ripgrep"}, NixpkgsRev: other}).Tag() == a.Tag() {
 		t.Error("a differing nixpkgs rev must change the tag")
-	}
-	if (Spec{Attrs: []string{"go", "ripgrep"}, NixpkgsRev: revN, LLMAgentsRev: other}).Tag() == a.Tag() {
-		t.Error("a differing llm-agents rev must change the tag")
 	}
 }
 
@@ -139,11 +136,8 @@ func TestSpecTag(t *testing.T) {
 // tracking rev — the "" default as much as the explicit "latest" — can never
 // be content-addressed, so tagging it is a fail-loud bug, not a tag.
 func TestSpecTagPanicsOnLatest(t *testing.T) {
-	rev := strings.Repeat("5", 40)
 	for _, s := range []Spec{
-		{Attrs: []string{"go"}, NixpkgsRev: "latest", LLMAgentsRev: rev},
-		{Attrs: []string{"go"}, NixpkgsRev: rev, LLMAgentsRev: "latest"},
-		{Attrs: []string{"go"}, NixpkgsRev: rev},
+		{Attrs: []string{"go"}, NixpkgsRev: "latest"},
 		{Attrs: []string{"go"}},
 	} {
 		func() {
@@ -168,7 +162,8 @@ func TestFlakeUserContract(t *testing.T) {
 	}
 	s := string(data)
 	for _, want := range []string{
-		"overlays = [ (import ./overlay.nix) ]",
+		"(import ./overlay.nix)",
+		"final.callPackage ./pi/package.nix { }",
 		`builtins.fromJSON (builtins.readFile ./files.json)`,
 		`builtins.fromJSON (builtins.readFile ./env.json)`,
 		"userFiles",

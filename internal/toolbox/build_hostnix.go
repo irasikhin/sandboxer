@@ -51,9 +51,6 @@ func hostNixArgv(ctxDir string, spec Spec) []string {
 	if !isLatestRev(spec.NixpkgsRev) {
 		args = append(args, "--override-input", "nixpkgs", "github:NixOS/nixpkgs/"+spec.NixpkgsRev)
 	}
-	if !isLatestRev(spec.LLMAgentsRev) {
-		args = append(args, "--override-input", "llm-agents", "github:numtide/llm-agents.nix/"+spec.LLMAgentsRev)
-	}
 	return append(args, "path:"+ctxDir+"#image")
 }
 

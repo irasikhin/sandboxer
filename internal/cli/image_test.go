@@ -21,8 +21,7 @@ func TestResolveImage(t *testing.T) {
 	t.Setenv("XDG_CACHE_HOME", t.TempDir())
 	rev := strings.Repeat("a", 40)
 	if err := toolbox.SavePins(toolbox.Pins{
-		"nixpkgs":    {Ref: "refs/heads/nixos-unstable", Rev: rev},
-		"llm-agents": {Ref: "HEAD", Rev: rev},
+		"nixpkgs": {Ref: "refs/heads/nixos-unstable", Rev: rev},
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -30,7 +29,7 @@ func TestResolveImage(t *testing.T) {
 	for _, prof := range []*config.Profile{
 		nil,
 		{},
-		{Image: config.ImageSpec{LLMAgentsRev: "latest"}},
+		{Image: config.ImageSpec{NixpkgsRev: "latest"}},
 	} {
 		img, spec, err := resolveImage(prof, io.Discard)
 		if err != nil || img != def || !spec.Empty() {
@@ -73,13 +72,12 @@ func TestResolveImage(t *testing.T) {
 // PATH still resolves) that answers `git ls-remote` for the two flake inputs
 // with the given revs, so pin resolution via host git is driven deterministically
 // without real git or network.
-func fakeGitRevs(t *testing.T, nixpkgsRev, llmAgentsRev string) {
+func fakeGitRevs(t *testing.T, nixpkgsRev string) {
 	t.Helper()
 	dir := t.TempDir()
 	script := "#!/bin/sh\n" +
 		"case \"$2\" in\n" +
 		"  *NixOS/nixpkgs) echo '" + nixpkgsRev + "\trefs/heads/nixos-unstable';;\n" +
-		"  *llm-agents.nix) echo '" + llmAgentsRev + "\tHEAD';;\n" +
 		"esac\n" +
 		"exit 0\n"
 	if err := os.WriteFile(filepath.Join(dir, "git"), []byte(script), 0o755); err != nil {
@@ -111,13 +109,13 @@ func TestResolveImageLatest(t *testing.T) {
 	// pre-stamped pins — the docker-less first-build case).
 	t.Setenv("XDG_CACHE_HOME", t.TempDir())
 	rev := strings.Repeat("a", 40)
-	fakeGitRevs(t, rev, rev)
+	fakeGitRevs(t, rev)
 	img, spec, err := resolveImage(prof, io.Discard)
 	if err != nil {
 		t.Fatalf("cold cache: %v", err)
 	}
-	if spec.NixpkgsRev != rev || spec.LLMAgentsRev != rev {
-		t.Errorf("revs = %q/%q, want the resolved rev", spec.NixpkgsRev, spec.LLMAgentsRev)
+	if spec.NixpkgsRev != rev {
+		t.Errorf("rev = %q, want the resolved rev", spec.NixpkgsRev)
 	}
 	if img != spec.Tag() || !strings.HasPrefix(img, "sandboxer-toolbox:var-") {
 		t.Errorf("image %q != pinned spec tag %q", img, spec.Tag())
@@ -131,8 +129,7 @@ func TestResolveImageLatest(t *testing.T) {
 
 	// Warm cache hit: no git run at all, revs from the stamp.
 	if err := toolbox.SavePins(toolbox.Pins{
-		"nixpkgs":    {Rev: rev},
-		"llm-agents": {Rev: rev},
+		"nixpkgs": {Rev: rev},
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -140,8 +137,8 @@ func TestResolveImageLatest(t *testing.T) {
 	if err != nil {
 		t.Fatalf("warm cache: %v", err)
 	}
-	if spec.NixpkgsRev != rev || spec.LLMAgentsRev != rev {
-		t.Errorf("revs = %q/%q, want the stamped rev", spec.NixpkgsRev, spec.LLMAgentsRev)
+	if spec.NixpkgsRev != rev {
+		t.Errorf("rev = %q, want the stamped rev", spec.NixpkgsRev)
 	}
 	if img != spec.Tag() || !strings.HasPrefix(img, "sandboxer-toolbox:var-") {
 		t.Errorf("image %q != pinned spec tag %q", img, spec.Tag())

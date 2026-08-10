@@ -15,7 +15,7 @@ import (
 // boot from, plus microsandbox's own image store. It is the `build` verb of
 // the `image` command group (see image.go).
 func newImageBuildCmd() *cobra.Command {
-	var backendFlag, configPath, llmAgentsRev, nixpkgsRev string
+	var backendFlag, configPath, nixpkgsRev string
 	var noRefresh bool
 	cmd := &cobra.Command{
 		Use:   "build [profile]",
@@ -25,24 +25,24 @@ requirement of the CLI) and place it in the microVM image store, where the
 backend boots it from. With backend = "microsandbox" the tar is additionally
 imported into msb's own image store.
 
-Auto-update is the default: each build first re-resolves the flake inputs
-(nixpkgs, llm-agents — the agents) to their current remote heads and stamps the
-resolved commits into the per-user pins cache, so a rebuild picks up new agent
-releases. enter/exec only ever reuse the stamp — nothing re-resolves behind your
-back; rebuild + recreate is how an update reaches a sandbox. --no-refresh builds
-from the existing stamp (fast iteration on image.packages without moving the
-agents). To hold an input still, pin it in the config: image.llmAgentsRev /
-image.nixpkgsRev = a full 40-hex commit.
+Auto-update is the default: each build first re-resolves the nixpkgs flake
+input — the single input everything, agents included, comes from — to its
+current remote head and stamps the resolved commit into the per-user pins
+cache, so a rebuild picks up new agent releases. enter/exec only ever reuse the
+stamp — nothing re-resolves behind your back; rebuild + recreate is how an
+update reaches a sandbox. --no-refresh builds from the existing stamp (fast
+iteration on image.packages without moving the agents). To hold the input
+still, pin it in the config: image.nixpkgsRev = a full 40-hex commit.
 
 With a profile (a positional name or -f, resolved like enter/exec) the profile's
 customized variant — tools packs, image.extraPkgs, an overlay, pinned input
 revs — is built under its content-addressed var- tag instead. Without a profile
 the stock default image is built.
 
---llm-agents-rev/--nixpkgs-rev override the input revs for this build only (over
-the profile's values). A concrete bare-flag rev selects a var- tag: only a
-profile pinning the same revs runs that image, so it pre-builds a variant but
-does NOT update the stock image profile-less sandboxes use.`,
+--nixpkgs-rev overrides the input rev for this build only (over the profile's
+value). A concrete bare-flag rev selects a var- tag: only a profile pinning the
+same rev runs that image, so it pre-builds a variant but does NOT update the
+stock image profile-less sandboxes use.`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			prof, err := buildImageProfile(configPath, posArg(args))
@@ -56,15 +56,10 @@ does NOT update the stock image profile-less sandboxes use.`,
 			// One-shot flag overrides land on top of the profile's revs; the
 			// merged values obey the same rules as the profile fields (latest
 			// or a full 40-hex commit), checked before any build work.
-			if llmAgentsRev != "" {
-				spec.LLMAgentsRev = llmAgentsRev
-			}
 			if nixpkgsRev != "" {
 				spec.NixpkgsRev = nixpkgsRev
 			}
-			if err := config.ValidateImageSpec(config.ImageSpec{
-				LLMAgentsRev: spec.LLMAgentsRev, NixpkgsRev: spec.NixpkgsRev,
-			}); err != nil {
+			if err := config.ValidateImageSpec(config.ImageSpec{NixpkgsRev: spec.NixpkgsRev}); err != nil {
 				return err
 			}
 			// Stockness is decided BEFORE pin resolution: a tracking rev ("",
@@ -105,7 +100,6 @@ does NOT update the stock image profile-less sandboxes use.`,
 	fl.StringVar(&backendFlag, "backend", "", "backend: microsandbox (default: the profile's, else microsandbox)")
 	fl.StringVarP(&configPath, "config", "f", "", "profile file (default: the project sandboxer.nix; pick a profiles section by name)")
 	fl.BoolVar(&noRefresh, "no-refresh", false, "build from the stamped input revs instead of re-resolving the remote heads")
-	fl.StringVar(&llmAgentsRev, "llm-agents-rev", "", "llm-agents input rev for this build: latest or a full 40-hex commit (overrides the profile)")
 	fl.StringVar(&nixpkgsRev, "nixpkgs-rev", "", "nixpkgs input rev for this build: latest or a full 40-hex commit (overrides the profile)")
 	return cmd
 }

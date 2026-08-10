@@ -14,23 +14,14 @@ import (
 // pin.
 func TestEmbeddedRevsMatchFlakeLock(t *testing.T) {
 	locked := readFlakeLockRevs(t)
-	nixpkgs, llmAgents := EmbeddedRevs()
-	for _, tc := range []struct {
-		node     string
-		embedded string
-	}{
-		{"nixpkgs", nixpkgs},
-		{"llm-agents", llmAgents},
-	} {
-		want, ok := locked[tc.node]
-		if !ok || want == "" {
-			t.Errorf("flake.lock has no locked rev for node %q", tc.node)
-			continue
-		}
-		if tc.embedded != want {
-			t.Errorf("%s pin out of sync: embedded flake.nix has %s, flake.lock has %s — "+
-				"update internal/toolbox/assets/flake.nix to match", tc.node, tc.embedded, want)
-		}
+	nixpkgs := EmbeddedRevs()
+	want, ok := locked["nixpkgs"]
+	if !ok || want == "" {
+		t.Fatal(`flake.lock has no locked rev for node "nixpkgs"`)
+	}
+	if nixpkgs != want {
+		t.Errorf("nixpkgs pin out of sync: embedded flake.nix has %s, flake.lock has %s — "+
+			"update internal/toolbox/assets/flake.nix to match", nixpkgs, want)
 	}
 }
 

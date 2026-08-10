@@ -43,7 +43,7 @@
   "aider": {
     "bin": "aider",
     "authEnv": ["OPENAI_API_KEY", "ANTHROPIC_API_KEY", "DEEPSEEK_API_KEY", "OPENROUTER_API_KEY"],
-    "nixPackage": "aider",
+    "nixPackage": "aider-chat",
     "resume": ["aider", "--restore-chat-history"],
     "seed": [
       { "path": ".aider.conf.yml" }

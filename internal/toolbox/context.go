@@ -1,11 +1,12 @@
 // Package toolbox assembles the build context for the sandboxer toolbox image
 // and builds it with host nix (BuildImageHostNix).
 //
-// The embedded flake (assets/flake.nix) references only public inputs (nixpkgs,
-// llm-agents) and is written into the build context together with the
-// generated agents.nix/tools.nix/overlay.nix and the files/env JSON, so the
-// build never needs the sandboxer repo or a local checkout. The sandboxer
-// binary is NOT part of the image — it is a host tool (see writeContext).
+// The embedded flake (assets/flake.nix) references one public input (nixpkgs)
+// and is written into the build context together with the generated
+// agents.nix/tools.nix/overlay.nix, the files/env JSON and the vendored pi
+// package, so the build never needs the sandboxer repo or a local checkout.
+// The sandboxer binary is NOT part of the image — it is a host tool (see
+// writeContext).
 package toolbox
 
 import (
@@ -27,7 +28,7 @@ import (
 // root flake imports the same images.nix, so the image a user gets and the
 // image CI builds cannot drift apart again.
 //
-//go:embed assets/flake.nix assets/images.nix
+//go:embed assets/flake.nix assets/images.nix assets/pi
 var assets embed.FS
 
 // stubOverlay is the overlay.nix written when the profile has none: the
@@ -40,12 +41,17 @@ const stubOverlay = "final: prev: { }\n"
 // profile's overlay.nix (a plain nixpkgs overlay; no-op stub when unset) and
 // its files.json/env.json static customization.
 func writeContext(ctxDir string, spec Spec) error {
-	for _, name := range []string{"flake.nix", "images.nix"} {
+	// os.Mkdir, not MkdirAll: a missing ctxDir must stay an error (the caller
+	// owns creating the context), never be silently conjured up.
+	if err := os.Mkdir(filepath.Join(ctxDir, "pi"), 0o755); err != nil {
+		return err
+	}
+	for _, name := range []string{"flake.nix", "images.nix", "pi/package.nix", "pi/package-lock.json"} {
 		data, err := assets.ReadFile("assets/" + name)
 		if err != nil {
 			return err
 		}
-		if err := os.WriteFile(filepath.Join(ctxDir, name), data, 0o644); err != nil {
+		if err := os.WriteFile(filepath.Join(ctxDir, filepath.FromSlash(name)), data, 0o644); err != nil {
 			return err
 		}
 	}
@@ -109,7 +115,7 @@ func renderNixList(names []string) string {
 	return b.String()
 }
 
-// imageAgentPackages returns the llm-agents package names for agents baked into
+// imageAgentPackages returns the nixpkgs package attrs for agents baked into
 // the image (registry entries with "image" != false and a non-empty nixPackage).
 func imageAgentPackages() []string {
 	var out []string

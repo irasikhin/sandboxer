@@ -40,8 +40,7 @@ func TestVMBuildImageToStoreHostNix(t *testing.T) {
 	t.Setenv("SANDBOXER_STATE", t.TempDir())
 	t.Setenv("XDG_CACHE_HOME", t.TempDir())
 	if err := toolbox.SavePins(toolbox.Pins{
-		"nixpkgs":    {Ref: "refs/heads/nixos-unstable", Rev: strings.Repeat("d", 40)},
-		"llm-agents": {Ref: "HEAD", Rev: strings.Repeat("e", 40)},
+		"nixpkgs": {Ref: "refs/heads/nixos-unstable", Rev: strings.Repeat("d", 40)},
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -93,8 +92,7 @@ func TestVMBuildImageToStoreNoNix(t *testing.T) {
 	t.Setenv("SANDBOXER_STATE", t.TempDir())
 	t.Setenv("XDG_CACHE_HOME", t.TempDir())
 	if err := toolbox.SavePins(toolbox.Pins{
-		"nixpkgs":    {Rev: strings.Repeat("d", 40)},
-		"llm-agents": {Rev: strings.Repeat("e", 40)},
+		"nixpkgs": {Rev: strings.Repeat("d", 40)},
 	}); err != nil {
 		t.Fatal(err)
 	}

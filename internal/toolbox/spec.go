@@ -34,14 +34,14 @@ type Spec struct {
 	// image.env), rendered into the build context and folded into the tag.
 	Files map[string]string
 	Env   map[string]string
-	// LLMAgentsRev / NixpkgsRev select the flake-input revs. "" and "latest"
-	// both mean "track the remote head" (the default — agents auto-update on
+	// NixpkgsRev selects the nixpkgs flake-input rev — the single input
+	// everything (agents included) comes from. "" and "latest" both mean
+	// "track the remote head" (the default — agents auto-update on
 	// `image build`, which stamps the resolved rev into the pins cache); a
 	// full 40-hex commit pins the input exactly. A tracking rev must be
 	// resolved to a commit before the spec is tagged or built (see PinSpec /
 	// effectiveRev).
-	LLMAgentsRev string
-	NixpkgsRev   string
+	NixpkgsRev string
 }
 
 // isLatestRev reports whether a rev tracks the remote head rather than
@@ -79,12 +79,11 @@ func ResolveSpec(p *config.Profile) (Spec, error) {
 		return Spec{}, err
 	}
 	s := Spec{
-		Attrs:        attrs,
-		OverlayFile:  p.Image.Overlay,
-		Files:        p.Image.Files,
-		Env:          p.Image.Env,
-		LLMAgentsRev: p.Image.LLMAgentsRev,
-		NixpkgsRev:   p.Image.NixpkgsRev,
+		Attrs:       attrs,
+		OverlayFile: p.Image.Overlay,
+		Files:       p.Image.Files,
+		Env:         p.Image.Env,
+		NixpkgsRev:  p.Image.NixpkgsRev,
 	}
 	if s.OverlayFile != "" {
 		data, err := os.ReadFile(s.OverlayFile)
@@ -103,7 +102,7 @@ func ResolveSpec(p *config.Profile) (Spec, error) {
 // not divert the profile to a variant tag. Only a concrete pin does.
 func (s Spec) Empty() bool {
 	return len(s.Attrs) == 0 && s.OverlayFile == "" && len(s.Files) == 0 &&
-		len(s.Env) == 0 && isLatestRev(s.LLMAgentsRev) && isLatestRev(s.NixpkgsRev)
+		len(s.Env) == 0 && isLatestRev(s.NixpkgsRev)
 }
 
 // Tag returns the image reference for the spec: the default image when empty,
@@ -123,9 +122,8 @@ func (s Spec) Tag() string {
 	// Every list is NUL-joined so adjacent values can never collide by
 	// concatenation (["go,rg"] vs ["go","rg"]) — the session ConfigHash
 	// convention; maps are serialized in sorted key order.
-	sum := sha256.Sum256([]byte("v2\x00" +
+	sum := sha256.Sum256([]byte("v3\x00" +
 		"nixpkgs=" + effectiveRev("nixpkgs", s.NixpkgsRev) + "\x00" +
-		"llm-agents=" + effectiveRev("llm-agents", s.LLMAgentsRev) + "\x00" +
 		"attrs=" + strings.Join(s.Attrs, "\x00") + "\x00" +
 		"files=" + joinSortedKV(s.Files) + "\x00" +
 		"env=" + joinSortedKV(s.Env) + "\x00" +

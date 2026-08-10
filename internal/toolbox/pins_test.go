@@ -28,8 +28,7 @@ func TestPinsRoundtrip(t *testing.T) {
 	}
 
 	want := Pins{
-		"nixpkgs":    {Ref: "refs/heads/nixos-unstable", Rev: strings.Repeat("a", 40), ResolvedAt: "2026-06-10T00:00:00Z"},
-		"llm-agents": {Ref: "HEAD", Rev: strings.Repeat("b", 40)},
+		"nixpkgs": {Ref: "refs/heads/nixos-unstable", Rev: strings.Repeat("a", 40), ResolvedAt: "2026-06-10T00:00:00Z"},
 	}
 	if err := SavePins(want); err != nil {
 		t.Fatalf("SavePins: %v", err)
@@ -45,7 +44,7 @@ func TestPinsRoundtrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadPins: %v", err)
 	}
-	if got["nixpkgs"] != want["nixpkgs"] || got["llm-agents"] != want["llm-agents"] {
+	if got["nixpkgs"] != want["nixpkgs"] {
 		t.Errorf("roundtrip = %+v, want %+v", got, want)
 	}
 
@@ -101,12 +100,11 @@ func writeFakeGit(t *testing.T, body string) {
 }
 
 // fakeGitRevs renders the body of a shim that answers `git ls-remote` for the
-// two flake inputs with the given revs (sha per line, tab-separated, exactly
-// like real git).
-func fakeGitRevs(nixpkgsRev, llmAgentsRev string) string {
+// nixpkgs flake input with the given rev (sha + tab + ref, exactly like real
+// git).
+func fakeGitRevs(nixpkgsRev string) string {
 	return "case \"$2\" in\n" +
 		"  *NixOS/nixpkgs) echo '" + nixpkgsRev + "\trefs/heads/nixos-unstable';;\n" +
-		"  *llm-agents.nix) echo '" + llmAgentsRev + "\tHEAD';;\n" +
 		"esac\n"
 }
 
@@ -114,18 +112,18 @@ func fakeGitRevs(nixpkgsRev, llmAgentsRev string) string {
 // 40-hex pins per input, refs are recorded, and every failure mode (git error,
 // a non-40-hex answer, an empty answer) is fail-closed.
 func TestResolveLatest(t *testing.T) {
-	revA, revB := strings.Repeat("a", 40), strings.Repeat("b", 40)
+	revA := strings.Repeat("a", 40)
 
-	writeFakeGit(t, fakeGitRevs(revA, revB))
+	writeFakeGit(t, fakeGitRevs(revA))
 	pins, err := ResolveLatest(&strings.Builder{})
 	if err != nil {
 		t.Fatalf("ResolveLatest: %v", err)
 	}
-	if pins["nixpkgs"].Rev != revA || pins["llm-agents"].Rev != revB {
-		t.Errorf("pins = %+v, want revs %s / %s", pins, revA, revB)
+	if pins["nixpkgs"].Rev != revA {
+		t.Errorf("pins = %+v, want rev %s", pins, revA)
 	}
-	if pins["nixpkgs"].Ref != "refs/heads/nixos-unstable" || pins["llm-agents"].Ref != "HEAD" {
-		t.Errorf("pins must record the resolved refs: %+v", pins)
+	if pins["nixpkgs"].Ref != "refs/heads/nixos-unstable" {
+		t.Errorf("pins must record the resolved ref: %+v", pins)
 	}
 
 	// A failing git run errors.
@@ -134,7 +132,7 @@ func TestResolveLatest(t *testing.T) {
 		t.Error("a failing git run must error")
 	}
 	// A non-40-hex rev (e.g. an HTML error page) is rejected.
-	writeFakeGit(t, "case \"$2\" in *llm-agents.nix) echo 'not-a-rev\tHEAD';; esac")
+	writeFakeGit(t, "case \"$2\" in *NixOS/nixpkgs) echo 'not-a-rev\trefs/heads/nixos-unstable';; esac")
 	if _, err := ResolveLatest(nil); err == nil || !strings.Contains(err.Error(), "40-hex") {
 		t.Errorf("malformed rev = %v, want a 40-hex validation error", err)
 	}
@@ -152,13 +150,13 @@ func TestResolveLatest(t *testing.T) {
 // anywhere in this path.
 func TestPinSpec(t *testing.T) {
 	requireExec(t, "sh")
-	revA, revB := strings.Repeat("a", 40), strings.Repeat("b", 40)
+	revA := strings.Repeat("a", 40)
 
-	// Concrete revs pass through untouched — even with refresh, no cache at all.
+	// A concrete rev passes through untouched — even with refresh, no cache at all.
 	pinsCacheDir(t)
-	s := Spec{Attrs: []string{"go"}, NixpkgsRev: revA, LLMAgentsRev: revB}
+	s := Spec{Attrs: []string{"go"}, NixpkgsRev: revA}
 	got, err := PinSpec(s, true, nil)
-	if err != nil || got.NixpkgsRev != revA || got.LLMAgentsRev != revB {
+	if err != nil || got.NixpkgsRev != revA {
 		t.Errorf("PinSpec(%+v) = %+v, %v; want untouched pass-through", s, got, err)
 	}
 	if path, _ := PinsPath(); fileExistsForTest(path) {
@@ -166,31 +164,32 @@ func TestPinSpec(t *testing.T) {
 	}
 
 	// Cold cache → resolve via host git (the phase-A acceptance: a first build
-	// on a docker-less host works), both revs replaced, cache stamped. The
-	// empty spec tracks both inputs — the stock auto-update default.
-	writeFakeGit(t, fakeGitRevs(revA, revB))
+	// on an engine-less host works), the rev replaced, cache stamped. The
+	// empty spec tracks the input — the stock auto-update default.
+	writeFakeGit(t, fakeGitRevs(revA))
 	got, err = PinSpec(Spec{}, false, &strings.Builder{})
 	if err != nil {
 		t.Fatalf("PinSpec cold miss: %v", err)
 	}
-	if got.NixpkgsRev != revA || got.LLMAgentsRev != revB {
-		t.Errorf("resolved spec = %+v, want %s / %s", got, revA, revB)
+	if got.NixpkgsRev != revA {
+		t.Errorf("resolved spec = %+v, want %s", got, revA)
 	}
 	stamped, err := LoadPins()
-	if err != nil || stamped["nixpkgs"].Rev != revA || stamped["llm-agents"].Rev != revB {
+	if err != nil || stamped["nixpkgs"].Rev != revA {
 		t.Errorf("stamped pins = %+v, %v", stamped, err)
 	}
 
-	// Warm cache hit: no resolve at all (the dry-run case), revs from the stamp
-	// for the explicit "latest" and the "" default alike.
-	hit, err := PinSpec(Spec{LLMAgentsRev: "latest"}, false, nil)
-	if err != nil || hit.LLMAgentsRev != revB || hit.NixpkgsRev != revA {
-		t.Errorf("warm-cache hit = %+v, %v; want the stamped revs with no git", hit, err)
+	// Warm cache hit: no resolve at all (the dry-run case), the rev from the
+	// stamp for the explicit "latest" and the "" default alike.
+	writeFakeGit(t, "exit 1")
+	hit, err := PinSpec(Spec{NixpkgsRev: "latest"}, false, nil)
+	if err != nil || hit.NixpkgsRev != revA {
+		t.Errorf("warm-cache hit = %+v, %v; want the stamped rev with no git", hit, err)
 	}
 
 	// Refresh forces a re-resolve over the warm stamp and re-stamps.
 	revC := strings.Repeat("c", 40)
-	writeFakeGit(t, fakeGitRevs(revC, revC))
+	writeFakeGit(t, fakeGitRevs(revC))
 	ref, err := PinSpec(Spec{NixpkgsRev: "latest"}, true, nil)
 	if err != nil || ref.NixpkgsRev != revC {
 		t.Errorf("refresh = %+v, %v; want the re-resolved rev", ref, err)
@@ -206,47 +205,6 @@ func TestPinSpec(t *testing.T) {
 	}
 	if _, err := PinSpec(Spec{NixpkgsRev: "latest"}, false, nil); err == nil {
 		t.Error("a corrupt pins cache must error")
-	}
-}
-
-// TestPinSpecMissKeepsOtherStamps: a cache miss stamps ONLY the missing
-// inputs. Profile A's warm nixpkgs stamp must not move when profile B's first
-// enter resolves a cold llm-agents pin — or A's next enter would mint a new
-// tag and rebuild for no reason (only image build's refresh moves a warm
-// stamp).
-func TestPinSpecMissKeepsOtherStamps(t *testing.T) {
-	requireExec(t, "sh")
-	pinsCacheDir(t)
-	revA, revC := strings.Repeat("a", 40), strings.Repeat("c", 40)
-	if err := SavePins(Pins{"nixpkgs": {Ref: "refs/heads/nixos-unstable", Rev: revA}}); err != nil {
-		t.Fatal(err)
-	}
-
-	// llm-agents is cold → resolve runs (returning revC for BOTH inputs), but
-	// only the missing llm-agents stamp is written.
-	writeFakeGit(t, fakeGitRevs(revC, revC))
-	got, err := PinSpec(Spec{LLMAgentsRev: "latest"}, false, nil)
-	if err != nil || got.LLMAgentsRev != revC {
-		t.Fatalf("miss = %+v, %v; want llm-agents pinned to %s", got, err, revC)
-	}
-	pins, err := LoadPins()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if pins["nixpkgs"].Rev != revA {
-		t.Errorf("warm nixpkgs stamp moved to %s on an unrelated miss, want %s kept", pins["nixpkgs"].Rev, revA)
-	}
-	if pins["llm-agents"].Rev != revC {
-		t.Errorf("llm-agents stamp = %s, want %s", pins["llm-agents"].Rev, revC)
-	}
-
-	// refresh is the deliberate full re-stamp: every resolved input moves.
-	writeFakeGit(t, fakeGitRevs(revC, revC))
-	if _, err := PinSpec(Spec{LLMAgentsRev: "latest"}, true, nil); err != nil {
-		t.Fatal(err)
-	}
-	if re, _ := LoadPins(); re["nixpkgs"].Rev != revC {
-		t.Errorf("refresh must move every stamp, nixpkgs = %s", re["nixpkgs"].Rev)
 	}
 }
 
@@ -271,7 +229,7 @@ func TestPinSpecResolveAndStampErrors(t *testing.T) {
 		t.Fatal(err)
 	}
 	rev := strings.Repeat("a", 40)
-	writeFakeGit(t, fakeGitRevs(rev, rev))
+	writeFakeGit(t, fakeGitRevs(rev))
 	if _, err := PinSpec(Spec{NixpkgsRev: "latest"}, false, nil); err == nil {
 		t.Error("unwritable pins cache must fail the pinning")
 	}
@@ -284,7 +242,7 @@ func TestPinSpecThenTag(t *testing.T) {
 	requireExec(t, "sh")
 	pinsCacheDir(t)
 	revA := strings.Repeat("a", 40)
-	writeFakeGit(t, fakeGitRevs(revA, revA))
+	writeFakeGit(t, fakeGitRevs(revA))
 	s, err := PinSpec(Spec{Attrs: []string{"go"}, NixpkgsRev: "latest"}, false, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -293,8 +251,8 @@ func TestPinSpecThenTag(t *testing.T) {
 	if !strings.HasPrefix(tag, "sandboxer-toolbox:var-") {
 		t.Fatalf("pinned tag = %q", tag)
 	}
-	if other := strings.Repeat("b", 40); tag == (Spec{Attrs: []string{"go"}, NixpkgsRev: other, LLMAgentsRev: other}).Tag() {
-		t.Error("the tag must be content-addressed by the resolved revs")
+	if other := strings.Repeat("b", 40); tag == (Spec{Attrs: []string{"go"}, NixpkgsRev: other}).Tag() {
+		t.Error("the tag must be content-addressed by the resolved rev")
 	}
 }
 

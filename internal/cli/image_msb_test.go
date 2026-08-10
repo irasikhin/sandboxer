@@ -30,7 +30,7 @@ func TestBuildImageMsbRoutesToVMBuild(t *testing.T) {
 	newProject(t)
 	fakeMsbOnPath(t)
 	rev := strings.Repeat("b", 40)
-	fakeGitRevs(t, rev, rev)
+	fakeGitRevs(t, rev)
 
 	var vmImage string
 	var vmSpec toolbox.Spec
@@ -48,8 +48,8 @@ func TestBuildImageMsbRoutesToVMBuild(t *testing.T) {
 	if vmImage != config.DefaultImage {
 		t.Errorf("vm build image = %q, want %q", vmImage, config.DefaultImage)
 	}
-	if vmSpec.NixpkgsRev != rev || vmSpec.LLMAgentsRev != rev {
-		t.Errorf("vm build spec revs = %q/%q, want the resolved %s", vmSpec.NixpkgsRev, vmSpec.LLMAgentsRev, rev)
+	if vmSpec.NixpkgsRev != rev {
+		t.Errorf("vm build spec rev = %q, want the resolved %s", vmSpec.NixpkgsRev, rev)
 	}
 }
 
@@ -65,7 +65,7 @@ func TestBuildImageMsbNoEngine(t *testing.T) {
 	backendBuildVMImage = func(_, _ string, _ toolbox.Spec, _ io.Writer) error { return nil }
 
 	t.Setenv("XDG_CACHE_HOME", t.TempDir())
-	fakeGitRevs(t, strings.Repeat("a", 40), strings.Repeat("a", 40))
+	fakeGitRevs(t, strings.Repeat("a", 40))
 	if code, _, errs := run("image", "build"); code != 0 {
 		t.Errorf("cold cache, no container engine = (%d, %q), want a successful build", code, errs)
 	}
@@ -77,7 +77,7 @@ func TestBuildImageMsbVariant(t *testing.T) {
 	requireExec(t, "sh")
 	newProject(t)
 	fakeMsbOnPath(t)
-	fakeGitRevs(t, strings.Repeat("b", 40), strings.Repeat("b", 40))
+	fakeGitRevs(t, strings.Repeat("b", 40))
 
 	var vmImage string
 	oldVM := backendBuildVMImage

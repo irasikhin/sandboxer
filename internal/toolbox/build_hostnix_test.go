@@ -85,14 +85,12 @@ func TestHostNixArgv(t *testing.T) {
 // no matter how often `image build` re-stamped the pins cache).
 func TestHostNixArgvOverridesPinnedRevs(t *testing.T) {
 	nixRev := strings.Repeat("a", 40)
-	agentsRev := strings.Repeat("b", 40)
-	got := hostNixArgv("/ctx", Spec{NixpkgsRev: nixRev, LLMAgentsRev: agentsRev})
+	got := hostNixArgv("/ctx", Spec{NixpkgsRev: nixRev})
 	want := []string{
 		"--extra-experimental-features", "nix-command flakes",
 		"--accept-flake-config",
 		"build", "--no-link", "--print-out-paths",
 		"--override-input", "nixpkgs", "github:NixOS/nixpkgs/" + nixRev,
-		"--override-input", "llm-agents", "github:numtide/llm-agents.nix/" + agentsRev,
 		"path:/ctx#image",
 	}
 	if !slices.Equal(got, want) {

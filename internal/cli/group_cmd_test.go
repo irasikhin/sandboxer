@@ -190,7 +190,7 @@ func TestImageRmVariant(t *testing.T) {
 	// Cold pins cache → the variant tag resolves via host git and the var-
 	// image is removed.
 	t.Setenv("XDG_CACHE_HOME", t.TempDir())
-	fakeGitRevs(t, strings.Repeat("a", 40), strings.Repeat("a", 40))
+	fakeGitRevs(t, strings.Repeat("a", 40))
 	var gotImage string
 	old := backendRemoveImage
 	t.Cleanup(func() { backendRemoveImage = old })

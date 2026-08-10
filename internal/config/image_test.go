@@ -17,9 +17,8 @@ func TestImageSpecEmpty(t *testing.T) {
 		{"packages", ImageSpec{Packages: []string{"ripgrep"}}, false},
 		{"nix", ImageSpec{Overlay: "/abs/image.nix"}, false},
 		// A tracking rev is the stock default written down, not a customization.
-		{"llmAgentsRev latest", ImageSpec{LLMAgentsRev: "latest"}, true},
-		{"llmAgentsRev pinned", ImageSpec{LLMAgentsRev: strings.Repeat("a", 40)}, false},
-		{"nixpkgsRev", ImageSpec{NixpkgsRev: "abcdef0"}, false},
+		{"nixpkgsRev latest", ImageSpec{NixpkgsRev: "latest"}, true},
+		{"nixpkgsRev pinned", ImageSpec{NixpkgsRev: strings.Repeat("a", 40)}, false},
 	}
 	for _, c := range cases {
 		if got := c.s.Empty(); got != c.want {
@@ -35,18 +34,17 @@ func TestValidateImageSpec(t *testing.T) {
 		ok   bool
 	}{
 		{"empty spec", ImageSpec{}, true},
-		{"both empty revs", ImageSpec{Packages: []string{"ripgrep"}, Overlay: "/x.nix"}, true},
-		{"latest llm-agents", ImageSpec{LLMAgentsRev: "latest"}, true},
+		{"empty rev", ImageSpec{Packages: []string{"ripgrep"}, Overlay: "/x.nix"}, true},
 		{"latest nixpkgs", ImageSpec{NixpkgsRev: "latest"}, true},
-		{"40-char hex", ImageSpec{LLMAgentsRev: strings.Repeat("a1", 20)}, true},
+		{"40-char hex", ImageSpec{NixpkgsRev: strings.Repeat("a1", 20)}, true},
 		// Short prefixes are rejected: 7- and 40-hex of the same commit would
 		// mint two variant tags, and nix resolves a short github: rev via the
 		// GitHub API — a network dependency a pin must not have.
 		{"7-char hex too short", ImageSpec{NixpkgsRev: "abcdef0"}, false},
 		{"39-char hex too short", ImageSpec{NixpkgsRev: strings.Repeat("a", 39)}, false},
 		{"41-char hex too long", ImageSpec{NixpkgsRev: strings.Repeat("a", 41)}, false},
-		{"uppercase hex rejected", ImageSpec{LLMAgentsRev: strings.Repeat("A", 40)}, false},
-		{"branch name rejected", ImageSpec{LLMAgentsRev: "main"}, false},
+		{"uppercase hex rejected", ImageSpec{NixpkgsRev: strings.Repeat("A", 40)}, false},
+		{"branch name rejected", ImageSpec{NixpkgsRev: "main"}, false},
 		{"non-hex rejected", ImageSpec{NixpkgsRev: strings.Repeat("g", 40)}, false},
 	}
 	for _, c := range cases {
@@ -74,7 +72,6 @@ func TestImageStrictDecode(t *testing.T) {
   image = {
     packages = [ "ripgrep" "nodePackages.pnpm" ];
     overlay = "overlay.nix";
-    llmAgentsRev = "latest";
     nixpkgsRev = "abcdef0";
   };
 }
@@ -86,7 +83,7 @@ func TestImageStrictDecode(t *testing.T) {
 	if !slices.Equal(p.Image.Packages, []string{"ripgrep", "nodePackages.pnpm"}) {
 		t.Errorf("Packages = %v", p.Image.Packages)
 	}
-	if p.Image.LLMAgentsRev != "latest" || p.Image.NixpkgsRev != "abcdef0" {
+	if p.Image.NixpkgsRev != "abcdef0" {
 		t.Errorf("revs = %+v", p.Image)
 	}
 

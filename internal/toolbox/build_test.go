@@ -115,8 +115,7 @@ func warmPins(t *testing.T) {
 	t.Helper()
 	pinsCacheDir(t)
 	if err := SavePins(Pins{
-		"nixpkgs":    {Ref: "refs/heads/nixos-unstable", Rev: strings.Repeat("d", 40)},
-		"llm-agents": {Ref: "HEAD", Rev: strings.Repeat("e", 40)},
+		"nixpkgs": {Ref: "refs/heads/nixos-unstable", Rev: strings.Repeat("d", 40)},
 	}); err != nil {
 		t.Fatal(err)
 	}

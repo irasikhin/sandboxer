@@ -130,7 +130,9 @@ was extracted from:
   proxy enforces it — warning, not error). The policy is in the create argv → session hash. The config block
   is `egress` (`egress.enabled` = false = open network; default on). Disable with `SANDBOXER_NO_EGRESS=1`.
 - **Agent registry** (`internal/registry/registry.json`): the single-source catalog of agents — embedded in the
-  binary AND consumed by the Nix flake (`llm-agents.nix`). Edit the JSON, never duplicate it. An agent may
+  binary AND consumed by both flakes (each agent's `nixPackage` is a plain nixpkgs attr — prebuilt from
+  cache.nixos.org; pi alone is vendored at `internal/toolbox/assets/pi/`, grafted into pkgs by an overlay in
+  both flakes). Edit the JSON, never duplicate it. An agent may
   declare `resume` (argv, e.g. `claude --continue`) and `resumePick` (the interactive picker, used when
   several panes ran the agent in one directory): the session restore relaunches it in panes that recorded
   the agent at capture (opt-out: profile `autoResume = false` / `SANDBOXER_NO_RESUME=1`). Each agent's

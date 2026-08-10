@@ -22,7 +22,7 @@ type Pin struct {
 	ResolvedAt string `json:"resolvedAt,omitempty"`
 }
 
-// Pins maps a flake-input name (nixpkgs, llm-agents) to its stamped pin.
+// Pins maps a flake-input name (nixpkgs) to its stamped pin.
 type Pins map[string]Pin
 
 // pinsFileName is the pins file under the per-user sandboxer cache dir.
@@ -99,13 +99,13 @@ type pinInput struct {
 	ref  string
 }
 
-// pinInputs are the toolbox flake's resolvable inputs: nixpkgs tracks the
-// nixos-unstable branch (the embedded pin's channel), llm-agents tracks the
-// default branch (HEAD).
+// pinInputs are the toolbox flake's resolvable inputs: nixpkgs, tracking the
+// nixos-unstable branch (the embedded pin's channel). Agents ride the same
+// input — prebuilt nixpkgs packages, plus the vendored pi grafted by our
+// overlay — so there is nothing else to resolve.
 func pinInputs() []pinInput {
 	return []pinInput{
 		{name: "nixpkgs", url: "https://github.com/NixOS/nixpkgs", ref: "refs/heads/nixos-unstable"},
-		{name: "llm-agents", url: "https://github.com/numtide/llm-agents.nix", ref: "HEAD"},
 	}
 }
 
@@ -172,18 +172,14 @@ func ResolveLatest(stderr io.Writer) (Pins, error) {
 // container-less host exactly as it does on one with docker/podman — there is
 // no engine anywhere in this path.
 func PinSpec(s Spec, refresh bool, stderr io.Writer) (Spec, error) {
-	latestNixpkgs := isLatestRev(s.NixpkgsRev)
-	latestLLMAgents := isLatestRev(s.LLMAgentsRev)
-	if !latestNixpkgs && !latestLLMAgents {
+	if !isLatestRev(s.NixpkgsRev) {
 		return s, nil
 	}
 	pins, err := LoadPins()
 	if err != nil {
 		return Spec{}, err
 	}
-	_, haveNixpkgs := pins["nixpkgs"]
-	_, haveLLMAgents := pins["llm-agents"]
-	if refresh || (latestNixpkgs && !haveNixpkgs) || (latestLLMAgents && !haveLLMAgents) {
+	if _, have := pins["nixpkgs"]; refresh || !have {
 		resolved, err := ResolveLatest(stderr)
 		if err != nil {
 			return Spec{}, err
@@ -197,11 +193,6 @@ func PinSpec(s Spec, refresh bool, stderr io.Writer) (Spec, error) {
 			return Spec{}, err
 		}
 	}
-	if latestNixpkgs {
-		s.NixpkgsRev = pins["nixpkgs"].Rev
-	}
-	if latestLLMAgents {
-		s.LLMAgentsRev = pins["llm-agents"].Rev
-	}
+	s.NixpkgsRev = pins["nixpkgs"].Rev
 	return s, nil
 }

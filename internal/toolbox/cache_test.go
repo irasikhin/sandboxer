@@ -9,7 +9,7 @@ import (
 
 // TestNoExtraBinaryCache guards that neither the embedded toolbox flake nor
 // the repo's root flake declares an extra binary cache in a nixConfig.
-// llm-agents' cache (cache.numtide.com) was removed: it answers but crawls
+// numtide's cache (cache.numtide.com) was removed: it answers but crawls
 // from some networks, and nix then stalls on every path (30s+ per
 // stalled-download-timeout) before disabling the substituter and falling back
 // to cache.nixos.org — agents now compile from source in the builder. Adding a

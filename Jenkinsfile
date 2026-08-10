@@ -91,8 +91,8 @@ spec:
         - {name: dev-kvm, mountPath: /dev/kvm}
         # Persistent file:// nix binary cache on the node. The pod's /nix is
         # containerfs and starts EMPTY every run, so without this each push
-        # recompiles the from-source agents (llm-agents publishes no usable
-        # cache) — tens of minutes of CPU, and the crush Go build alone OOMed
+        # re-downloads (and, for the vendored pi, recompiles) everything the
+        # image needs — and historically the from-source agent builds OOMed
         # the 8Gi pod. Populated by `nix copy` after a successful build.
         - {name: nix-cache, mountPath: /nix-cache}
     # The auto-injected agent container — declared here only so the SCM checkout

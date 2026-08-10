@@ -124,12 +124,12 @@ type ImageSpec struct {
 	// profile file; LoadDocument resolves it to an absolute path so the
 	// stored _meta/<slug>.profile.json snapshot stays self-contained.
 	Overlay string `json:"overlay,omitempty"`
-	// LLMAgentsRev / NixpkgsRev select the image's flake-input revs. Empty and
-	// "latest" both track the remote head (the default: `image build`
-	// re-resolves and rebuilds with the current agents); a full 40-hex commit
-	// hash pins exactly (see ValidateImageSpec).
-	LLMAgentsRev string `json:"llmAgentsRev,omitempty"`
-	NixpkgsRev   string `json:"nixpkgsRev,omitempty"`
+	// NixpkgsRev selects the image's nixpkgs flake-input rev — the single
+	// input everything comes from (agents included; pi is vendored in the
+	// binary). Empty and "latest" both track the remote head (the default:
+	// `image build` re-resolves and rebuilds with the current agents); a full
+	// 40-hex commit hash pins exactly (see ValidateImageSpec).
+	NixpkgsRev string `json:"nixpkgsRev,omitempty"`
 }
 
 // Empty reports whether the spec requests no customization, i.e. the sandbox
@@ -137,7 +137,7 @@ type ImageSpec struct {
 // image's own behavior, not a customization; only a concrete pin is.
 func (s ImageSpec) Empty() bool {
 	return len(s.Packages) == 0 && len(s.Files) == 0 && len(s.Env) == 0 &&
-		s.Overlay == "" && isTrackingRev(s.LLMAgentsRev) && isTrackingRev(s.NixpkgsRev)
+		s.Overlay == "" && isTrackingRev(s.NixpkgsRev)
 }
 
 // isTrackingRev reports whether an image input rev tracks the remote head —
@@ -248,14 +248,8 @@ func ValidateImageSpec(s ImageSpec) error {
 			return fmt.Errorf("image.files key %q must be an absolute in-image path", path)
 		}
 	}
-	for _, r := range []struct{ field, rev string }{
-		{"image.llmAgentsRev", s.LLMAgentsRev},
-		{"image.nixpkgsRev", s.NixpkgsRev},
-	} {
-		if r.rev == "" || r.rev == "latest" || imageRevRe.MatchString(r.rev) {
-			continue
-		}
-		return fmt.Errorf("invalid %s %q — use latest or a full 40-char hex commit hash", r.field, r.rev)
+	if rev := s.NixpkgsRev; rev != "" && rev != "latest" && !imageRevRe.MatchString(rev) {
+		return fmt.Errorf("invalid image.nixpkgsRev %q — use latest or a full 40-char hex commit hash", rev)
 	}
 	return nil
 }
@@ -378,14 +372,15 @@ var removedKeys = map[string]string{
 		"feature; use a single egress.proxy that routes by destination itself",
 	"pids": "removed with the container backend — the microVM backends have no PID-count cap " +
 		"(limits.memory / limits.cpus bound the machine instead)",
-	"roots":     "removed — sandboxes are git worktrees now (no copy mode); mount other trees with extraMounts",
-	"context":   "removed — a git-worktree sandbox already contains the repo's files (nothing is copied in)",
-	"agents":    "removed — set hostConfigs = true to seed the sandbox home from the host's agent configs (credentials included), or log in / export API keys INSIDE the sandbox (its $HOME persists)",
-	"extraPkgs": "renamed — image.packages (same nixpkgs attr names; overlay-defined attrs may be listed too)",
-	"hook":      "removed — put static customization in image.{packages,files,env}; anything needing pkgs is a plain nixpkgs overlay file: image.overlay = \"./overlay.nix\"",
-	"nix":       "replaced by image.overlay — a file with a PLAIN nixpkgs overlay (final: prev: { … }); expose computed packages/files as overlay attrs and list them in image.packages",
-	"deps":      "replaced by srcs — e.g. srcs = [ { src = \".\"; include = [ \"/some/dir/\" ]; } ] (src = path to a repo; include = directory paths/patterns; empty include = the whole repo)",
-	"defaults":  "removed — profiles are self-contained; share between them with ordinary nix (let base = { ... }; in { profiles.web = base // { ... }; })",
+	"roots":        "removed — sandboxes are git worktrees now (no copy mode); mount other trees with extraMounts",
+	"context":      "removed — a git-worktree sandbox already contains the repo's files (nothing is copied in)",
+	"agents":       "removed — set hostConfigs = true to seed the sandbox home from the host's agent configs (credentials included), or log in / export API keys INSIDE the sandbox (its $HOME persists)",
+	"extraPkgs":    "renamed — image.packages (same nixpkgs attr names; overlay-defined attrs may be listed too)",
+	"hook":         "removed — put static customization in image.{packages,files,env}; anything needing pkgs is a plain nixpkgs overlay file: image.overlay = \"./overlay.nix\"",
+	"nix":          "replaced by image.overlay — a file with a PLAIN nixpkgs overlay (final: prev: { … }); expose computed packages/files as overlay attrs and list them in image.packages",
+	"deps":         "replaced by srcs — e.g. srcs = [ { src = \".\"; include = [ \"/some/dir/\" ]; } ] (src = path to a repo; include = directory paths/patterns; empty include = the whole repo)",
+	"defaults":     "removed — profiles are self-contained; share between them with ordinary nix (let base = { ... }; in { profiles.web = base // { ... }; })",
+	"llmAgentsRev": "removed — agents come straight from nixpkgs now (pi is vendored in sandboxer); pin image.nixpkgsRev instead",
 }
 
 // annotateRemovedKeys upgrades the strict decoder's `unknown field "<key>"`
