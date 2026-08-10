@@ -6,6 +6,48 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.74.0] — 2026-08-10
+
+### ⚠ Breaking changes
+
+- drop the docker/podman container backend (2653119)
+  the docker/podman container backend is removed. backend = "docker" | "podman" | "auto" | "" no longer resolves — set backend = "microsandbox" (or "microvm"). SANDBOXER_ENGINE is gone, and the egress squid sidecar (with its SANDBOXER_PROXY_IMAGE image) no longer exists; egress is enforced by the microVM runner itself.
+- drop the smolvm runner — microsandbox is the only backend (2a4df60)
+  the "microvm" (smolvm) backend is removed — set backend = "microsandbox". SANDBOXER_SMOLVM is no longer read, and backend.SmolvmStatus/itest.Smolvm are gone. The docker/podman container backend is removed in this same release.
+
+### Added
+
+- drop the docker/podman container backend (2653119)
+- retire the container-era config keys and validation (f92d9c8)
+- collapse the CLI onto the microVM backends (8fc385a)
+- drop the smolvm runner — microsandbox is the only backend (2a4df60)
+
+### Fixed
+
+- pass the pinned flake-input revs to the host-nix build (702daa1)
+- engine-less tests must silence SANDBOXER_MSB, not just PATH (b18068d)
+
+### Refactored
+
+- drop the container image builder (aaa358a)
+
+### Docs
+
+- rewrite the container-era docs for the msb-only backend (955425a)
+- mark the spike/verification records as historical (40d12cc)
+
+### Build
+
+- drop the egress proxy image (0d911c8)
+- recompute vendorHash — compose's yaml.v3 left the import graph (9566338)
+- drop the smolvm package, app and devShell tool (91f9e3a)
+
+### CI
+
+- drop the proxyImage smoke builds — the flake output is gone (064ef4f)
+- drop the smolvm e2e legs; restore the full Jenkins sweep (9b9cfd2)
+
+
 ## [0.73.7] — 2026-08-10
 
 ### Fixed
@@ -1104,3 +1146,4 @@ isolated, containerized dev sandbox, on a local Linux machine:
 [0.73.5]: https://github.com/irasikhin/sandboxer/compare/v0.73.4...v0.73.5
 [0.73.6]: https://github.com/irasikhin/sandboxer/compare/v0.73.5...v0.73.6
 [0.73.7]: https://github.com/irasikhin/sandboxer/compare/v0.73.6...v0.73.7
+[0.74.0]: https://github.com/irasikhin/sandboxer/compare/v0.73.7...v0.74.0
