@@ -2,6 +2,7 @@ package backend
 
 import (
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"os/exec"
@@ -131,6 +132,23 @@ func ImageID(_, image string) string {
 // store failure errors.
 func RemoveImage(_, image string) error {
 	return msbRemoveImage(image)
+}
+
+// PullImage fetches image into msb's own store (`msb pull`, host-side — it
+// honors the shell's HTTP(S)_PROXY), streaming the runner's progress through.
+// This is the refresh path for a moved prebuilt `latest`: a create only pulls
+// a ref MISSING from the store, so a nightly-republished default never
+// reaches an already-cached host without it. The fresh digest then reads as
+// stale against a live session's recorded one, and the next enter recreates
+// the machine on the new rootfs.
+func PullImage(_, image string, stdout, stderr io.Writer) error {
+	cmd := exec.Command(msbBin(), "pull", image)
+	cmd.Stdout = stdout
+	cmd.Stderr = stderr
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("msb pull %s: %w", image, err)
+	}
+	return nil
 }
 
 // exitCode maps a command error to a process exit code (0 success, the child's

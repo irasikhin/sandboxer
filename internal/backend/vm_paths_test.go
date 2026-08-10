@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/irasikhin/sandboxer/internal/config"
+	"github.com/irasikhin/sandboxer/internal/toolbox"
 )
 
 // The microVM backend's failure and edge paths — the branches a happy-path
@@ -144,7 +145,10 @@ func TestVMRunFailsClosed(t *testing.T) {
 	errb.Reset()
 	noImage := o
 	noImage.Dest = "/var/tmp/box"
-	noImage.Image = config.DefaultImage // locally built, absent, autobuild off
+	// A locally-built VARIANT (the stock default is prebuilt and pulled by msb
+	// now), absent, autobuild off.
+	noImage.Image = "sandboxer-toolbox:var-cafe01234567"
+	noImage.Spec = toolbox.Spec{Attrs: []string{"nixpkgs.ripgrep"}}
 	if code := vmRun(noImage); code == 0 {
 		t.Error("a missing locally-built image must not run")
 	}

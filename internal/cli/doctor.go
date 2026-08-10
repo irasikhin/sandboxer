@@ -151,7 +151,8 @@ func doctorChecks() []doctorCheck {
 			checks = append(checks, okCheck("toolbox image "+image, "present in the image store"))
 		} else {
 			checks = append(checks, warnCheck("toolbox image "+image,
-				"not found — build with: sandboxer image build --backend "+engine))
+				"not cached yet — pulled on first enter (prefetch: sandboxer image pull; "+
+					"offline/customized: sandboxer image build)"))
 		}
 	}
 

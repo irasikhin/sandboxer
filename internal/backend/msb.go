@@ -646,22 +646,23 @@ func msbRemoveImage(ref string) error {
 	return vmRemoveImage(ref)
 }
 
-// msbEnsureImage resolves o.Image to the reference `msb create` is handed. A
-// custom public ref passes straight through (msb pulls it); the locally-built
-// toolbox image — the default, or any variant with a non-empty spec — is
-// ensured in msb's store, building the tar (once, with host nix) and loading
-// it on first use unless SANDBOXER_NO_AUTOBUILD is set.
+// msbEnsureImage resolves o.Image to the reference `msb create` is handed. An
+// uncustomized image — the stock GHCR-published default and a user-set ref
+// alike — passes straight through: msb pulls public refs host-side on first
+// create and caches them in its store (and a copy `sandboxer image build`
+// loaded under the same ref IS that cache, so an explicit local build still
+// wins on an offline host). Only a variant with a non-empty spec is built
+// here — it exists nowhere public — ensured in msb's store by building the
+// tar (once, with host nix) and loading it on first use unless
+// SANDBOXER_NO_AUTOBUILD is set.
 func msbEnsureImage(o RunOpts) (string, error) {
-	if o.Image != config.DefaultImage && o.Spec.Empty() {
-		return o.Image, nil // a custom public image — let msb pull it
+	if o.Spec.Empty() {
+		return o.Image, nil // prebuilt or user-chosen — msb pulls (or has) it
 	}
 	if msbImageExists(o.Image) && msbImageCurrent(o.Image) {
 		return o.Image, nil
 	}
-	hint := "sandboxer image build --backend microsandbox"
-	if !o.Spec.Empty() {
-		hint = "sandboxer image build --backend microsandbox <profile> (this variant image needs its profile)"
-	}
+	hint := "sandboxer image build --backend microsandbox <profile> (this variant image needs its profile)"
 	if !vmImageExists(o.Image) {
 		if os.Getenv("SANDBOXER_NO_AUTOBUILD") != "" {
 			return "", fmt.Errorf("toolbox image %q is not in the microsandbox image store "+
@@ -679,6 +680,19 @@ func msbEnsureImage(o RunOpts) (string, error) {
 		return "", fmt.Errorf("%w — build manually with: %s", err, hint)
 	}
 	return o.Image, nil
+}
+
+// msbCreateFailHint names the likeliest cause when a create died with the
+// STOCK image absent from msb's store: the default ref is prebuilt and pulled
+// from GHCR at create time, so on an offline (or blocked) host the pull is
+// what failed — an actionable situation the raw msb error does not name. Only
+// the default triggers it: a user-set ref or a loaded variant fails for its
+// own reasons.
+func msbCreateFailHint(image string) string {
+	if image != config.DefaultImage || msbImageExists(image) {
+		return ""
+	}
+	return "\n  (network needed to pull the prebuilt image — or build locally: sandboxer image build)"
 }
 
 // msbLoadStoredImage imports the tar the build stored (vmStoreImage) into

@@ -717,9 +717,11 @@ func TestMSBEngineResolution(t *testing.T) {
 	}
 }
 
-// TestMSBEnsureImage pins the image resolution: a custom public ref passes
-// through untouched, and the locally-built toolbox image is built once into the
-// shared tar store and then imported into msb's own image store.
+// TestMSBEnsureImage pins the image resolution: an uncustomized ref — the
+// prebuilt GHCR default and a user-set ref alike — passes through untouched
+// (msb pulls and caches it host-side; no local build anywhere), while a
+// customized profile's variant (non-empty spec, never published) is built once
+// into the shared tar store and then imported into msb's own image store.
 func TestMSBEnsureImage(t *testing.T) {
 	t.Setenv("SANDBOXER_STATE", t.TempDir())
 	restoreInspect, restoreLoad, restoreBuild := msbImageInspect, msbLoadImage, vmBuildImageToStore
@@ -757,12 +759,22 @@ func TestMSBEnsureImage(t *testing.T) {
 		t.Errorf("a public ref must pass through: %q, %v", ref, err)
 	}
 
+	// The DEFAULT ref is prebuilt and public too now: pass-through, never a
+	// local autobuild — msb pulls it at create time.
 	o.Image = config.DefaultImage
+	if ref, err := msbEnsureImage(o); err != nil || ref != config.DefaultImage || built != 0 || loaded != "" {
+		t.Errorf("the prebuilt default must pass through untouched: ref=%q err=%v built=%d loaded=%q",
+			ref, err, built, loaded)
+	}
+
+	// A customized profile's variant is the one image still built locally.
+	o.Spec = toolbox.Spec{Attrs: []string{"nixpkgs.ripgrep"}}
+	o.Image = "sandboxer-toolbox:var-cafe01234567"
 	ref, err := msbEnsureImage(o)
-	if err != nil || ref != config.DefaultImage {
+	if err != nil || ref != o.Image {
 		t.Fatalf("msbEnsureImage = %q, %v", ref, err)
 	}
-	if built != 1 || loaded != config.DefaultImage {
+	if built != 1 || loaded != o.Image {
 		t.Errorf("build/load = %d/%q, want one build imported under the image name", built, loaded)
 	}
 	// Second call: cached in msb's store, imported from the tar that is there
@@ -772,15 +784,94 @@ func TestMSBEnsureImage(t *testing.T) {
 		t.Errorf("a cached image was rebuilt or reimported (built=%d loaded=%q, err=%v)", built, loaded, err)
 	}
 
-	// A tar rebuilt behind msb's back (e.g. `image build --backend microvm`,
-	// which shares the same artifact) is RE-IMPORTED, not left stale — without
-	// this the reference is present and nothing would ever refresh it.
+	// A tar rebuilt behind msb's back (an `image build` of the same variant)
+	// is RE-IMPORTED, not left stale — without this the reference is present
+	// and nothing would ever refresh it.
 	if err := os.WriteFile(vmImagePath(o.Image), []byte("rebuilt tar"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	_ = os.Remove(vmImagePath(o.Image) + ".sha256")
-	if _, err := msbEnsureImage(o); err != nil || built != 1 || loaded != config.DefaultImage {
+	if _, err := msbEnsureImage(o); err != nil || built != 1 || loaded != o.Image {
 		t.Errorf("a rebuilt tar was not reimported (built=%d loaded=%q, err=%v)", built, loaded, err)
+	}
+}
+
+// TestPullImage pins the refresh path: `image pull` shells out to
+// `msb pull <ref>` with the runner's output streamed through, and a failed
+// pull surfaces as an error naming the command — never a silent no-op.
+func TestPullImage(t *testing.T) {
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "msb")
+	log := filepath.Join(dir, "log")
+	script := "#!/bin/sh\nprintf '%s\\n' \"$*\" >> \"$FAKE_PULL_LOG\"\necho progress\nexit 0\n"
+	if err := os.WriteFile(bin, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("SANDBOXER_MSB", bin)
+	t.Setenv("FAKE_PULL_LOG", log)
+
+	var out bytes.Buffer
+	if err := PullImage(msbEngine, "ghcr.io/x/toolbox:latest", &out, io.Discard); err != nil {
+		t.Fatalf("PullImage: %v", err)
+	}
+	if got := readFile(t, log); !strings.Contains(got, "pull ghcr.io/x/toolbox:latest") {
+		t.Errorf("msb argv = %q, want `pull <ref>`", got)
+	}
+	if !strings.Contains(out.String(), "progress") {
+		t.Errorf("stdout = %q, want the runner's progress streamed through", out.String())
+	}
+
+	t.Setenv("SANDBOXER_MSB", "/nonexistent/msb-xyz")
+	if err := PullImage(msbEngine, "img:1", io.Discard, io.Discard); err == nil ||
+		!strings.Contains(err.Error(), "msb pull img:1") {
+		t.Errorf("failed pull = %v, want an error naming the command", err)
+	}
+}
+
+// TestVMCreateFailurePullHint pins the offline-host diagnostic: the stock
+// image is prebuilt and PULLED by msb at create time, so a failed create with
+// the default ref absent from msb's store hints at the network (or the local
+// build escape hatch) — while a user-set ref, or a default already cached,
+// surfaces the raw error alone.
+func TestVMCreateFailurePullHint(t *testing.T) {
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "msb")
+	script := `#!/bin/sh
+case "$1" in
+  list) echo "[]" ;;
+  image) exit 1 ;;
+  create) echo "pull failed" >&2; exit 1 ;;
+  *) exit 0 ;;
+esac
+`
+	if err := os.WriteFile(bin, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("SANDBOXER_MSB", bin)
+	t.Setenv("SANDBOXER_STATE", filepath.Join(dir, "state"))
+
+	o := RunOpts{
+		Engine: msbEngine, Image: config.DefaultImage, Dest: "/var/tmp/box",
+		Slug: "s", BaseDir: t.TempDir(), Stderr: &bytes.Buffer{},
+	}
+	_, err := EnsureSession(o)
+	if err == nil || !strings.Contains(err.Error(), "network needed to pull the prebuilt image") ||
+		!strings.Contains(err.Error(), "sandboxer image build") {
+		t.Errorf("default-image create failure = %v, want the pull/build hint", err)
+	}
+
+	// A user-set ref fails for its own reasons — no misleading hint.
+	o.Image = "example.com/custom:1"
+	if _, err := EnsureSession(o); err == nil || strings.Contains(err.Error(), "network needed") {
+		t.Errorf("custom-image create failure = %v, want no prebuilt-pull hint", err)
+	}
+
+	// A default already in msb's store did not fail on the pull either.
+	restore := msbImageInspect
+	msbImageInspect = func(string) string { return "deadbeef" }
+	t.Cleanup(func() { msbImageInspect = restore })
+	if hint := msbCreateFailHint(config.DefaultImage); hint != "" {
+		t.Errorf("cached default hint = %q, want none", hint)
 	}
 }
 
@@ -914,7 +1005,8 @@ func TestBuildVMImageMSB(t *testing.T) {
 }
 
 // TestMSBEnsureImageNoAutobuild pins the fail-fast: with autobuild off, a
-// missing image names the microsandbox build command, not the microvm one.
+// missing VARIANT image (the one kind still built locally) names the
+// microsandbox build command, not the microvm one.
 func TestMSBEnsureImageNoAutobuild(t *testing.T) {
 	t.Setenv("SANDBOXER_STATE", t.TempDir())
 	t.Setenv("SANDBOXER_NO_AUTOBUILD", "1")
@@ -922,7 +1014,8 @@ func TestMSBEnsureImageNoAutobuild(t *testing.T) {
 	msbImageInspect = func(string) string { return "" }
 	t.Cleanup(func() { msbImageInspect = restore })
 
-	_, err := msbEnsureImage(RunOpts{Engine: msbEngine, Image: config.DefaultImage})
+	_, err := msbEnsureImage(RunOpts{Engine: msbEngine, Image: "sandboxer-toolbox:var-cafe01234567",
+		Spec: toolbox.Spec{Attrs: []string{"nixpkgs.ripgrep"}}})
 	if err == nil || !strings.Contains(err.Error(), "--backend microsandbox") {
 		t.Errorf("error = %v, want a microsandbox build hint", err)
 	}

@@ -19,11 +19,17 @@ func newImageBuildCmd() *cobra.Command {
 	var noRefresh bool
 	cmd := &cobra.Command{
 		Use:   "build [profile]",
-		Short: "Build the toolbox image with host nix into the microVM store",
+		Short: "Build the toolbox image locally with host nix (customized profiles, offline hosts)",
 		Long: `Build the sandboxer toolbox image with host nix (nix is already a hard
 requirement of the CLI) and place it in the microVM image store, where the
 backend boots it from. With backend = "microsandbox" the tar is additionally
 imported into msb's own image store.
+
+This is the LOCAL path. The stock image comes prebuilt from GHCR — msb pulls
+it on first use, 'sandboxer image pull' refreshes it — so a plain build is
+only needed on an offline/air-gapped host (the locally built copy sits in
+msb's store under the same ref and a create boots it without pulling), or to
+build a customized profile's variant image, which is never published.
 
 Auto-update is the default: each build first re-resolves the nixpkgs flake
 input — the single input everything, agents included, comes from — to its

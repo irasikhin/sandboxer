@@ -115,6 +115,57 @@ func TestBuildImageNoMsb(t *testing.T) {
 	}
 }
 
+// TestImagePull: `image pull` shells out to `msb pull <ref>` with the image
+// resolved like the other image commands (SANDBOXER_IMAGE over the prebuilt
+// default), streaming through and reporting what was pulled; a profile with
+// image customization is refused — its variant is never published.
+func TestImagePull(t *testing.T) {
+	requireExec(t, "sh")
+	t.Setenv("SANDBOXER_IN_CONTAINER", "")
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "msb")
+	log := filepath.Join(dir, "log")
+	script := "#!/bin/sh\nprintf '%s\\n' \"$*\" >> \"$FAKE_PULL_LOG\"\nexit 0\n"
+	if err := os.WriteFile(bin, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("SANDBOXER_MSB", bin)
+	t.Setenv("FAKE_PULL_LOG", log)
+
+	code, out, errs := run("image", "pull")
+	if code != 0 {
+		t.Fatalf("image pull = %d, %s", code, errs)
+	}
+	data, err := os.ReadFile(log)
+	if err != nil || !strings.Contains(string(data), "pull "+config.DefaultImage) {
+		t.Errorf("msb argv log = %q, %v; want `pull %s`", data, err, config.DefaultImage)
+	}
+	if !strings.Contains(out, config.DefaultImage) {
+		t.Errorf("pull output = %q, want the pulled ref", out)
+	}
+
+	// SANDBOXER_IMAGE resolves exactly as for build/rm.
+	t.Setenv("SANDBOXER_IMAGE", "example.com/custom:1")
+	if code, _, errs := run("image", "pull"); code != 0 {
+		t.Fatalf("image pull (SANDBOXER_IMAGE) = %d, %s", code, errs)
+	}
+	if data, _ := os.ReadFile(log); !strings.Contains(string(data), "pull example.com/custom:1") {
+		t.Errorf("msb argv log = %q, want the SANDBOXER_IMAGE ref", data)
+	}
+	t.Setenv("SANDBOXER_IMAGE", "")
+
+	// A customized profile's variant cannot be pulled — refuse with the build
+	// hint instead of asking msb for an image that cannot exist.
+	cfg := filepath.Join(t.TempDir(), "img.nix")
+	if err := os.WriteFile(cfg, []byte("{ name = \"feat\"; image.packages = [ \"ripgrep\" ]; }\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if code, _, errs := run("image", "pull", "-f", cfg); code != 1 ||
+		!strings.Contains(errs, "sandboxer image build") {
+		t.Errorf("pull of a customized profile = (%d, %q), want a refusal with the build hint", code, errs)
+	}
+}
+
 // TestRemoveImageMsb: `image rm` reaches the store via the microsandbox engine
 // identity (RemoveImage dispatches on it).
 func TestRemoveImageMsb(t *testing.T) {

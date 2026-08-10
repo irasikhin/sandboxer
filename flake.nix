@@ -140,12 +140,13 @@
                   # The microVM store root: SANDBOXER_STATE, else
                   # $XDG_STATE_HOME/sandboxer, else ~/.local/state/sandboxer —
                   # mirroring config.StateRoot. The tar name is the default image
-                  # reference with ':' mapped to '-' (sanitizeContainerName).
+                  # reference (config.DefaultImage) with ':' and '/' mapped to
+                  # '-' (sanitizeContainerName).
                   store_root="''${SANDBOXER_STATE:-''${XDG_STATE_HOME:-$HOME/.local/state}/sandboxer}"
                   store_dir="$store_root/images"
                   mkdir -p "$store_dir"
                   img=$(nix build --no-link --print-out-paths "''${self}#image")
-                  tar="$store_dir/sandboxer-toolbox-latest.tar"
+                  tar="$store_dir/ghcr.io-irasikhin-sandboxer-toolbox-latest.tar"
                   cp -L "$img" "$tar"
                   sha256sum -b "$tar" | cut -d' ' -f1 | tr -d '\n' > "$tar.sha256"
                   load "$img"

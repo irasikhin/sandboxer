@@ -44,8 +44,14 @@ func LegacyConfigDirPath() string { return filepath.Join(LegacyStateDirName, "co
 // migration hint when it is present but the new location is not.
 const LegacyConfigFileName = ".sandboxer.yaml"
 
-// DefaultImage is the toolbox image reference the backend boots.
-const DefaultImage = "sandboxer-toolbox:latest"
+// DefaultImage is the toolbox image reference the backend boots: the PREBUILT
+// stock image, published to GHCR by .github/workflows/image.yml (nightly, so
+// `latest` tracks the agents' releases, plus a :vX.Y.Z tag per release). msb
+// pulls and caches it host-side on first create; `sandboxer image pull`
+// refreshes a moved `latest`, and `sandboxer image build` builds the same
+// image locally under this ref (customized profiles, offline hosts).
+// SANDBOXER_IMAGE overrides it as ever.
+const DefaultImage = "ghcr.io/irasikhin/sandboxer-toolbox:latest"
 
 // DefaultDomains is the egress allowlist used when none is configured: AI API
 // endpoints, common package registries across ecosystems, and the container

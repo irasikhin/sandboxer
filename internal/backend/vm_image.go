@@ -12,9 +12,12 @@ import (
 	"github.com/irasikhin/sandboxer/internal/toolbox"
 )
 
-// The microVM image "store" — the BUILD-ARTIFACT side of the image pipeline.
-// The toolbox image is built locally and never published, so the build's
-// output is a docker-save tar on disk: one file per name under
+// The microVM image "store" — the BUILD-ARTIFACT side of the image pipeline,
+// for the images built LOCALLY: a customized profile's variant (never
+// published anywhere) and an explicit `sandboxer image build` of the stock
+// image (the offline escape hatch — the stock default otherwise comes
+// prebuilt from GHCR and is pulled by msb, bypassing this store entirely).
+// The build's output is a docker-save tar on disk: one file per name under
 // <state root>/images/<name>.tar, with its sha256 in a sibling .sha256 sidecar
 // (computed once at store time — never rehash a multi-GB tar on every enter).
 // msbEnsureImage/msbLoadStoredImage (msb.go) import that tar into msb's own
@@ -104,8 +107,11 @@ func vmStoreImage(image, srcTar string) error {
 }
 
 // BuildVMImage builds the toolbox image and stores it under the image name —
-// the explicit `sandboxer image build` entry point, the counterpart of the
-// enter-time auto-build. It rebuilds unconditionally (an explicit build always
+// the explicit `sandboxer image build` entry point: the counterpart of the
+// enter-time auto-build for variants, and the offline escape hatch for the
+// stock image (loaded into msb's store under the prebuilt ref, so a create
+// boots the local copy instead of pulling). It rebuilds unconditionally (an
+// explicit build always
 // refreshes the store) and errors up front if the runner is unavailable, so
 // the CLI never silently no-ops. The tar is then imported into msb's own image
 // store, which is what its `create` reads — skipping that step would build an

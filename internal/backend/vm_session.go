@@ -100,15 +100,14 @@ func vmCreateSession(o RunOpts, name, hash string) (string, error) {
 	if err := msbPreflight(o); err != nil {
 		return "", err
 	}
-	// Resolve the toolbox image to a reference in msb's own image store,
-	// building it on first use; a public ref passes through. imageID is
-	// recorded so a rebuilt image under the same name reads as stale on the
-	// next enter.
+	// Resolve the toolbox image: a variant is built into msb's store on first
+	// use; a public ref (the prebuilt default included) passes through for
+	// msb to pull at create time.
+	image := o.Image
 	imageRef, err := msbEnsureImage(o)
 	if err != nil {
 		return "", err
 	}
-	imageID := msbImageID(o.Image)
 	o.Image = imageRef
 
 	// Stage the profile.json into the per-sandbox run dir so the -v mount source
@@ -129,8 +128,14 @@ func vmCreateSession(o RunOpts, name, hash string) (string, error) {
 		if again := vmInspectSession(name); again.Exists && again.Running && again.Hash == hash {
 			return name, nil
 		}
-		return "", fmt.Errorf("create machine %s: %w", name, err)
+		return "", fmt.Errorf("create machine %s: %w%s", name, err, msbCreateFailHint(image))
 	}
+	// The image id is read AFTER the create so a create-time pull records the
+	// digest it just fetched (before it, the ref was not in msb's store and
+	// the id read as "unknown" — a later `image pull` then never read as
+	// stale). A rebuilt or re-pulled image under the same name now recreates
+	// the session on the next enter.
+	imageID := msbImageID(image)
 	if err := writeVMRecord(vmRecord{Name: name, BaseDir: o.BaseDir, Slug: o.Slug, Hash: hash, ImageID: imageID, MountIDs: o.MountIDs}); err != nil {
 		notice(o.Stderr, "warning: could not record session state: "+err.Error())
 	}
