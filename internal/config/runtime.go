@@ -165,31 +165,28 @@ func validateDomain(d string) error {
 }
 
 // ValidateBackend rejects an unsupported isolation backend. sandboxer runs
-// every agent inside a real microVM — "microvm" (smolvm) or "microsandbox"
-// (msb). The docker/podman container backend was removed, so a stale
-// container-era value ("", "auto", "docker", "podman") gets a clear migration
-// error instead of silently resolving to anything.
+// every agent inside a real microVM: "microsandbox" (msb) is the one backend.
+// Every retired value gets a clear migration error instead of silently
+// resolving to anything: the docker/podman container backend ("", "auto",
+// "docker", "podman"), the smolvm "microvm" backend, and the ancient native
+// backend.
 func ValidateBackend(rt Runtime) error {
 	switch rt.Backend {
-	case "microvm", "microsandbox":
+	case "microsandbox":
 		return nil
+	case "microvm":
+		return errors.New("the smolvm microvm backend was removed — set backend = \"microsandbox\"; " +
+			"it is the same libkrun isolation with a name-bound egress allowlist")
 	case "", "auto", "docker", "podman":
-		return fmt.Errorf("the docker/podman container backend was removed — set backend = \"microsandbox\" "+
-			"(or \"microvm\"); a microVM runs container engines natively, so docker/podman still work "+
+		return fmt.Errorf("the docker/podman container backend was removed — set backend = \"microsandbox\"; "+
+			"a microVM runs container engines natively, so docker/podman still work "+
 			"INSIDE the sandbox (got backend %q)", rt.Backend)
 	case "native":
-		return errors.New("the native backend was removed — use backend = \"microsandbox\" (or \"microvm\")")
+		return errors.New("the native backend was removed — use backend = \"microsandbox\"")
 	default:
-		return fmt.Errorf("unknown backend %q — use microsandbox or microvm", rt.Backend)
+		return fmt.Errorf("unknown backend %q — use microsandbox", rt.Backend)
 	}
 }
-
-// IsMicrovmBackend reports whether b names a microVM backend — a real virtual
-// machine per sandbox. Two runners sit on the same libkrun VMM and share every
-// rule the CLI applies to microVMs: "microvm" (smolvm) and "microsandbox"
-// (msb). Callers that must distinguish the RUNNER compare the backend string
-// itself.
-func IsMicrovmBackend(b string) bool { return b == "microvm" || b == "microsandbox" }
 
 // ValidateSession rejects an unknown session mode. The resolved value always
 // carries a mode (the default is persistent), so anything else is a typo in

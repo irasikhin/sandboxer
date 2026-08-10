@@ -9,10 +9,11 @@ import (
 	"testing"
 )
 
-// Microsandbox returns the second microVM engine identity ("microsandbox") when
-// that backend can actually run here, or skips the test — the msb twin of
-// Smolvm, with the same canary stance: the binary resolves (SANDBOXER_MSB
-// override or PATH), on Linux /dev/kvm exists, and a throwaway `list` round-trips.
+// Microsandbox returns the microVM engine identity ("microsandbox") when the
+// backend can actually run here, or skips the test. The canary stance: the
+// binary resolves (SANDBOXER_MSB override or PATH), on Linux /dev/kvm exists,
+// and a throwaway `list` round-trips — so the suite skips rather than fails on
+// a host without a hypervisor.
 func Microsandbox(t *testing.T) string {
 	t.Helper()
 	if _, err := exec.LookPath(MsbBin()); err != nil {

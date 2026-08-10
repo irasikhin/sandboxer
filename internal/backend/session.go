@@ -13,10 +13,9 @@ import (
 )
 
 // Labels stamped on persistent sessions so they can be identified through the
-// engine where the runner supports labels (microsandbox). The SOURCE OF TRUTH
-// for a session's identity stays the host-side record both runners share
-// (vm_state.go); the labels only make a machine identifiable via `msb list`
-// alone.
+// engine. The SOURCE OF TRUTH for a session's identity stays the host-side
+// record (vm_state.go); the labels only make a machine identifiable via
+// `msb list` alone.
 const (
 	// LabelManaged marks a machine as created by sandboxer (value "true").
 	LabelManaged = "sandboxer.managed"
@@ -37,9 +36,9 @@ const (
 	LabelMounts = "sandboxer.mounts"
 )
 
-// sessionNamePrefix marks a machine as sandboxer's. A smolvm machine has no
-// labels at all, so for the microVM runners the NAME is the only evidence of
-// ownership a sweep can go on (vmOrphanSessions).
+// sessionNamePrefix marks a machine as sandboxer's — the conservative
+// ownership evidence a sweep over the live inventory goes on when a machine's
+// record was lost (vmOrphanSessions).
 const sessionNamePrefix = "sandboxer-"
 
 // SessionName returns the deterministic machine name for slug's persistent
@@ -50,8 +49,8 @@ func SessionName(slug, baseDir string) string {
 	return sessionNamePrefix + sanitizeContainerName(slug) + "-" + shortHash(baseDir)
 }
 
-// sanitizeContainerName maps s onto the machine-name alphabet both runners
-// accept ([a-zA-Z0-9_.-]); every other rune becomes '-'. The stricter
+// sanitizeContainerName maps s onto the machine-name alphabet the engine
+// accepts ([a-zA-Z0-9_.-]); every other rune becomes '-'. The stricter
 // leading-character rule is satisfied by SessionName's prefix.
 func sanitizeContainerName(s string) string {
 	var b strings.Builder
@@ -75,14 +74,12 @@ func shortHash(s string) string {
 
 // guestExec builds the command that runs argv non-interactively inside the
 // already-running guest of the session named name, its stdout captured by the
-// caller. It is the ONE runner-specific primitive the backend-neutral session
-// machinery leans on — the tmux layout capture, the agent process listing and
-// the idleness probe all reach into the guest the same way — so a runner needs
-// only to teach this one helper its own "exec in the guest" shape, and every
-// reader of guest state comes along for free.
-func guestExec(engine, name string, argv ...string) *exec.Cmd {
-	r := vmRunnerFor(engine)
-	return exec.Command(r.bin(), r.guestExecArgv(name, argv)...)
+// caller. It is the ONE engine primitive the session machinery leans on — the
+// tmux layout capture, the agent process listing and the idleness probe all
+// reach into the guest the same way, so every reader of guest state shares one
+// "exec in the guest" shape.
+func guestExec(_, name string, argv ...string) *exec.Cmd {
+	return exec.Command(msbBin(), msbGuestExecArgv(name, argv)...)
 }
 
 // --- session lifecycle -------------------------------------------------------
@@ -95,10 +92,10 @@ func SessionWantHash(o RunOpts) string {
 }
 
 // InspectSession reads the session machine's running state, recorded config
-// hash and image ID. A machine the runner does not know is the zero
+// hash and image ID. A machine the engine does not know is the zero
 // SessionInfo.
-func InspectSession(engine, name string) SessionInfo {
-	return vmInspectSession(vmRunnerFor(engine), name)
+func InspectSession(_, name string) SessionInfo {
+	return vmInspectSession(name)
 }
 
 // SessionIdle reports whether the session machine holds NOTHING worth
@@ -144,36 +141,35 @@ func ExecSession(o RunOpts, name string, cmdArgs []string) (int, error) {
 // StopSession stops slug's session machine, keeping its config and volumes in
 // place so a later EnsureSession resumes it with a plain start. Idempotent: a
 // missing or already-stopped session is not an error.
-func StopSession(engine, slug, baseDir string) error {
-	return vmStopSession(engine, slug, baseDir)
+func StopSession(_, slug, baseDir string) error {
+	return vmStopSession(slug, baseDir)
 }
 
 // RemoveSession removes slug's session machine and its host-side record
 // entirely. Idempotent.
-func RemoveSession(engine, slug, baseDir string) error {
-	return vmRemoveSession(engine, slug, baseDir)
+func RemoveSession(_, slug, baseDir string) error {
+	return vmRemoveMachineByName(SessionName(slug, baseDir))
 }
 
-// RemoveSessionAnywhere removes slug's session from EVERY runner on this host
+// RemoveSessionAnywhere removes slug's session from every engine on this host
 // and reports the engines a session was actually found on.
 //
 // A teardown must look where the session IS, not where the profile says the
-// NEXT one would be created: `backend =` is an ordinary config line and
-// --backend an ordinary flag, so the runner holding a live session and the one
-// a profile resolves to today drift apart routinely. The session name is
-// derived from (slug, state dir) alone, identical on every runner, so a by-name
-// removal on a foreign runner can only ever hit this sandbox's own session.
+// NEXT one would be created: the session name is derived from (slug, state
+// dir) alone, so a by-name removal can only ever hit this sandbox's own
+// session. With one engine the sweep is a single probe, but the by-name
+// contract (and the engines-found report the callers print) stays.
 //
 // Best-effort by contract: engine failures are collected and returned together
-// so one unreachable runner cannot strand the others (the caller warns and
-// still removes the files).
+// so one unreachable engine cannot strand the file cleanup (the caller warns
+// and still removes the files).
 func RemoveSessionAnywhere(slug, baseDir string, d config.Defaults) ([]string, error) {
 	name := SessionName(slug, baseDir)
 	var removed []string
 	var errs []error
 	for _, engine := range SweepEngines(d) {
-		had := sessionPresent(engine, name)
-		err := vmRemoveMachineByName(vmRunnerFor(engine), name)
+		had := sessionPresent(name)
+		err := vmRemoveMachineByName(name)
 		switch {
 		case err != nil:
 			errs = append(errs, err)
@@ -184,59 +180,56 @@ func RemoveSessionAnywhere(slug, baseDir string, d config.Defaults) ([]string, e
 	return removed, errors.Join(errs...)
 }
 
-// SessionEngine reports which runner on this host actually holds the session
-// named for (slug, baseDir), or "" when none does — what an operation that acts
-// on ONE live session (stop, and its tmux capture) must target instead of the
-// engine the profile happens to resolve to now. Same reasoning as
-// RemoveSessionAnywhere; the first hit wins, which is unambiguous because the
-// name binds the session to one sandbox.
+// SessionEngine reports which engine on this host actually holds the session
+// named for (slug, baseDir), or "" when none does — what an operation that
+// acts on ONE live session (stop, and its tmux capture) must target. Same
+// reasoning as RemoveSessionAnywhere.
 func SessionEngine(slug, baseDir string, d config.Defaults) string {
 	name := SessionName(slug, baseDir)
 	for _, engine := range SweepEngines(d) {
-		if sessionPresent(engine, name) {
+		if sessionPresent(name) {
 			return engine
 		}
 	}
 	return ""
 }
 
-// sessionPresent reports whether engine still holds anything for the session
-// named name: the host-side record counts as well as the machine — a record
-// left behind by a hand-deleted machine is exactly the litter a teardown is
-// there to reclaim.
-func sessionPresent(engine, name string) bool {
-	r := vmRunnerFor(engine)
-	if _, ok := vmMachineByName(r, name); ok {
+// sessionPresent reports whether the engine still holds anything for the
+// session named name: the host-side record counts as well as the machine — a
+// record left behind by a hand-deleted machine is exactly the litter a
+// teardown is there to reclaim.
+func sessionPresent(name string) bool {
+	if _, ok := vmMachineByName(name); ok {
 		return true
 	}
-	return readVMRecord(r, name).Name != ""
+	return readVMRecord(name).Name != ""
 }
 
 // RemoveAllSessions removes every sandboxer-managed session created from
 // baseDir, each with its record. Failures are collected so one stubborn
 // session does not strand the rest.
-func RemoveAllSessions(engine, baseDir string) error {
-	return vmRemoveAllSessions(engine, baseDir)
+func RemoveAllSessions(_, baseDir string) error {
+	return vmRemoveAllSessions(baseDir)
 }
 
 // SessionStates maps each of baseDir's session slugs to its machine status
 // ("running", "stopped", "gone", …) for listings.
-func SessionStates(engine, baseDir string) (map[string]string, error) {
-	return vmSessionStates(engine, baseDir)
+func SessionStates(_, baseDir string) (map[string]string, error) {
+	return vmSessionStates(baseDir)
 }
 
 // AllSessionStates maps baseDir → slug → machine status for EVERY
-// sandboxer-managed session on the runner — what a host-wide listing needs.
-func AllSessionStates(engine string) (map[string]map[string]string, error) {
-	return vmAllSessionStates(engine)
+// sandboxer-managed session on the engine — what a host-wide listing needs.
+func AllSessionStates(_ string) (map[string]map[string]string, error) {
+	return vmAllSessionStates()
 }
 
 // OrphanSessions returns the names of sandboxer-managed session machines that
 // nothing will ever match again — the project deleted behind sandboxer's back,
 // or the host-side record lost. Reported by doctor with a removal hint;
 // sandboxer itself never auto-removes them.
-func OrphanSessions(engine string) ([]string, error) {
-	return vmOrphanSessions(engine)
+func OrphanSessions(_ string) ([]string, error) {
+	return vmOrphanSessions()
 }
 
 // notice prints a one-line lifecycle notice to the user's stderr (nil-safe).

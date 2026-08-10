@@ -102,7 +102,7 @@ does NOT update the stock image profile-less sandboxes use.`,
 		},
 	}
 	fl := cmd.Flags()
-	fl.StringVar(&backendFlag, "backend", "", "backend: microsandbox | microvm (default: the profile's, else microsandbox)")
+	fl.StringVar(&backendFlag, "backend", "", "backend: microsandbox (default: the profile's, else microsandbox)")
 	fl.StringVarP(&configPath, "config", "f", "", "profile file (default: the project sandboxer.nix; pick a profiles section by name)")
 	fl.BoolVar(&noRefresh, "no-refresh", false, "build from the stamped input revs instead of re-resolving the remote heads")
 	fl.StringVar(&llmAgentsRev, "llm-agents-rev", "", "llm-agents input rev for this build: latest or a full 40-hex commit (overrides the profile)")
@@ -115,9 +115,9 @@ does NOT update the stock image profile-less sandboxes use.`,
 var backendBuildVMImage = backend.BuildVMImage
 
 // imageBackend resolves where `image build` / `image rm` act: the isolation
-// backend (flag > profile > default) resolved to its runner's engine identity —
-// smolvm's or microsandbox's. ResolveEngine errors when that runner is absent,
-// and when the backend is a removed container-era name.
+// backend (flag > profile > default) resolved to its runner's engine identity.
+// ResolveEngine errors when the runner is absent, and when the backend is a
+// removed name (container-era, or the retired smolvm "microvm").
 func imageBackend(backendFlag string, prof *config.Profile, d config.Defaults) (string, error) {
 	backendName := backendFlag
 	if backendName == "" && prof != nil {

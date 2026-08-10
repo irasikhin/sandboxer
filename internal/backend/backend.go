@@ -108,36 +108,29 @@ type RunOpts struct {
 	Stderr          io.Writer
 }
 
-// Run executes the sandbox's one-shot machine on the resolved microVM runner
-// and returns its exit code.
+// Run executes the sandbox's one-shot machine and returns its exit code.
 func Run(o RunOpts) (int, error) {
 	return vmRun(o), nil
 }
 
-// ImageExists reports whether the engine's image store holds the image: the
-// shared tar store for smolvm, msb's own image store for microsandbox.
-func ImageExists(engine, image string) bool {
-	if engine == msbEngine {
-		return msbImageExists(image)
-	}
-	return vmImageExists(image)
+// ImageExists reports whether the engine's image store holds the image —
+// msb's own store, the one `create` boots from.
+func ImageExists(_, image string) bool {
+	return msbImageExists(image)
 }
 
-// ImageID returns the runner's local content id for image, or "" on any
-// failure. A locally absent image is "unknown", never an error: callers skip
-// the image-freshness check on "" instead of failing before the image is built.
-func ImageID(engine, image string) string {
-	return vmRunnerFor(engine).imageID(image)
+// ImageID returns the local content id for image, or "" on any failure. A
+// locally absent image is "unknown", never an error: callers skip the
+// image-freshness check on "" instead of failing before the image is built.
+func ImageID(_, image string) string {
+	return msbImageID(image)
 }
 
-// RemoveImage removes a local image by name/tag from the runner's store. An
+// RemoveImage removes a local image by name/tag from the engine's store. An
 // already-absent image is success — removal is idempotent — so only a real
 // store failure errors.
-func RemoveImage(engine, image string) error {
-	if engine == msbEngine {
-		return msbRemoveImage(image)
-	}
-	return vmRemoveImage(image)
+func RemoveImage(_, image string) error {
+	return msbRemoveImage(image)
 }
 
 // exitCode maps a command error to a process exit code (0 success, the child's

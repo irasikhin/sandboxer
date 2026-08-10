@@ -109,7 +109,7 @@ to remove a single sandbox instead.`,
 			engines := backendSweepEngines(config.LoadDefaults())
 			if len(engines) == 0 {
 				fmt.Fprintln(cmd.ErrOrStderr(),
-					"sandboxer: session cleanup skipped: no microVM runner (smolvm or microsandbox) found")
+					"sandboxer: session cleanup skipped: no microVM runner (msb) found")
 			}
 			for _, engine := range engines {
 				if err := backendRemoveAllSessions(engine, dir); err != nil {

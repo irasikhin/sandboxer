@@ -88,8 +88,7 @@ func TestPathExists(t *testing.T) {
 
 // TestNoCredentialPassthrough pins the auth posture: NOTHING credential-like
 // leaves the host implicitly — no ambient API-key env vars, no credential-dir
-// mounts. Credentials travel only through the explicit AuthEnv channel (and on
-// the microVM runners only as key REFERENCES in argv, never values).
+// mounts. Credentials travel only through the explicit AuthEnv channel.
 func TestNoCredentialPassthrough(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
@@ -98,53 +97,38 @@ func TestNoCredentialPassthrough(t *testing.T) {
 	}
 	t.Setenv("ANTHROPIC_API_KEY", "secret")
 
-	for name, argv := range map[string][]string{
-		"smolvm run":       vmRunArgv(RunOpts{MountDest: true, Engine: smolvmEngine, Image: "img:1", Dest: "/d", Slug: "s", Args: []string{"true"}}),
-		"microsandbox run": msbRunArgv(RunOpts{MountDest: true, Engine: msbEngine, Image: "img:1", Dest: "/d", Slug: "s", Args: []string{"true"}}),
-	} {
-		got := strings.Join(argv, " ")
-		if strings.Contains(got, "ANTHROPIC_API_KEY") || strings.Contains(got, "secret") {
-			t.Errorf("%s: host API key leaked into the argv: %q", name, got)
-		}
-		if strings.Contains(got, ".claude") {
-			t.Errorf("%s: host credential dir leaked into the argv: %q", name, got)
-		}
-	}
-
-	// Even an explicit AuthEnv entry never puts the VALUE into smolvm's argv —
-	// only the key reference (--secret-env KEY=KEY).
-	argv := vmRunArgv(RunOpts{Engine: smolvmEngine, Image: "img:1", Dest: "/d", Slug: "s",
-		AuthEnv: []string{"ANTHROPIC_API_KEY=sk-tokenvalue"}, Args: []string{"true"}})
+	argv := msbRunArgv(RunOpts{MountDest: true, Engine: msbEngine, Image: "img:1", Dest: "/d", Slug: "s", Args: []string{"true"}})
 	got := strings.Join(argv, " ")
-	if strings.Contains(got, "sk-tokenvalue") {
-		t.Errorf("auth VALUE leaked into smolvm argv: %q", got)
+	if strings.Contains(got, "ANTHROPIC_API_KEY") || strings.Contains(got, "secret") {
+		t.Errorf("run: host API key leaked into the argv: %q", got)
 	}
-	if !strings.Contains(got, "--secret-env ANTHROPIC_API_KEY=ANTHROPIC_API_KEY") {
-		t.Errorf("auth key reference missing from smolvm argv: %q", got)
+	if strings.Contains(got, ".claude") {
+		t.Errorf("run: host credential dir leaked into the argv: %q", got)
 	}
 }
 
-// TestResolveEngine: only the microVM backends resolve, each to its runner's
-// engine identity; the removed container-era names and anything unknown error
-// with the migration hint.
+// TestResolveEngine: only the microsandbox backend resolves, to its engine
+// identity; the removed container-era names, the removed smolvm "microvm"
+// backend and anything unknown error with a migration hint.
 func TestResolveEngine(t *testing.T) {
-	// given a host where both runner binaries exist
+	// given a host where the runner binary exists
 	bin := t.TempDir()
 	t.Setenv("PATH", bin)
-	for _, name := range []string{"smolvm", "msb"} {
-		if err := os.WriteFile(filepath.Join(bin, name), []byte("#!/bin/sh\n"), 0o755); err != nil {
-			t.Fatal(err)
-		}
+	if err := os.WriteFile(filepath.Join(bin, "msb"), []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
 	}
-	t.Setenv("SANDBOXER_SMOLVM", "")
 	t.Setenv("SANDBOXER_MSB", "")
 
-	// when/then: the two microVM backends resolve to their engine identities
-	if e, err := ResolveEngine("microvm", config.Defaults{}); err != nil || e != smolvmEngine {
-		t.Errorf("ResolveEngine(microvm) = %q, %v; want %q", e, err, smolvmEngine)
-	}
+	// when/then: the microsandbox backend resolves to its engine identity
 	if e, err := ResolveEngine("microsandbox", config.Defaults{}); err != nil || e != msbEngine {
 		t.Errorf("ResolveEngine(microsandbox) = %q, %v; want %q", e, err, msbEngine)
+	}
+
+	// then: the removed smolvm backend errors, naming microsandbox
+	if _, err := ResolveEngine("microvm", config.Defaults{}); err == nil ||
+		!strings.Contains(err.Error(), "microvm backend was removed") ||
+		!strings.Contains(err.Error(), "microsandbox") {
+		t.Errorf("ResolveEngine(microvm) = %v, want the smolvm-removal migration hint", err)
 	}
 
 	// then: container-era and unknown names error, naming the removal
@@ -159,12 +143,8 @@ func TestResolveEngine(t *testing.T) {
 		}
 	}
 
-	// then: a requested runner whose binary is absent errors with the install hint
+	// then: a missing runner binary errors with the install hint
 	t.Setenv("PATH", t.TempDir())
-	if _, err := ResolveEngine("microvm", config.Defaults{}); err == nil ||
-		!strings.Contains(err.Error(), "smolvm") {
-		t.Errorf("ResolveEngine(microvm) without smolvm = %v, want install hint", err)
-	}
 	if _, err := ResolveEngine("microsandbox", config.Defaults{}); err == nil ||
 		!strings.Contains(err.Error(), "msb") {
 		t.Errorf("ResolveEngine(microsandbox) without msb = %v, want install hint", err)

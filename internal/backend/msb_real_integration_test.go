@@ -28,9 +28,8 @@ func hostResolves(name string) bool {
 
 // These exercise the REAL microsandbox backend end to end (a live msb sandbox),
 // driving the exported dispatch (EnsureSession/ExecSession/…) exactly as the CLI
-// does — so they verify the sandboxer wiring, not merely that msb works. They
-// are the msb twin of vm_real_integration_test.go, plus the one check smolvm
-// cannot support: a name-bound egress allowlist enforced by the runner itself.
+// does — so they verify the sandboxer wiring, not merely that msb works —
+// including the name-bound egress allowlist enforced by the runner itself.
 // They skip cleanly without msb/KVM (itest.Microsandbox) and boot a small POSIX
 // image (itest.MSBImage), never the proprietary agents.
 
@@ -150,11 +149,11 @@ func TestMSB_GuestWriteUID_RealEngine(t *testing.T) {
 	}
 }
 
-// TestMSB_EgressAllowlist_RealEngine is the check the smolvm backend cannot
-// make: the allowlist is enforced BY THE RUNNER, per name — an allowed domain
-// resolves and connects, everything else is refused, and a session created with
-// no allowlist at all is fully offline. Skipped when the host itself has no
-// outbound path, so it never fails for the network's reasons.
+// TestMSB_EgressAllowlist_RealEngine: the allowlist is enforced BY THE RUNNER,
+// per name — an allowed domain resolves and connects, everything else is
+// refused, and a session created with no allowlist at all is fully offline.
+// Skipped when the host itself has no outbound path, so it never fails for the
+// network's reasons.
 func TestMSB_EgressAllowlist_RealEngine(t *testing.T) {
 	engine := itest.Microsandbox(t)
 	if !hostResolves("example.com") {
@@ -306,4 +305,33 @@ func TestMSB_SecretsMode_RealEngine(t *testing.T) {
 	if scanProcCmdlines(t, token) {
 		t.Error("SECURITY: the secret VALUE appeared in a host process command line")
 	}
+}
+
+func mustWrite(t *testing.T, path, content string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// scanProcCmdlines reports whether needle appears in any /proc/*/cmdline.
+func scanProcCmdlines(t *testing.T, needle string) bool {
+	t.Helper()
+	entries, err := os.ReadDir("/proc")
+	if err != nil {
+		t.Skip("no /proc")
+	}
+	for _, e := range entries {
+		data, err := os.ReadFile(filepath.Join("/proc", e.Name(), "cmdline"))
+		if err != nil {
+			continue
+		}
+		if strings.Contains(string(bytes.ReplaceAll(data, []byte{0}, []byte{' '})), needle) {
+			return true
+		}
+	}
+	return false
 }

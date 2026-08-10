@@ -12,15 +12,14 @@ import (
 	"github.com/irasikhin/sandboxer/internal/toolbox"
 )
 
-// The microVM image "store". A container engine keeps images in its own
-// content-addressed store and `machine create -I name:tag` would make smolvm
-// pull a registry ref — but the toolbox image is built locally and never
-// published, so for the microVM backend an image is a docker-save tar on disk:
-// one file per name under <state root>/images/<name>.tar, with its sha256 in a
-// sibling .sha256 sidecar (computed once at store time — never rehash a
-// multi-GB tar on every enter). vmEnsureImage resolves an image NAME to the tar
-// PATH smolvm is actually handed, building it in a microVM on first use exactly
-// as the container path auto-builds on first enter.
+// The microVM image "store" — the BUILD-ARTIFACT side of the image pipeline.
+// The toolbox image is built locally and never published, so the build's
+// output is a docker-save tar on disk: one file per name under
+// <state root>/images/<name>.tar, with its sha256 in a sibling .sha256 sidecar
+// (computed once at store time — never rehash a multi-GB tar on every enter).
+// msbEnsureImage/msbLoadStoredImage (msb.go) import that tar into msb's own
+// image store, which is what `msb create` boots; the tar's content id is the
+// freshness authority (msbImageID) that makes a rebuilt image read as stale.
 
 // vmImagesDir is the per-host image store directory, or "" when no state root
 // exists.
@@ -104,69 +103,28 @@ func vmStoreImage(image, srcTar string) error {
 	return os.WriteFile(dst+".sha256", []byte(id), 0o600)
 }
 
-// vmEnsureImage resolves o.Image to the value smolvm's -I is handed: a public
-// ref passes straight through (smolvm pulls it), while the locally-built toolbox
-// image (the default, or any variant with a non-empty spec — the same condition
-// the container ensureImage builds under) resolves to its store tar, built in a
-// microVM on first use unless SANDBOXER_NO_AUTOBUILD is set.
-func vmEnsureImage(o RunOpts) (string, error) {
-	if o.Image != config.DefaultImage && o.Spec.Empty() {
-		return o.Image, nil // a custom public image — let smolvm pull it
-	}
-	if vmImageExists(o.Image) {
-		return vmImagePath(o.Image), nil
-	}
-	hint := "sandboxer image build --backend microvm"
-	if !o.Spec.Empty() {
-		hint = "sandboxer image build --backend microvm <profile> (this variant image needs its profile)"
-	}
-	if os.Getenv("SANDBOXER_NO_AUTOBUILD") != "" {
-		return "", fmt.Errorf("toolbox image %q is not in the microvm image store "+
-			"and is built locally (never published) — build it with:\n  %s", o.Image, hint)
-	}
-	if o.Stderr != nil {
-		fmt.Fprintf(o.Stderr, "sandboxer: toolbox image %q not found — building it now "+
-			"(one-time, several minutes; disable with SANDBOXER_NO_AUTOBUILD=1)…\n", o.Image)
-	}
-	if err := vmBuildImageToStore(o); err != nil {
-		return "", fmt.Errorf("%w — build manually with: %s", err, hint)
-	}
-	if !vmImageExists(o.Image) {
-		return "", fmt.Errorf("toolbox image %q still missing after build — try: %s", o.Image, hint)
-	}
-	return vmImagePath(o.Image), nil
-}
-
-// BuildVMImage builds the toolbox image for a microVM backend and stores it
-// under the image name — the explicit `sandboxer image build --backend
-// microvm|microsandbox` entry point, the counterpart of the enter-time
-// auto-build. It rebuilds unconditionally (an explicit build always refreshes
-// the store) and errors up front if the requested runner is unavailable, so the
-// CLI never silently no-ops. Both runners share ONE build artifact (the tar);
-// microsandbox additionally imports it into its own image store, which is what
-// its `create` reads.
-func BuildVMImage(engine, image string, spec toolbox.Spec, stderr io.Writer) error {
-	if engine == msbEngine {
-		if _, err := resolveMsb(); err != nil {
-			return err
-		}
-	} else if _, err := resolveSmolvm(); err != nil {
+// BuildVMImage builds the toolbox image and stores it under the image name —
+// the explicit `sandboxer image build` entry point, the counterpart of the
+// enter-time auto-build. It rebuilds unconditionally (an explicit build always
+// refreshes the store) and errors up front if the runner is unavailable, so
+// the CLI never silently no-ops. The tar is then imported into msb's own image
+// store, which is what its `create` reads — skipping that step would build an
+// image enter never sees.
+func BuildVMImage(_, image string, spec toolbox.Spec, stderr io.Writer) error {
+	if _, err := resolveMsb(); err != nil {
 		return err
 	}
-	if err := vmBuildImageToStore(RunOpts{Engine: engine, Image: image, Spec: spec, Stderr: stderr}); err != nil {
+	if err := vmBuildImageToStore(RunOpts{Engine: msbEngine, Image: image, Spec: spec, Stderr: stderr}); err != nil {
 		return err
 	}
-	if engine == msbEngine {
-		return msbLoadStoredImage(image, stderr)
-	}
-	return nil
+	return msbLoadStoredImage(image, stderr)
 }
 
 // vmBuildImageToStore builds the toolbox image and stores it under o.Image's
-// name. The image is built with HOST NIX — nix is already a hard requirement of
-// the CLI (sandboxer.nix eval), so there is no builder container and no builder
-// guest, and both microVM runners share the one tar. A package var so a test can
-// stand in for the minutes-long, network-bound real build.
+// name. The image is built with HOST NIX — nix is already a hard requirement
+// of the CLI (sandboxer.nix eval), so there is no builder container and no
+// builder guest. A package var so a test can stand in for the minutes-long,
+// network-bound real build.
 var vmBuildImageToStore = func(o RunOpts) error {
 	dir := vmImagesDir()
 	if dir == "" {

@@ -156,7 +156,7 @@ narrow a repo with directory include patterns ("/src/", "**/generated/"),
 span several repos, or pin an existing branch/worktree; other trees come in
 via extraMounts.
 
-The agent runs inside a real microVM (libkrun — microsandbox or smolvm) booted
+The agent runs inside a real microVM (libkrun — microsandbox) booted
 from the toolbox image (the agents baked in — see 'sandboxer agents'); each
 sandbox has its own isolated home, and network/proxy are wired per-config.
 Credentials never come from the host — log in or export keys inside the

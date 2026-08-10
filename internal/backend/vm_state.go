@@ -4,38 +4,35 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 
 	"github.com/irasikhin/sandboxer/internal/config"
 )
 
-// A smolvm machine carries no engine-side labels — `machine ls` reports only
-// name and state — so the identity a container keeps in its sandboxer.* labels
-// (the slug and base it belongs to, the config hash it was created with, its
-// image id and mount fingerprint) lives in a host-side record instead: one JSON
-// file per machine at <state root>/machines/<name>.json. The machine name is
-// globally unique (SessionName folds an 8-hex of the base dir into it), so a
-// per-name file needs no lock — every writer owns a distinct path — and a
-// by-name lookup (InspectSession) and a base-dir sweep (SessionStates /
-// OrphanSessions) both read straight from that directory.
+// The host-side machine records. microsandbox DOES stamp labels on a machine,
+// but the identity a session needs (the slug and base it belongs to, the
+// config hash it was created with, its image id and mount fingerprint) lives
+// in a host-side record: one JSON file per machine at
+// <state root>/machines/microsandbox/<name>.json. One identity mechanism means
+// one set of sweeps and no engine-store drift; the labels only make a machine
+// identifiable via `msb list` alone. The machine name is globally unique
+// (SessionName folds an 8-hex of the base dir into it), so a per-name file
+// needs no lock — every writer owns a distinct path — and a by-name lookup
+// (InspectSession) and a base-dir sweep (SessionStates / OrphanSessions) both
+// read straight from that directory.
 //
-// microsandbox DOES have labels, but keeps the same record: one identity
-// mechanism for both runners means one set of sweeps and no two-store drift. Its
-// records live in a per-engine subdirectory (vmRunner.recordDir) because the
-// machine name is derived from the sandbox, not the engine — a project that
-// switches runners would otherwise have the new machine's record overwrite the
-// old one's, and the old machine would be stranded with nothing left to name it.
-// smolvm keeps the flat legacy layout, so existing records are found unchanged.
+// The "microsandbox" subdirectory is load-bearing: existing machines recorded
+// there by earlier releases must still be found, so the path never changes
+// with the code layout. (The retired smolvm runner used the flat machines/
+// root; its records are stale data a `clean` never sees, not ours to migrate.)
 
 // errNoStateRoot is returned when no state root can be resolved (no home, no
 // override), so a machine record cannot be persisted.
 var errNoStateRoot = errors.New("no state root (set HOME, XDG_STATE_HOME or SANDBOXER_STATE)")
 
-// vmRecord is the host-side identity of one microVM session — the microVM
-// counterpart of a container's sandbox.* labels. ImageID/MountIDs are omitted
-// when empty so a record stays diffable.
+// vmRecord is the host-side identity of one microVM session. ImageID/MountIDs
+// are omitted when empty so a record stays diffable.
 type vmRecord struct {
 	Name     string `json:"name"`
 	BaseDir  string `json:"baseDir"`
@@ -45,18 +42,18 @@ type vmRecord struct {
 	MountIDs string `json:"mountIDs,omitempty"`
 }
 
-// vmMachinesDir is the directory of r's per-machine records, or "" when no state
-// root exists (callers then behave as if there were no records).
-func vmMachinesDir(r vmRunner) string {
+// vmMachinesDir is the directory of the per-machine records, or "" when no
+// state root exists (callers then behave as if there were no records).
+func vmMachinesDir() string {
 	root := config.StateRoot()
 	if root == "" {
 		return ""
 	}
-	return filepath.Join(root, "machines", r.recordDir())
+	return filepath.Join(root, "machines", msbEngine)
 }
 
-func vmRecordPath(r vmRunner, name string) string {
-	dir := vmMachinesDir(r)
+func vmRecordPath(name string) string {
+	dir := vmMachinesDir()
 	if dir == "" {
 		return ""
 	}
@@ -65,8 +62,8 @@ func vmRecordPath(r vmRunner, name string) string {
 
 // writeVMRecord persists rec atomically (write-temp + rename), creating the
 // machines dir on demand.
-func writeVMRecord(r vmRunner, rec vmRecord) error {
-	path := vmRecordPath(r, rec.Name)
+func writeVMRecord(rec vmRecord) error {
+	path := vmRecordPath(rec.Name)
 	if path == "" {
 		return errNoStateRoot
 	}
@@ -87,8 +84,8 @@ func writeVMRecord(r vmRunner, rec vmRecord) error {
 // readVMRecord loads a machine's record; the zero vmRecord (all fields "") when
 // the file is absent or unreadable, which reads through vmInspectSession as an
 // "unknown" hash — i.e. stale, recreated — never a fabricated match.
-func readVMRecord(r vmRunner, name string) vmRecord {
-	path := vmRecordPath(r, name)
+func readVMRecord(name string) vmRecord {
+	path := vmRecordPath(name)
 	if path == "" {
 		return vmRecord{}
 	}
@@ -105,17 +102,17 @@ func readVMRecord(r vmRunner, name string) vmRecord {
 
 // removeVMRecord deletes a machine's record (idempotent — a missing file is not
 // an error).
-func removeVMRecord(r vmRunner, name string) {
-	if path := vmRecordPath(r, name); path != "" {
+func removeVMRecord(name string) {
+	if path := vmRecordPath(name); path != "" {
 		_ = os.Remove(path)
 	}
 }
 
-// listVMRecords returns every machine record persisted for r; a read/parse
-// failure on one file skips it rather than aborting the sweep. Subdirectories
-// are skipped, so another runner's records never leak into this one's sweep.
-func listVMRecords(r vmRunner) []vmRecord {
-	dir := vmMachinesDir(r)
+// listVMRecords returns every machine record persisted for the engine; a
+// read/parse failure on one file skips it rather than aborting the sweep.
+// Subdirectories are skipped, so foreign files never leak into a sweep.
+func listVMRecords() []vmRecord {
+	dir := vmMachinesDir()
 	if dir == "" {
 		return nil
 	}
@@ -128,45 +125,23 @@ func listVMRecords(r vmRunner) []vmRecord {
 		if e.IsDir() || !strings.HasSuffix(e.Name(), ".json") {
 			continue
 		}
-		if rec := readVMRecord(r, strings.TrimSuffix(e.Name(), ".json")); rec.Name != "" {
+		if rec := readVMRecord(strings.TrimSuffix(e.Name(), ".json")); rec.Name != "" {
 			recs = append(recs, rec)
 		}
 	}
 	return recs
 }
 
-// vmMachine is the subset of `machine ls --json` a session cares about: the
+// vmMachine is the subset of the engine inventory a session cares about: the
 // name and the run state ("running"/"stopped").
 type vmMachine struct {
-	Name  string `json:"name"`
-	State string `json:"state"`
+	Name  string
+	State string
 }
 
-// parseVMMachines decodes `machine ls --json` output (pure, so it is unit-tested
-// without a hypervisor); malformed output yields no machines rather than an
-// error, mirroring the engine-query stance elsewhere.
-func parseVMMachines(out []byte) []vmMachine {
-	var machines []vmMachine
-	if json.Unmarshal(out, &machines) != nil {
-		return nil
-	}
-	return machines
-}
-
-// vmListMachines runs `machine ls --json` and returns the live machines. A
-// package var so a test can inject a fake inventory; a nil/error result is
-// "no machines", never a crash.
-var vmListMachines = func() []vmMachine {
-	out, err := exec.Command(smolvmBin(), vmListArgv()...).Output()
-	if err != nil {
-		return nil
-	}
-	return parseVMMachines(out)
-}
-
-// vmMachineByName finds a live machine by name in r's inventory.
-func vmMachineByName(r vmRunner, name string) (vmMachine, bool) {
-	for _, m := range r.listMachines() {
+// vmMachineByName finds a live machine by name in the engine's inventory.
+func vmMachineByName(name string) (vmMachine, bool) {
+	for _, m := range msbListMachines() {
 		if m.Name == name {
 			return m, true
 		}

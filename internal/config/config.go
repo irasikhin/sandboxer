@@ -84,8 +84,8 @@ type Egress struct {
 	// https://host:port). Empty means no proxy. With a proxy set the guest's
 	// HTTP(S) clients are pointed at it over an open VM network — the proxy IS
 	// the egress control point. A localhost/127.0.0.1 host is adapted for the
-	// guest at launch (smolvm's TSI reaches host loopback as-is; msb rewrites
-	// it to host.microsandbox.internal).
+	// guest at launch (msb rewrites a loopback host to
+	// host.microsandbox.internal).
 	Proxy string `json:"proxy,omitempty"`
 	// NoProxy is the NO_PROXY list applied alongside Proxy.
 	NoProxy string `json:"noProxy,omitempty"`

@@ -27,7 +27,7 @@ in
   profiles = {
     # Frontend: sandbox narrowed to the shared UI lib.
     web = {
-      backend = "microvm";
+      backend = "microsandbox";
       egress = net;
       srcs = [ { src = "."; branch = "devops/web"; include = [ "/shared/ui/" ]; } ];
       env.NODE_ENV = "development";

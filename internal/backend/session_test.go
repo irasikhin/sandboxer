@@ -39,25 +39,25 @@ func TestSessionName(t *testing.T) {
 	}
 }
 
-// guestEngine installs a fake smolvm CLI whose `machine exec` answers with
-// canned output, pointing SANDBOXER_SMOLVM at it, and returns the engine
-// identity plus the invocation log path. It is the guest-reader stub the tmux
-// capture/idleness tests drive (the lifecycle fake in vm_session_test.go runs
-// real commands instead). Canned behaviour comes from env vars:
+// guestEngine installs a fake msb CLI whose `exec` answers with canned
+// output, pointing SANDBOXER_MSB at it, and returns the engine identity plus
+// the invocation log path. It is the guest-reader stub the tmux
+// capture/idleness tests drive (the lifecycle fake in msb_test.go runs real
+// commands instead). Canned behaviour comes from env vars:
 //
 //	SBX_FAIL_ON          subcommand to fail ("exec"), with SBX_STDERR on stderr
-//	SBX_PANES_OUT        stdout of the `machine exec … list-panes` capture
-//	SBX_PSEO_OUT         stdout of the `machine exec … ps -eo` listing;
+//	SBX_PANES_OUT        stdout of the `exec … list-panes` capture
+//	SBX_PSEO_OUT         stdout of the `exec … ps -eo` listing;
 //	                     SBX_PSEO_FAIL makes it exit 1
-//	SBX_EXEC_OUT         stdout of any other `machine exec`
+//	SBX_EXEC_OUT         stdout of any other `exec`
 func guestEngine(t *testing.T) (engine, logPath string) {
 	t.Helper()
 	dir := t.TempDir()
 	logPath = filepath.Join(dir, "calls.log")
-	bin := filepath.Join(dir, "smolvm")
+	bin := filepath.Join(dir, "msb")
 	script := `#!/bin/sh
 printf '%s\n' "$*" >> "` + logPath + `"
-[ -n "$SBX_FAIL_ON" ] && [ "$2" = "$SBX_FAIL_ON" ] && { [ -n "$SBX_STDERR" ] && printf '%s\n' "$SBX_STDERR" >&2; exit 1; }
+[ -n "$SBX_FAIL_ON" ] && [ "$1" = "$SBX_FAIL_ON" ] && { [ -n "$SBX_STDERR" ] && printf '%s\n' "$SBX_STDERR" >&2; exit 1; }
 case "$*" in
 *list-panes*) printf '%s\n' "$SBX_PANES_OUT" ;;
 *"ps -eo"*)
@@ -70,8 +70,8 @@ exit 0
 	if err := os.WriteFile(bin, []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("SANDBOXER_SMOLVM", bin)
-	return smolvmEngine, logPath
+	t.Setenv("SANDBOXER_MSB", bin)
+	return msbEngine, logPath
 }
 
 // engineLog returns the stub's invocations, one argv per line (nil before the
@@ -108,7 +108,7 @@ func TestSessionIdle(t *testing.T) {
 		if !SessionIdle(engine, "c") {
 			t.Error("an empty tmux listing must read as idle")
 		}
-		if lines := engineLog(t, logPath); !hasLine(lines, "machine exec --name c -- tmux -L sandboxer list-sessions") {
+		if lines := engineLog(t, logPath); !hasLine(lines, "exec c -- tmux -L sandboxer list-sessions") {
 			t.Errorf("idleness probe argv missing:\n%s", strings.Join(lines, "\n"))
 		}
 	})

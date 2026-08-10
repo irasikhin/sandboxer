@@ -45,7 +45,7 @@ func bindTarget(cmd *cobra.Command, f *commonFlags) {
 func bindExisting(cmd *cobra.Command, f *commonFlags) {
 	bindTarget(cmd, f)
 	fl := cmd.Flags()
-	fl.StringVar(&f.backend, "backend", "", "backend: microsandbox | microvm")
+	fl.StringVar(&f.backend, "backend", "", "backend: microsandbox")
 	fl.StringVar(&f.domains, "allow-domains", "", "egress allowlist, csv (e.g. api.anthropic.com,github.com)")
 }
 
@@ -289,10 +289,7 @@ func (t *target) runtime(f commonFlags) (config.Runtime, error) {
 // backendLabel reports the backend to show in the banner, naming the runner
 // binary beside the backend so the banner matches what actually runs.
 func backendLabel(rt config.Runtime) string {
-	switch rt.Backend {
-	case "microvm":
-		return "microvm (smolvm)"
-	case "microsandbox":
+	if rt.Backend == "microsandbox" {
 		return "microsandbox (msb)"
 	}
 	return rt.Backend

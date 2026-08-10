@@ -324,7 +324,7 @@ func TestRunMultiProfileSelect(t *testing.T) {
 	t.Chdir(project)
 	body := `{
   profiles = {
-    web = { backend = "microvm"; srcs = [ { src = "."; branch = "feat/x"; } ]; };
+    web = { backend = "microsandbox"; srcs = [ { src = "."; branch = "feat/x"; } ]; };
     api = {
       backend = "microsandbox";
       session = "ephemeral";
@@ -535,18 +535,18 @@ func TestDoctorStrict(t *testing.T) {
 }
 
 // TestDoctorNoEngine covers the runner-less branch by running doctor with an
-// empty PATH so neither microVM runner is found.
+// empty PATH so the microVM runner is not found.
 func TestDoctorNoEngine(t *testing.T) {
 	t.Setenv("SANDBOXER_IN_CONTAINER", "")
-	t.Setenv("PATH", "") // no smolvm/msb discoverable
+	t.Setenv("PATH", "") // no msb discoverable
 
 	code, out, _ := run("doctor")
 	if code != 0 {
 		t.Fatalf("doctor = %d", code)
 	}
-	for _, want := range []string{"microvm (smolvm)", "microsandbox (msb)", "⚠"} {
+	for _, want := range []string{"microsandbox (msb)", "⚠"} {
 		if !strings.Contains(out, want) {
-			t.Errorf("doctor should warn about the missing runners (%q):\n%s", want, out)
+			t.Errorf("doctor should warn about the missing runner (%q):\n%s", want, out)
 		}
 	}
 }

@@ -9,7 +9,7 @@
   name = "feature-x";
 
   # Isolation backend — a real microVM per sandbox (libkrun), booted from
-  # the toolbox image (works with any agent): microsandbox | microvm.
+  # the toolbox image (works with any agent): microsandbox.
   backend = "microsandbox";
 
   # The sources the sandbox sees — always explicit (src = "." is this repo,

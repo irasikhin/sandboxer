@@ -74,10 +74,9 @@ func newImageRmCmd() *cobra.Command {
 					image = spec.Tag()
 				}
 			}
-			// Resolve the backend BEFORE removing: a smolvm image lives in the
-			// shared tar store alone, while a microsandbox one is also cached in
-			// msb's own image store — RemoveImage dispatches on the resolved
-			// engine identity to reach the right one.
+			// Resolve the backend BEFORE removing: it errors early on a
+			// removed backend name or a missing runner, and RemoveImage drops
+			// both the msb-cached copy and the build tar it was imported from.
 			engine, err := imageBackend(backendFlag, prof, d)
 			if err != nil {
 				return err
@@ -90,7 +89,7 @@ func newImageRmCmd() *cobra.Command {
 		},
 	}
 	fl := cmd.Flags()
-	fl.StringVar(&backendFlag, "backend", "", "backend: microsandbox | microvm (default: the profile's, else microsandbox)")
+	fl.StringVar(&backendFlag, "backend", "", "backend: microsandbox (default: the profile's, else microsandbox)")
 	fl.StringVarP(&configPath, "config", "f", "", "profile whose image variant to remove")
 	return cmd
 }

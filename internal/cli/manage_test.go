@@ -68,27 +68,35 @@ func TestRmRemovesSessionBeforeFiles(t *testing.T) {
 }
 
 // TestRmTearsDownRegardlessOfProfileBackend: the teardown must not depend on
-// the backend the profile resolves to NOW. A sandbox whose container was
+// the backend the profile resolves to NOW. A sandbox whose session was
 // created under one backend and removed after `backend =` was edited used to
-// have its files deleted while the container kept running — silently, and
-// unreachable forever once the state dir was gone. Here the profile names a
-// microVM backend whose runner is not even installed, and the session (on
-// podman) must still be torn down and reported.
+// have its files deleted while the machine kept running — silently, and
+// unreachable forever once the state dir was gone. Here the profile is edited
+// to a RETIRED backend name after create, and the session must still be torn
+// down and reported (rm sweeps by session name, never resolving the profile's
+// backend).
 func TestRmTearsDownRegardlessOfProfileBackend(t *testing.T) {
 	project := newProject(t)
-	fakeMsb(t) // podman is the only engine on PATH; smolvm is not
-	cfg := `{
+	fakeMsb(t)
+	cfg := func(backend string) string {
+		return `{
   name = "feat";
-  backend = "microvm";
+  backend = "` + backend + `";
   srcs = [ { src = "."; branch = "feat/feat"; } ];
   hostConfigs = false;
 }
 `
-	if err := os.WriteFile(filepath.Join(project, "sandboxer.nix"), []byte(cfg), 0o644); err != nil {
+	}
+	if err := os.WriteFile(filepath.Join(project, "sandboxer.nix"), []byte(cfg("microsandbox")), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if code, _, errs := run("create", "feat", "--src", project); code != 0 {
 		t.Fatalf("create: %d %s", code, errs)
+	}
+	// The backend is edited to a name that no longer even validates — rm must
+	// not care.
+	if err := os.WriteFile(filepath.Join(project, "sandboxer.nix"), []byte(cfg("microvm")), 0o644); err != nil {
+		t.Fatal(err)
 	}
 	calls, _ := stubRemoveSessionWith(t, sandboxDir(project, "feat"), []string{"podman"}, nil)
 
@@ -135,7 +143,7 @@ func TestRmEngineLessHost(t *testing.T) {
 	}
 	dest := sandboxDir(project, "feat")
 	calls, _ := stubRemoveSession(t, dest, nil)
-	t.Setenv("PATH", "") // no smolvm/msb discoverable
+	t.Setenv("PATH", "") // no msb discoverable
 
 	code, out, errs := run("rm", "feat", "--src", project)
 	if code != 0 || !strings.Contains(out, "removed sandbox") {
@@ -403,7 +411,7 @@ func TestCleanEngineLessHost(t *testing.T) {
 	}
 	sdir := config.StateDir(project)
 	calls, _ := stubRemoveAllSessions(t, sdir, nil)
-	t.Setenv("PATH", "") // no smolvm/msb discoverable
+	t.Setenv("PATH", "") // no msb discoverable
 
 	code, out, errs := run("clean", "--force", project)
 	if code != 0 || !strings.Contains(out, "removed") {

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"compress/gzip"
 	"io"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -97,14 +98,6 @@ func TestMSBHashArgv(t *testing.T) {
 	if vmSessionWantHash(resized) == base {
 		t.Error("a memory change did not flip the session hash")
 	}
-
-	// The two runners must never share a hash for the same options: their argv
-	// dialects differ, so a backend switch has to read as stale.
-	smol := o
-	smol.Engine = smolvmEngine
-	if vmSessionWantHash(smol) == base {
-		t.Error("smolvm and microsandbox produced the same session hash")
-	}
 }
 
 // TestMSBNetworkArgs pins the four egress postures.
@@ -168,19 +161,14 @@ func TestMSBNetworkArgs(t *testing.T) {
 	}
 }
 
-// TestMSBNetTargetsKeepSubdomains pins the property the smolvm runner cannot
-// offer: an allowlist entry covers the domain AND its subdomains, exactly as the
-// squid sidecar's leading-dot dstdomain does.
+// TestMSBNetTargetsKeepSubdomains pins the suffix property: an allowlist entry
+// covers the domain AND its subdomains, exactly as the squid sidecar's
+// leading-dot dstdomain did — never a narrowing to exact hosts.
 func TestMSBNetTargetsKeepSubdomains(t *testing.T) {
-	got := msbNetTargets([]string{"cloudfront.net", ".github.com"})
+	got := msbNetTargets([]string{"cloudfront.net", ".github.com", "cloudfront.net", " "})
 	want := []string{"*.cloudfront.net", "*.github.com"}
 	if !slices.Equal(got, want) {
 		t.Errorf("msbNetTargets = %q, want %q", got, want)
-	}
-	// The smolvm translation of the same list narrows to exact hosts — the
-	// regression this backend exists to avoid.
-	if slices.Equal(vmAllowHosts([]string{"cloudfront.net"}), got) {
-		t.Error("expected the two runners' allowlist translations to differ")
 	}
 }
 
@@ -266,6 +254,37 @@ func TestMSBRunArgv(t *testing.T) {
 	}
 }
 
+// TestMSBProfileJSONMount pins that a configured profile.json is shared at
+// /run/sandboxer (via the per-sandbox run dir), and that staging copies it
+// there.
+func TestMSBProfileJSONMount(t *testing.T) {
+	meta := t.TempDir()
+	pj := filepath.Join(meta, "s.profile.json")
+	if err := os.WriteFile(pj, []byte(`{"k":"v"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	o := RunOpts{Image: "img", Dest: "/d", Slug: "s", ProfileJSONPath: pj,
+		Stdin: strings.NewReader(""), Stdout: &bytes.Buffer{}}
+	runDir := filepath.Join(meta, "s.run")
+
+	// The create argv mounts the run dir read-only at /run/sandboxer.
+	if !strings.Contains(strings.Join(msbCreateArgv(o, "n", "h"), " "), runDir+":/run/sandboxer:ro") {
+		t.Errorf("create argv missing profile.json mount: %q", msbCreateArgv(o, "n", "h"))
+	}
+	// Staging creates the dir and copies the file to profile.json.
+	if err := stageProfileJSON(o); err != nil {
+		t.Fatalf("stageProfileJSON: %v", err)
+	}
+	got, err := os.ReadFile(filepath.Join(runDir, "profile.json"))
+	if err != nil || string(got) != `{"k":"v"}` {
+		t.Errorf("staged profile.json = %q, %v; want {\"k\":\"v\"}", got, err)
+	}
+	// No ProfileJSONPath → no mount, no-op stage.
+	if strings.Contains(strings.Join(msbCreateArgv(RunOpts{Image: "i", Dest: "/d", Slug: "s"}, "n", "h"), " "), "/run/sandboxer") {
+		t.Error("a sandbox with no profile.json must not mount /run/sandboxer")
+	}
+}
+
 // TestMSBGuestExecArgv pins the guest-state primitive the shared session
 // machinery (tmux capture, idleness) reaches through.
 func TestMSBGuestExecArgv(t *testing.T) {
@@ -280,32 +299,16 @@ func TestMSBGuestExecArgv(t *testing.T) {
 	}
 }
 
-// TestVMRunnerDialects pins that the two runners really are two vocabularies
-// for the same verbs — a rename of a subcommand in either would be caught here
-// rather than at the first live enter.
-func TestVMRunnerDialects(t *testing.T) {
-	smol, msb := vmRunnerFor(smolvmEngine), vmRunnerFor(msbEngine)
-	if _, ok := vmRunnerFor("").(smolvmRunner); !ok {
-		t.Error("an unknown engine must keep the original smolvm behaviour")
-	}
-	if !isVMEngine(smolvmEngine) || !isVMEngine(msbEngine) || isVMEngine("docker") {
-		t.Error("isVMEngine mis-classified an engine")
-	}
-	if smol.startsOnCreate() || !msb.startsOnCreate() {
-		t.Error("startsOnCreate: smolvm needs a start, microsandbox does not")
-	}
-	if smol.recordDir() != "" || msb.recordDir() != msbEngine {
-		t.Errorf("record dirs = %q / %q", smol.recordDir(), msb.recordDir())
-	}
+// TestMSBLifecycleArgv pins the tiny start/stop/remove/list builders — a
+// rename of an msb subcommand would be caught here rather than at the first
+// live enter.
+func TestMSBLifecycleArgv(t *testing.T) {
 	pairs := [][2][]string{
-		{smol.startArgv("n"), {"machine", "start", "--name", "n"}},
-		{smol.stopArgv("n"), {"machine", "stop", "--name", "n"}},
-		{smol.removeArgv("n"), {"machine", "delete", "--name", "n", "-f"}},
-		{smol.guestExecArgv("n", []string{"tmux"}), {"machine", "exec", "--name", "n", "--", "tmux"}},
-		{msb.startArgv("n"), {"start", "n"}},
-		{msb.stopArgv("n"), {"stop", "n"}},
-		{msb.removeArgv("n"), {"remove", "-f", "n"}},
-		{msb.guestExecArgv("n", []string{"tmux"}), {"exec", "n", "--", "tmux"}},
+		{msbStartArgv("n"), {"start", "n"}},
+		{msbStopArgv("n"), {"stop", "n"}},
+		{msbRemoveArgv("n"), {"remove", "-f", "n"}},
+		{msbListArgv(), {"list", "--format", "json"}},
+		{msbGuestExecArgv("n", []string{"tmux"}), {"exec", "n", "--", "tmux"}},
 	}
 	for _, p := range pairs {
 		if !slices.Equal(p[0], p[1]) {
@@ -363,36 +366,6 @@ func TestMSBHomeRoomy(t *testing.T) {
 	t.Setenv("MSB_HOME", "/tmp/msb")
 	if msbHome() != "/tmp/msb" {
 		t.Errorf("msbHome = %q, want the MSB_HOME override", msbHome())
-	}
-}
-
-// TestMSBRecordsAreRunnerScoped pins that the two runners' machine records never
-// collide: the same sandbox name recorded under both keeps two records, so
-// switching backends cannot strand the old runner's machine.
-func TestMSBRecordsAreRunnerScoped(t *testing.T) {
-	t.Setenv("SANDBOXER_STATE", t.TempDir())
-	base := t.TempDir()
-	rec := vmRecord{Name: "sandboxer-s-1", BaseDir: base, Slug: "s", Hash: "h"}
-	if err := writeVMRecord(smolvmRunner{}, rec); err != nil {
-		t.Fatal(err)
-	}
-	msbRec := rec
-	msbRec.Hash = "h2"
-	if err := writeVMRecord(msbRunner{}, msbRec); err != nil {
-		t.Fatal(err)
-	}
-	if got := readVMRecord(smolvmRunner{}, rec.Name); got.Hash != "h" {
-		t.Errorf("smolvm record = %+v, want hash h", got)
-	}
-	if got := readVMRecord(msbRunner{}, rec.Name); got.Hash != "h2" {
-		t.Errorf("microsandbox record = %+v, want hash h2", got)
-	}
-	if recs := listVMRecords(smolvmRunner{}); len(recs) != 1 {
-		t.Errorf("smolvm sweep saw %d records, want its own 1", len(recs))
-	}
-	removeVMRecord(msbRunner{}, rec.Name)
-	if got := readVMRecord(smolvmRunner{}, rec.Name); got.Hash != "h" {
-		t.Error("removing the microsandbox record dropped the smolvm one")
 	}
 }
 
@@ -458,10 +431,19 @@ func setupFakeMSB(t *testing.T) string {
 	return log
 }
 
+func readFile(t *testing.T, path string) string {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	return string(data)
+}
+
 // TestMSBSessionLifecycle drives create → exec → reuse → recreate → stop →
-// remove through the fake CLI over the SHARED session machinery, pinning that a
-// microsandbox session converges by the same policy as a smolvm one — including
-// the runner difference that create already boots the machine (no extra start).
+// remove through the fake CLI over the session machinery, pinning the
+// planSession dispatch, the record store, exit-code propagation — and that
+// create already boots the machine (no extra start ever follows it).
 func TestMSBSessionLifecycle(t *testing.T) {
 	log := setupFakeMSB(t)
 	base := t.TempDir()
@@ -476,7 +458,7 @@ func TestMSBSessionLifecycle(t *testing.T) {
 	if err != nil || got != name {
 		t.Fatalf("EnsureSession create = %q, %v; want %q", got, err, name)
 	}
-	if rec := readVMRecord(msbRunner{}, name); rec.Hash != vmSessionWantHash(o) {
+	if rec := readVMRecord(name); rec.Hash != vmSessionWantHash(o) {
 		t.Errorf("record hash = %q, want %q", rec.Hash, vmSessionWantHash(o))
 	}
 	if info := InspectSession(msbEngine, name); !info.Running {
@@ -521,9 +503,170 @@ func TestMSBSessionLifecycle(t *testing.T) {
 	if InspectSession(msbEngine, name).Exists {
 		t.Error("machine still exists after remove")
 	}
-	if readVMRecord(msbRunner{}, name).Name != "" {
+	if readVMRecord(name).Name != "" {
 		t.Error("record survived remove")
 	}
+}
+
+// TestMSBSessionStatesAndOrphans pins the record-vs-live cross reference: a
+// recorded machine the engine forgot reads as "gone", a different base's
+// session never leaks into a project view, and a record whose base dir
+// vanished is an orphan — with the host-wide view grouping the same records by
+// base dir, including the project whose dir is gone.
+func TestMSBSessionStatesAndOrphans(t *testing.T) {
+	t.Setenv("SANDBOXER_STATE", t.TempDir())
+	base := t.TempDir()
+	goneBase := filepath.Join(t.TempDir(), "deleted")
+
+	writeRec := func(name, b, slug string) {
+		if err := writeVMRecord(vmRecord{Name: name, BaseDir: b, Slug: slug, Hash: "h"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writeRec("m-live", base, "live")
+	writeRec("m-forgotten", base, "forgotten")
+	writeRec("m-orphan", goneBase, "orphan")
+
+	// Only m-live is in the live inventory.
+	restore := msbListMachines
+	msbListMachines = func() []vmMachine { return []vmMachine{{Name: "m-live", State: "running"}} }
+	t.Cleanup(func() { msbListMachines = restore })
+
+	states, err := SessionStates(msbEngine, base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if states["live"] != "running" {
+		t.Errorf("live state = %q, want running", states["live"])
+	}
+	if states["forgotten"] != "gone" {
+		t.Errorf("forgotten state = %q, want gone", states["forgotten"])
+	}
+	if _, ok := states["orphan"]; ok {
+		t.Error("a different base's session leaked into states")
+	}
+
+	orphans, err := OrphanSessions(msbEngine)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(orphans) != 1 || orphans[0] != "m-orphan" {
+		t.Errorf("OrphanSessions = %v, want [m-orphan]", orphans)
+	}
+
+	all, err := AllSessionStates(msbEngine)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]map[string]string{
+		base:     {"live": "running", "forgotten": "gone"},
+		goneBase: {"orphan": "gone"},
+	}
+	if len(all) != len(want) {
+		t.Fatalf("AllSessionStates = %v, want %v", all, want)
+	}
+	for b, states := range want {
+		if !maps.Equal(all[b], states) {
+			t.Errorf("AllSessionStates[%q] = %v, want %v", b, all[b], states)
+		}
+	}
+}
+
+// TestMSBInspectAbsent pins the zero SessionInfo for a machine the engine does
+// not know.
+func TestMSBInspectAbsent(t *testing.T) {
+	restore := msbListMachines
+	msbListMachines = func() []vmMachine { return nil }
+	t.Cleanup(func() { msbListMachines = restore })
+	if info := InspectSession(msbEngine, "nope"); info.Exists {
+		t.Errorf("absent machine = %+v, want zero", info)
+	}
+}
+
+// TestMSBRemoveAllSessions pins the base-scoped sweep: only the given base's
+// machines are removed, another base's record is left intact.
+func TestMSBRemoveAllSessions(t *testing.T) {
+	setupFakeMSB(t)
+	base := t.TempDir()
+	other := t.TempDir()
+	mkMachine := func(name, b, slug string) {
+		if err := writeVMRecord(vmRecord{Name: name, BaseDir: b, Slug: slug, Hash: "h"}); err != nil {
+			t.Fatal(err)
+		}
+		// Register it as live so the delete path runs.
+		if err := os.WriteFile(filepath.Join(os.Getenv("FAKE_MACHINES"), name), []byte("Running"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.MkdirAll(os.Getenv("FAKE_MACHINES"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	mkMachine("m-a", base, "a")
+	mkMachine("m-b", base, "b")
+	mkMachine("m-keep", other, "keep")
+
+	if err := RemoveAllSessions(msbEngine, base); err != nil {
+		t.Fatalf("RemoveAllSessions: %v", err)
+	}
+	if readVMRecord("m-a").Name != "" || readVMRecord("m-b").Name != "" {
+		t.Error("base machines' records survived RemoveAllSessions")
+	}
+	if readVMRecord("m-keep").Name == "" {
+		t.Error("another base's record was swept")
+	}
+}
+
+// TestRemoveSessionAnywhere: the teardown sweep covers the machine AND the
+// host-side record — a record left by a hand-deleted machine is exactly the
+// litter rm exists to sweep — and reports the engine a session was actually
+// found on.
+func TestRemoveSessionAnywhere(t *testing.T) {
+	requireExec(t, "bash")
+	base := t.TempDir()
+	name := SessionName("s", base)
+
+	t.Run("machine and record", func(t *testing.T) {
+		setupFakeMSB(t)
+		if err := os.MkdirAll(os.Getenv("FAKE_MACHINES"), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := writeVMRecord(vmRecord{Name: name, BaseDir: base, Slug: "s", Hash: "h"}); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(os.Getenv("FAKE_MACHINES"), name), []byte("Running"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		removed, err := RemoveSessionAnywhere("s", base, config.Defaults{})
+		if err != nil {
+			t.Fatalf("RemoveSessionAnywhere: %v", err)
+		}
+		if !slices.Equal(removed, []string{msbEngine}) {
+			t.Errorf("removed = %v, want [%s]", removed, msbEngine)
+		}
+		if _, ok := vmMachineByName(name); ok {
+			t.Error("the machine survived the sweep")
+		}
+		if readVMRecord(name).Name != "" {
+			t.Error("the machine record survived the sweep")
+		}
+	})
+
+	t.Run("record alone still counts", func(t *testing.T) {
+		setupFakeMSB(t)
+		if err := writeVMRecord(vmRecord{Name: name, BaseDir: base, Slug: "s", Hash: "h"}); err != nil {
+			t.Fatal(err)
+		}
+		removed, err := RemoveSessionAnywhere("s", base, config.Defaults{})
+		if err != nil {
+			t.Fatalf("RemoveSessionAnywhere: %v", err)
+		}
+		if !slices.Equal(removed, []string{msbEngine}) {
+			t.Errorf("removed = %v, want [%s] — an orphaned record is still litter", removed, msbEngine)
+		}
+		if readVMRecord(name).Name != "" {
+			t.Error("the orphaned record survived the sweep")
+		}
+	})
 }
 
 // TestMSBRunOneShot pins the ephemeral path (Run's microsandbox dispatch) and
@@ -568,6 +711,9 @@ func TestMSBEngineResolution(t *testing.T) {
 	}
 	if p, _, _, _ := MsbStatus(); p {
 		t.Error("a missing msb must read as not present")
+	}
+	if engines := SweepEngines(config.Defaults{}); len(engines) != 0 {
+		t.Errorf("SweepEngines with no msb = %v, want none", engines)
 	}
 }
 
@@ -735,10 +881,10 @@ func TestMSBLoadStoredImageGzip(t *testing.T) {
 	}
 }
 
-// TestBuildVMImageMSB pins the explicit build entry point for the microsandbox
-// backend: both runners share ONE build artifact (the tar), and only
-// microsandbox additionally imports it into its own image store — which is what
-// its create reads, so skipping that step would build an image enter never sees.
+// TestBuildVMImageMSB pins the explicit build entry point: the tar is built
+// into the shared store AND imported into msb's own image store — which is
+// what its create reads, so skipping the import would build an image enter
+// never sees.
 func TestBuildVMImageMSB(t *testing.T) {
 	setupFakeMSB(t)
 	restoreLoad, restoreBuild := msbLoadImage, vmBuildImageToStore
@@ -758,19 +904,6 @@ func TestBuildVMImageMSB(t *testing.T) {
 	}
 	if loaded != "img:1" {
 		t.Errorf("built image imported as %q, want img:1", loaded)
-	}
-
-	// smolvm builds the same tar and imports nothing.
-	setupFakeSmolvm(t)
-	if err := os.MkdirAll(vmImagesDir(), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	loaded = ""
-	if err := BuildVMImage(smolvmEngine, "img:1", toolbox.Spec{}, nil); err != nil {
-		t.Fatalf("BuildVMImage(smolvm): %v", err)
-	}
-	if loaded != "" {
-		t.Errorf("the smolvm build imported %q into the microsandbox store", loaded)
 	}
 
 	// A missing runner is an error up front, never a silent no-op.
@@ -810,7 +943,7 @@ func TestMSBImageIDPrefersStoreTar(t *testing.T) {
 
 	name := "sandboxer-toolbox:latest"
 	// No store tar (a public/pulled ref): msb's cached copy is the only id.
-	if got := (msbRunner{}).imageID(name); got != "cached-digest" {
+	if got := msbImageID(name); got != "cached-digest" {
 		t.Fatalf("imageID with no store tar = %q, want the msb digest", got)
 	}
 
@@ -821,7 +954,7 @@ func TestMSBImageIDPrefersStoreTar(t *testing.T) {
 	if err := os.WriteFile(p, []byte("build-1"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	first := (msbRunner{}).imageID(name)
+	first := msbImageID(name)
 	if len(first) != 64 {
 		t.Fatalf("imageID with a store tar = %q, want the tar's 64-hex id", first)
 	}
@@ -833,7 +966,7 @@ func TestMSBImageIDPrefersStoreTar(t *testing.T) {
 	if err := os.WriteFile(p, []byte("build-2"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if second := (msbRunner{}).imageID(name); second == first {
+	if second := msbImageID(name); second == first {
 		t.Fatal("rebuilt tar kept the old image id — a live machine would never read stale")
 	}
 }

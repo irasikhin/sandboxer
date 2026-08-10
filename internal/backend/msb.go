@@ -6,38 +6,39 @@ import (
 	"fmt"
 	"io"
 	"maps"
+	"math"
 	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/irasikhin/sandboxer/internal/config"
 	"github.com/irasikhin/sandboxer/internal/execx"
 )
 
-// This file is the SECOND microVM dialect: microsandbox (`msb`). It sits on the
-// same libkrun VMM as smolvm — the isolation primitive is identical — so it is
-// an argv sibling of vm.go, not a new isolation model: the whole lifecycle
-// (vm_session.go), the host-side record (vm_state.go) and the shared mount model
-// are reused, and only the CLI vocabulary differs. See docs/microsandbox-spike.md
-// for the measured comparison that motivated it.
+// This file is the microVM dialect: microsandbox (`msb`) on libkrun (KVM on
+// Linux, HVF on macOS). sandboxer shells out to msb, so the whole backend
+// stays a set of pure argv builders a golden test pins without a hypervisor;
+// the lifecycle (vm_session.go), the host-side record (vm_state.go) and the
+// image store (vm_image.go) sit on top. See docs/microsandbox-spike.md for the
+// measured comparison that selected msb over its smolvm predecessor.
 //
-// Three things it does that smolvm cannot, and that this adapter uses:
+// Three msb capabilities this adapter leans on:
 //
 //   - a NAME-BOUND network policy engine (--net-rule) whose `*.suffix` targets
 //     are exactly squid's leading-dot grammar, so the allowlist survives the
-//     translation intact instead of narrowing to exact hosts (the regression
-//     vmAllowHosts documents);
+//     translation intact instead of narrowing to exact hosts;
 //   - an image STORE (msb load) — the toolbox tar is imported once and every
 //     later create is boot-only, instead of re-importing a multi-GB tar;
 //   - labels, so a sandboxer machine is identifiable through the engine alone.
 //
-// The labels are stamped for exactly that reason, but the SOURCE OF TRUTH for a
-// session's identity stays the host-side record both runners share (vm_state.go):
-// one mechanism, one set of sweeps, no drift between two stores.
+// The labels are stamped for exactly that reason, but the SOURCE OF TRUTH for
+// a session's identity stays the host-side record (vm_state.go): one
+// mechanism, one set of sweeps, no drift between two stores.
 
 // msbEngine is the engine identity the `microsandbox` backend resolves to (the
 // msb CLI). SANDBOXER_MSB overrides the looked-up path.
@@ -48,9 +49,9 @@ const msbEngine = "microsandbox"
 const msbSecretsEnv = "SANDBOXER_MSB_SECRETS"
 
 // msbCreateArgv assembles the msb argv that creates the named sandbox for o:
-// `msb create --name N <labels> <common> IMAGE`. Unlike smolvm, `msb create`
-// also BOOTS the machine (see msbRunner.startsOnCreate), and the image is a
-// trailing positional, not a -I flag.
+// `msb create --name N <labels> <common> IMAGE`. `msb create` also BOOTS the
+// machine — the lifecycle never follows it with a start — and the image is a
+// trailing positional.
 //
 // The labels carry the same identity a container session stamps, so a machine is
 // discoverable through `msb list --label` alone; they sit HERE and not in
@@ -181,8 +182,9 @@ func msbCommonArgs(o RunOpts) []string {
 	if csv := o.RT.DomainsCSV(); csv != "" {
 		args = append(args, "-e", "SANDBOXER_ALLOW_DOMAINS="+csv)
 	}
-	// The profile.json, shared read-only at /run/sandboxer — staged into a
-	// per-sandbox dir first, exactly as on smolvm (vmRunDir/stageProfileJSON).
+	// The profile.json, shared read-only at /run/sandboxer — msb shares
+	// DIRECTORIES only, so it is staged into a per-sandbox dir first
+	// (vmRunDir/stageProfileJSON).
 	if d := vmRunDir(o); d != "" {
 		args = append(args, "-v", d+":/run/sandboxer:ro")
 	}
@@ -194,19 +196,17 @@ func msbCommonArgs(o RunOpts) []string {
 // an OPEN network (an implicit allow@public when no rule is given), so the
 // states are:
 //
-//   - egress.proxy set → proxy-delegated egress (the container's direct mode):
-//     leave the network open and point the guest's HTTP(S) clients at the proxy.
-//     There is no squid in the path, so the proxy IS the control point. A
-//     loopback proxy is REWRITTEN to msbHostAlias and the host group opened on
-//     its port (msbGuestProxyURL) — unlike smolvm's TSI, msb's guest has a real
-//     network stack where 127.0.0.1 is guest-local.
+//   - egress.proxy set → proxy-delegated egress: leave the network open and
+//     point the guest's HTTP(S) clients at the proxy. There is no squid in the
+//     path, so the proxy IS the control point. A loopback proxy is REWRITTEN
+//     to msbHostAlias and the host group opened on its port (msbGuestProxyURL)
+//     — msb's guest has a real network stack where 127.0.0.1 is guest-local.
 //   - egress disabled (egress.enabled = false / SANDBOXER_NO_EGRESS) → open, no
 //     flags at all.
 //   - egress on with an allowlist → --no-net (default deny) plus one allow rule
-//     per domain. Unlike smolvm's --allow-host this is NAME-bound and per-port,
-//     so it mirrors the squid sidecar it replaces: the domain AND its subdomains
-//     over HTTP and HTTPS, and a raw IP — even the allowed domain's own — is
-//     refused.
+//     per domain. The rules are NAME-bound and per-port, so they mirror the
+//     squid sidecar they replace: the domain AND its subdomains over HTTP and
+//     HTTPS, and a raw IP — even the allowed domain's own — is refused.
 //   - egress on with an EMPTY allowlist → --no-net alone: a fully offline
 //     machine, a valid state (a default-deny VM with no rules simply reaches
 //     nothing).
@@ -388,16 +388,16 @@ func msbExtraMountsAndEnv(p *config.Profile) []string {
 }
 
 // msbPreflight rejects — with the reason — a configuration the guest cannot
-// honor, before msb fails on it with a symptom. There is exactly one such trap:
-// microsandbox mounts a tmpfs over /tmp AFTER the host shares, so any share
-// whose GUEST path is under /tmp is shadowed and simply is not there. The
-// sandbox root then "does not exist in guest" and every create fails; a source
-// mount would silently be empty, which is worse. sandboxer's own paths are the
-// project's ./sandboxes and the XDG state dir, so this only bites a profile that
-// deliberately points somewhere under /tmp.
+// honor, before msb fails on it with a symptom. There is exactly one
+// msb-specific trap: microsandbox mounts a tmpfs over /tmp AFTER the host
+// shares, so any share whose GUEST path is under /tmp is shadowed and simply
+// is not there. The sandbox root then "does not exist in guest" and every
+// create fails; a source mount would silently be empty, which is worse.
+// sandboxer's own paths are the project's ./sandboxes and the XDG state dir,
+// so this only bites a profile that deliberately points somewhere under /tmp.
 func msbPreflight(o RunOpts) error {
-	// A regular-file extraMount is unshareable on any microVM runner (virtio-fs
-	// shares directories only) — check it before the runner-specific trap.
+	// A regular-file extraMount is unshareable on any virtio-fs runner (it
+	// shares directories only) — check it before the msb-specific trap.
 	if err := vmSharePreflight(o); err != nil {
 		return err
 	}
@@ -421,8 +421,132 @@ func msbPreflight(o RunOpts) error {
 	}
 	return fmt.Errorf("the microsandbox backend cannot expose %s: the guest mounts a tmpfs over /tmp "+
 		"after the host shares, so anything under /tmp is invisible inside the sandbox — "+
-		"move it off /tmp (e.g. the profile's worktreesDir) or use the microvm backend",
+		"move it off /tmp (e.g. the profile's worktreesDir)",
 		strings.Join(bad, ", "))
+}
+
+// vmSharePreflight rejects a profile extraMount the microVM cannot expose.
+// virtio-fs shares DIRECTORY trees only — a docker-style file bind mount
+// (source is a regular file, e.g. a single dotfile or config) has no microVM
+// share analogue, and silently sharing nothing would be worse than an upfront
+// error. Only an EXISTING regular-file source is rejected; a missing source is
+// left for the runner to answer (it materializes the path as an empty dir).
+func vmSharePreflight(o RunOpts) error {
+	if o.Profile == nil {
+		return nil
+	}
+	var bad []string
+	for _, m := range o.Profile.ExtraMounts {
+		if fi, err := os.Stat(m.Source); err == nil && !fi.IsDir() {
+			bad = append(bad, m.Source)
+		}
+	}
+	if len(bad) == 0 {
+		return nil
+	}
+	return fmt.Errorf("the microsandbox backend cannot expose %s: virtio-fs shares directories only, "+
+		"and a regular file has no share analogue — mount a directory that holds it",
+		strings.Join(bad, ", "))
+}
+
+// vmLimitsPreflight rejects a resource limit the microVM cannot honor, before
+// the silent conversions in vmMemMiB/vmCPUs paper over it: a fractional CPU
+// count (the runner accepts only a whole number of vCPUs, and rounding up
+// changes what the user asked for) and an unparseable memory cap (silently
+// becoming 4 GiB is worse than an error).
+func vmLimitsPreflight(o RunOpts) error {
+	if cpus := cpusFromQuota(o.CPU); cpus != "" {
+		n, err := strconv.ParseFloat(cpus, 64)
+		if err != nil {
+			return fmt.Errorf("limits.cpus %q is not a value the microsandbox backend understands "+
+				"(a whole number of vCPUs like 2, or a systemd quota like 400%%)", o.CPU)
+		}
+		if math.Trunc(n) != n {
+			return fmt.Errorf("limits.cpus %q is a fraction — the microsandbox backend takes a whole "+
+				"number of vCPUs (e.g. 2)", o.CPU)
+		}
+	}
+	if o.Mem != "" {
+		if _, ok := parseMemMiB(o.Mem); !ok {
+			return fmt.Errorf("limits.memory %q is not a valid memory size (e.g. 2G, 512M)", o.Mem)
+		}
+	}
+	return nil
+}
+
+// vmDefaultMemMiB / vmDefaultCPUs size a machine when the profile sets no
+// limit. A microVM must be given a size (unlike a container's unbounded
+// default), and sandboxer's workload is SEVERAL parallel agents, so the
+// defaults are deliberately modest — a profile raises them through the
+// ordinary `limits` (Mem/CPU) knobs.
+const (
+	vmDefaultMemMiB = "4096"
+	vmDefaultCPUs   = "2"
+)
+
+// parseMemMiB is vmMemMiB's core: the MiB value of a container-style memory cap
+// ("2G", "512M", a raw byte count), with ok=false for anything unparseable.
+// vmMemMiB falls back to the default on !ok; vmLimitsPreflight REJECTS instead,
+// so a bad value is a clear error, never a silent 4 GiB.
+func parseMemMiB(s string) (int, bool) {
+	if s == "" {
+		return 0, false
+	}
+	mult := 1.0 / (1024 * 1024) // a bare number is bytes
+	num := s
+	switch s[len(s)-1] {
+	case 'g', 'G':
+		mult, num = 1024, s[:len(s)-1]
+	case 'm', 'M':
+		mult, num = 1, s[:len(s)-1]
+	case 'k', 'K':
+		mult, num = 1.0/1024, s[:len(s)-1]
+	case 'b', 'B':
+		mult, num = 1.0/(1024*1024), s[:len(s)-1]
+	}
+	n, err := strconv.ParseFloat(num, 64)
+	if err != nil {
+		return 0, false
+	}
+	mib := int(math.Ceil(n * mult))
+	if mib < 1 {
+		mib = 1
+	}
+	return mib, true
+}
+
+// vmMemMiB converts a container-style memory cap ("2G", "512M", a raw byte
+// count, "") into the integer MiB msb's -m takes, applying the microVM default
+// when unset. A value that does not parse falls back to the default rather
+// than emitting a bad flag (vmLimitsPreflight rejects such a value up front).
+func vmMemMiB(s string) string {
+	if s == "" {
+		return vmDefaultMemMiB
+	}
+	if mib, ok := parseMemMiB(s); ok {
+		return strconv.Itoa(mib)
+	}
+	return vmDefaultMemMiB
+}
+
+// vmCPUs converts a CPU quota (cpusFromQuota's "2"/"1.5"/"") into an integer
+// vCPU count for msb's -c (which rejects a fraction), rounding up so a
+// fractional quota never under-provisions, and applying the microVM default
+// when unset.
+func vmCPUs(quota string) string {
+	f := cpusFromQuota(quota)
+	if f == "" {
+		return vmDefaultCPUs
+	}
+	n, err := strconv.ParseFloat(f, 64)
+	if err != nil {
+		return vmDefaultCPUs
+	}
+	c := int(math.Ceil(n))
+	if c < 1 {
+		c = 1
+	}
+	return strconv.Itoa(c)
 }
 
 // --- inventory ---------------------------------------------------------------
@@ -485,6 +609,21 @@ var msbImageInspect = func(ref string) string {
 // msbImageExists reports whether msb has the image in its local store.
 func msbImageExists(ref string) bool { return msbImageInspect(ref) != "" }
 
+// msbImageID answers "what would a create boot NOW", which for a store-built
+// toolbox image is the build tar's content id — NOT msb's own cached digest.
+// The cached digest only changes after msbEnsureImage re-imports the tar, and
+// that runs inside create/recreate — after planSession already ruled. Reading
+// it here compared the old copy against itself, so a rebuilt image never went
+// stale and a live machine kept its old rootfs forever (`image build` looked
+// like a no-op). A public ref has no store tar (vmImageID "") — msb's cached
+// copy is all there is, and "" skips the freshness check as usual.
+func msbImageID(image string) string {
+	if id := vmImageID(image); id != "" {
+		return id
+	}
+	return msbImageInspect(image)
+}
+
 // msbLoadImage imports a docker-save tar into msb's image store under ref — the
 // step that turns sandboxer's locally-built toolbox tar into a first-class
 // cached image, so every later create is boot-only instead of re-importing it.
@@ -509,10 +648,9 @@ func msbRemoveImage(ref string) error {
 
 // msbEnsureImage resolves o.Image to the reference `msb create` is handed. A
 // custom public ref passes straight through (msb pulls it); the locally-built
-// toolbox image — the default, or any variant with a non-empty spec, the same
-// condition the container path builds under — is ensured in msb's store,
-// building the tar (once, in a container or a microVM) and loading it on first
-// use unless SANDBOXER_NO_AUTOBUILD is set.
+// toolbox image — the default, or any variant with a non-empty spec — is
+// ensured in msb's store, building the tar (once, with host nix) and loading
+// it on first use unless SANDBOXER_NO_AUTOBUILD is set.
 func msbEnsureImage(o RunOpts) (string, error) {
 	if o.Image != config.DefaultImage && o.Spec.Empty() {
 		return o.Image, nil // a custom public image — let msb pull it
@@ -543,9 +681,10 @@ func msbEnsureImage(o RunOpts) (string, error) {
 	return o.Image, nil
 }
 
-// msbLoadStoredImage imports the tar the build stored (vmStoreImage) into msb's
-// image store under the image's own name, so the two runners share one build
-// artifact and only the import differs.
+// msbLoadStoredImage imports the tar the build stored (vmStoreImage) into
+// msb's image store under the image's own name — the build artifact and the
+// bootable image live in separate stores, and this is the handoff between
+// them.
 func msbLoadStoredImage(image string, stderr io.Writer) error {
 	tar := vmImagePath(image)
 	if tar == "" || !pathExists(tar) {
@@ -570,8 +709,8 @@ func msbLoadStoredImage(image string, stderr io.Writer) error {
 
 // msbLoadableTar returns a path holding the store tar in the form `msb load`
 // accepts, with a cleanup for any temp file it made. The store artifact is the
-// nix buildLayeredImage output — a GZIPPED docker tarball, which docker load and
-// smolvm's importer decompress transparently — but msb opens the outer archive
+// nix buildLayeredImage output — a GZIPPED docker tarball, which docker load
+// decompresses transparently — but msb opens the outer archive
 // raw and dies parsing gzip bytes as a tar header ("numeric field did not have
 // utf-8 text… when getting cksum"). A gzipped tar is therefore streamed out
 // BESIDE the store tar (never /tmp — often a tmpfs too small for a multi-GB
@@ -622,12 +761,11 @@ func msbLoadMarkerPath(image string) string {
 }
 
 // msbImageCurrent reports whether msb's cached copy of image was imported from
-// the tar that is in the store NOW. Without it a tar rebuilt by the other
-// runner's build (`image build --backend microvm`, which both runners share)
-// would leave microsandbox booting its old cached copy forever — the ref is
-// present, so nothing would ever re-import it. A missing tar answers "current":
-// there is nothing to compare against, and evicting a working image because its
-// build artifact was reclaimed would be strictly worse.
+// the tar that is in the store NOW. Without it a rebuilt tar would leave
+// microsandbox booting its old cached copy forever — the ref is present, so
+// nothing would ever re-import it. A missing tar answers "current": there is
+// nothing to compare against, and evicting a working image because its build
+// artifact was reclaimed would be strictly worse.
 func msbImageCurrent(image string) bool {
 	id := vmImageID(image)
 	if id == "" {

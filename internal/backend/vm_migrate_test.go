@@ -106,10 +106,10 @@ func TestVMBuildImageToStoreNoNix(t *testing.T) {
 	}
 }
 
-// TestVMSharePreflightFileMount pins the file-extraMount guard shared by both
-// microVM runners: virtio-fs shares directories only, so a profile extraMount
-// whose source is a REGULAR FILE must be rejected up front with the reason,
-// and a directory mount must keep working. msb's own /tmp trap still holds.
+// TestVMSharePreflightFileMount pins the file-extraMount guard: virtio-fs
+// shares directories only, so a profile extraMount whose source is a REGULAR
+// FILE must be rejected up front with the reason, and a directory mount must
+// keep working. msb's own /tmp trap still holds.
 func TestVMSharePreflightFileMount(t *testing.T) {
 	dir := t.TempDir()
 	file := filepath.Join(dir, "dotfile")
@@ -135,23 +135,20 @@ func TestVMSharePreflightFileMount(t *testing.T) {
 		t.Errorf("absent extraMount rejected: %v", err)
 	}
 
-	// Both runners surface the guard through their own preflight.
-	if err := (smolvmRunner{}).preflight(mount(file)); err == nil {
-		t.Error("smolvm preflight accepted a file extraMount")
-	}
-	if err := (msbRunner{}).preflight(mount(file)); err == nil {
-		t.Error("msb preflight accepted a file extraMount")
+	// The guard surfaces through the full preflight.
+	if err := msbPreflight(mount(file)); err == nil {
+		t.Error("msbPreflight accepted a file extraMount")
 	}
 	// msb's own /tmp shadowing is still rejected.
-	if err := (msbRunner{}).preflight(RunOpts{Dest: "/tmp/x"}); err == nil || !strings.Contains(err.Error(), "tmpfs") {
+	if err := msbPreflight(RunOpts{Dest: "/tmp/x"}); err == nil || !strings.Contains(err.Error(), "tmpfs") {
 		t.Errorf("msb /tmp preflight = %v, want the tmpfs rejection", err)
 	}
 }
 
-// TestVMLimitsPreflight pins the phase-B limit validation: the microVM runners
-// take a WHOLE number of vCPUs and a PARSEABLE memory cap, so a fractional
-// limits.cpus or an unparseable limits.memory is a clear error, never the silent
-// rounding / 4 GiB fallback the conversions used to apply.
+// TestVMLimitsPreflight pins the limit validation: the microVM takes a WHOLE
+// number of vCPUs and a PARSEABLE memory cap, so a fractional limits.cpus or
+// an unparseable limits.memory is a clear error, never the silent rounding /
+// 4 GiB fallback the conversions used to apply.
 func TestVMLimitsPreflight(t *testing.T) {
 	if err := vmLimitsPreflight(RunOpts{CPU: "2", Mem: "2G"}); err != nil {
 		t.Errorf("valid limits rejected: %v", err)
@@ -171,22 +168,22 @@ func TestVMLimitsPreflight(t *testing.T) {
 	if err := vmLimitsPreflight(RunOpts{Mem: "nonsense"}); err == nil || !strings.Contains(err.Error(), "limits.memory") {
 		t.Errorf("bad memory = %v, want a limits.memory error", err)
 	}
-	// Both runners surface it through their own preflight.
-	if err := (smolvmRunner{}).preflight(RunOpts{CPU: "1.5"}); err == nil {
-		t.Error("smolvm preflight accepted a fractional limits.cpus")
+	// It surfaces through the full preflight.
+	if err := msbPreflight(RunOpts{CPU: "1.5"}); err == nil {
+		t.Error("msbPreflight accepted a fractional limits.cpus")
 	}
-	if err := (msbRunner{}).preflight(RunOpts{Mem: "nope"}); err == nil {
-		t.Error("msb preflight accepted an unparseable limits.memory")
+	if err := msbPreflight(RunOpts{Mem: "nope"}); err == nil {
+		t.Error("msbPreflight accepted an unparseable limits.memory")
 	}
 }
 
-// TestVMRemoveAllSessionsReapsRecordless pins the phase-B sweep fix: a machine
-// whose host-side record was lost (a wiped state dir, a changed state root) is
+// TestVMRemoveAllSessionsReapsRecordless pins the sweep fix: a machine whose
+// host-side record was lost (a wiped state dir, a changed state root) is
 // still reaped by clean when its SessionName binds it to the project — and a
 // recordless machine of a DIFFERENT base is left alone, so one project's clean
 // never reaches another's leftovers.
 func TestVMRemoveAllSessionsReapsRecordless(t *testing.T) {
-	setupFakeSmolvm(t)
+	setupFakeMSB(t)
 	base := t.TempDir()
 	other := t.TempDir()
 	if err := os.MkdirAll(os.Getenv("FAKE_MACHINES"), 0o700); err != nil {
@@ -194,12 +191,12 @@ func TestVMRemoveAllSessionsReapsRecordless(t *testing.T) {
 	}
 	mkLive := func(n string) {
 		t.Helper()
-		if err := os.WriteFile(filepath.Join(os.Getenv("FAKE_MACHINES"), n), []byte("running"), 0o600); err != nil {
+		if err := os.WriteFile(filepath.Join(os.Getenv("FAKE_MACHINES"), n), []byte("Running"), 0o600); err != nil {
 			t.Fatal(err)
 		}
 	}
 	// Recorded machine for base (the classic path).
-	if err := writeVMRecord(smolvmRunner{}, vmRecord{Name: "recorded", BaseDir: base, Slug: "s", Hash: "h"}); err != nil {
+	if err := writeVMRecord(vmRecord{Name: "recorded", BaseDir: base, Slug: "s", Hash: "h"}); err != nil {
 		t.Fatal(err)
 	}
 	mkLive("recorded")
@@ -209,7 +206,7 @@ func TestVMRemoveAllSessionsReapsRecordless(t *testing.T) {
 	mkLive(bound)
 	mkLive(foreign)
 
-	if err := RemoveAllSessions(smolvmEngine, base); err != nil {
+	if err := RemoveAllSessions(msbEngine, base); err != nil {
 		t.Fatalf("RemoveAllSessions: %v", err)
 	}
 	for _, n := range []string{"recorded", bound} {
@@ -222,26 +219,26 @@ func TestVMRemoveAllSessionsReapsRecordless(t *testing.T) {
 	}
 }
 
-// TestVMAllSessionStatesSurfacesUnrecorded pins the phase-B listing fix: a live
+// TestVMAllSessionStatesSurfacesUnrecorded pins the listing fix: a live
 // machine whose record was lost shows up in the host-wide view under the
 // synthetic "(unrecorded)" bucket instead of being invisible, while recorded
 // machines stay grouped by their real base.
 func TestVMAllSessionStatesSurfacesUnrecorded(t *testing.T) {
 	t.Setenv("SANDBOXER_STATE", t.TempDir())
 	base := t.TempDir()
-	if err := writeVMRecord(smolvmRunner{}, vmRecord{Name: "recorded", BaseDir: base, Slug: "s", Hash: "h"}); err != nil {
+	if err := writeVMRecord(vmRecord{Name: "recorded", BaseDir: base, Slug: "s", Hash: "h"}); err != nil {
 		t.Fatal(err)
 	}
-	restore := vmListMachines
-	vmListMachines = func() []vmMachine {
+	restore := msbListMachines
+	msbListMachines = func() []vmMachine {
 		return []vmMachine{
 			{Name: "recorded", State: "running"},
 			{Name: SessionName("s", base), State: "running"}, // recordless
 		}
 	}
-	t.Cleanup(func() { vmListMachines = restore })
+	t.Cleanup(func() { msbListMachines = restore })
 
-	all, err := AllSessionStates(smolvmEngine)
+	all, err := AllSessionStates(msbEngine)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -20,20 +20,18 @@ func stubSessionOrphans(t *testing.T, orphans []string, err error) {
 }
 
 // doctorEnv gives doctor an isolated cwd and HOME. The runner enumeration is
-// pinned to smolvm so the real runners on the host cannot add extra session
-// rows.
+// pinned so the real runner on the host cannot add extra session rows.
 func doctorEnv(t *testing.T) {
 	t.Helper()
 	t.Setenv("SANDBOXER_IN_CONTAINER", "")
 	t.Setenv("HOME", t.TempDir())
-	stubInstalledEngines(t, []string{"smolvm"})
+	stubInstalledEngines(t, []string{"microsandbox"})
 	t.Chdir(t.TempDir())
 }
 
-// TestDoctorMicrosandboxRow: doctor reports the second microVM runner beside
-// smolvm — absent is a warning with an install hint (nobody needs it unless
-// they picked that backend), and a present msb whose MSB_HOME is too deep is
-// flagged BEFORE the first create fails on an over-long agent socket.
+// TestDoctorMicrosandboxRow: doctor reports the microVM runner — absent is a
+// warning with an install hint, and a present msb whose MSB_HOME is too deep
+// is flagged BEFORE the first create fails on an over-long agent socket.
 func TestDoctorMicrosandboxRow(t *testing.T) {
 	doctorEnv(t)
 	stubSessionStates(t, map[string]string{}, nil)
@@ -72,7 +70,7 @@ func TestDoctorSessions(t *testing.T) {
 	if !strings.Contains(out, "1 running / 2 stopped for this project") {
 		t.Errorf("doctor missing the session tally:\n%s", out)
 	}
-	for _, want := range []string{"orphan sessions", "sandboxer-x-12345678", "machine delete --name sandboxer-x-12345678"} {
+	for _, want := range []string{"orphan sessions", "sandboxer-x-12345678", "remove -f sandboxer-x-12345678"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("doctor orphan row missing %q:\n%s", want, out)
 		}
@@ -114,12 +112,10 @@ func TestDoctorOrphanProbeFailureIsSilent(t *testing.T) {
 	}
 }
 
-// TestDoctorSessionsEveryEngine: with both runners installed doctor probes
-// each one — a smolvm-backed session must not be invisible just because the
-// profile default is microsandbox.
-func TestDoctorSessionsEveryEngine(t *testing.T) {
+// TestDoctorSessionsEngineRow: the session tally row names the engine it was
+// probed on.
+func TestDoctorSessionsEngineRow(t *testing.T) {
 	doctorEnv(t)
-	stubInstalledEngines(t, []string{"smolvm", "microsandbox"})
 	stubSessionStates(t, map[string]string{"a": "running"}, nil)
 	stubSessionOrphans(t, nil, nil)
 
@@ -127,10 +123,8 @@ func TestDoctorSessionsEveryEngine(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("doctor = %d", code)
 	}
-	for _, want := range []string{"sessions (smolvm)", "sessions (microsandbox)"} {
-		if !strings.Contains(out, want) {
-			t.Errorf("doctor missing the %q row:\n%s", want, out)
-		}
+	if !strings.Contains(out, "sessions (microsandbox)") {
+		t.Errorf("doctor missing the sessions (microsandbox) row:\n%s", out)
 	}
 }
 

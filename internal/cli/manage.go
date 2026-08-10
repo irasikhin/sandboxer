@@ -29,9 +29,9 @@ var (
 	backendSessionEngine     = backend.SessionEngine
 	backendRemoveAllSessions = backend.RemoveAllSessions
 	// backendSweepEngines enumerates every runner a sweep or report must visit
-	// (clean, list, doctor) — sessions may live on either microVM runner
-	// (smolvm, microsandbox), whose machines + host-side records would
-	// otherwise leak, invisible to clean/doctor.
+	// (clean, list, doctor) — the microsandbox runner when installed, whose
+	// machines + host-side records would otherwise leak, invisible to
+	// clean/doctor.
 	backendSweepEngines = backend.SweepEngines
 )
 
@@ -156,7 +156,7 @@ func removeSessionBestEffort(t *target, errOut io.Writer) []string {
 	// The enumeration is consulted only to tell a runner-less host apart from
 	// a host where nothing matched — the sweep itself walks the same list.
 	if engines := backendSweepEngines(config.LoadDefaults()); len(engines) == 0 {
-		fmt.Fprintln(errOut, "sandboxer: session cleanup skipped: no microVM runner (smolvm or microsandbox) found")
+		fmt.Fprintln(errOut, "sandboxer: session cleanup skipped: no microVM runner (msb) found")
 		return nil
 	}
 	removed, err := backendRemoveSessionAnywhere(t.slug, t.base.Dir, config.LoadDefaults())

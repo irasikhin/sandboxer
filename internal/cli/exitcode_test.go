@@ -17,7 +17,7 @@ import (
 // The contract lives in a seam the integration suite cannot see: it already
 // proves backend.Run reports a child's 7 intact, and the loss (or gain) happens
 // entirely above that, on the way out of the CLI. Verified against real engines
-// too — docker, podman, smolvm and microsandbox all return 7 for `exit 7`.
+// too — microsandbox returns 7 for `exit 7` (as did the retired engines).
 
 // TestRunReturnsChildExitCode covers exec and enter over a representative set of
 // statuses, including the one a shell reports for an interrupt (130).

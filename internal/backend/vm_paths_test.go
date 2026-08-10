@@ -11,57 +11,10 @@ import (
 	"github.com/irasikhin/sandboxer/internal/config"
 )
 
-// The microVM backends' failure and edge paths — the branches a happy-path
-// lifecycle test never reaches, and where a silent wrong answer is expensive: a
-// launch-time allowlist filter that drops the wrong entries, an image store with
-// no state root, a preflight that lets a shadowed share through.
-
-// TestVMResolvableDomains pins the smolvm launch filter: --allow-host resolves
-// every entry at VM start and hard-fails the machine on any that does not, so
-// unresolvable entries are dropped — but only those, order preserved, with the
-// drop reported. Uses "localhost" (answered from the hosts file, so the test
-// needs no network) against the reserved .invalid TLD, which can never resolve.
-func TestVMResolvableDomains(t *testing.T) {
-	var errb bytes.Buffer
-	got := vmResolvableDomains([]string{"localhost", "nope.invalid", "  ", ".also-nope.invalid"}, &errb)
-	if !slices.Equal(got, []string{"localhost"}) {
-		t.Errorf("kept %q, want only the resolvable entry", got)
-	}
-	msg := errb.String()
-	if !strings.Contains(msg, "dropped 3") || !strings.Contains(msg, "nope.invalid") {
-		t.Errorf("warning did not name the dropped domains: %q", msg)
-	}
-	// A nil writer is a valid caller (no stderr wired) and must not panic.
-	if got := vmResolvableDomains([]string{"nope.invalid"}, nil); got != nil {
-		t.Errorf("got %q, want nothing kept", got)
-	}
-}
-
-// TestVMCreatableDomains pins WHICH runner gets the filter: only smolvm, and
-// only when an allowlist is actually in the launch argv. microsandbox rules are
-// name-bound and matched at connect time, so filtering there would silently
-// shrink a working allowlist.
-func TestVMCreatableDomains(t *testing.T) {
-	o := RunOpts{RT: config.Runtime{Egress: true, Domains: []string{"nope.invalid"}}}
-	if got := vmCreatableDomains(o, msbRunner{}); !slices.Equal(got, o.RT.Domains) {
-		t.Errorf("microsandbox domains were filtered: %q", got)
-	}
-	if got := vmCreatableDomains(o, smolvmRunner{}); len(got) != 0 {
-		t.Errorf("smolvm kept an unresolvable domain: %q", got)
-	}
-	// A proxy takes the open-network path, which carries no per-host flag: the
-	// list travels as env only, so nothing may be dropped from it.
-	prox := o
-	prox.RT.Proxy = "http://p:8080"
-	if got := vmCreatableDomains(prox, smolvmRunner{}); !slices.Equal(got, o.RT.Domains) {
-		t.Errorf("the proxy path filtered the allowlist: %q", got)
-	}
-	off := o
-	off.RT.Egress = false
-	if got := vmCreatableDomains(off, smolvmRunner{}); !slices.Equal(got, o.RT.Domains) {
-		t.Errorf("egress off filtered the allowlist: %q", got)
-	}
-}
+// The microVM backend's failure and edge paths — the branches a happy-path
+// lifecycle test never reaches, and where a silent wrong answer is expensive:
+// an image store with no state root, a preflight that lets a shadowed share
+// through, a create that races a concurrent enter.
 
 // TestMSBPreflightRejectsShadowedShares pins that every share the guest's /tmp
 // tmpfs would hide is named — the sandbox root, the home, a source mount and a
@@ -70,12 +23,6 @@ func TestMSBPreflightRejectsShadowedShares(t *testing.T) {
 	ok := RunOpts{Dest: "/var/tmp/p/sandboxes/box", HomeDir: "/home/dev/.state/home"}
 	if err := msbPreflight(ok); err != nil {
 		t.Errorf("a sandbox outside /tmp was refused: %v", err)
-	}
-	if err := (msbRunner{}).preflight(ok); err != nil {
-		t.Errorf("runner preflight disagreed with msbPreflight: %v", err)
-	}
-	if err := (smolvmRunner{}).preflight(RunOpts{Dest: "/tmp/box"}); err != nil {
-		t.Errorf("smolvm has no such trap and must not refuse: %v", err)
 	}
 
 	bad := RunOpts{
@@ -226,12 +173,12 @@ func TestVMCreateSessionAdoptsRaceWinner(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(os.Getenv("FAKE_MACHINES"), name), []byte("Running"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := writeVMRecord(msbRunner{}, vmRecord{Name: name, BaseDir: base, Slug: o.Slug, Hash: hash}); err != nil {
+	if err := writeVMRecord(vmRecord{Name: name, BaseDir: base, Slug: o.Slug, Hash: hash}); err != nil {
 		t.Fatal(err)
 	}
 	// The fake CLI refuses a duplicate name exactly as the real one does, so
 	// this create fails while the inventory still reports the winner.
-	got, err := vmCreateSession(o, msbRunner{}, name, hash)
+	got, err := vmCreateSession(o, name, hash)
 	if err != nil || got != name {
 		t.Fatalf("vmCreateSession = %q, %v; want the adopted %q", got, err, name)
 	}

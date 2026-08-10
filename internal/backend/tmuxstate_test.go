@@ -491,8 +491,8 @@ func TestTmuxRestoreScript_NoTrailingNewline(t *testing.T) {
 }
 
 func TestCaptureTmuxState_EngineFailureIsNil(t *testing.T) {
-	t.Setenv("SANDBOXER_SMOLVM", "/nonexistent/smolvm-xyz")
-	if got := CaptureTmuxState(smolvmEngine, "c"); got != nil {
+	t.Setenv("SANDBOXER_MSB", "/nonexistent/msb-xyz")
+	if got := CaptureTmuxState(msbEngine, "c"); got != nil {
 		t.Fatalf("a failing engine must capture nil, got %#v", got)
 	}
 }
@@ -522,7 +522,7 @@ func TestCaptureTmuxState_TagsAgents(t *testing.T) {
 		if a := got[0].Windows[0].Panes[1].Agent; a != "" {
 			t.Errorf("pane 1 Agent = %q, want empty", a)
 		}
-		if lines := engineLog(t, logPath); !hasLine(lines, "machine exec --name c -- ps -eo pid=,ppid=,args=") {
+		if lines := engineLog(t, logPath); !hasLine(lines, "exec c -- ps -eo pid=,ppid=,args=") {
 			t.Errorf("missing the one ps listing:\n%s", strings.Join(lines, "\n"))
 		}
 	})
@@ -548,7 +548,7 @@ func TestCaptureTmuxState_TagsAgents(t *testing.T) {
 		if got := CaptureTmuxState(engine, "c"); len(got) != 1 {
 			t.Fatalf("nine-field capture = %#v", got)
 		}
-		if lines := engineLog(t, logPath); findPrefixLine(lines, "machine exec --name c -- ps") != "" {
+		if lines := engineLog(t, logPath); findPrefixLine(lines, "exec c -- ps") != "" {
 			t.Errorf("pid-less capture must not run ps:\n%s", strings.Join(lines, "\n"))
 		}
 	})
@@ -620,15 +620,15 @@ func TestSyncSessionState(t *testing.T) {
 }
 
 func TestSaveSessionState(t *testing.T) {
-	t.Setenv("SANDBOXER_SMOLVM", "/nonexistent/smolvm-xyz")
+	t.Setenv("SANDBOXER_MSB", "/nonexistent/msb-xyz")
 	path := filepath.Join(t.TempDir(), "s.session.json")
 	// No path → never saves.
-	if SaveSessionState(smolvmEngine, "c", "") {
+	if SaveSessionState(msbEngine, "c", "") {
 		t.Error("empty statePath must not save")
 	}
 	// A failed capture (missing runner binary) reports no save and writes no
 	// file — an earlier saved layout must never be overwritten with emptiness.
-	if SaveSessionState(smolvmEngine, "c", path) {
+	if SaveSessionState(msbEngine, "c", path) {
 		t.Error("a failed capture must not report a save")
 	}
 	if _, err := os.Stat(path); !os.IsNotExist(err) {

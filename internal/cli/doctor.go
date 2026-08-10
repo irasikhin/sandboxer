@@ -138,18 +138,17 @@ func doctorChecks() []doctorCheck {
 		checks = append(checks, okCheck("git", "available"))
 	}
 
-	// The microVM runners (smolvm, microsandbox) — the isolation engines the
-	// backends resolve to.
-	checks = append(checks, reportMicrovm(), reportMicrosandbox())
+	// The microVM runner (microsandbox) — the isolation engine the backend
+	// resolves to.
+	checks = append(checks, reportMicrosandbox())
 
-	// Toolbox image, reported from the microVM store — the shared tar both
-	// runners boot from. The store check is runner-independent, so the first
-	// installed runner is as good as any; with no runner installed the runner
-	// rows above already carry the warning.
+	// Toolbox image, reported from the engine's image store — what a create
+	// actually boots. With no runner installed the runner row above already
+	// carries the warning.
 	if engine := firstVMEngine(d); engine != "" {
 		image := d.Image
 		if backend.ImageExists(engine, image) {
-			checks = append(checks, okCheck("toolbox image "+image, "present in the microVM store"))
+			checks = append(checks, okCheck("toolbox image "+image, "present in the image store"))
 		} else {
 			checks = append(checks, warnCheck("toolbox image "+image,
 				"not found — build with: sandboxer image build --backend "+engine))
@@ -158,8 +157,7 @@ func doctorChecks() []doctorCheck {
 
 	// Persistent sessions: this project's running/stopped tally, plus
 	// orphans whose project dir is gone (their machines survive a
-	// bare `rm -rf` of the project). Every installed runner is probed —
-	// per-profile backends may have put sessions on either runner.
+	// bare `rm -rf` of the project).
 	for _, e := range backendSweepEngines(d) {
 		checks = append(checks, reportSessions(e)...)
 	}
@@ -212,10 +210,8 @@ func doctorChecks() []doctorCheck {
 	return checks
 }
 
-// firstVMEngine returns the engine identity of the first installed microVM
-// runner, or "" when none is installed. It backs the toolbox-image row
-// (the tar store check is runner-independent, so the first installed runner is
-// as good as any).
+// firstVMEngine returns the engine identity of the installed microVM runner,
+// or "" when none is installed. It backs the toolbox-image row.
 func firstVMEngine(d config.Defaults) string {
 	engines := backend.SweepEngines(d)
 	if len(engines) == 0 {
@@ -242,39 +238,17 @@ func profileBackendChecks(doc *config.Document, d config.Defaults) []doctorCheck
 	return checks
 }
 
-// reportMicrovm builds doctor's microVM-backend row: whether smolvm is
-// installed (with its version), and on Linux whether /dev/kvm is present. A
-// missing smolvm is a warning, not an error — a host running everything on
-// microsandbox does not need it — with an install hint; a present smolvm without
-// KVM is flagged because the backend cannot boot a machine there.
-func reportMicrovm() doctorCheck {
-	const name = "microvm (smolvm)"
-	present, version, kvmOK := backend.SmolvmStatus()
-	switch {
-	case !present:
-		return warnCheck(name, "not found — needed only for backend: microvm (install: https://smolmachines.com; SANDBOXER_SMOLVM overrides the path)")
-	case !kvmOK:
-		msg := "the microvm backend needs KVM on Linux"
-		if underWSL() {
-			msg = "under WSL2 — enable nested KVM: set nestedVirtualization=true in %UserProfile%\\.wslconfig, then `wsl --shutdown` (see docs/windows.md)"
-		}
-		return warnCheck(name, fmt.Sprintf("%s present, but /dev/kvm is missing — %s", version, msg))
-	default:
-		return okCheck(name, version+" available")
-	}
-}
-
-// reportMicrosandbox builds doctor's row for the second microVM runner. Same
-// shape as reportMicrovm — a missing msb is only a warning — plus the one
-// prerequisite that is otherwise invisible until the first `create` fails: every
-// sandbox's agent-relay UNIX socket path derives from MSB_HOME, and a deep home
-// pushes it past the kernel's 108-byte limit.
+// reportMicrosandbox builds doctor's row for the microVM runner: whether msb
+// is installed (with its version), on Linux whether /dev/kvm is present, plus
+// the one prerequisite that is otherwise invisible until the first `create`
+// fails: every sandbox's agent-relay UNIX socket path derives from MSB_HOME,
+// and a deep home pushes it past the kernel's 108-byte limit.
 func reportMicrosandbox() doctorCheck {
 	const name = "microsandbox (msb)"
 	present, version, kvmOK, homeOK := backend.MsbStatus()
 	switch {
 	case !present:
-		return warnCheck(name, "not found — needed only for backend: microsandbox (install: https://microsandbox.dev; SANDBOXER_MSB overrides the path)")
+		return warnCheck(name, "not found — required for the microsandbox backend (install: https://microsandbox.dev; SANDBOXER_MSB overrides the path)")
 	case !kvmOK:
 		msg := "the microsandbox backend needs KVM on Linux"
 		if underWSL() {

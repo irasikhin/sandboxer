@@ -116,7 +116,7 @@ func newCreateCmd() *cobra.Command {
 	fl := cmd.Flags()
 	fl.StringVar(&f.src, "src", "", "project root")
 	fl.StringVarP(&f.config, "config", "f", "", "profile file (default: the project sandboxer.nix; pick a profiles section by name)")
-	fl.StringVar(&f.backend, "backend", "", "backend: microsandbox | microvm")
+	fl.StringVar(&f.backend, "backend", "", "backend: microsandbox")
 	fl.StringVar(&f.domains, "allow-domains", "", "egress allowlist (csv)")
 	return cmd
 }
@@ -575,15 +575,15 @@ func hostAuthEnv(p *config.Profile) []string {
 // noEgress reports whether the egress allowlist is disabled via the environment.
 func noEgress() bool { return os.Getenv("SANDBOXER_NO_EGRESS") == "1" }
 
-// warnMicrovmProxy notes the egress posture when a microvm sandbox has BOTH a
-// proxy and an allowlist: the proxy is the egress path (open network at the VM
-// layer), and the allowlist is enforced by the proxy rather than by smolvm's
-// --allow-host — because reaching a host-local proxy needs the open TSI network,
-// which cannot also filter at the network layer. The user should ensure their
-// proxy enforces the intended allowlist. Not an error: a proxy + a default
-// allowlist is the common case.
+// warnMicrovmProxy notes the egress posture when a sandbox has BOTH a proxy
+// and an allowlist: the proxy is the egress path (open network at the VM
+// layer), and the allowlist is then enforced by the proxy rather than by the
+// runner's network rules — reaching the proxy needs the open network, which
+// cannot also filter at the network layer. The user should ensure their proxy
+// enforces the intended allowlist. Not an error: a proxy + a default allowlist
+// is the common case.
 func warnMicrovmProxy(w io.Writer, rt config.Runtime) {
-	if !config.IsMicrovmBackend(rt.Backend) || rt.Proxy == "" || len(rt.Domains) == 0 {
+	if rt.Proxy == "" || len(rt.Domains) == 0 {
 		return
 	}
 	fmt.Fprintln(w, "sandboxer: egress.proxy is set — the agent's egress goes through the proxy over "+

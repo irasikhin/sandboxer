@@ -7,14 +7,14 @@ import (
 )
 
 func TestLoadDefaultsFromEnv(t *testing.T) {
-	t.Setenv("SANDBOXER_BACKEND", "microvm")
+	t.Setenv("SANDBOXER_BACKEND", "custom-backend")
 	t.Setenv("SANDBOXER_DOMAINS", "a.com")
 	t.Setenv("SANDBOXER_IMAGE", "img:1")
 	t.Setenv("SANDBOXER_MEM", "2G")
 	t.Setenv("SANDBOXER_CPU", "50%")
 
 	d := LoadDefaults()
-	if d.Backend != "microvm" || d.Domains != "a.com" ||
+	if d.Backend != "custom-backend" || d.Domains != "a.com" ||
 		d.Image != "img:1" ||
 		d.Mem != "2G" || d.CPU != "50%" {
 		t.Errorf("LoadDefaults from env = %+v", d)
@@ -63,13 +63,12 @@ func TestLoadMissingFile(t *testing.T) {
 }
 
 func TestValidateBackend(t *testing.T) {
-	// given/when/then: only the microVM backends are accepted, in every egress
-	// shape (allowlist, proxy alone, proxy + noProxy, proxy + allowlist).
+	// given/when/then: microsandbox is accepted, in every egress shape
+	// (allowlist, proxy alone, proxy + noProxy, proxy + allowlist).
 	for _, rt := range []Runtime{
-		{Backend: "microvm", Egress: true, Domains: []string{"a.com"}},
 		{Backend: "microsandbox", Egress: true, Domains: []string{"a.com"}},
-		{Backend: "microvm", Proxy: "http://p:3128"},
-		{Backend: "microvm", Proxy: "http://p:3128", NoProxy: "localhost"},
+		{Backend: "microsandbox", Proxy: "http://p:3128"},
+		{Backend: "microsandbox", Proxy: "http://p:3128", NoProxy: "localhost"},
 		{Backend: "microsandbox", Proxy: "http://p:3128", Egress: true, Domains: []string{"a.com"}},
 	} {
 		if err := ValidateBackend(rt); err != nil {
@@ -86,6 +85,12 @@ func TestValidateBackend(t *testing.T) {
 		if !strings.Contains(err.Error(), "microsandbox") {
 			t.Errorf("backend %q error %q must point at the microsandbox backend", be, err)
 		}
+	}
+	// The removed smolvm "microvm" backend gets its own migration error.
+	if err := ValidateBackend(Runtime{Backend: "microvm"}); err == nil ||
+		!strings.Contains(err.Error(), "microvm backend was removed") ||
+		!strings.Contains(err.Error(), "microsandbox") {
+		t.Errorf("backend microvm = %v, want the smolvm-removal migration error", err)
 	}
 	// The removed native backend gets a clear migration error too.
 	if err := ValidateBackend(Runtime{Backend: "native"}); err == nil {

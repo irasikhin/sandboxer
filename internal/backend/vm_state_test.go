@@ -3,7 +3,7 @@ package backend
 import (
 	"os"
 	"path/filepath"
-	"slices"
+	"strings"
 	"testing"
 )
 
@@ -13,55 +13,80 @@ func TestVMRecordRoundTrip(t *testing.T) {
 	t.Setenv("SANDBOXER_STATE", t.TempDir())
 
 	rec := vmRecord{Name: "sandboxer-s-deadbeef", BaseDir: "/b", Slug: "s", Hash: "h1", MountIDs: "m1"}
-	if err := writeVMRecord(smolvmRunner{}, rec); err != nil {
+	if err := writeVMRecord(rec); err != nil {
 		t.Fatalf("writeVMRecord: %v", err)
 	}
-	got := readVMRecord(smolvmRunner{}, rec.Name)
+	got := readVMRecord(rec.Name)
 	if got != rec {
 		t.Errorf("readVMRecord = %+v, want %+v", got, rec)
 	}
 
 	// A second machine, different base — both listed.
 	rec2 := vmRecord{Name: "sandboxer-t-cafe0000", BaseDir: "/other", Slug: "t", Hash: "h2"}
-	if err := writeVMRecord(smolvmRunner{}, rec2); err != nil {
+	if err := writeVMRecord(rec2); err != nil {
 		t.Fatalf("writeVMRecord 2: %v", err)
 	}
-	recs := listVMRecords(smolvmRunner{})
+	recs := listVMRecords()
 	if len(recs) != 2 {
 		t.Fatalf("listVMRecords = %d records, want 2", len(recs))
 	}
 
-	removeVMRecord(smolvmRunner{}, rec.Name)
-	if r := readVMRecord(smolvmRunner{}, rec.Name); r.Name != "" {
+	removeVMRecord(rec.Name)
+	if r := readVMRecord(rec.Name); r.Name != "" {
 		t.Errorf("record survived remove: %+v", r)
 	}
-	if len(listVMRecords(smolvmRunner{})) != 1 {
-		t.Errorf("listVMRecords after remove = %d, want 1", len(listVMRecords(smolvmRunner{})))
+	if len(listVMRecords()) != 1 {
+		t.Errorf("listVMRecords after remove = %d, want 1", len(listVMRecords()))
 	}
 	// Idempotent remove.
-	removeVMRecord(smolvmRunner{}, rec.Name)
+	removeVMRecord(rec.Name)
+}
+
+// TestVMRecordDirIsEngineScoped pins the record path layout: the records live
+// in the machines/microsandbox subdirectory — the path existing user machines
+// were recorded under, which must never move with a code reshuffle — and a
+// stray file in the parent machines/ dir (e.g. a retired smolvm-era record)
+// never leaks into the sweep.
+func TestVMRecordDirIsEngineScoped(t *testing.T) {
+	t.Setenv("SANDBOXER_STATE", t.TempDir())
+	if err := writeVMRecord(vmRecord{Name: "sandboxer-s-deadbeef", BaseDir: "/b", Slug: "s", Hash: "h"}); err != nil {
+		t.Fatal(err)
+	}
+	dir := vmMachinesDir()
+	if filepath.Base(dir) != msbEngine {
+		t.Fatalf("vmMachinesDir = %q, want a %q subdirectory", dir, msbEngine)
+	}
+	// A legacy flat-layout record in the parent dir is not ours.
+	legacy := filepath.Join(filepath.Dir(dir), "sandboxer-legacy-cafe0000.json")
+	if err := os.WriteFile(legacy, []byte(`{"name":"sandboxer-legacy-cafe0000"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	recs := listVMRecords()
+	if len(recs) != 1 || recs[0].Name != "sandboxer-s-deadbeef" {
+		t.Errorf("listVMRecords = %+v, want only the microsandbox-scoped record", recs)
+	}
 }
 
 // TestReadVMRecordMissing pins the zero-value fallbacks that make an unknown
 // machine read as stale rather than as a fabricated match.
 func TestReadVMRecordMissing(t *testing.T) {
 	t.Setenv("SANDBOXER_STATE", t.TempDir())
-	if r := readVMRecord(smolvmRunner{}, "nope"); r.Name != "" || r.Hash != "" {
+	if r := readVMRecord("nope"); r.Name != "" || r.Hash != "" {
 		t.Errorf("missing record = %+v, want zero", r)
 	}
 	// A non-JSON file reads as zero, not a crash.
-	dir := vmMachinesDir(smolvmRunner{})
+	dir := vmMachinesDir()
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(dir, "junk.json"), []byte("not json"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if r := readVMRecord(smolvmRunner{}, "junk"); r.Name != "" {
+	if r := readVMRecord("junk"); r.Name != "" {
 		t.Errorf("junk record = %+v, want zero", r)
 	}
 	// listVMRecords skips the unparseable file.
-	if recs := listVMRecords(smolvmRunner{}); len(recs) != 0 {
+	if recs := listVMRecords(); len(recs) != 0 {
 		t.Errorf("listVMRecords with only junk = %d, want 0", len(recs))
 	}
 }
@@ -72,24 +97,13 @@ func TestWriteVMRecordNoStateRoot(t *testing.T) {
 	t.Setenv("SANDBOXER_STATE", "")
 	t.Setenv("XDG_STATE_HOME", "")
 	t.Setenv("HOME", "")
-	if vmMachinesDir(smolvmRunner{}) != "" {
+	if vmMachinesDir() != "" {
 		t.Skip("a state root is still resolvable in this environment")
 	}
-	if err := writeVMRecord(smolvmRunner{}, vmRecord{Name: "x"}); err == nil {
+	if err := writeVMRecord(vmRecord{Name: "x"}); err == nil {
 		t.Error("writeVMRecord with no state root must error")
 	}
-}
-
-// TestParseVMMachines pins the `machine ls --json` decode, including the
-// malformed-output fallback.
-func TestParseVMMachines(t *testing.T) {
-	in := `[{"name":"a","state":"running","pid":1},{"name":"b","state":"stopped"}]`
-	got := parseVMMachines([]byte(in))
-	want := []vmMachine{{Name: "a", State: "running"}, {Name: "b", State: "stopped"}}
-	if !slices.Equal(got, want) {
-		t.Errorf("parseVMMachines = %+v, want %+v", got, want)
-	}
-	if parseVMMachines([]byte("garbage")) != nil {
-		t.Error("malformed json must yield nil")
+	if strings.TrimSpace(vmRecordPath("x")) != "" {
+		t.Error("vmRecordPath resolved a path with no state root")
 	}
 }
