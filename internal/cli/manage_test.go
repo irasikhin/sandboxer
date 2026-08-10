@@ -143,7 +143,8 @@ func TestRmEngineLessHost(t *testing.T) {
 	}
 	dest := sandboxDir(project, "feat")
 	calls, _ := stubRemoveSession(t, dest, nil)
-	t.Setenv("PATH", "") // no msb discoverable
+	t.Setenv("PATH", "")                          // no msb discoverable
+	t.Setenv("SANDBOXER_MSB", "/nonexistent/msb") // an ambient override (CI) must not resurrect the engine
 
 	code, out, errs := run("rm", "feat", "--src", project)
 	if code != 0 || !strings.Contains(out, "removed sandbox") {
@@ -411,7 +412,8 @@ func TestCleanEngineLessHost(t *testing.T) {
 	}
 	sdir := config.StateDir(project)
 	calls, _ := stubRemoveAllSessions(t, sdir, nil)
-	t.Setenv("PATH", "") // no msb discoverable
+	t.Setenv("PATH", "")                          // no msb discoverable
+	t.Setenv("SANDBOXER_MSB", "/nonexistent/msb") // an ambient override (CI) must not resurrect the engine
 
 	code, out, errs := run("clean", "--force", project)
 	if code != 0 || !strings.Contains(out, "removed") {

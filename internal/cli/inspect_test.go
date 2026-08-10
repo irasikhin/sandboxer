@@ -129,7 +129,7 @@ func TestListStateBestEffort(t *testing.T) {
 			return nil, nil
 		}
 		t.Setenv("PATH", "")
-		t.Setenv("SANDBOXER_MSB", "/nonexistent/msb-xyz")
+		t.Setenv("SANDBOXER_MSB", "/nonexistent/msb") // an ambient override (CI) must not resurrect the engine
 		code, out, errs := run("list", "--src", project)
 		if code != 0 {
 			t.Fatalf("list = %d, %s", code, errs)
@@ -499,7 +499,7 @@ func TestShowSessionBlock(t *testing.T) {
 	t.Run("no runner", func(t *testing.T) {
 		stubSessionSeams(t, backend.SessionInfo{}, "h")
 		t.Setenv("PATH", "")
-		t.Setenv("SANDBOXER_MSB", "/nonexistent/msb-xyz")
+		t.Setenv("SANDBOXER_MSB", "/nonexistent/msb") // an ambient override (CI) must not resurrect the engine
 		code, out, errs := run("show", "feat", "--src", project)
 		if code != 0 {
 			t.Fatalf("show = %d, %s", code, errs)

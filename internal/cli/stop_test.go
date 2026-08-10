@@ -83,8 +83,8 @@ func TestStopEngineLessHost(t *testing.T) {
 		t.Fatalf("create: %d %s", code, errs)
 	}
 	calls := stubStopSession(t, nil)
-	t.Setenv("PATH", "") // no msb discoverable
-	t.Setenv("SANDBOXER_MSB", "/nonexistent/msb-xyz")
+	t.Setenv("PATH", "")                          // no msb discoverable
+	t.Setenv("SANDBOXER_MSB", "/nonexistent/msb") // an ambient override (CI) must not resurrect the engine
 
 	code, _, errs := run("stop", "feat", "--src", project)
 	if code != 1 || !strings.Contains(errs, "msb on PATH") {

@@ -520,7 +520,8 @@ func TestDoctorGitRow(t *testing.T) {
 // preflight), without narrating anything beyond the existing tally.
 func TestDoctorStrict(t *testing.T) {
 	t.Setenv("SANDBOXER_IN_CONTAINER", "")
-	t.Setenv("PATH", "") // no git/nix/engine → warnings guaranteed
+	t.Setenv("PATH", "")                          // no git/nix/engine → warnings guaranteed
+	t.Setenv("SANDBOXER_MSB", "/nonexistent/msb") // an ambient override (CI) must not resurrect the engine
 
 	code, out, errs := run("doctor", "--strict")
 	if code != 1 {
@@ -538,7 +539,8 @@ func TestDoctorStrict(t *testing.T) {
 // empty PATH so the microVM runner is not found.
 func TestDoctorNoEngine(t *testing.T) {
 	t.Setenv("SANDBOXER_IN_CONTAINER", "")
-	t.Setenv("PATH", "") // no msb discoverable
+	t.Setenv("PATH", "")                          // no msb discoverable
+	t.Setenv("SANDBOXER_MSB", "/nonexistent/msb") // an ambient override (CI) must not resurrect the engine
 
 	code, out, _ := run("doctor")
 	if code != 0 {
