@@ -6,7 +6,7 @@
 // image is a multi-minute nix build, and the 90% coverage gate stays
 // engine-free). That includes TestMSB_NestedContainer_RealEngine: docker and
 // podman running INSIDE the msb guest, postgres switching uids against the
-// guest kernel — the soak that gates the container-backend removal.
+// guest kernel — the property that let the host container backend be removed.
 //
 // It builds the toolbox image and the pinned microsandbox runtime with nix in
 // the nixos/nix container, loads the image into msb's store, and runs the
@@ -165,18 +165,18 @@ require-sigs = false"
             rm /var/tmp/toolbox.tar
             export SANDBOXER_ITEST_MSB_IMAGE=sandboxer-toolbox:itest
 
-            # The msb real-engine suite against the REAL image — this job's
-            # whole purpose. Scoped with -run, NOT ./... : the devShell also
-            # carries smolvm (three of its tests are known-broken upstream on
-            # 1.6.13) and podman (whose presence confuses the engine-less cli
-            # itests without a usable runtime in this pod); both families die
-            # in phase D, when the full sweep returns. The log capture avoids
-            # `| tee` on purpose: this shell has no pipefail, and a pipe would
-            # swallow the test exit code. The required-tests assert runs even
-            # on failure — inside the devShell (this container has no sed) —
-            # it names WHAT broke, and rc fails the stage.
+            # The FULL integration sweep against the REAL image — this job's
+            # whole purpose. No -run filter: with the container and smolvm
+            # test families gone (phases D1/D2) everything under -tags
+            # integration is the msb suite plus engine-free pieces (the tmux
+            # round-trip), and a filter would be where bit-rot starts. The log
+            # capture avoids `| tee` on purpose: this shell has no pipefail,
+            # and a pipe would swallow the test exit code. The required-tests
+            # assert runs even on failure — inside the devShell (this
+            # container has no sed) — it names WHAT broke, and rc fails the
+            # stage.
             rc=0
-            nix develop --accept-flake-config --command bash -c 'export PATH="$HOME/.nix-profile/bin:$PATH"; gotestsum --junitfile itest-report.xml --format standard-verbose -- -tags integration -count=1 -timeout 40m -run "TestMSB_.*_RealEngine" ./internal/backend/...' > itest.log 2>&1 || rc=$?
+            nix develop --accept-flake-config --command bash -c 'export PATH="$HOME/.nix-profile/bin:$PATH"; gotestsum --junitfile itest-report.xml --format standard-verbose -- -tags integration -count=1 -timeout 40m ./...' > itest.log 2>&1 || rc=$?
             tail -n 100 itest.log
 
             nix develop --accept-flake-config --command \\

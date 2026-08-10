@@ -1,12 +1,13 @@
-# microVM end-to-end tests (smolvm, microsandbox + KVM).
+# microVM end-to-end tests (microsandbox + KVM).
 #
-# The container itest slice runs in ci.yml on every push; the microVM backend
-# needs a hypervisor, so its real-engine e2e runs here — nightly and on demand,
-# never on the push critical path. GitHub's standard ubuntu-latest runners
-# expose /dev/kvm (with a one-time udev step to grant the runner user access),
-# which is the only automatable leg: macOS (Apple forbids nested virt in a guest
-# VM) and Windows (WHP needs bare metal) have no hosted-CI story and are covered
-# by the manual docs/e2e-checklist.md instead.
+# The engine-level msb itest slice runs in ci.yml on every push; this workflow
+# re-runs the same real-engine e2e nightly and on demand — off the push
+# critical path — plus a canary against the pinned upstream release. GitHub's
+# standard ubuntu-latest runners expose /dev/kvm (with a one-time udev step to
+# grant the runner user access), which is the only automatable leg: macOS
+# (Apple forbids nested virt in a guest VM) and Windows (WHP needs bare metal)
+# have no hosted-CI story and are covered by the manual docs/e2e-checklist.md
+# instead.
 name: e2e
 
 on:
@@ -14,15 +15,14 @@ on:
   schedule:
     - cron: "0 4 * * *" # nightly
 
-# The pinned runner releases the e2e legs install. Bump deliberately (a new
+# The pinned runner release the e2e legs install. Bump deliberately (a new
 # upstream may change CLI semantics the argv builders depend on) — and keep
 # MSB_VERSION in step with nix/microsandbox.nix.
 env:
-  SMOLVM_VERSION: "1.6.13"
   MSB_VERSION: "0.6.7"
 
 jobs:
-  microvm:
+  microsandbox:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -33,56 +33,6 @@ jobs:
       # Standard runners ship /dev/kvm but the runner user is not in the kvm
       # group; this udev rule opens it (the same step the Android emulator action
       # uses). If a future image drops KVM the tests skip, they do not fail.
-      - name: enable /dev/kvm
-        run: |
-          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
-            | sudo tee /etc/udev/rules.d/99-kvm4all.rules
-          sudo udevadm control --reload-rules
-          sudo udevadm trigger --name-match=kvm
-          ls -l /dev/kvm || echo "no /dev/kvm — the microvm tests will skip"
-
-      # Install the pinned smolvm release and verify its checksum before running
-      # it. The Linux x86_64 tarball is a normal glibc ELF (ubuntu runs it as-is;
-      # only NixOS needs patchelf/nix-ld).
-      - name: install smolvm
-        run: |
-          set -euo pipefail
-          base="https://github.com/smol-machines/smolvm/releases/download/v${SMOLVM_VERSION}"
-          curl -fsSLO "$base/smolvm-${SMOLVM_VERSION}-linux-x86_64.tar.gz"
-          curl -fsSLO "$base/checksums.sha256"
-          grep "linux-x86_64" checksums.sha256 | sha256sum -c -
-          tar xzf "smolvm-${SMOLVM_VERSION}-linux-x86_64.tar.gz"
-          echo "SANDBOXER_SMOLVM=$PWD/smolvm-${SMOLVM_VERSION}-linux-x86_64/smolvm" >> "$GITHUB_ENV"
-
-      - run: go vet -tags integration ./...
-
-      # The microVM e2e tests boot a small public image (smolvm pulls alpine).
-      # They skip cleanly when a prerequisite is missing — which is why the
-      # named list is asserted afterwards: a job that skipped everything is
-      # green too, and that is not a result.
-      - name: microVM e2e (real smolvm)
-        run: |
-          set -euo pipefail
-          go test -tags integration -count=1 -timeout 20m -v \
-            -run 'TestVM_.*_RealEngine' ./internal/backend/... 2>&1 | tee vm-e2e.log
-          scripts/assert-tests-ran.sh vm-e2e.log \
-            TestVM_Lifecycle_RealEngine \
-            TestVM_NarrowingWall_RealEngine \
-            TestVM_GuestWriteUID_RealEngine \
-            TestVM_SecretNotInPS_RealEngine \
-            TestVM_EgressAllowlist_RealEngine
-
-  # The same real-engine slice for the second runner. Kept a separate job (not a
-  # matrix) because the two install differently and the msb suite covers one
-  # thing smolvm's cannot: the runner-enforced egress allowlist.
-  microsandbox:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-go@v7
-        with:
-          go-version-file: go.mod
-
       - name: enable /dev/kvm
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
@@ -109,6 +59,10 @@ jobs:
 
       - run: go vet -tags integration ./...
 
+      # The e2e tests boot a small public image (msb pulls alpine). They skip
+      # cleanly when a prerequisite is missing — which is why the named list is
+      # asserted afterwards: a job that skipped everything is green too, and
+      # that is not a result.
       - name: microsandbox e2e (real msb)
         run: |
           set -euo pipefail
@@ -121,39 +75,11 @@ jobs:
             TestMSB_EgressAllowlist_RealEngine \
             TestMSB_SecretsMode_RealEngine
 
-  # A cheap canary that the pinned smolvm still installs and boots a machine —
-  # catches an upstream release breaking our assumptions before the full suite.
-  #
-  # `machine run` needs --net to pull the image: a smolvm machine has NO route
-  # by default (the fail-closed property the whole backend is built on), so
-  # without it the alpine pull cannot resolve index.docker.io and the canary
-  # fails on any runner with a cold image cache — which is every CI runner. The
-  # msb canary needs no equivalent because a microsandbox VM starts with an open
-  # network. Note this makes the canary a NETWORK test too; a registry outage
-  # will show up here.
-  smolvm-canary:
-    runs-on: ubuntu-latest
-    steps:
-      - name: enable /dev/kvm
-        run: |
-          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
-            | sudo tee /etc/udev/rules.d/99-kvm4all.rules
-          sudo udevadm control --reload-rules
-          sudo udevadm trigger --name-match=kvm
-      - name: install + smoke smolvm
-        run: |
-          set -euo pipefail
-          base="https://github.com/smol-machines/smolvm/releases/download/v${SMOLVM_VERSION}"
-          curl -fsSLO "$base/smolvm-${SMOLVM_VERSION}-linux-x86_64.tar.gz"
-          curl -fsSLO "$base/checksums.sha256"
-          grep "linux-x86_64" checksums.sha256 | sha256sum -c -
-          tar xzf "smolvm-${SMOLVM_VERSION}-linux-x86_64.tar.gz"
-          smolvm="$PWD/smolvm-${SMOLVM_VERSION}-linux-x86_64/smolvm"
-          "$smolvm" --version
-          "$smolvm" machine run --net -I alpine -- echo hello-from-the-canary
-
-  # The same canary for microsandbox: the pinned release still installs, its
-  # doctor passes (KVM + libkrunfw resolution) and a sandbox boots.
+  # A cheap canary that the pinned microsandbox release still installs, its
+  # doctor passes (KVM + libkrunfw resolution) and a sandbox boots — catches an
+  # upstream release breaking our assumptions before the full suite. The boot
+  # pulls alpine over the open default network, which makes this a NETWORK test
+  # too; a registry outage will show up here.
   msb-canary:
     runs-on: ubuntu-latest
     steps:
