@@ -56,19 +56,30 @@ jobs:
             accept-flake-config = true
       - run: nix build .#image -o result-toolbox --print-build-logs
       - name: push to GHCR (skopeo, no docker daemon)
+        env:
+          GHCR_CREDS: ${{ github.actor }}:${{ secrets.GITHUB_TOKEN }}
         run: |
           # --insecure-policy: the nix-run skopeo has no /etc/containers/
           # policy.json on a bare runner and refuses to copy without one; the
           # sources here are a local archive and an authenticated push, so the
-          # default-accept policy is exactly what we mean.
-          nix run nixpkgs#skopeo -- login ghcr.io -u "${{ github.actor }}" --password-stdin \
-            <<< "${{ secrets.GITHUB_TOKEN }}"
-          nix run nixpkgs#skopeo -- copy --insecure-policy \
-            docker-archive:./result-toolbox \
-            docker://ghcr.io/irasikhin/sandboxer-toolbox:latest
+          # default-accept policy is exactly what we mean. Credentials go via
+          # --dest-creds instead of a login step — no auth-file location games.
+          # Failures are re-emitted as ::error:: annotations: those are
+          # readable through the PUBLIC check-runs API, while step logs need
+          # repo admin — without this a red publish is undebuggable from
+          # outside.
+          push() {
+            local out
+            if ! out=$(nix run nixpkgs#skopeo -- copy --insecure-policy \
+              --dest-creds "$GHCR_CREDS" \
+              docker-archive:./result-toolbox "docker://$1" 2>&1); then
+              echo "$out" | tail -n 5
+              echo "::error::skopeo push to $1 failed: $(echo "$out" | tail -n 2 | tr '\n' ' ')"
+              return 1
+            fi
+          }
+          push ghcr.io/irasikhin/sandboxer-toolbox:latest
           # A release tag additionally pins the image that release shipped with.
           if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
-            nix run nixpkgs#skopeo -- copy --insecure-policy \
-              docker-archive:./result-toolbox \
-              "docker://ghcr.io/irasikhin/sandboxer-toolbox:${GITHUB_REF_NAME}"
+            push "ghcr.io/irasikhin/sandboxer-toolbox:${GITHUB_REF_NAME}"
           fi
