@@ -1,22 +1,23 @@
 # sandboxer — agent guide
 
 Config-driven, multi-agent, containerized dev sandboxes (a Go CLI). This file is the agent-facing entry point.
-The generalizable engineering conventions live in vendored **praxis skills** (below) — stated once there and
+The generalizable engineering conventions live in vendored **praktik skills** (below) — stated once there and
 never restated here (`proc-skill-single-source`). This file holds only the delta: which skills are active, this
 repo's parameters/deviations, and knowledge no skill owns.
 
-## Skills (authoritative — vendored from praxis)
+## Skills (authoritative — vendored from praktik)
 
-The committed manifest is `praxis.toml` (the desired set). The lock and the materialized copies
-(`.praxis/`, `.claude/skills/`) are gitignored and regenerated locally by `praxis sync` (praxis is
-optional author-tooling — not required to build or contribute; the same conventions are also enforced
-by `.golangci.yml` and CI).
+The committed manifest is `praktik.toml` (the desired set). The lock and the materialized copies
+(`.praktik/`, `.claude/skills/`) are gitignored and regenerated locally by `praktik sync`
+([praktik](https://github.com/irasikhin/praktik) is optional author-tooling — not required to build or
+contribute; the same conventions are also enforced by `.golangci.yml` and CI).
 
-<!-- praxis:skills BEGIN -->
-arch-go-cli, lang-go-style, lang-go-error-handling, lang-go-testing, build-go-tooling, ci-github-binary-release,
-proc-conventional-commits, proc-branch-pr-workflow, proc-repo-hygiene, proc-doc-as-code, proc-security-posture,
-proc-skill-single-source, flow-incremental-pr, flow-root-cause
-<!-- praxis:skills END -->
+<!-- praktik:skills BEGIN -->
+arch-go-cli, build-go-tooling, ci-github-binary-release, flow-incremental-pr,
+flow-root-cause, lang-go-error-handling, lang-go-style, lang-go-testing,
+proc-branch-pr-workflow, proc-conventional-commits, proc-doc-as-code,
+proc-repo-hygiene, proc-security-posture, proc-skill-single-source
+<!-- praktik:skills END -->
 
 These own the generalizable rules — Go architecture, style, errors, testing, build/lint, binary release,
 commits, PR flow, security posture. **Do NOT restate them here or in CONTRIBUTING.md — link instead.**

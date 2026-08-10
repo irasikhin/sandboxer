@@ -17,7 +17,7 @@
 
 # Editor / tooling state
 /.claude/
-/.praxis/
+/.praktik/
 .idea/
 *.iml
 /.vscode/
