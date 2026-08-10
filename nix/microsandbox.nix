@@ -1,6 +1,6 @@
-# microsandbox (`msb`) — the second microVM runtime, for `backend =
-# "microsandbox"`. Same libkrun VMM as smolvm (KVM on Linux, HVF on macOS), a
-# different CLI; see docs/microsandbox-spike.md for why both ship.
+# microsandbox (`msb`) — the microVM runtime for `backend = "microsandbox"`,
+# on libkrun (KVM on Linux, HVF on macOS); see docs/microsandbox-spike.md for
+# the evaluation that selected it.
 #
 # Not in nixpkgs, and the upstream release is a generic dynamically-linked ELF
 # that will not run on NixOS out of the box (stub-ld), so this repackages the

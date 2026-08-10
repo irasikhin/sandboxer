@@ -21,11 +21,9 @@
     let
       overlay = final: prev: {
         sandboxer = final.callPackage ./nix/package.nix { };
-        # The microVM runtime for `backend = "microvm"` (repackaged upstream
-        # binary — not in nixpkgs, needs patching to run on NixOS).
-        smolvm = final.callPackage ./nix/smolvm.nix { };
-        # The second microVM runtime, for `backend = "microsandbox"` (same
-        # libkrun VMM, a richer CLI — see docs/microsandbox-spike.md).
+        # The microVM runtime for `backend = "microsandbox"` (libkrun;
+        # repackaged upstream binary — not in nixpkgs, needs patching to run
+        # on NixOS. See docs/microsandbox-spike.md).
         microsandbox = final.callPackage ./nix/microsandbox.nix { };
       };
     in
@@ -93,7 +91,6 @@
         packages = {
           default = pkgs.sandboxer;
           sandboxer = pkgs.sandboxer;
-          smolvm = pkgs.smolvm;
           microsandbox = pkgs.microsandbox;
           inherit (images) image;
           smokeImage = smokeImage;
@@ -109,18 +106,9 @@
             program = "${pkgs.sandboxer}/bin/sandboxer";
           };
 
-          # The microVM runtime, so `nix run .#smolvm -- machine ls` works
-          # without a system install (and `sandboxer --backend microvm` can point
-          # SANDBOXER_SMOLVM at the built path).
-          smolvm = {
-            type = "app";
-            meta.description = "smolvm microVM runtime (sandboxer's microvm backend)";
-            program = "${pkgs.smolvm}/bin/smolvm";
-          };
-
-          # The second microVM runtime, so `nix run .#microsandbox -- list`
-          # works without a system install (and `sandboxer --backend
-          # microsandbox` can point SANDBOXER_MSB at the built path).
+          # The microVM runtime, so `nix run .#microsandbox -- list` works
+          # without a system install (and sandboxer can point SANDBOXER_MSB at
+          # the built path).
           microsandbox = {
             type = "app";
             meta.description = "microsandbox microVM runtime (sandboxer's microsandbox backend)";
@@ -128,7 +116,7 @@
           };
 
           # Build the toolbox image: place the toolbox tar into the microVM
-          # store (the shared artifact both runners boot from). Also loads it
+          # store (msb imports it from there on first use). Also loads it
           # into host podman/docker when one is present — convenient for
           # inspecting the image, though no backend runs it there anymore.
           # Does not touch host systemd.
@@ -176,13 +164,12 @@
             bubblewrap
             jq
             podman
-            smolvm # microvm backend runtime (SANDBOXER_SMOLVM picks it up)
             microsandbox # microsandbox backend runtime (SANDBOXER_MSB picks it up)
           ];
           shellHook = ''
             echo "sandboxer devShell — go toolchain + linters."
             echo "build:  go build ./cmd/sandboxer   image:  nix run .#build-image"
-            echo "microvm: smolvm on PATH (backend = \"microvm\"), msb on PATH (backend = \"microsandbox\")"
+            echo "microvm: msb on PATH (backend = \"microsandbox\")"
           '';
         };
 
