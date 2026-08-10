@@ -94,8 +94,8 @@ is built and cached, the egress policy and the agent registry — see
 
 Three host requirements, none bundled:
 
-- **nix** — a hard requirement of the CLI (it evaluates `sandboxer.nix` and
-  builds the toolbox image).
+- **nix** — a hard requirement of the CLI (it evaluates `sandboxer.nix`; it
+  also builds customized/local toolbox images — the stock one comes prebuilt).
 - **microsandbox** (`msb`) — the microVM runner, from
   <https://microsandbox.dev> (`SANDBOXER_MSB` overrides the looked-up path; on
   NixOS use this flake's `microsandbox` package — see
@@ -144,7 +144,7 @@ attrset and are picked by name (`create <name>`). The sandbox slug comes from
 the profile's `name`.
 
 Commands fall into four `--help` groups: forming the **image**
-(`sandboxer image build|rm`) and **config** (`sandboxer config
+(`sandboxer image pull|build|rm`) and **config** (`sandboxer config
 init|edit|validate`, plus `sandboxer profile list|use` for picking one),
 **entering/working** in the sandbox (`create` / `enter` / `exec` / `stop` /
 `recreate` / `reset` / `rm` / `list` / `use`), inspecting **data** (`clean` /
@@ -277,7 +277,7 @@ Scalars come from **flags** and `SANDBOXER_*` env vars:
 | disable agent auto-resume | — | `SANDBOXER_NO_RESUME=1` (or `autoResume = false` in the profile) |
 | skip auto-scaffold | — | `SANDBOXER_NO_SCAFFOLD=1` (create/enter writes a default `sandboxer.nix` otherwise) |
 | msb binary | — | `SANDBOXER_MSB` (default: `msb` from `PATH`) |
-| image | — | `SANDBOXER_IMAGE` (default `sandboxer-toolbox:latest`) |
+| image | — | `SANDBOXER_IMAGE` (default `ghcr.io/irasikhin/sandboxer-toolbox:latest`, prebuilt) |
 | resource caps | — | `SANDBOXER_MEM` / `SANDBOXER_CPU` (or the profile's `limits:` — see below) |
 
 The sandbox machine's resource caps come from the profile's `limits:` block
@@ -419,7 +419,7 @@ The customization is **content-addressed**: the sandbox runs
 `sandboxer-toolbox:var-<12hex>` — hashed over the effective input pins, the
 package set (`tools` packs + `packages`), `files`, `env` and the overlay's
 content — auto-built on first use and shared by identical profiles; the stock
-`sandboxer-toolbox:latest` is untouched. Any change is a new tag, and an idle
+prebuilt image is untouched. Any change is a new tag, and an idle
 persistent session recreates itself on the next `enter`. Full commented
 example: [examples/custom-image.nix](./examples/custom-image.nix).
 
@@ -559,25 +559,34 @@ flake reads it too, to build the image). Adding an agent = one entry.
 
 ## Toolbox image
 
-The agents run inside the bundled `sandboxer-toolbox:latest` image. It is
-built with **host nix** (already a hard requirement of the CLI — no builder
-container anywhere in the path):
+The agents run inside the **prebuilt**
+`ghcr.io/irasikhin/sandboxer-toolbox:latest` image, which msb **pulls and
+caches host-side on first use** (the pull honors the shell's `HTTP(S)_PROXY`).
+It is republished **nightly** — the agents move with their releases — and
+tagged per sandboxer release (`:vX.Y.Z`; pin one via `SANDBOXER_IMAGE`).
+A create only pulls a ref *missing* from msb's store, so refresh an
+already-cached `latest` explicitly:
 
 ```bash
-sandboxer image build      # build with host nix + import into msb's image store
+sandboxer image pull       # pull, or refresh a moved `latest`
+sandboxer image build      # LOCAL build with host nix (customized profiles, offline hosts)
 ```
 
-The build realizes a minimal OCI image (agents are plain nixpkgs packages,
-prebuilt on cache.nixos.org; pi is vendored in the binary) as a docker-save
-tar in the microVM image store (`<state>/images/<tag>.tar`), then imports it
-into microsandbox's own image store (`msb load`) — after that every create is
-boot-only, never a re-import. The `sandboxer` binary is **not** baked in — it
-is a host tool. `sandboxer image rm` drops both the cached image and the tar.
+The **local build** remains for two cases: a profile's customized `var-`
+variant (never published), and offline/air-gapped hosts — a locally built
+stock image lands in msb's store under the same ref, so a create boots it
+without pulling. It realizes the same minimal OCI image (agents are plain
+nixpkgs packages, prebuilt on cache.nixos.org; pi is vendored in the binary)
+as a docker-save tar in the microVM image store (`<state>/images/<tag>.tar`),
+then imports it into microsandbox's own image store (`msb load`) — after that
+every create is boot-only, never a re-import. The `sandboxer` binary is
+**not** baked in — it is a host tool. `sandboxer image rm` drops both the
+cached image and the tar.
 
-`create`/`enter`/`exec` **auto-build** the image on first use when missing
-(disable with `SANDBOXER_NO_AUTOBUILD=1`) — the stock image and any `var-`
-variant alike; a rebuilt image reads as stale, so the next `enter` recreates
-the session on the fresh rootfs.
+`create`/`enter`/`exec` **auto-build** a missing `var-` variant on first use
+(disable with `SANDBOXER_NO_AUTOBUILD=1`); a rebuilt, re-pulled or refreshed
+image reads as stale, so the next `enter` recreates the session on the fresh
+rootfs.
 
 Every `image build` first re-resolves the nixpkgs flake input to its current
 remote head — on the host, via `git ls-remote` — and stamps it into the pins

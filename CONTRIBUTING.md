@@ -48,7 +48,7 @@ scripts/itest.sh -run TestMSB_ ./internal/backend/ # the msb e2e tests
 go test -tags integration -count=1 ./...           # equivalent to the script
 
 # Boot a specific image instead of the default public `alpine` ref:
-SANDBOXER_ITEST_MSB_IMAGE=sandboxer-toolbox:latest scripts/itest.sh ./internal/backend/
+SANDBOXER_ITEST_MSB_IMAGE=ghcr.io/irasikhin/sandboxer-toolbox:latest scripts/itest.sh ./internal/backend/
 ```
 
 Each test skips cleanly when its prerequisite is missing — no `msb`, no

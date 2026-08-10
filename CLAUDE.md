@@ -144,8 +144,10 @@ was extracted from:
   `.claude/.credentials.json` is seed-SKIPPED: rotating refresh tokens die as copies (401) or hijack the
   host session — subscription auth = `claude setup-token` + export CLAUDE_CODE_OAUTH_TOKEN.
 - **Toolbox image** (`internal/toolbox` + flake `dockerTools.buildLayeredImage`): the OCI image with the agents
-  baked in; built with HOST nix (`toolbox.BuildImageHostNix` — no builder container) into the tar store, then
-  `msb load`-ed; `nix run .#build-image` is the maintainer equivalent.
+  baked in; the stock default is PREBUILT — `ghcr.io/irasikhin/sandboxer-toolbox:latest`, pushed by
+  `.github/workflows/image.yml` (nightly + per v* tag; msb pulls it on first create, `image pull` refreshes) —
+  while `var-` variants and offline hosts build with HOST nix (`toolbox.BuildImageHostNix` — no builder
+  container) into the tar store, then `msb load`-ed; `nix run .#build-image` is the maintainer equivalent.
 - **Integration tests** (`internal/itest`, `//go:build integration`): drive a real msb on KVM/HVF and skip
   cleanly when prerequisites are missing (no msb, no /dev/kvm); run via `scripts/itest.sh`. Excluded from the
   coverage gate; ci.yml runs the msb slice on KVM-capable runners. (The general test conventions are

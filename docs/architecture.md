@@ -158,13 +158,22 @@ Retired values of `backend:` (docker/podman/"auto"/"", the smolvm `microvm`,
 `native`) fail with a migration error — nothing silently falls back, which
 would quietly change the isolation boundary.
 
-## Toolbox image (built with host nix)
+## Toolbox image (prebuilt; local builds with host nix)
 
-The agents run inside the `sandboxer-toolbox:latest` OCI image, with the coding
-agents (claude, opencode, crush, aider, …) baked in. The image is built with
-**host nix** — nix is already a hard requirement of the CLI (it evaluates
-`sandboxer.nix`), so there is no builder container and no builder guest
-(`internal/toolbox`):
+The agents run inside the `ghcr.io/irasikhin/sandboxer-toolbox:latest` OCI
+image, with the coding agents (claude, opencode, crush, aider, …) baked in.
+The stock image comes **prebuilt from GHCR** — published by
+`.github/workflows/image.yml` nightly (the agent pins re-resolve at build, so
+`latest` tracks their releases) and per release tag — and msb **pulls and
+caches it host-side on first create** (the pull honors the shell's
+`HTTP(S)_PROXY`). A create only pulls a ref *missing* from msb's store;
+`sandboxer image pull` refreshes a moved `latest` (the fresh digest reads as
+stale, so the next `enter` recreates the session).
+
+The **local build** covers a profile's `var-` variant (never published) and
+offline hosts. It runs with **host nix** — nix is already a hard requirement
+of the CLI (it evaluates `sandboxer.nix`), so there is no builder container
+and no builder guest (`internal/toolbox`):
 
 ```
   sandboxer image build
@@ -185,10 +194,12 @@ agents (claude, opencode, crush, aider, …) baked in. The image is built with
               `msb create` boots — after that every create is boot-only
 ```
 
-`create`/`enter`/`exec` auto-build a missing image on first use
+`create`/`enter`/`exec` auto-build a missing `var-` variant on first use
 (`SANDBOXER_NO_AUTOBUILD=1` disables); a rebuilt tar makes the cached msb copy
 read as stale (a load-marker sidecar records which tar was imported), so a
-rebuild + `recreate` is how a new image reaches a live sandbox. `image rm`
+rebuild + `recreate` is how a new image reaches a live sandbox. An explicitly
+built STOCK image lands in msb's store under the prebuilt ref, so a create
+boots the local copy instead of pulling — the offline escape hatch. `image rm`
 drops both the msb-cached image and the tar.
 
 Per-profile customization is **content-addressed**. A profile's `image:` section
@@ -196,9 +207,9 @@ Per-profile customization is **content-addressed**. A profile's `image:` section
 variant tagged `sandboxer-toolbox:var-<12-hex>`, hashed over the effective input
 pins, the package set (`tools` packs + `image.packages`), files, env and the
 overlay's content (`internal/toolbox/spec.go`). Any change — a package, the
-overlay's bytes, a pin — is a new tag; identical profiles share one variant; the stock `:latest` is
-untouched. `create`/`enter`/`exec` auto-build a missing image (stock or
-variant) on first use.
+overlay's bytes, a pin — is a new tag; identical profiles share one variant;
+the stock prebuilt `:latest` is untouched. `create`/`enter`/`exec` auto-build
+a missing variant on first use.
 
 The flake's `nixpkgs` input — the single input everything, agents included,
 comes from (prebuilt on cache.nixos.org; pi alone is vendored in the binary

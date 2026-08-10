@@ -106,33 +106,42 @@ microsandbox (msb)   ✓  msb 0.6.7 available
 | bind mount `-v H:H:rw` | virtio-fs share `-v H:H` (directories only) |
 | `--cap-drop=ALL`, `--userns=keep-id`, seccomp | subsumed by the VM boundary (absent) |
 | squid sidecar + allowlist | `--net-rule` policy engine (no sidecar) |
-| toolbox image in the engine store | a docker-save tar in `<state>/images/`, imported into msb's image store |
-| image built in a `nixos/nix` container | image built with **host nix** |
+| toolbox image in the engine store | prebuilt GHCR ref pulled into msb's image store (variants: a docker-save tar in `<state>/images/`, imported) |
+| image built in a `nixos/nix` container | prebuilt image pulled; local builds with **host nix** |
 
 tmux capture/restore, agent auto-resume, the mount-drift rebuild and the whole
 enter/exec orchestration carried over verbatim.
 
-## Building the image
+## Getting the image
 
-The first `enter` builds the toolbox image automatically. To build it ahead of
-time (or rebuild after a config change):
+The stock toolbox image comes **prebuilt**:
+`ghcr.io/irasikhin/sandboxer-toolbox:latest`, republished nightly and tagged
+per release (`.github/workflows/image.yml`). The first `enter` lets msb
+**pull and cache it host-side** (the pull honors the shell's `HTTP(S)_PROXY`);
+a create only pulls a ref *missing* from the store, so a moved `latest` is
+refreshed explicitly:
 
 ```console
-$ sandboxer image build            # stock image → the tar store + msb's store
+$ sandboxer image pull             # pull, or refresh a moved `latest`
+$ sandboxer image build            # LOCAL stock build (offline hosts)
 $ sandboxer image build <prof>     # a profile's content-addressed variant
-$ sandboxer image rm               # drop the cached image AND the stored tar
+$ sandboxer image rm               # drop the cached image AND any stored tar
 ```
 
-The image is built with **host nix** — the same `path:<ctx>#image` derivation
-the container-era builder realized in an ephemeral `nixos/nix` container, now
-realized directly (nix and git are both already hard requirements of the CLI).
-The "latest" input-rev pins resolve on the **host via `git ls-remote`**, so a
-cold pins cache resolves the same way everywhere — the first-ever build on a
-fresh machine just works. The realized tar is stored at
-`<state>/images/<tag>.tar` and imported (`msb load`) into msb's own image
-store, which is what its `create` boots; a rebuilt tar makes the cached copy
-read as stale, so a rebuild + `recreate` is how a new image reaches a sandbox.
-`nix run .#build-image` also places the tar into the store.
+The **local build** covers what the registry cannot: a profile's `var-`
+variant (never published — the first `enter` still auto-builds a missing one)
+and offline/air-gapped hosts. It runs with **host nix** — the same
+`path:<ctx>#image` derivation the CI workflow realizes, built directly (nix
+and git are both already hard requirements of the CLI). The "latest"
+input-rev pins resolve on the **host via `git ls-remote`**, so a cold pins
+cache resolves the same way everywhere — the first-ever build on a fresh
+machine just works. The realized tar is stored at `<state>/images/<tag>.tar`
+and imported (`msb load`) into msb's own image store, which is what its
+`create` boots — a locally built stock image sits there under the prebuilt
+ref, so a create boots it without pulling. A rebuilt tar (or a re-pulled ref)
+makes the cached copy read as stale, so a rebuild/pull + `recreate` is how a
+new image reaches a sandbox. `nix run .#build-image` also places the tar into
+the store.
 
 ## Egress
 

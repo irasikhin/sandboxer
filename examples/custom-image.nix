@@ -8,7 +8,8 @@
 # The customization is content-addressed: this profile's sandboxes run
 # sandboxer-toolbox:var-<12hex> (hashed over the input pins, packages, files,
 # env and the overlay's content), built on first use and shared by identical
-# profiles. The stock sandboxer-toolbox:latest is untouched.
+# profiles. The stock prebuilt image (ghcr.io/irasikhin/sandboxer-toolbox) is
+# untouched.
 {
   name = "custom-image";
   backend = "microsandbox";

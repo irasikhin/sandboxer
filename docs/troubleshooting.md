@@ -108,8 +108,13 @@ layer (there is no proxy returning 403 anymore).
 
 ## `sandboxer image build` fails or crawls
 
-The toolbox image is built with **host nix** (no builder container), so the
-build's network behavior is your host's nix behavior:
+The stock image normally is not built at all — it comes prebuilt from GHCR
+and msb pulls it on first use (host-side, honoring your shell's
+`HTTP(S)_PROXY`; refresh with `sandboxer image pull`). A failed **create**
+hinting "network needed to pull the prebuilt image" means that pull failed —
+fix the network/proxy, or build locally. The local build (customized
+profiles, offline hosts) runs with **host nix** (no builder container), so
+its network behavior is your host's nix behavior:
 
 - Behind a proxy: configure the host environment/nix the way any `nix build`
   needs (`http_proxy`/`https_proxy` for the daemon, or `~/.config/nix`); there
@@ -119,8 +124,8 @@ build's network behavior is your host's nix behavior:
   so nix gives up and builds from source: `NIX_CONFIG='download-attempts = 1'`.
 - The first build is minutes-long and network-bound (it realizes the agents);
   later builds reuse the host nix store. `enter`/`exec` auto-build a missing
-  image — set `SANDBOXER_NO_AUTOBUILD=1` if you'd rather it error and let you
-  build explicitly.
+  `var-` variant — set `SANDBOXER_NO_AUTOBUILD=1` if you'd rather it error and
+  let you build explicitly.
 - The built tar lands in `<state>/images/` and is then imported into msb's own
   store — a failure naming `msb load` is an import problem, not a build one
   (check `msb --version` and disk space under `MSB_HOME`).
@@ -206,9 +211,9 @@ see above).
 **How much disk does a sandbox use?** The `<slug>/` dir holds a git worktree
 per source — checkouts whose object stores are shared with their repos, not
 duplicated — plus a small private `_home/<slug>`. The big cost is shared, not
-per-sandbox: the `sandboxer-toolbox:latest` image exists once as a build tar
-in `<state>/images/` and once imported in msb's store, reused by every
-sandbox; `sandboxer image rm` reclaims both.
+per-sandbox: the toolbox image exists once in msb's store (pulled prebuilt —
+plus, for locally built images, once as a build tar in `<state>/images/`),
+reused by every sandbox; `sandboxer image rm` reclaims both.
 
 **How do I debug inside a sandbox?** `sandboxer exec <slug> -- <cmd>` runs a
 one-off command in it; `sandboxer enter <slug>` drops you into an interactive
