@@ -6,6 +6,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.75.0] — 2026-08-10
+
+### ⚠ Breaking changes
+
+- agents from nixpkgs, vendor pi, drop llm-agents (146709b)
+  image.llmAgentsRev and --llm-agents-rev are removed — the agents ride image.nixpkgsRev now (a removed-key hint says so).
+
+### Added
+
+- agents from nixpkgs, vendor pi, drop llm-agents (146709b)
+
+
 ## [0.74.0] — 2026-08-10
 
 ### ⚠ Breaking changes
@@ -1147,3 +1159,4 @@ isolated, containerized dev sandbox, on a local Linux machine:
 [0.73.6]: https://github.com/irasikhin/sandboxer/compare/v0.73.5...v0.73.6
 [0.73.7]: https://github.com/irasikhin/sandboxer/compare/v0.73.6...v0.73.7
 [0.74.0]: https://github.com/irasikhin/sandboxer/compare/v0.73.7...v0.74.0
+[0.75.0]: https://github.com/irasikhin/sandboxer/compare/v0.74.0...v0.75.0
