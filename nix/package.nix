@@ -13,7 +13,7 @@
 
 let
   pname = "sandboxer";
-  version = "0.73.5";
+  version = "0.73.6";
 in
 buildGoModule {
   inherit pname version;

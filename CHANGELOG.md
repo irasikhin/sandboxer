@@ -6,6 +6,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.73.6] — 2026-08-10
+
+### Fixed
+
+- spell the proxy host rule in the 0.6.x-wide rule vocabulary (19312a6)
+
+
 ## [0.73.5] — 2026-08-10
 
 ### Fixed
@@ -1075,3 +1082,4 @@ isolated, containerized dev sandbox, on a local Linux machine:
 [0.73.3]: https://github.com/irasikhin/sandboxer/compare/v0.73.2...v0.73.3
 [0.73.4]: https://github.com/irasikhin/sandboxer/compare/v0.73.3...v0.73.4
 [0.73.5]: https://github.com/irasikhin/sandboxer/compare/v0.73.4...v0.73.5
+[0.73.6]: https://github.com/irasikhin/sandboxer/compare/v0.73.5...v0.73.6
