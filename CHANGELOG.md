@@ -6,6 +6,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.73.4] — 2026-08-10
+
+### Fixed
+
+- drop -i from exec/run argv — not in msb's grammar (84b08f7)
+
+
 ## [0.73.3] — 2026-08-10
 
 ### Fixed
@@ -1059,3 +1066,4 @@ isolated, containerized dev sandbox, on a local Linux machine:
 [0.73.1]: https://github.com/irasikhin/sandboxer/compare/v0.73.0...v0.73.1
 [0.73.2]: https://github.com/irasikhin/sandboxer/compare/v0.73.1...v0.73.2
 [0.73.3]: https://github.com/irasikhin/sandboxer/compare/v0.73.2...v0.73.3
+[0.73.4]: https://github.com/irasikhin/sandboxer/compare/v0.73.3...v0.73.4
