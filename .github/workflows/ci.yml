@@ -44,18 +44,20 @@ jobs:
             || { echo "ERROR: total coverage ${total}% is below the 90% gate" >&2; exit 1; }
       - run: go vet ./...
 
-  # Real-engine integration slice. The full suite needs the toolbox image (a
-  # multi-minute nix-in-container build) and runs on the maintainer's Jenkins;
-  # this job takes the part that does NOT — the wall, mount and egress
-  # guarantees, which need only a small pre-pulled image — so those stop
-  # depending on somebody remembering to run them.
+  # Real-engine integration slice on the microsandbox backend — the push-path
+  # counterpart of e2e.yml's nightly msb leg (phase C of the microVM migration:
+  # msb replaces docker as the per-push engine gate). Standard ubuntu runners
+  # expose /dev/kvm, so the same suite runs here; everything the real toolbox
+  # image gates (nested containers) still skips cleanly and runs on Jenkins.
   #
-  # This exists because they DID rot: an integration test asserting host auth
-  # passthrough had been failing for ~8 releases, unnoticed, because nothing in
-  # GitHub CI ever compiled or ran `-tags integration`. Everything the toolbox
-  # image gates still skips cleanly here.
+  # This job exists because integration tests DID rot: an assertion had been
+  # failing for ~8 releases, unnoticed, because nothing in GitHub CI ever
+  # compiled or ran `-tags integration`.
   itest:
     runs-on: ubuntu-latest
+    env:
+      # Keep in step with nix/microsandbox.nix and e2e.yml.
+      MSB_VERSION: "0.6.7"
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
@@ -63,16 +65,43 @@ jobs:
           go-version-file: go.mod
       # The config layer shells out to nix-instantiate, same as the unit tests.
       - uses: cachix/install-nix-action@v31
-      # itest.SmokeImage deliberately NEVER pulls (the suite stays offline-safe),
-      # so the image has to be here before the tests look for it.
-      - run: docker pull alpine:latest
+      # Standard runners ship /dev/kvm but the runner user is not in the kvm
+      # group; this udev rule opens it (the same step the Android emulator
+      # action uses). If a future image drops KVM the tests skip, not fail.
+      - name: enable /dev/kvm
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
+            | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+          ls -l /dev/kvm || echo "no /dev/kvm — the msb tests will skip"
+      # The release tarball is exactly two files: msb and libkrunfw.so.*, which
+      # msb resolves from BESIDE the binary — keep them together and point
+      # SANDBOXER_MSB at the extracted path, never at a copy of msb alone.
+      # MSB_HOME must stay short: every sandbox's agent-relay socket derives
+      # from it and sun_path caps at 108 bytes.
+      - name: install microsandbox
+        run: |
+          set -euo pipefail
+          base="https://github.com/microsandbox/microsandbox/releases/download/v${MSB_VERSION}"
+          curl -fsSLO "$base/microsandbox-linux-x86_64.tar.gz"
+          mkdir -p msb && tar xzf microsandbox-linux-x86_64.tar.gz -C msb
+          echo "SANDBOXER_MSB=$PWD/msb/msb" >> "$GITHUB_ENV"
+          echo "MSB_HOME=/tmp/msb" >> "$GITHUB_ENV"
       # Compile the WHOLE suite even though only a slice is run: a build tag
       # nothing ever compiles is where bit-rot starts.
       - run: go vet -tags integration ./...
-      - name: integration (engine-level, no toolbox image)
-        env:
-          SANDBOXER_ITEST_ENGINE: docker
-        run: go test -tags integration -count=1 -timeout 20m ./internal/backend/... ./internal/egress/...
+      - name: integration (engine-level, msb, no toolbox image)
+        run: |
+          set -euo pipefail
+          go test -tags integration -count=1 -timeout 20m -v \
+            -run 'TestMSB_.*_RealEngine' ./internal/backend/... 2>&1 | tee itest.log
+          scripts/assert-tests-ran.sh itest.log \
+            TestMSB_Lifecycle_RealEngine \
+            TestMSB_NarrowingWall_RealEngine \
+            TestMSB_GuestWriteUID_RealEngine \
+            TestMSB_EgressAllowlist_RealEngine \
+            TestMSB_SecretsMode_RealEngine
 
   # Reachability-based vulnerability scan. govulncheck reports only what the
   # code actually CALLS, so it stays quiet about the long tail of advisories in
