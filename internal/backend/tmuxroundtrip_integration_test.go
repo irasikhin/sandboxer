@@ -66,7 +66,7 @@ func TestTmuxRoundTrip_RealTmux(t *testing.T) {
 	}
 
 	captured := capture()
-	assertLayout(t, "captured", captured, dirA, dirB)
+	assertLayout(t, "captured", captured)
 
 	// Tear the server down and rebuild it from the captured state alone.
 	kill()
@@ -76,7 +76,7 @@ func TestTmuxRoundTrip_RealTmux(t *testing.T) {
 	_ = exec.Command("bash", "-c", script).Run()
 
 	restored := capture()
-	assertLayout(t, "restored", restored, dirA, dirB)
+	assertLayout(t, "restored", restored)
 
 	// The structural shape must survive the round trip exactly (window names and
 	// order, pane counts and cwds, active window). Layout strings and per-pane
@@ -89,10 +89,10 @@ func TestTmuxRoundTrip_RealTmux(t *testing.T) {
 }
 
 // assertLayout checks the concrete layout the test built: one session 'main',
-// windows edit(2 panes)/logs(1 pane), the edit panes in dirA and dirB, and the
-// active window being 'edit'. dirA/dirB are compared through tmux's own reported
-// paths (both sides go through tmux, so any symlink resolution is consistent).
-func assertLayout(t *testing.T, label string, s []TmuxSession, dirA, dirB string) {
+// windows edit(2 panes)/logs(1 pane), the edit panes in two DISTINCT dirs, and
+// the active window being 'edit'. The pane cwds are compared as a set through
+// tmux's own reported paths, so symlink resolution stays consistent.
+func assertLayout(t *testing.T, label string, s []TmuxSession) {
 	t.Helper()
 	if len(s) != 1 || s[0].Name != "main" {
 		t.Fatalf("%s: want one session 'main', got %#v", label, s)

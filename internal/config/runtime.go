@@ -113,10 +113,12 @@ func (r Runtime) DomainsCSV() string { return strings.Join(r.Domains, ",") }
 
 // hostnameRe matches a plain DNS hostname: dot-separated labels of ASCII
 // letters, digits and internal dashes, with an OPTIONAL leading dot (the
-// subdomain-matching form squid's dstdomain uses). It forbids whitespace,
-// control characters, '_', '/', a scheme prefix and a bare/only-dot value —
-// every shape that could otherwise reach the generated squid.conf verbatim and
-// either inject a directive (a newline/tab) or match every host (a lone ".").
+// subdomain-matching shorthand the allowlist accepts — msbNetTargets strips it
+// before rendering the `*.domain` rule). It forbids whitespace, control
+// characters, '_', '/', a scheme prefix and a bare/only-dot value — every
+// shape that could otherwise reach the generated network-policy argv verbatim
+// and either smuggle an extra rule token (a comma/whitespace) or match every
+// host (a lone ".").
 var hostnameRe = regexp.MustCompile(`^\.?([A-Za-z0-9](-*[A-Za-z0-9])*\.)+[A-Za-z0-9](-*[A-Za-z0-9])*$`)
 
 // ValidateDomains checks each domain for the common typos (each with a specific
@@ -124,10 +126,10 @@ var hostnameRe = regexp.MustCompile(`^\.?([A-Za-z0-9](-*[A-Za-z0-9])*\.)+[A-Za-z
 // empty list and the first invalid domain found.
 //
 // The strict check is a SECURITY boundary, not cosmetics: an allowlist domain
-// is written verbatim into the egress squid.conf (egress.squidConf), above the
-// `http_access deny all` line — so a value carrying a newline or tab could
-// inject an `http_access allow all` directive and silently open all egress
-// while the banner still reports the allowlist as on.
+// is rendered verbatim into msb's `--net-rule allow@*.domain:…` tokens
+// (msbNetTargets), where the rule list is comma-separated — a value carrying
+// a comma or whitespace could smuggle an extra allow rule and silently widen
+// egress while the banner still reports the allowlist as on.
 func ValidateDomains(domains []string) error {
 	for _, d := range domains {
 		if err := validateDomain(d); err != nil {

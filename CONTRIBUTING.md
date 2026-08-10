@@ -3,9 +3,9 @@
 Thanks for taking the time. This project follows a small set of conventions to
 make releases reliable; please skim before opening a PR.
 
-> **Conventions live as skills.** The engineering rules below are formalized as vendored **praxis** skills —
-> see [`CLAUDE.md`](CLAUDE.md) and `.claude/skills/` (gitignored; `praxis sync` materializes them from the
-> committed `praxis.toml`). praxis is internal author-tooling: it is **optional — not required to contribute**.
+> **Conventions live as skills.** The engineering rules below are formalized as vendored **praktik** skills —
+> see [`CLAUDE.md`](CLAUDE.md) and `.claude/skills/` (gitignored; `praktik sync` materializes them from the
+> committed `praktik.toml`). praktik is internal author-tooling: it is **optional — not required to contribute**.
 > The conventions it documents are also enforced by `.golangci.yml`, by CI, and described in [`CLAUDE.md`](CLAUDE.md),
 > so you can work from those alone. Where the skills exist they are canonical; this guide mirrors the essentials
 > for human contributors browsing the repo, and agents should read the skills rather than duplicate them.

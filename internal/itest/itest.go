@@ -7,8 +7,8 @@
 // gate. It exists because Go test helpers in `*_test.go` are package-scoped and
 // cannot be shared across packages; a regular (tagged) package can.
 //
-// The load-bearing convention across the whole suite: the container engine, the
-// networks and the egress proxy are REAL; the coding agent is always a stub. The
+// The load-bearing convention across the whole suite: the microVM runtime (msb)
+// and its network policy are REAL; the coding agent is always a stub. The
 // proprietary claude/codex/opencode binaries are never invoked.
 package itest
 
@@ -21,8 +21,8 @@ import (
 var counter atomic.Int64
 
 // Slug returns a per-test unique, sanitize-safe name "<prefix>-<pid>-<n>". It
-// deliberately avoids time/rand (kept deterministic) and mirrors egress.Up's own
-// sbx-<slug>-<pid> scheme, so any leaked container/network is easy to spot.
+// deliberately avoids time/rand (kept deterministic), so any leaked machine is
+// easy to attribute to its test run.
 func Slug(prefix string) string {
 	return prefix + "-" + strconv.Itoa(os.Getpid()) + "-" + strconv.FormatInt(counter.Add(1), 10)
 }
