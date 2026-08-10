@@ -78,10 +78,10 @@ to remove a single sandbox instead.`,
 			if dir == "" {
 				return fmt.Errorf("cannot determine state directory: set $XDG_STATE_HOME or $SANDBOXER_STATE")
 			}
-			// Sweep the session containers labeled with this state dir first — on
-			// every installed engine, since per-profile backends may have created
-			// sessions on either; best-effort — the state dir must go even with
-			// no engine installed.
+			// Sweep the session machines recorded against this state dir first —
+			// on every installed runner, since per-profile backends may have
+			// created sessions on either; best-effort — the state dir must go
+			// even with no runner installed.
 			// Collect every source repo the sandboxes span AND remove the
 			// worktrees BEFORE the state dir goes: the per-sandbox worktree
 			// roots and the repos come from the stored snapshots/meta.
@@ -109,7 +109,7 @@ to remove a single sandbox instead.`,
 			engines := backendSweepEngines(config.LoadDefaults())
 			if len(engines) == 0 {
 				fmt.Fprintln(cmd.ErrOrStderr(),
-					"sandboxer: session cleanup skipped: no isolation engine (docker, podman, smolvm or microsandbox) found")
+					"sandboxer: session cleanup skipped: no microVM runner (smolvm or microsandbox) found")
 			}
 			for _, engine := range engines {
 				if err := backendRemoveAllSessions(engine, dir); err != nil {

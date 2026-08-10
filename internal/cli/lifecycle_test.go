@@ -123,19 +123,15 @@ func TestPersistentEnterBanner(t *testing.T) {
 
 // TestCreateValidatesBackend pins that create refuses the same configs every
 // other command refuses. It used to accept them: the warn* helpers ran but
-// ValidateBackend did not, so a microVM profile with egress.routes was reported
-// as "created" — worktrees and a state dir on disk — and only the first enter
-// said it could never have worked.
+// ValidateBackend did not, so a doomed profile was reported as "created" —
+// worktrees and a state dir on disk — and only the first enter said it could
+// never have worked.
 func TestCreateValidatesBackend(t *testing.T) {
 	project := newProject(t)
 	cfg := `{
   name = "feat";
-  backend = "microvm";
+  backend = "docker";
   srcs = [ { src = "."; branch = "sbx/feat"; } ];
-  egress = {
-    allowedDomains = [ "example.com" ];
-    routes = [ { domains = [ "example.com" ]; proxy = "http://p:8080"; } ];
-  };
   hostConfigs = false;
 }
 `
@@ -144,10 +140,10 @@ func TestCreateValidatesBackend(t *testing.T) {
 	}
 	code, out, errs := run("create", "feat", "--src", project)
 	if code == 0 {
-		t.Fatalf("create accepted a microvm profile with egress.routes (exit 0)\nout: %s\nerr: %s", out, errs)
+		t.Fatalf("create accepted a container-era backend (exit 0)\nout: %s\nerr: %s", out, errs)
 	}
-	if !strings.Contains(errs, "egress.routes") {
-		t.Errorf("error should name egress.routes, got: %s", errs)
+	if !strings.Contains(errs, "container backend was removed") {
+		t.Errorf("error should carry the migration hint, got: %s", errs)
 	}
 	if strings.Contains(out, "created") {
 		t.Errorf("create announced success for a rejected profile: %s", out)

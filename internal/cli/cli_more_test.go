@@ -7,40 +7,70 @@ import (
 	"testing"
 )
 
-// fakePodman puts a no-op `podman` engine on PATH and points HOME at an empty
-// dir so no real credentials are bound.
-func fakePodman(t *testing.T) {
+// fakeMsb points SANDBOXER_MSB at a no-op msb stand-in (list answers an empty
+// inventory, everything else exits 0), isolates HOME and the state root, and
+// selects a custom public image so enter/exec never trigger the host-nix
+// auto-build. SANDBOXER_BACKEND selects the microsandbox backend so a bare
+// command needs no --backend flag.
+func fakeMsb(t *testing.T) {
 	t.Helper()
-	bin := t.TempDir()
-	if err := os.WriteFile(filepath.Join(bin, "podman"), []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "msb")
+	script := "#!/bin/sh\nif [ \"$1\" = list ]; then echo '[]'; fi\nexit 0\n"
+	if err := os.WriteFile(bin, []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("PATH", bin+":"+os.Getenv("PATH"))
+	t.Setenv("SANDBOXER_MSB", bin)
+	t.Setenv("SANDBOXER_SMOLVM", filepath.Join(dir, "no-smolvm")) // sweeps see msb alone
+	t.Setenv("SANDBOXER_BACKEND", "microsandbox")
+	t.Setenv("SANDBOXER_STATE", filepath.Join(dir, "state"))
+	t.Setenv("SANDBOXER_IMAGE", "example.com/toolbox:test")
 	t.Setenv("HOME", t.TempDir())
-	t.Setenv("SANDBOXER_ENGINE", "")
 }
 
-func TestRunEnterExecContainer(t *testing.T) {
+// fakeSmolvm is fakeMsb's smolvm twin, for the tests that drive the REAL
+// backend lifecycle end to end: the microsandbox runner refuses shares under
+// /tmp (where t.TempDir lives), while smolvm has no such restriction. Egress
+// is routed through a proxy so `machine create` never tries to resolve the
+// allowlist on the host.
+func fakeSmolvm(t *testing.T) {
+	t.Helper()
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "smolvm")
+	script := "#!/bin/sh\nif [ \"$1\" = machine ] && [ \"$2\" = ls ]; then echo '[]'; fi\nexit 0\n"
+	if err := os.WriteFile(bin, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("SANDBOXER_SMOLVM", bin)
+	t.Setenv("SANDBOXER_MSB", filepath.Join(dir, "no-msb"))
+	t.Setenv("SANDBOXER_BACKEND", "microvm")
+	t.Setenv("SANDBOXER_STATE", filepath.Join(dir, "state"))
+	t.Setenv("SANDBOXER_IMAGE", "example.com/toolbox:test")
+	t.Setenv("SANDBOXER_PROXY", "http://proxy.test:3128")
+	t.Setenv("HOME", t.TempDir())
+}
+
+func TestRunEnterExecMicrovm(t *testing.T) {
 	requireExec(t, "sh")
 	project := newProject(t)
-	fakePodman(t)
+	fakeSmolvm(t)
 
 	if code, _, errs := run("create", "feat", "--src", project); code != 0 {
 		t.Fatalf("create: %d %s", code, errs)
 	}
-	if code, _, errs := run("enter", "feat", "--src", project, "--backend", "podman"); code != 0 {
-		t.Errorf("enter container = %d, %s", code, errs)
+	if code, _, errs := run("enter", "feat", "--src", project, "--backend", "microvm"); code != 0 {
+		t.Errorf("enter machine = %d, %s", code, errs)
 	}
-	if code, _, errs := run("exec", "feat", "--src", project, "--backend", "podman", "--", "echo", "hi"); code != 0 {
-		t.Errorf("exec container = %d, %s", code, errs)
+	if code, _, errs := run("exec", "feat", "--src", project, "--backend", "microvm", "--", "echo", "hi"); code != 0 {
+		t.Errorf("exec machine = %d, %s", code, errs)
 	}
 }
 
 func TestRunEnterAutoCreate(t *testing.T) {
 	requireExec(t, "sh")
 	project := newProject(t)
-	fakePodman(t)
-	if code, _, errs := run("enter", "fresh", "--src", project, "--backend", "podman"); code != 0 {
+	fakeSmolvm(t)
+	if code, _, errs := run("enter", "fresh", "--src", project); code != 0 {
 		t.Fatalf("enter auto-create = %d, %s", code, errs)
 	}
 	if _, err := os.Stat(sandboxDir(project, "fresh")); err != nil {
@@ -52,12 +82,13 @@ func TestRunEnterAutoCreate(t *testing.T) {
 // verbs, and the banner reflects the override.
 func TestCreateBackendFlag(t *testing.T) {
 	project := newProject(t)
-	fakePodman(t)
-	code, _, errs := run("create", "feat", "--src", project, "--backend", "podman")
+	fakeMsb(t)
+	fakeSmolvmOnPath(t)
+	code, _, errs := run("create", "feat", "--src", project, "--backend", "microvm")
 	if code != 0 {
 		t.Fatalf("create --backend = %d, %s", code, errs)
 	}
-	if !strings.Contains(errs, "backend=podman") {
+	if !strings.Contains(errs, "backend=microvm") {
 		t.Errorf("configLine should show the overridden backend: %q", errs)
 	}
 }

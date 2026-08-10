@@ -260,12 +260,13 @@ func TestIncludePatternVanishedMatches(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	code, _, errs := run("compose", "pat", "--src", project, "--backend", "podman")
+	fakeMsb(t)
+	code, _, errs := run("enter", "pat", "--src", project, "-f", cfg)
 	if code == 0 {
-		t.Fatal("compose resolved mounts for a pattern matching nothing, want a refusal")
+		t.Fatal("enter resolved mounts for a pattern matching nothing, want a refusal")
 	}
 	if !strings.Contains(errs, "matches no directory") {
-		t.Errorf("compose error = %q, want the zero-match refusal", errs)
+		t.Errorf("enter error = %q, want the zero-match refusal", errs)
 	}
 
 	if code, _, errs := run("show", "pat", "--src", project); code != 0 {

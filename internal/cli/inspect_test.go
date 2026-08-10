@@ -129,7 +129,8 @@ func TestListStateBestEffort(t *testing.T) {
 			return nil, nil
 		}
 		t.Setenv("PATH", "")
-		t.Setenv("SANDBOXER_ENGINE", "")
+		t.Setenv("SANDBOXER_MSB", "/nonexistent/msb-xyz")
+		t.Setenv("SANDBOXER_SMOLVM", "/nonexistent/smolvm-xyz")
 		code, out, errs := run("list", "--src", project)
 		if code != 0 {
 			t.Fatalf("list = %d, %s", code, errs)
@@ -496,16 +497,17 @@ func TestShowSessionBlock(t *testing.T) {
 		}
 	})
 
-	t.Run("no engine", func(t *testing.T) {
+	t.Run("no runner", func(t *testing.T) {
 		stubSessionSeams(t, backend.SessionInfo{}, "h")
 		t.Setenv("PATH", "")
-		t.Setenv("SANDBOXER_ENGINE", "")
+		t.Setenv("SANDBOXER_MSB", "/nonexistent/msb-xyz")
+		t.Setenv("SANDBOXER_SMOLVM", "/nonexistent/smolvm-xyz")
 		code, out, errs := run("show", "feat", "--src", project)
 		if code != 0 {
 			t.Fatalf("show = %d, %s", code, errs)
 		}
-		if !strings.Contains(out, "state: unknown (no container engine)") {
-			t.Errorf("engine-less show missing the unknown state:\n%s", out)
+		if !strings.Contains(out, "state: unknown (no microVM runner installed)") {
+			t.Errorf("runner-less show missing the unknown state:\n%s", out)
 		}
 	})
 }

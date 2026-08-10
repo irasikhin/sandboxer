@@ -15,7 +15,7 @@ func TestCreateFromProfileFile(t *testing.T) {
 	project := newProject(t)
 	env := filepath.Join(t.TempDir(), "api.nix")
 	if err := os.WriteFile(env,
-		[]byte("{ name = \"api\"; backend = \"docker\"; srcs = [ { src = \".\"; branch = \"feat/x\"; } ]; }\n"), 0o644); err != nil {
+		[]byte("{ name = \"api\"; backend = \"microsandbox\"; srcs = [ { src = \".\"; branch = \"feat/x\"; } ]; }\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if code, out, errs := run("create", "-f", env, "--src", project); code != 0 || !strings.Contains(out, "api") {
@@ -43,7 +43,7 @@ func TestProfilesCommand(t *testing.T) {
 
 	// A flat project sandboxer.nix lists its single profile.
 	if err := os.WriteFile(config.ConfigPath(),
-		[]byte("{ name = \"feat\"; backend = \"docker\"; }\n"), 0o644); err != nil {
+		[]byte("{ name = \"feat\"; backend = \"microsandbox\"; }\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if code, out, _ := run("profile", "list"); code != 0 || !strings.Contains(out, "feat") {
@@ -53,7 +53,7 @@ func TestProfilesCommand(t *testing.T) {
 	// The default: profile is marked with the word "(default)" — not the `*`
 	// glyph, which `list` already uses for the active sandbox.
 	if err := os.WriteFile(config.ConfigPath(),
-		[]byte("{ profiles = { feat.backend = \"docker\"; api.backend = \"docker\"; }; default = \"feat\"; }\n"), 0o644); err != nil {
+		[]byte("{ profiles = { feat.backend = \"microsandbox\"; api.backend = \"microsandbox\"; }; default = \"feat\"; }\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if code, out, _ := run("profile", "list"); code != 0 || !strings.Contains(out, "feat (default)") || !strings.Contains(out, "api") {
@@ -62,7 +62,7 @@ func TestProfilesCommand(t *testing.T) {
 
 	// -f lists another file's sections instead of the project config.
 	other := filepath.Join(t.TempDir(), "other.nix")
-	if err := os.WriteFile(other, []byte("{ name = \"web\"; backend = \"podman\"; }\n"), 0o644); err != nil {
+	if err := os.WriteFile(other, []byte("{ name = \"web\"; backend = \"microvm\"; }\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if code, out, _ := run("profile", "list", "-f", other); code != 0 || !strings.Contains(out, "web") || strings.Contains(out, "feat") {

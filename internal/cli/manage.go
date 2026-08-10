@@ -28,10 +28,10 @@ var (
 	// live session: stop and the tmux capture.
 	backendSessionEngine     = backend.SessionEngine
 	backendRemoveAllSessions = backend.RemoveAllSessions
-	// backendSweepEngines enumerates every engine a sweep or report must visit
-	// (clean, list, doctor) — sessions may live on podman AND docker, AND on
-	// either microVM runner (smolvm, microsandbox) whose machines + host-side
-	// records would otherwise leak, invisible to clean/doctor.
+	// backendSweepEngines enumerates every runner a sweep or report must visit
+	// (clean, list, doctor) — sessions may live on either microVM runner
+	// (smolvm, microsandbox), whose machines + host-side records would
+	// otherwise leak, invisible to clean/doctor.
 	backendSweepEngines = backend.SweepEngines
 )
 
@@ -47,8 +47,8 @@ func newRmCmd() *cobra.Command {
 		Use:   "rm [slug|id ...]",
 		Short: "Remove one or more sandboxes and their state",
 		Long: `Remove a sandbox: its managed source worktrees, private agent home, logs,
-metadata and the persistent session container — which is stopped and removed
-on whatever engine it runs on, not just the one the profile names today. The
+metadata and the persistent session machine — which is stopped and removed
+on whatever runner it lives on, not just the one the profile names today. The
 source branches are KEPT — the work stays reviewable in each repo; delete them
 with plain git when done. Adopted worktrees are never touched.
 
@@ -142,22 +142,21 @@ func otherProject(t *target) string {
 	return " (" + t.base.Src + ")"
 }
 
-// removeSessionBestEffort tears down the sandbox's persistent session (and its
-// egress resources) before the files go, on EVERY engine installed here rather
-// than the one the profile resolves to — the profile says where the next
-// session would be created, not where this one lives (see
-// backend.RemoveSessionAnywhere). It returns the engines a session was actually
-// removed from, so the caller can report what went instead of leaving the user
-// to check with `docker ps`.
+// removeSessionBestEffort tears down the sandbox's persistent session before
+// the files go, on EVERY runner installed here rather than the one the
+// profile resolves to — the profile says where the next session would be
+// created, not where this one lives (see backend.RemoveSessionAnywhere). It
+// returns the engines a session was actually removed from, so the caller can
+// report what went instead of leaving the user to check by hand.
 //
-// Best-effort BY DESIGN: file removal must succeed on an engine-less host, so
-// any engine problem only warns — at worst a container is left behind, which
+// Best-effort BY DESIGN: file removal must succeed on a runner-less host, so
+// any engine problem only warns — at worst a machine is left behind, which
 // doctor reports as an orphan once the base dir is gone.
 func removeSessionBestEffort(t *target, errOut io.Writer) []string {
-	// The enumeration is consulted only to tell an engine-less host apart from
+	// The enumeration is consulted only to tell a runner-less host apart from
 	// a host where nothing matched — the sweep itself walks the same list.
 	if engines := backendSweepEngines(config.LoadDefaults()); len(engines) == 0 {
-		fmt.Fprintln(errOut, "sandboxer: session cleanup skipped: no isolation engine (docker, podman, smolvm or microsandbox) found")
+		fmt.Fprintln(errOut, "sandboxer: session cleanup skipped: no microVM runner (smolvm or microsandbox) found")
 		return nil
 	}
 	removed, err := backendRemoveSessionAnywhere(t.slug, t.base.Dir, config.LoadDefaults())

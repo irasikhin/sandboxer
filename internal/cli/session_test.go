@@ -87,7 +87,7 @@ func stubSessionSeams(t *testing.T, info backend.SessionInfo, wantHash string) *
 func sessionProject(t *testing.T) string {
 	t.Helper()
 	project := newProject(t)
-	fakePodman(t)
+	fakeMsb(t)
 	if code, _, errs := run("create", "feat", "--src", project); code != 0 {
 		t.Fatalf("create: %d %s", code, errs)
 	}
@@ -243,7 +243,7 @@ func TestEnterEphemeralRouting(t *testing.T) {
 	})
 	t.Run("profile", func(t *testing.T) {
 		project := newProject(t)
-		fakePodman(t)
+		fakeMsb(t)
 		c := stubSessionSeams(t, backend.SessionInfo{}, "h")
 		cfg := filepath.Join(t.TempDir(), "p.nix")
 		if err := os.WriteFile(cfg, []byte("{ name = \"feat\"; session = \"ephemeral\"; srcs = [ { src = \".\"; branch = \"feat/x\"; } ]; }\n"), 0o644); err != nil {

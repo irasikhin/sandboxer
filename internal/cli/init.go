@@ -99,13 +99,14 @@ func starterProfile(name string, d config.Defaults) string {
 # run sandboxer here (no -f needed). One profile at the top level — or several:
 #   { profiles = { api = { ... }; web = { ... }; }; default = "api"; }
 # Reuse between profiles is ordinary nix:
-#   let base = { backend = "docker"; }; in { profiles.api = base // { ... }; }
+#   let base = { backend = "microsandbox"; }; in { profiles.api = base // { ... }; }
 {
   # Sandbox name (slug); names the sandbox dir ./sandboxes/<name>/.
   name = %[1]q;
 
-  # Isolation backend: docker | podman (a container), or microvm | microsandbox
-  # (a real VM per sandbox, on libkrun — see docs/microvm.md).
+  # Isolation backend: microsandbox | microvm — a real VM per sandbox, on
+  # libkrun (see docs/microvm.md). Container engines (docker/podman) run
+  # natively INSIDE the sandbox; they are no longer host backends.
   backend = %[2]q;
 
   # The sources the sandbox sees — ALWAYS explicit, there is no implicit
@@ -115,7 +116,7 @@ func starterProfile(name string, d config.Defaults) string {
   # becomes a git worktree on the host, checked out on the branch YOU name —
   # branch is REQUIRED and also names the worktree's on-disk location
   # (./sandboxes/<name>/<branch>/<repo>). ONLY the selected directories are
-  # visible inside the container (git itself never is; review and commit on
+  # visible inside the sandbox (git itself never is; review and commit on
   # the host). include lists directories: literal anchored paths
   # ("/services/api/") or patterns ("/services/*/", "**/proto/" — a whole "**"
   # segment matches any depth). srcs edits apply on the next enter/exec — even
@@ -133,23 +134,18 @@ func starterProfile(name string, d config.Defaults) string {
   # defaults (SANDBOXER_DOMAINS or the built-in set — AI APIs, package + container
   # registries). Setting allowedDomains REPLACES that default set wholesale —
   # re-list EVERY domain you need, or delete the attr to keep the full defaults.
-  # An empty list means what it says: allowedDomains = [ ] reaches NOTHING (the
-  # container backend refuses to start rather than run a sandbox that can talk
-  # to nowhere — turn egress off instead if that is what you meant).
+  # An empty list means what it says: allowedDomains = [ ] reaches NOTHING (a
+  # fully offline machine).
   egress = {
-    # enabled = true (default) runs sandboxer's squid allowlist sidecar and
-    # enforces allowedDomains below. enabled = false is the escape hatch: NO
-    # sidecar — the agent goes straight through the proxy, which is then trusted
-    # to police egress (allowedDomains/routes are IGNORED). Off entirely at runtime:
+    # enabled = true (default) enforces allowedDomains at the VM network layer.
+    # enabled = false is the escape hatch: an open network — a proxy, if set,
+    # is then trusted to police egress. Off entirely at runtime:
     # SANDBOXER_NO_EGRESS=1.
     # enabled = false;
     allowedDomains = [ %[3]s ];
-    # proxy = "http://localhost:9999";       # ONE proxy URL; localhost is
-    #                                        # rewritten to the host gateway
-    # noProxy = "localhost,127.0.0.1,.corp"; # enabled = false only
-    # routes = [                             # per-domain upstream proxies (allowlist on)
-    #   { domains = [ "api.anthropic.com" ]; proxy = "http://bypass:8080"; }
-    # ];
+    # proxy = "http://localhost:9999";       # ONE proxy URL; a localhost proxy
+    #                                        # is reachable from the guest
+    # noProxy = "localhost,127.0.0.1,.corp"; # applied alongside proxy
   };
 
   # Wire YOUR host agent identity into the sandbox: (1) seed its private
@@ -172,7 +168,7 @@ func starterProfile(name string, d config.Defaults) string {
   # Session mode for enter/exec: "persistent" (default) | "ephemeral".
   # session = "persistent";
 
-  # Extra bind mounts / env for the container (non-git trees come in here).
+  # Extra host shares / env for the sandbox (non-git trees come in here).
   # extraMounts = [ { source = "/data/cache"; target = "/data/cache"; mode = "rw"; } ];
   # env = { NODE_ENV = "development"; ANTHROPIC_MODEL = "opus"; };
 
@@ -186,14 +182,8 @@ func starterProfile(name string, d config.Defaults) string {
   # (node, python, go, rust, java, …):
   # tools = [ "node" "python" ];
 
-  # Let the sandbox run containers of its own — "docker run postgres",
-  # compose, a rootless podman (no engine socket is ever mounted). Opt-in
-  # because it widens the sandbox's syscall filter and unmasks /proc; see
-  # SECURITY.md. User-switching images (postgres) need backend = "podman".
-  # nestedContainers = true;
-
-  # Resource caps (empty = uncapped): memory/cpus/pids.
-  # limits = { memory = "4G"; cpus = "2"; pids = 512; };
+  # Resource caps (empty = the microVM default size): memory/cpus.
+  # limits = { memory = "4G"; cpus = "2"; };
 
   # Custom toolbox image (optional). Sandboxes then run a content-addressed
   # variant built on first use (cached after; the stock image is untouched).

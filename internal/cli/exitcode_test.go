@@ -26,7 +26,7 @@ func TestRunReturnsChildExitCode(t *testing.T) {
 		for _, want := range []int{1, 2, 7, 42, 130, 255} {
 			t.Run(name+"/"+strconv.Itoa(want), func(t *testing.T) {
 				project := newProject(t)
-				fakePodman(t)
+				fakeMsb(t)
 				stubSessionSeams(t, backend.SessionInfo{}, "h")
 				// Both seams: exec with no live session takes the one-shot run,
 				// enter attaches through the session. Either way the status the
@@ -39,7 +39,7 @@ func TestRunReturnsChildExitCode(t *testing.T) {
 				if code, _, errs := run("create", "feat", "--src", project); code != 0 {
 					t.Fatalf("create: %d %s", code, errs)
 				}
-				args := []string{name, "feat", "--src", project, "--backend", "podman"}
+				args := []string{name, "feat", "--src", project, "--backend", "microsandbox"}
 				if name == "exec" {
 					args = append(args, "--", "false")
 				}
@@ -55,14 +55,14 @@ func TestRunReturnsChildExitCode(t *testing.T) {
 // turned into a failure by the passthrough.
 func TestRunZeroExitStaysZero(t *testing.T) {
 	project := newProject(t)
-	fakePodman(t)
+	fakeMsb(t)
 	stubSessionSeams(t, backend.SessionInfo{}, "h")
 	backendRun = func(o backend.RunOpts) (int, error) { return 0, nil }
 
 	if code, _, errs := run("create", "feat", "--src", project); code != 0 {
 		t.Fatalf("create: %d %s", code, errs)
 	}
-	if code, _, errs := run("exec", "feat", "--src", project, "--backend", "podman", "--", "true"); code != 0 {
+	if code, _, errs := run("exec", "feat", "--src", project, "--backend", "microsandbox", "--", "true"); code != 0 {
 		t.Errorf("exit = %d, want 0\n%s", code, errs)
 	}
 }
@@ -72,14 +72,14 @@ func TestRunZeroExitStaysZero(t *testing.T) {
 // diagnostic of its own on top.
 func TestRunChildExitPrintsNothing(t *testing.T) {
 	project := newProject(t)
-	fakePodman(t)
+	fakeMsb(t)
 	stubSessionSeams(t, backend.SessionInfo{}, "h")
 	backendRun = func(o backend.RunOpts) (int, error) { return 7, nil }
 
 	if code, _, errs := run("create", "feat", "--src", project); code != 0 {
 		t.Fatalf("create: %d %s", code, errs)
 	}
-	_, _, errOut := run("exec", "feat", "--src", project, "--backend", "podman", "--", "false")
+	_, _, errOut := run("exec", "feat", "--src", project, "--backend", "microsandbox", "--", "false")
 	if strings.Contains(errOut, "exited 7") {
 		t.Errorf("sandboxer printed the child's status: %q", errOut)
 	}
@@ -89,7 +89,7 @@ func TestRunChildExitPrintsNothing(t *testing.T) {
 // failure into one: a sandboxer-level error is still exit 1.
 func TestRunOrdinaryErrorIsStillOne(t *testing.T) {
 	project := newProject(t)
-	fakePodman(t)
+	fakeMsb(t)
 	if code, _, _ := run("exec", "no-such-sandbox", "--src", project, "--", "true"); code != 1 {
 		t.Errorf("exit = %d, want 1 for a sandboxer-level error", code)
 	}

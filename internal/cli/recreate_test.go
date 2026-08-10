@@ -35,7 +35,6 @@ func seedRecreateState(t *testing.T, project string) (junk, cred, stamp string) 
 // files — the same ordering contract as rm.
 func TestRecreateKeepsAgentHome(t *testing.T) {
 	project := sessionProject(t)
-	t.Setenv("SANDBOXER_ENGINE", "docker")
 	dest := sandboxDir(project, "feat")
 	calls, dirExisted := stubRemoveSession(t, dest, nil)
 	junk, cred, stamp := seedRecreateState(t, project)

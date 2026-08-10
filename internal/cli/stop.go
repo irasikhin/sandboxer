@@ -20,10 +20,10 @@ func newStopCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "stop [slug|id ...]",
 		Short: "Stop one or more sandboxes' persistent sessions (kept for a later enter)",
-		Long: `Stop a sandbox's persistent session container and its egress proxy. The
-container, its networks and the sandbox files all stay in place, so the next
-'sandboxer enter' resumes the session with a plain start. Use 'sandboxer rm'
-to remove the sandbox (and its session) entirely.
+		Long: `Stop a sandbox's persistent session machine. The machine and the
+sandbox files all stay in place, so the next 'sandboxer enter' resumes the
+session with a plain start. Use 'sandboxer rm' to remove the sandbox (and its
+session) entirely.
 
 Each argument is a slug in the current project, or an ID from 'sandboxer list'
 (any unambiguous prefix) — which stops that sandbox in ITS project, no cd and

@@ -324,9 +324,9 @@ func TestRunMultiProfileSelect(t *testing.T) {
 	t.Chdir(project)
 	body := `{
   profiles = {
-    web = { backend = "podman"; srcs = [ { src = "."; branch = "feat/x"; } ]; };
+    web = { backend = "microvm"; srcs = [ { src = "."; branch = "feat/x"; } ]; };
     api = {
-      backend = "docker";
+      backend = "microsandbox";
       session = "ephemeral";
       srcs = [ { src = "."; branch = "feat/api"; } ];
       egress.allowedDomains = [ "api.anthropic.com" ];
@@ -349,7 +349,7 @@ func TestRunMultiProfileSelect(t *testing.T) {
 	}
 	pj, _ := os.ReadFile(stateDir(project, "_meta", "api.profile.json"))
 	s := string(pj)
-	for _, want := range []string{`"backend": "docker"`, `"session": "ephemeral"`, "api.anthropic.com"} {
+	for _, want := range []string{`"backend": "microsandbox"`, `"session": "ephemeral"`, "api.anthropic.com"} {
 		if !strings.Contains(s, want) {
 			t.Errorf("api profile.json missing %q in:\n%s", want, s)
 		}
@@ -534,18 +534,20 @@ func TestDoctorStrict(t *testing.T) {
 	}
 }
 
-// TestDoctorNoEngine covers the "no container engine" branch by running doctor
-// with an empty PATH so engine detection finds nothing.
+// TestDoctorNoEngine covers the runner-less branch by running doctor with an
+// empty PATH so neither microVM runner is found.
 func TestDoctorNoEngine(t *testing.T) {
 	t.Setenv("SANDBOXER_IN_CONTAINER", "")
-	t.Setenv("PATH", "") // no podman/docker discoverable
+	t.Setenv("PATH", "") // no smolvm/msb discoverable
 
 	code, out, _ := run("doctor")
 	if code != 0 {
 		t.Fatalf("doctor = %d", code)
 	}
-	if !strings.Contains(out, "container engine") || !strings.Contains(out, "⚠") {
-		t.Errorf("doctor should warn about the missing engine:\n%s", out)
+	for _, want := range []string{"microvm (smolvm)", "microsandbox (msb)", "⚠"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("doctor should warn about the missing runners (%q):\n%s", want, out)
+		}
 	}
 }
 
@@ -554,10 +556,10 @@ func TestRunAutoDiscoversProfile(t *testing.T) {
 	project := t.TempDir()
 	gitInitProject(t, project)
 	t.Chdir(project)
-	// A docker profile in the project config must be picked up without --config;
-	// otherwise the default (podman) backend would be used and the banner would
-	// not say docker.
-	if err := os.WriteFile(config.ConfigPath(), []byte("{ name = \"disco\"; backend = \"docker\"; srcs = [ { src = \".\"; branch = \"feat/x\"; } ]; }\n"), 0o644); err != nil {
+	// A profile in the project config must be picked up without --config;
+	// the banner then names the profile (and its backend) instead of the
+	// silent defaults.
+	if err := os.WriteFile(config.ConfigPath(), []byte("{ name = \"disco\"; backend = \"microsandbox\"; srcs = [ { src = \".\"; branch = \"feat/x\"; } ]; }\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	code, _, errs := run("create")
@@ -565,7 +567,7 @@ func TestRunAutoDiscoversProfile(t *testing.T) {
 		t.Fatalf("create = %d, %s", code, errs)
 	}
 	// The resolved-config banner (on stderr) must reflect the discovered profile.
-	if !strings.Contains(errs, "backend=docker") {
-		t.Errorf("auto-discovered %s not applied (want backend=docker):\n%s", config.ConfigPath(), errs)
+	if !strings.Contains(errs, "profile=disco") {
+		t.Errorf("auto-discovered %s not applied (want profile=disco):\n%s", config.ConfigPath(), errs)
 	}
 }

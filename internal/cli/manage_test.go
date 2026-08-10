@@ -43,9 +43,8 @@ func stubRemoveSessionWith(t *testing.T, dest string, removed []string, err erro
 // removes the files.
 func TestRmRemovesSessionBeforeFiles(t *testing.T) {
 	project := sessionProject(t)
-	t.Setenv("SANDBOXER_ENGINE", "docker")
 	dest := sandboxDir(project, "feat")
-	calls, dirExisted := stubRemoveSessionWith(t, dest, []string{"docker"}, nil)
+	calls, dirExisted := stubRemoveSessionWith(t, dest, []string{"microsandbox"}, nil)
 
 	code, out, errs := run("rm", "feat", "--src", project)
 	if code != 0 || !strings.Contains(out, "removed sandbox") {
@@ -57,7 +56,7 @@ func TestRmRemovesSessionBeforeFiles(t *testing.T) {
 	}
 	// What actually went must be reported: a silent teardown is how a leaked
 	// container went unnoticed until `docker ps`.
-	if !strings.Contains(out, "removed session:") || !strings.Contains(out, "(docker)") {
+	if !strings.Contains(out, "removed session:") || !strings.Contains(out, "(microsandbox)") {
 		t.Errorf("rm did not report the removed session: %q", out)
 	}
 	if !*dirExisted {
@@ -77,7 +76,7 @@ func TestRmRemovesSessionBeforeFiles(t *testing.T) {
 // podman) must still be torn down and reported.
 func TestRmTearsDownRegardlessOfProfileBackend(t *testing.T) {
 	project := newProject(t)
-	fakePodman(t) // podman is the only engine on PATH; smolvm is not
+	fakeMsb(t) // podman is the only engine on PATH; smolvm is not
 	cfg := `{
   name = "feat";
   backend = "microvm";
@@ -136,8 +135,7 @@ func TestRmEngineLessHost(t *testing.T) {
 	}
 	dest := sandboxDir(project, "feat")
 	calls, _ := stubRemoveSession(t, dest, nil)
-	t.Setenv("PATH", "") // no podman/docker discoverable
-	t.Setenv("SANDBOXER_ENGINE", "")
+	t.Setenv("PATH", "") // no smolvm/msb discoverable
 
 	code, out, errs := run("rm", "feat", "--src", project)
 	if code != 0 || !strings.Contains(out, "removed sandbox") {
@@ -405,8 +403,7 @@ func TestCleanEngineLessHost(t *testing.T) {
 	}
 	sdir := config.StateDir(project)
 	calls, _ := stubRemoveAllSessions(t, sdir, nil)
-	t.Setenv("PATH", "") // no podman/docker discoverable
-	t.Setenv("SANDBOXER_ENGINE", "")
+	t.Setenv("PATH", "") // no smolvm/msb discoverable
 
 	code, out, errs := run("clean", "--force", project)
 	if code != 0 || !strings.Contains(out, "removed") {
@@ -430,7 +427,7 @@ func TestCleanEngineLessHost(t *testing.T) {
 // the container goes with the files either way.
 func TestRmBrokenProfileStillTearsDownSession(t *testing.T) {
 	project := newProject(t)
-	fakePodman(t)
+	fakeMsb(t)
 	cfg := filepath.Join(t.TempDir(), "p.nix")
 	profile := "{ name = \"feat\"; egress.allowedDomains = [ \"not a domain\" ]; }\n"
 	if err := os.WriteFile(cfg, []byte(profile), 0o644); err != nil {

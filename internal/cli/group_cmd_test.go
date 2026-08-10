@@ -65,7 +65,7 @@ func TestConfigValidate(t *testing.T) {
 	}
 
 	// Valid config.
-	if err := os.WriteFile(config.ConfigPath(), []byte("{ name = \"ok\"; backend = \"docker\"; srcs = [ { src = \".\"; branch = \"feat/x\"; } ]; }\n"), 0o644); err != nil {
+	if err := os.WriteFile(config.ConfigPath(), []byte("{ name = \"ok\"; backend = \"microsandbox\"; srcs = [ { src = \".\"; branch = \"feat/x\"; } ]; }\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if code, out, errs := run("config", "validate"); code != 0 || !strings.Contains(out, "ok") {
@@ -104,7 +104,7 @@ func TestConfigValidateSemantic(t *testing.T) {
 			`{ name = "x"; srcs = [ ]; }`,
 			"srcs is empty"},
 		{"bad session",
-			`{ name = "x"; session = "sticky"; srcs = [ { src = "."; branch = "b/x"; } ]; }`,
+			`{ name = "x"; backend = "microsandbox"; session = "sticky"; srcs = [ { src = "."; branch = "b/x"; } ]; }`,
 			"unknown session mode"},
 	}
 	for _, c := range cases {
@@ -156,8 +156,8 @@ func TestProfileDeprecatedAliases(t *testing.T) {
 // TestImageRm: `image rm` resolves the engine + image and calls the removal
 // seam; idempotent, prints what it removed.
 func TestImageRm(t *testing.T) {
-	fakePodman(t)
-	t.Setenv("SANDBOXER_ENGINE", "podman")
+	fakeMsb(t)
+	t.Setenv("SANDBOXER_IMAGE", "") // the stock default, not fakeMsb's custom ref
 	var got struct{ engine, image string }
 	old := backendRemoveImage
 	t.Cleanup(func() { backendRemoveImage = old })
@@ -169,8 +169,8 @@ func TestImageRm(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("image rm = %d, %s", code, errs)
 	}
-	if got.engine != "podman" || got.image != config.DefaultImage {
-		t.Errorf("image rm removed (%q, %q), want (podman, %q)", got.engine, got.image, config.DefaultImage)
+	if got.engine != "microsandbox" || got.image != config.DefaultImage {
+		t.Errorf("image rm removed (%q, %q), want (microsandbox, %q)", got.engine, got.image, config.DefaultImage)
 	}
 	if !strings.Contains(out, config.DefaultImage) {
 		t.Errorf("image rm output = %q, want the removed image", out)
@@ -181,8 +181,7 @@ func TestImageRm(t *testing.T) {
 // the pins stamp — resolved on the HOST via git on a cold cache (no engine), so
 // a docker-less host removes a variant without a resolver container.
 func TestImageRmVariant(t *testing.T) {
-	fakePodman(t)
-	t.Setenv("SANDBOXER_ENGINE", "podman")
+	fakeMsb(t)
 	cfg := filepath.Join(t.TempDir(), "img.nix")
 	if err := os.WriteFile(cfg, []byte("{ name = \"feat\"; image.packages = [ \"ripgrep\" ]; }\n"), 0o644); err != nil {
 		t.Fatal(err)

@@ -186,7 +186,7 @@ func TestResolveProfileFileUsesRoot(t *testing.T) {
 	cfg := config.ConfigPathIn(root)
 
 	// Multi-profile config under root: a positional selects a section, found via root.
-	if err := os.WriteFile(cfg, []byte("{ profiles.svc.backend = \"docker\"; }\n"), 0o644); err != nil {
+	if err := os.WriteFile(cfg, []byte("{ profiles.svc.backend = \"microsandbox\"; }\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if f, p, err := resolveProfileFile("", root, "svc"); err != nil || f != cfg || p != "svc" {

@@ -63,17 +63,18 @@ func (e exitErr) Error() string { return fmt.Sprintf("exited %d", e.code) }
 func newRootCmd() *cobra.Command {
 	root := &cobra.Command{
 		Use:           "sandboxer",
-		Short:         "Config-driven, multi-agent, containerized dev sandboxes",
+		Short:         "Config-driven, multi-agent, microVM-isolated dev sandboxes",
 		Long:          rootLong,
 		Version:       Version,
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		// sandboxer is a HOST tool. The binary is not baked into the toolbox image
-		// (egress is a separate squid sidecar), so it is normally absent inside the
-		// sandbox; this guard is belt-and-suspenders for a custom image that bakes
-		// it in anyway — deny-all when SANDBOXER_IN_CONTAINER is set. The agent
-		// works on the sandbox worktree; lifecycle and cleanup (create/rm/clean)
-		// run from the host.
+		// (egress is the microVM runner's own network policy — the binary is never
+		// in the network path), so it is normally absent inside the sandbox; this
+		// guard is belt-and-suspenders for a custom image that bakes it in anyway —
+		// deny-all when SANDBOXER_IN_CONTAINER is set. The agent works on the
+		// sandbox worktree; lifecycle and cleanup (create/rm/clean) run from the
+		// host.
 		PersistentPreRunE: func(cmd *cobra.Command, _ []string) error {
 			if inContainer() {
 				return fmt.Errorf("sandboxer is a host tool and is not available inside the sandbox — run %q on the host", cmd.Name())
@@ -130,9 +131,8 @@ var commandGroups = map[string]string{
 	"show":  groupData,
 	"path":  groupData,
 
-	"compose": groupOther,
-	"agents":  groupOther,
-	"doctor":  groupOther,
+	"agents": groupOther,
+	"doctor": groupOther,
 }
 
 // commandFactories is populated by each command file's init() so the command
@@ -148,7 +148,7 @@ const rootLong = `sandboxer — config-driven isolated sandboxes for coding agen
 A sandbox exposes SOURCES: git repos checked out into per-sandbox worktrees
 under the project's ./sandboxes/<slug>/<branch>/<repo> (auto-git-ignored;
 relocatable via the profile's worktreesDir) — every source names its branch
-explicitly, and the branch names the dirs its worktree sits under. The container
+explicitly, and the branch names the dirs its worktree sits under. The sandbox
 sees ONLY the files the srcs select — git metadata never enters it — so the
 agent edits files while your working tree, branches and git stay untouched;
 you review and commit the result with plain git on the host. srcs entries can
@@ -156,10 +156,11 @@ narrow a repo with directory include patterns ("/src/", "**/generated/"),
 span several repos, or pin an existing branch/worktree; other trees come in
 via extraMounts.
 
-The agent runs inside a podman/docker container built from the toolbox image
-(the agents baked in — see 'sandboxer agents'); each sandbox has its own
-isolated home, and network/proxy are wired per-config. Credentials never come
-from the host — log in or export keys inside the sandbox.
+The agent runs inside a real microVM (libkrun — microsandbox or smolvm) booted
+from the toolbox image (the agents baked in — see 'sandboxer agents'); each
+sandbox has its own isolated home, and network/proxy are wired per-config.
+Credentials never come from the host — log in or export keys inside the
+sandbox.
 
 Config: flags + SANDBOXER_* env, plus sandboxer.nix for the structured fields
 (srcs, extraMounts, env, setup, tools, image — evaluated with a restricted nix

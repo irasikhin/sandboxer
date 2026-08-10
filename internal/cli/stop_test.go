@@ -31,9 +31,6 @@ func stubStopSession(t *testing.T, err error) *[]seamCall {
 // that was never started (missing container) takes the exact same path.
 func TestStopHappyPath(t *testing.T) {
 	project := sessionProject(t)
-	// Pin the engine so the resolved seam value does not depend on whether the
-	// host happens to have docker on PATH (fakePodman only fakes podman).
-	t.Setenv("SANDBOXER_ENGINE", "docker")
 	calls := stubStopSession(t, nil)
 
 	code, out, errs := run("stop", "feat", "--src", project)
@@ -41,8 +38,8 @@ func TestStopHappyPath(t *testing.T) {
 		t.Fatalf("stop = %d, %s", code, errs)
 	}
 	wantBase := config.StateDir(project)
-	if len(*calls) != 1 || (*calls)[0] != (seamCall{"docker", "feat", wantBase}) {
-		t.Errorf("stop calls = %+v, want [docker feat %s]", *calls, wantBase)
+	if len(*calls) != 1 || (*calls)[0] != (seamCall{"microsandbox", "feat", wantBase}) {
+		t.Errorf("stop calls = %+v, want [microsandbox feat %s]", *calls, wantBase)
 	}
 	name := backend.SessionName("feat", wantBase)
 	if !strings.Contains(out, name) || !strings.Contains(out, "sandboxer enter feat") {
@@ -64,7 +61,7 @@ func TestStopFailureSurfaces(t *testing.T) {
 // TestStopNoSandbox: with nothing to act on, stop fails before any seam call.
 func TestStopNoSandbox(t *testing.T) {
 	project := newProject(t)
-	fakePodman(t)
+	fakeMsb(t)
 	calls := stubStopSession(t, nil)
 
 	code, _, errs := run("stop", "--src", project)
@@ -86,12 +83,13 @@ func TestStopEngineLessHost(t *testing.T) {
 		t.Fatalf("create: %d %s", code, errs)
 	}
 	calls := stubStopSession(t, nil)
-	t.Setenv("PATH", "") // no podman/docker discoverable
-	t.Setenv("SANDBOXER_ENGINE", "")
+	t.Setenv("PATH", "") // no smolvm/msb discoverable
+	t.Setenv("SANDBOXER_MSB", "/nonexistent/msb-xyz")
+	t.Setenv("SANDBOXER_SMOLVM", "/nonexistent/smolvm-xyz")
 
 	code, _, errs := run("stop", "feat", "--src", project)
-	if code != 1 || !strings.Contains(errs, "docker or podman") {
-		t.Errorf("engine-less stop = (%d, %q), want exit 1 with the engine hint", code, errs)
+	if code != 1 || !strings.Contains(errs, "msb on PATH") {
+		t.Errorf("runner-less stop = (%d, %q), want exit 1 with the runner hint", code, errs)
 	}
 	if len(*calls) != 0 {
 		t.Errorf("no engine, no seam call; got %+v", *calls)

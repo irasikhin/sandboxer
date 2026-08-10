@@ -99,9 +99,7 @@ func newCreateCmd() *cobra.Command {
 			for _, s := range t.base.Srcs(t.slug) {
 				fmt.Fprintf(cmd.ErrOrStderr(), "sandboxer: src %s\n", srcLine(s))
 			}
-			warnIgnoredRoutes(cmd.ErrOrStderr(), rtCreate)
 			warnOpenNetwork(cmd.ErrOrStderr(), rtCreate, t.profile)
-			warnMicrovmIgnored(cmd.ErrOrStderr(), rtCreate, t.profile)
 			warnMicrovmProxy(cmd.ErrOrStderr(), rtCreate)
 			out := cmd.OutOrStdout()
 			fmt.Fprintf(out, "sandbox %q created: %s\n", t.slug, t.base.SandboxDir(t.slug))
@@ -118,7 +116,7 @@ func newCreateCmd() *cobra.Command {
 	fl := cmd.Flags()
 	fl.StringVar(&f.src, "src", "", "project root")
 	fl.StringVarP(&f.config, "config", "f", "", "profile file (default: the project sandboxer.nix; pick a profiles section by name)")
-	fl.StringVar(&f.backend, "backend", "", "backend: docker | podman | microvm | microsandbox")
+	fl.StringVar(&f.backend, "backend", "", "backend: microsandbox | microvm")
 	fl.StringVar(&f.domains, "allow-domains", "", "egress allowlist (csv)")
 	return cmd
 }
@@ -130,19 +128,19 @@ func newEnterCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "enter [slug|profile|file.nix]",
 		Short: "Open an interactive shell inside the sandbox",
-		Long: `Open a shell inside the sandbox, attached to an in-container tmux
+		Long: `Open a shell inside the sandbox, attached to an in-sandbox tmux
 session (detach: Ctrl-Space d; the session and anything running in it keep going
 — a later enter drops straight back in, and a second terminal can attach the
 same session in parallel). By default the shell runs in the persistent
-session container; --ephemeral runs a one-shot container instead. A sandbox
+session machine; --ephemeral runs a one-shot machine instead. A sandbox
 that doesn't exist yet is created first.
 
-The tmux server lives INSIDE the container (tmux -L sandboxer, system
+The tmux server lives INSIDE the sandbox (tmux -L sandboxer, system
 /etc/tmux.conf: mouse on, sandboxer prompt in every pane; the prefix is
 Ctrl-Space, so Ctrl-Space c opens a new window). --session opens a separate
-named session in the same container.
+named session in the same machine.
 
-When a replaced container's saved layout is restored, panes that were running
+When a replaced machine's saved layout is restored, panes that were running
 a cataloged agent relaunch it with its resume command (claude --continue) —
 disable with autoResume = false in the profile, or SANDBOXER_NO_RESUME=1.`,
 		Example: `  # enter the active sandbox (see: sandboxer use)
@@ -154,7 +152,7 @@ disable with autoResume = false in the profile, or SANDBOXER_NO_RESUME=1.`,
   # a second terminal into the same tmux session
   sandboxer enter feat
 
-  # a separate tmux session in the same container
+  # a separate tmux session in the same machine
   sandboxer enter feat --session side`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -221,9 +219,7 @@ disable with autoResume = false in the profile, or SANDBOXER_NO_RESUME=1.`,
 			for _, s := range t.base.Srcs(t.slug) {
 				fmt.Fprintf(narrate, "sandboxer: src %s\n", srcLine(s))
 			}
-			warnIgnoredRoutes(errOut, rt)
 			warnOpenNetwork(errOut, rt, t.profile)
-			warnMicrovmIgnored(errOut, rt, t.profile)
 			warnMicrovmProxy(errOut, rt)
 			engine, err := backend.ResolveEngine(rt.Backend, config.LoadDefaults())
 			if err != nil {
@@ -233,11 +229,7 @@ disable with autoResume = false in the profile, or SANDBOXER_NO_RESUME=1.`,
 				return err
 			}
 			seedHostConfigs(t, narrate)
-			nested, err := prepareNested(t, engine, narrate)
-			if err != nil {
-				return err
-			}
-			if err := runSetup(t, rt, engine, nested, f.noSetup, narrate); err != nil {
+			if err := runSetup(t, rt, engine, f.noSetup, narrate); err != nil {
 				return err
 			}
 			name := backend.SessionName(t.slug, t.base.Dir)
@@ -260,18 +252,16 @@ disable with autoResume = false in the profile, or SANDBOXER_NO_RESUME=1.`,
 				DestGen:          t.base.Gen(t.slug),
 				AuthEnv:          hostAuthEnv(t.profile),
 				RT:               rt, Profile: t.profile,
-				ProfileJSONPath:   t.base.ProfileJSONPath(t.slug),
-				NestedIDFiles:     nested.IDs,
-				NestedSeccompPath: nested.Seccomp,
-				Mem:               rt.Mem, CPU: rt.CPU, Pids: rt.Pids,
+				ProfileJSONPath: t.base.ProfileJSONPath(t.slug),
+				Mem:             rt.Mem, CPU: rt.CPU,
 				Interactive: true, Args: tmuxEnterArgs(sessionName),
 				NoEgress: noEgress(),
 				Stdin:    cmd.InOrStdin(), Stdout: cmd.OutOrStdout(), Stderr: errOut,
 			}
-			// Decide the container shape BEFORE announcing it. The banner
+			// Decide the session shape BEFORE announcing it. The banner
 			// promises detach semantics, and announcing first told the user
-			// "exiting keeps the container running" and then handed them a
-			// `run --rm` container, where detaching tmux exits the container's
+			// "exiting keeps the machine running" and then handed them a
+			// one-shot machine, where detaching tmux exits the machine's
 			// main process and takes the whole session with it.
 			useSession := false
 			staleWhy := "" // non-empty: attach to the running stale session as-is
@@ -280,14 +270,14 @@ disable with autoResume = false in the profile, or SANDBOXER_NO_RESUME=1.`,
 				o.BaseDir = t.base.Dir
 				// A session running with a stale config (profile changed or image
 				// rebuilt) is never torn down silently — but it is not sidestepped
-				// into a one-shot container either. That fallback handed the user a
-				// `run --rm` container where Ctrl-Space d destroys everything, left
+				// into a one-shot machine either. That fallback handed the user a
+				// one-shot machine where Ctrl-Space d destroys everything, left
 				// the real session unreachable, and — because nothing ever converged
 				// it — did so again on EVERY later enter: a permanent one-shot trap.
 				// So ask the session what it is holding: nothing (SessionIdle) means
 				// there is nothing to lose, so converge it; a live tmux session holds
 				// the user's agent and is attached as-is, with the pending config
-				// called out. Either way enter lands in the session container, so
+				// called out. Either way enter lands in the session machine, so
 				// detaching is always safe. --recreate forces the rebuild regardless.
 				// A dest this enter had to (re)create is the same exception as
 				// before: a session from before the deletion bind-mounts the OLD
@@ -346,7 +336,7 @@ disable with autoResume = false in the profile, or SANDBOXER_NO_RESUME=1.`,
 			switch {
 			case staleWhy != "":
 				// Attach to what is already running — deliberately NOT through
-				// EnsureSession, which would recreate the stale container.
+				// EnsureSession, which would recreate the stale machine.
 				code, runErr = backendExecSession(o, name, tmuxEnterArgs(sessionName))
 				attached = true
 			case useSession:
@@ -366,7 +356,7 @@ disable with autoResume = false in the profile, or SANDBOXER_NO_RESUME=1.`,
 				// The attach returned — the user detached (session still live)
 				// or exited it. Refresh the saved layout NOW, not only at
 				// stop/recreate, so the freshest state survives an ungraceful
-				// container death (host reboot, engine restart) — and a
+				// machine death (host reboot, engine restart) — and a
 				// deliberate full exit resets it, keeping the exit banner's
 				// "the next enter opens a fresh one" true.
 				backendSyncSessionState(engine, name, o.SessionStatePath)
@@ -387,9 +377,9 @@ disable with autoResume = false in the profile, or SANDBOXER_NO_RESUME=1.`,
 	}
 	bindExisting(cmd, &f)
 	cmd.Flags().BoolVar(&f.noSetup, "no-setup", false, "skip the profile's one-time setup script")
-	cmd.Flags().BoolVar(&f.ephemeral, "ephemeral", false, "one-shot container instead of the persistent session")
+	cmd.Flags().BoolVar(&f.ephemeral, "ephemeral", false, "one-shot machine instead of the persistent session")
 	cmd.Flags().BoolVar(&f.recreate, "recreate", false, "force session rebuild even if running (picks up config changes)")
-	cmd.Flags().StringVar(&sessionName, "session", "main", "tmux session name inside the container")
+	cmd.Flags().StringVar(&sessionName, "session", "main", "tmux session name inside the sandbox")
 	cmd.Flags().BoolVarP(&quiet, "quiet", "q", false, "suppress the progress narration (warnings and errors still print)")
 	return cmd
 }
@@ -451,9 +441,7 @@ composes with scripts and CI.`,
 				return err
 			}
 			fmt.Fprintln(narrate, configLine(rt, t.slug, t.profile, backendLabel(rt)))
-			warnIgnoredRoutes(cmd.ErrOrStderr(), rt)
 			warnOpenNetwork(cmd.ErrOrStderr(), rt, t.profile)
-			warnMicrovmIgnored(cmd.ErrOrStderr(), rt, t.profile)
 			warnMicrovmProxy(cmd.ErrOrStderr(), rt)
 			engine, err := backend.ResolveEngine(rt.Backend, config.LoadDefaults())
 			if err != nil {
@@ -463,11 +451,7 @@ composes with scripts and CI.`,
 				return err
 			}
 			seedHostConfigs(t, narrate)
-			nested, err := prepareNested(t, engine, narrate)
-			if err != nil {
-				return err
-			}
-			if err := runSetup(t, rt, engine, nested, f.noSetup, narrate); err != nil {
+			if err := runSetup(t, rt, engine, f.noSetup, narrate); err != nil {
 				return err
 			}
 			image, spec, err := resolveImage(t.profile, cmd.ErrOrStderr())
@@ -488,16 +472,14 @@ composes with scripts and CI.`,
 				DestGen:   t.base.Gen(t.slug),
 				AuthEnv:   hostAuthEnv(t.profile),
 				RT:        rt, Profile: t.profile,
-				ProfileJSONPath:   t.base.ProfileJSONPath(t.slug),
-				NestedIDFiles:     nested.IDs,
-				NestedSeccompPath: nested.Seccomp,
-				Mem:               rt.Mem, CPU: rt.CPU, Pids: rt.Pids,
+				ProfileJSONPath: t.base.ProfileJSONPath(t.slug),
+				Mem:             rt.Mem, CPU: rt.CPU,
 				Interactive: true, Args: rest,
 				NoEgress: noEgress(),
 				Stdin:    cmd.InOrStdin(), Stdout: cmd.OutOrStdout(), Stderr: cmd.ErrOrStderr(),
 			}
 			// exec rides an existing running+fresh session but NEVER creates or
-			// replaces the daemon container — that is enter's job. Anything else
+			// replaces the daemon machine — that is enter's job. Anything else
 			// (no session, stopped, stale — by profile hash or by a rebuilt
 			// image under the same tag) falls back to a one-shot run.
 			useSession := false
@@ -543,14 +525,14 @@ composes with scripts and CI.`,
 	}
 	bindExisting(cmd, &f)
 	cmd.Flags().BoolVar(&f.noSetup, "no-setup", false, "skip the profile's one-time setup script")
-	cmd.Flags().BoolVar(&f.ephemeral, "ephemeral", false, "one-shot container instead of the persistent session")
+	cmd.Flags().BoolVar(&f.ephemeral, "ephemeral", false, "one-shot machine instead of the persistent session")
 	cmd.Flags().BoolVarP(&quiet, "quiet", "q", false, "suppress the progress narration (warnings and errors still print)")
 	return cmd
 }
 
 // seedHostConfigs seeds the sandbox home from the host's agent configs when
 // the profile opts in (hostConfigs = true) — after EnsureHome, before anything
-// runs in the container. Copy-only and never-overwrite semantics live in
+// runs in the sandbox. Copy-only and never-overwrite semantics live in
 // sandbox.SeedHome; this is just the profile gate.
 func seedHostConfigs(t *target, w io.Writer) {
 	if t.profile != nil && t.profile.HostConfigs {
@@ -560,7 +542,7 @@ func seedHostConfigs(t *target, w io.Writer) {
 
 // hostAuthEnv collects the registry agents' auth env vars that are set (and
 // non-empty) in the HOST environment — CLAUDE_CODE_OAUTH_TOKEN, API keys — for
-// the container env, gated by the same hostConfigs opt-in as the config seed.
+// the guest env, gated by the same hostConfigs opt-in as the config seed.
 // This is the durable half of host auth: a long-lived token survives any
 // number of sandboxes, while a copied OAuth credentials file dies with the
 // next refresh-token rotation (see registry seed skip). Sorted, deduped: the
@@ -592,34 +574,6 @@ func hostAuthEnv(p *config.Profile) []string {
 
 // noEgress reports whether the egress allowlist is disabled via the environment.
 func noEgress() bool { return os.Getenv("SANDBOXER_NO_EGRESS") == "1" }
-
-// warnIgnoredRoutes notes that egress.routes take no effect in direct mode
-// (egress.enabled = false, or SANDBOXER_NO_EGRESS): routes are a property of the
-// allowlist squid sidecar, which is not in the path when the agent talks to
-// egress.proxy directly. Best-effort advisory on the configLine path.
-func warnIgnoredRoutes(w io.Writer, rt config.Runtime) {
-	if len(rt.Routes) > 0 && (!rt.Egress || noEgress()) {
-		fmt.Fprintln(w, "sandboxer: egress.routes ignored — egress is off (routes need the allowlist sidecar; "+
-			"in direct mode the agent talks to egress.proxy directly)")
-	}
-}
-
-// warnMicrovmIgnored notes the container-only knobs a microVM sandbox silently
-// drops: a PID cap (smolvm has no equivalent) and nestedContainers (a real VM
-// runs container engines natively, so the relaxations are moot). Egress
-// features microvm cannot honor are a hard config error (ValidateBackend), not
-// a warning.
-func warnMicrovmIgnored(w io.Writer, rt config.Runtime, prof *config.Profile) {
-	if !config.IsMicrovmBackend(rt.Backend) {
-		return
-	}
-	if rt.Pids > 0 {
-		fmt.Fprintln(w, "sandboxer: limits.pids ignored — the microvm backend has no PID-count cap")
-	}
-	if prof != nil && prof.NestedContainers {
-		fmt.Fprintln(w, "sandboxer: nestedContainers ignored — a microVM runs container engines natively")
-	}
-}
 
 // warnMicrovmProxy notes the egress posture when a microvm sandbox has BOTH a
 // proxy and an allowlist: the proxy is the egress path (open network at the VM
@@ -654,7 +608,7 @@ func warnOpenNetwork(w io.Writer, rt config.Runtime, prof *config.Profile) {
 	fmt.Fprintln(w, msg)
 }
 
-// tmuxLaunch wraps an in-container launch command (the then-branch) with the
+// tmuxLaunch wraps an in-guest launch command (the then-branch) with the
 // tmux-presence guard and the plain-shell fallback, so both a fresh attach and
 // a layout restore degrade identically on an older cached toolbox image that
 // predates tmux — the system /etc/tmux.conf routes every pane through the rc.sh
@@ -669,19 +623,19 @@ func tmuxLaunch(primary string) []string {
 			"test -r /etc/sandboxer/rc.sh && exec bash --rcfile /etc/sandboxer/rc.sh -i || exec bash -i; fi"}
 }
 
-// tmuxEnterArgs is the in-container command for `enter`: attach to (or create)
-// the named session on the in-container `tmux -L sandboxer` server.
+// tmuxEnterArgs is the in-guest command for `enter`: attach to (or create)
+// the named session on the in-guest `tmux -L sandboxer` server.
 func tmuxEnterArgs(session string) []string {
 	return tmuxLaunch("exec tmux -L sandboxer new-session -A -s " + session)
 }
 
 // tmuxRestoreArgs is tmuxEnterArgs plus a one-time layout restore: when a saved
-// session state exists at statePath (written before this container replaced the
+// session state exists at statePath (written before this machine replaced the
 // last one), the attach first rebuilds the recorded windows/panes and then
 // attaches. The rebuild is idempotent — a live session is left untouched by the
 // `has-session` guard baked into the script — so with no saved state it is
 // exactly tmuxEnterArgs, and callers use it unconditionally. The saved state is
-// NOT consumed here (it is deleted only by rm/clean): a fresh container has no
+// NOT consumed here (it is deleted only by rm/clean): a fresh machine has no
 // live session, so it rebuilds; a re-enter into a live one skips straight to the
 // attach. resume maps a recorded pane agent to its relaunch commands
 // (resumeFor); nil restores layout only.
@@ -718,69 +672,69 @@ func validateSessionName(name string) error {
 	return nil
 }
 
-// persistentEnterBanner names the session container and separates the two
+// persistentEnterBanner names the session machine and separates the two
 // ways out, because they are NOT equivalent and conflating them cost a user
 // their session: detaching leaves the tmux session running, while exiting the
 // shell closes its last pane — which ends the tmux session, and with tmux's
-// default exit-empty the whole in-container server. The CONTAINER survives
+// default exit-empty the whole in-guest server. The MACHINE survives
 // either way, which is what the old one-liner said, and that half-truth read
-// as "exiting is safe too". Only printed once the session container is
+// as "exiting is safe too". Only printed once the session machine is
 // actually the thing about to run (see enter's useSession).
-func persistentEnterBanner(slug, engine, dir, container string) string {
+func persistentEnterBanner(slug, engine, dir, machine string) string {
 	return fmt.Sprintf(
 		"sandboxer: persistent session %s in %q (%s) — %s\n"+
 			"sandboxer: Ctrl-Space d DETACHES — the tmux session and everything in it keep running; reattach: sandboxer enter %s\n"+
-			"sandboxer: exiting the shell ENDS that tmux session (the container itself stays) — the next enter opens a fresh one",
-		container, slug, engine, dir, slug)
+			"sandboxer: exiting the shell ENDS that tmux session (the machine itself stays) — the next enter opens a fresh one",
+		machine, slug, engine, dir, slug)
 }
 
 // staleSessionEnterBanner covers the one case where enter attaches to a
-// session it cannot converge: the container is running with a stale config but
+// session it cannot converge: the machine is running with a stale config but
 // holds a live tmux session, so rebuilding it would kill whatever is in there.
 // Detach semantics are the persistent ones (that is the whole point — the user
 // lands in their real session), and the pending config is stated with the one
 // command that applies it, so "my change did nothing" is never a mystery.
-func staleSessionEnterBanner(slug, engine, dir, container, why string) string {
+func staleSessionEnterBanner(slug, engine, dir, machine, why string) string {
 	return fmt.Sprintf(
 		"sandboxer: persistent session %s in %q (%s) — %s\n"+
 			"sandboxer: attaching as-is: the session is stale (%s) but is running a tmux session — not rebuilding it under you\n"+
 			"sandboxer: the new configuration applies once it is empty, or now: sandboxer stop %s && sandboxer enter %s\n"+
 			"sandboxer: Ctrl-Space d DETACHES — the tmux session and everything in it keep running; reattach: sandboxer enter %s\n"+
-			"sandboxer: exiting the shell ENDS that tmux session (the container itself stays) — the next enter opens a fresh one",
-		container, slug, engine, dir, why, slug, slug, slug)
+			"sandboxer: exiting the shell ENDS that tmux session (the machine itself stays) — the next enter opens a fresh one",
+		machine, slug, engine, dir, why, slug, slug, slug)
 }
 
 // staleExecNotice explains exec's one-shot fallback for a stale session. A
-// single command in a throwaway container costs nothing and runs with the
+// single command in a throwaway machine costs nothing and runs with the
 // configuration just asked for, so the fallback is right here — but the old
 // wording ("re-enter to refresh it") promised more than enter delivers: a
 // session still holding a tmux session is attached, not rebuilt. Name both
 // ways it actually refreshes.
-func staleExecNotice(container, why, slug string) string {
+func staleExecNotice(machine, why, slug string) string {
 	return fmt.Sprintf("sandboxer: session %s is stale (%s) — running one-shot; it refreshes on the next enter"+
 		" once that session is empty, or now: sandboxer stop %s && sandboxer enter %s",
-		container, why, slug, slug)
+		machine, why, slug, slug)
 }
 
-// oneShotEnterBanner is the honest banner for a `run --rm` container: there,
-// tmux is the container's MAIN process, so detaching (Ctrl-Space d) exits it
-// and the container — and the session — go with it. That is the opposite of
+// oneShotEnterBanner is the honest banner for an ephemeral machine: there,
+// tmux is the machine's MAIN workload, so detaching (Ctrl-Space d) exits it
+// and the machine — and the session — go with it. That is the opposite of
 // what the persistent banner promises, which is why the two are chosen only
 // after the mode is decided. why names which ephemeral switch is in force —
 // the persistent path never lands here: a stale session is converged or
-// attached, never sidestepped into a container detach would destroy.
+// attached, never sidestepped into a machine detach would destroy.
 func oneShotEnterBanner(slug, engine, dir, why string) string {
-	b := fmt.Sprintf("sandboxer: one-shot container in %q (%s) — %s\n", slug, engine, dir)
+	b := fmt.Sprintf("sandboxer: one-shot machine in %q (%s) — %s\n", slug, engine, dir)
 	if why != "" {
 		b += "sandboxer: " + why + "\n"
 	}
-	return b + "sandboxer: this container is --rm: Ctrl-Space d or exiting ENDS it and everything running in it" +
+	return b + "sandboxer: this machine is one-shot: Ctrl-Space d or exiting ENDS it and everything running in it" +
 		" (committed and uncommitted work in the source worktrees is on the host and survives)"
 }
 
 // ephemeralWhy names WHICH of the three ephemeral switches is in force, in the
 // precedence order config.ResolveRuntime applies (flag, then the env
-// kill-switch, then the profile). Without it a one-shot container is a silent
+// kill-switch, then the profile). Without it a one-shot machine is a silent
 // surprise when the switch lives somewhere the user is not looking — an
 // exported SANDBOXER_SESSION outranks the profile.
 func ephemeralWhy(f commonFlags, prof *config.Profile) string {
@@ -795,7 +749,7 @@ func ephemeralWhy(f commonFlags, prof *config.Profile) string {
 	return "ephemeral mode"
 }
 
-// backendRun is the container-run seam, overridable in tests so the setup
+// backendRun is the one-shot-run seam, overridable in tests so the setup
 // orchestration (gate → run → stamp) can be exercised without a real engine.
 var backendRun = backend.Run
 
@@ -815,113 +769,7 @@ var (
 	// string reader — which is exactly the "never ask" case, so without the
 	// seam the prompt's ANSWER paths could not be exercised at all.
 	backendIsTerminal = backend.IsInteractiveTerminal
-	// sandboxWriteNestedIDs is the id-file generation seam: the real thing
-	// reads the HOST's /etc/subuid, whose content a test cannot control.
-	sandboxWriteNestedIDs = (*sandbox.Base).WriteNestedIDFiles
-	// sandboxEnsureSeccomp is the seccomp-profile write seam, so tests can
-	// exercise prepareNested's fatal-write branch without a real disk failure.
-	sandboxEnsureSeccomp = (*sandbox.Base).EnsureSeccompProfile
 )
-
-// prepareNestedIDs generates the per-sandbox identity files a nestedContainers
-// profile mounts over /etc/{passwd,group,subuid,subgid} (multi-uid nested
-// podman — see backend.nestedContainerArgs) and returns their paths for
-// RunOpts. A no-op zero value for every other profile. Generation failing, or
-// finding no subordinate ranges on the host, is never fatal: the sandbox still
-// runs, the nested podman just stays single-uid — but on a podman engine,
-// where multi-uid WOULD have worked, the missing host ranges are worth a
-// pointer at the fix.
-func prepareNestedIDs(t *target, engine string, errOut io.Writer) backend.NestedIDFiles {
-	if t.profile == nil || !t.profile.NestedContainers || inContainer() {
-		return backend.NestedIDFiles{}
-	}
-	if engine != "podman" {
-		// Silence here was its own trap: a docker user got no signal at all
-		// and met the limit as a postgres EINVAL inside the sandbox.
-		fmt.Fprintf(errOut, "sandboxer: nested containers run single-uid on a %s engine — images that "+
-			"switch user (postgres) need backend = \"podman\"\n", engine)
-	}
-	ok, err := sandboxWriteNestedIDs(t.base, t.slug)
-	if err != nil {
-		fmt.Fprintf(errOut, "sandboxer: nested id files: %v (nested podman stays single-uid)\n", err)
-		return backend.NestedIDFiles{}
-	}
-	if !ok {
-		if engine == "podman" {
-			fmt.Fprintln(errOut, "sandboxer: no subordinate uid/gid ranges for this user on the host "+
-				"(/etc/subuid, /etc/subgid) — the nested podman stays single-uid, so images that "+
-				"switch user won't run; grant a range (usermod --add-subuids/--add-subgids) to fix")
-		}
-		return backend.NestedIDFiles{}
-	}
-	return backend.NestedIDFiles(t.base.NestedIDFiles(t.slug))
-}
-
-// nestedSeccompEnv is the escape hatch for an engine that rejects the
-// generated profile: =unconfined restores the pre-profile posture (no syscall
-// filter). Any other value is ignored.
-const nestedSeccompEnv = "SANDBOXER_NESTED_SECCOMP"
-
-// wantsNestedSeccomp reports whether this invocation runs the sandbox under
-// the generated profile at all: the profile has to have opted in, and the
-// escape hatch has to be unset.
-func wantsNestedSeccomp(t *target) bool {
-	return t.profile != nil && t.profile.NestedContainers && !inContainer() &&
-		os.Getenv(nestedSeccompEnv) != "unconfined"
-}
-
-// nestedSeccompPath is the read-only twin of prepareNestedSeccomp: the exact
-// path the argv would carry, computed without writing anything — for show and
-// compose, whose argv (and so the session hash it feeds) must match what enter
-// built. The name is content-addressed, so path equality is content equality.
-func nestedSeccompPath(t *target) (string, error) {
-	if !wantsNestedSeccomp(t) {
-		return "", nil
-	}
-	return t.base.SeccompProfilePath()
-}
-
-// prepareNestedSeccomp materializes the nested-containers seccomp profile
-// under _meta and returns its path for RunOpts ("" = knob off, or the
-// unconfined escape hatch). Unlike the never-fatal id files, a failed WRITE is
-// a hard error: entering anyway would mean silently falling back to no syscall
-// filter — a security regression, not a degraded feature.
-func prepareNestedSeccomp(t *target, errOut io.Writer) (string, error) {
-	if !wantsNestedSeccomp(t) {
-		if t.profile != nil && t.profile.NestedContainers && !inContainer() {
-			fmt.Fprintln(errOut, "sandboxer: SANDBOXER_NESTED_SECCOMP=unconfined — the sandbox runs with NO syscall filter")
-		}
-		return "", nil
-	}
-	path, err := t.base.SeccompProfilePath()
-	if err != nil {
-		return "", fmt.Errorf("nested seccomp profile: %w", err)
-	}
-	if _, err := sandboxEnsureSeccomp(t.base); err != nil {
-		return "", fmt.Errorf("nested seccomp profile: %w", err)
-	}
-	return path, nil
-}
-
-// nestedRun bundles what a nestedContainers profile adds to a container run —
-// the multi-uid identity files and the seccomp profile path — so the enter and
-// exec paths hand one value to runSetup and RunOpts.
-type nestedRun struct {
-	IDs     backend.NestedIDFiles
-	Seccomp string
-}
-
-// prepareNested runs both nested-containers preparation steps. The id files
-// degrade with a notice; the seccomp profile is the fatal one (see
-// prepareNestedSeccomp).
-func prepareNested(t *target, engine string, errOut io.Writer) (nestedRun, error) {
-	ids := prepareNestedIDs(t, engine, errOut)
-	seccompPath, err := prepareNestedSeccomp(t, errOut)
-	if err != nil {
-		return nestedRun{}, err
-	}
-	return nestedRun{IDs: ids, Seccomp: seccompPath}, nil
-}
 
 // runSetup runs the profile's one-time `setup:` script inside the sandbox before
 // the user/agent takes over. It is gated by a per-sandbox stamp (the script's
@@ -929,7 +777,7 @@ func prepareNested(t *target, engine string, errOut io.Writer) (nestedRun, error
 // under the same isolation and egress allowlist as the sandbox, so network
 // installs need their domains allowed. A non-zero setup is fatal by default —
 // we don't drop the caller into a half-prepared sandbox — and noSetup skips it.
-func runSetup(t *target, rt config.Runtime, engine string, nested nestedRun, noSetup bool, errOut io.Writer) error {
+func runSetup(t *target, rt config.Runtime, engine string, noSetup bool, errOut io.Writer) error {
 	if t.profile == nil {
 		return nil
 	}
@@ -963,26 +811,23 @@ func runSetup(t *target, rt config.Runtime, engine string, nested nestedRun, noS
 	code, err := backendRun(backend.RunOpts{
 		Engine: engine, Image: image, Spec: spec,
 		Dest: t.base.SandboxDir(t.slug), Slug: t.slug,
-		MountDest:         mountDest,
-		MountGen:          mountGen,
-		MountIDs:          mountIDs,
-		SrcMounts:         srcMounts,
-		HomeDir:           t.base.HomeDir(t.slug),
-		DestGen:           t.base.Gen(t.slug),
-		AuthEnv:           hostAuthEnv(t.profile),
-		RT:                rt,
-		Profile:           t.profile,
-		ProfileJSONPath:   t.base.ProfileJSONPath(t.slug),
-		NestedIDFiles:     nested.IDs,
-		NestedSeccompPath: nested.Seccomp,
-		Mem:               rt.Mem,
-		CPU:               rt.CPU,
-		Pids:              rt.Pids,
-		Interactive:       false,
-		Args:              []string{"bash", "-lc", t.profile.Setup},
-		NoEgress:          noEgress(),
-		Stdout:            setupOut,
-		Stderr:            setupOut,
+		MountDest:       mountDest,
+		MountGen:        mountGen,
+		MountIDs:        mountIDs,
+		SrcMounts:       srcMounts,
+		HomeDir:         t.base.HomeDir(t.slug),
+		DestGen:         t.base.Gen(t.slug),
+		AuthEnv:         hostAuthEnv(t.profile),
+		RT:              rt,
+		Profile:         t.profile,
+		ProfileJSONPath: t.base.ProfileJSONPath(t.slug),
+		Mem:             rt.Mem,
+		CPU:             rt.CPU,
+		Interactive:     false,
+		Args:            []string{"bash", "-lc", t.profile.Setup},
+		NoEgress:        noEgress(),
+		Stdout:          setupOut,
+		Stderr:          setupOut,
 	})
 	if err != nil {
 		return fmt.Errorf("setup failed to start: %w", err)

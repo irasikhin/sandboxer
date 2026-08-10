@@ -316,10 +316,10 @@ func truncateLeft(s string, n int) string {
 	return "…" + string(r[len(r)-n+1:])
 }
 
-// hostSessionStates maps baseDir → slug → container status for every project on
-// the host, from one sweep per installed engine (a profile's `backend:` may have
-// put sessions on podman AND docker, or on a microVM runner). Best-effort like
-// projectSessionStates: an engine problem drops that engine's answers only.
+// hostSessionStates maps baseDir → slug → session status for every project on
+// the host, from one sweep per installed runner (a profile's `backend:` may
+// have put sessions on either microVM runner). Best-effort like
+// projectSessionStates: a runner problem drops that runner's answers only.
 func hostSessionStates() map[string]map[string]string {
 	all := map[string]map[string]string{}
 	for _, engine := range backendSweepEngines(config.LoadDefaults()) {
@@ -337,8 +337,8 @@ func hostSessionStates() map[string]map[string]string {
 	return all
 }
 
-// mergeStates folds one engine's slug→status answers into dst, where a
-// "running" verdict wins over another engine's leftover record.
+// mergeStates folds one runner's slug→status answers into dst, where a
+// "running" verdict wins over another runner's leftover record.
 func mergeStates(dst, src map[string]string) {
 	for slug, s := range src {
 		if cur, ok := dst[slug]; !ok || cur != "running" {
@@ -347,11 +347,11 @@ func mergeStates(dst, src map[string]string) {
 	}
 }
 
-// projectSessionStates returns slug→container status for the project's
-// persistent sessions, probing every installed engine (a profile's `backend:`
-// may have put sessions on either). Best-effort: any engine problem only
-// drops that engine's answers, so the listing shows dashes instead of failing
-// on an engine-less host.
+// projectSessionStates returns slug→session status for the project's
+// persistent sessions, probing every installed runner (a profile's `backend:`
+// may have put sessions on either). Best-effort: any runner problem only
+// drops that runner's answers, so the listing shows dashes instead of failing
+// on a runner-less host.
 func projectSessionStates(baseDir string) map[string]string {
 	var states map[string]string
 	for _, engine := range backendSweepEngines(config.LoadDefaults()) {
@@ -368,9 +368,9 @@ func projectSessionStates(baseDir string) map[string]string {
 	return states
 }
 
-// sessionState folds an engine container status into the STATE column:
+// sessionState folds a session's machine status into the STATE column:
 // "running" stays, any other recorded status reads "stopped", and a sandbox
-// without a session container shows "-".
+// without a session machine shows "-".
 func sessionState(states map[string]string, slug string) string {
 	st, ok := states[slug]
 	switch {
@@ -539,7 +539,7 @@ func printSessionBlock(out io.Writer, t *target, rt config.Runtime) {
 	fmt.Fprintf(out, "container: %s\n", s.Container)
 	switch {
 	case s.State == "unknown":
-		fmt.Fprintln(out, "state: unknown (no container engine)")
+		fmt.Fprintln(out, "state: unknown (no microVM runner installed)")
 	case s.State == "none":
 		fmt.Fprintln(out, "state: none (a persistent enter creates it)")
 	case s.Fresh == nil:
@@ -569,10 +569,6 @@ func sessionHashOpts(t *target, rt config.Runtime, engine string) (backend.RunOp
 	if err != nil {
 		return backend.RunOpts{}, false
 	}
-	seccompPath, err := nestedSeccompPath(t)
-	if err != nil {
-		return backend.RunOpts{}, false
-	}
 	return backend.RunOpts{
 		Engine: engine, Image: image, Spec: spec,
 		Dest: t.base.SandboxDir(t.slug), Slug: t.slug, BaseDir: t.base.Dir,
@@ -585,11 +581,7 @@ func sessionHashOpts(t *target, rt config.Runtime, engine string) (backend.RunOp
 		AuthEnv:   hostAuthEnv(t.profile),
 		RT:        rt, Profile: t.profile,
 		ProfileJSONPath: t.base.ProfileJSONPath(t.slug),
-		// Paths only, no generation: the argv (and so the session hash this
-		// feeds) must match what enter built, which mounts them iff they exist.
-		NestedIDFiles:     backend.NestedIDFiles(t.base.NestedIDFiles(t.slug)),
-		NestedSeccompPath: seccompPath,
-		Mem:               rt.Mem, CPU: rt.CPU, Pids: rt.Pids,
+		Mem:             rt.Mem, CPU: rt.CPU,
 		NoEgress: noEgress(),
 	}, true
 }

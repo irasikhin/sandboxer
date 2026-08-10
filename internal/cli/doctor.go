@@ -17,7 +17,6 @@ import (
 	"github.com/irasikhin/sandboxer/internal/backend"
 	"github.com/irasikhin/sandboxer/internal/config"
 	"github.com/irasikhin/sandboxer/internal/registry"
-	"github.com/irasikhin/sandboxer/internal/sandbox"
 )
 
 func init() { register(newDoctorCmd) }
@@ -62,8 +61,8 @@ func newDoctorCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "doctor",
 		Short: "Check the environment and report any issues",
-		Long: `Check that the sandboxer environment is correctly set up: container engine,
-toolbox image, agent credentials, and common configuration issues.
+		Long: `Check that the sandboxer environment is correctly set up: microVM
+runners, toolbox image, agent credentials, and common configuration issues.
 
 Run this after a fresh install or when something isn't working. With
 --strict, any warning makes doctor exit non-zero, so it can gate a CI
@@ -121,8 +120,8 @@ func doctorChecks() []doctorCheck {
 	var checks []doctorCheck
 	d := config.LoadDefaults()
 
-	// Host nix — required to evaluate sandboxer.nix (eval only; images
-	// still build inside a container).
+	// Host nix — required to evaluate sandboxer.nix AND to build the
+	// toolbox image (host-nix build).
 	if _, err := exec.LookPath("nix-instantiate"); err != nil {
 		checks = append(checks, warnCheck("nix",
 			fmt.Sprintf("not found — required to evaluate %s (install: https://nixos.org/download)", config.ConfigFileName)))
@@ -139,57 +138,28 @@ func doctorChecks() []doctorCheck {
 		checks = append(checks, okCheck("git", "available"))
 	}
 
-	// Container engine. Missing docker/podman is only a problem if a profile
-	// still resolves to a container backend — the microVM backends never touch
-	// one, so a docker/podman-less host running every profile on a microVM is
-	// healthy (that is the migration `doctor` is here to shepherd). The
-	// per-profile backend check below is what flags the profiles that would
-	// still fail.
-	engine, engineErr := backend.DetectEngine(d)
-	if engineErr != nil {
-		detail := engineErr.Error()
-		status := "warn"
-		if vmRunnerInstalled(d) {
-			detail = "no docker/podman — fine if every profile selects a microVM backend " +
-				"(microvm/microsandbox); the default backend is still docker, so a profile " +
-				"without `backend:` needs one"
-			status = "info"
-		}
-		checks = append(checks, doctorCheck{"container engine", status, detail})
+	// The microVM runners (smolvm, microsandbox) — the isolation engines the
+	// backends resolve to.
+	checks = append(checks, reportMicrovm(), reportMicrosandbox())
 
-		// On a VM-only host the engine-present branch below never runs, so the
-		// toolbox-image check would be silently missing. Report it from the
-		// microVM store (the shared tar both runners boot from) instead.
-		if engine := firstVMEngine(d); engine != "" {
-			image := d.Image
-			if backend.ImageExists(engine, image) {
-				checks = append(checks, okCheck("toolbox image "+image, "present in the microVM store"))
-			} else {
-				checks = append(checks, warnCheck("toolbox image "+image,
-					"not found — build with: sandboxer image build --backend "+engine))
-			}
-		}
-	} else {
-		checks = append(checks, okCheck("container engine", engine+" available"))
-
-		// Toolbox image.
+	// Toolbox image, reported from the microVM store — the shared tar both
+	// runners boot from. The store check is runner-independent, so the first
+	// installed runner is as good as any; with no runner installed the runner
+	// rows above already carry the warning.
+	if engine := firstVMEngine(d); engine != "" {
 		image := d.Image
 		if backend.ImageExists(engine, image) {
-			checks = append(checks, okCheck("toolbox image "+image, "present"))
+			checks = append(checks, okCheck("toolbox image "+image, "present in the microVM store"))
 		} else {
-			checks = append(checks, warnCheck("toolbox image "+image, "not found — build with: sandboxer image build"))
+			checks = append(checks, warnCheck("toolbox image "+image,
+				"not found — build with: sandboxer image build --backend "+engine))
 		}
 	}
 
-	// microVM backends (smolvm, microsandbox). Reported alongside the
-	// container engine so a host set up for one of them gets the same
-	// at-a-glance check.
-	checks = append(checks, reportMicrovm(), reportMicrosandbox())
-
 	// Persistent sessions: this project's running/stopped tally, plus
-	// orphans whose project dir is gone (their containers survive a
-	// bare `rm -rf` of the project). Every installed engine is probed —
-	// per-profile backends may have put sessions on podman AND docker.
+	// orphans whose project dir is gone (their machines survive a
+	// bare `rm -rf` of the project). Every installed runner is probed —
+	// per-profile backends may have put sessions on either runner.
 	for _, e := range backendSweepEngines(d) {
 		checks = append(checks, reportSessions(e)...)
 	}
@@ -209,7 +179,6 @@ func doctorChecks() []doctorCheck {
 	case fileExists(cfgPath):
 		if doc, err := config.LoadDocument(cfgPath); err == nil {
 			checks = append(checks, okCheck(cfgPath, "parses ok"))
-			checks = append(checks, nestedChecks(doc, d)...)
 			checks = append(checks, profileBackendChecks(doc, d)...)
 		} else {
 			checks = append(checks, warnCheck(cfgPath, err.Error()))
@@ -243,75 +212,16 @@ func doctorChecks() []doctorCheck {
 	return checks
 }
 
-// hostSubIDCounts is the subordinate-range lookup seam — the real one reads
-// the HOST's /etc/subuid, whose content a test cannot control.
-var hostSubIDCounts = sandbox.HostSubIDCounts
-
-// nestedChecks reports, per profile that opted into nestedContainers, whether
-// the host can actually give it a MULTI-uid nested podman — the difference
-// between "podman run postgres" working and dying with EINVAL. Silent for
-// profiles that did not opt in, and for microVM backends (where the knob is
-// warn-and-ignored: a VM runs container engines natively).
-func nestedChecks(doc *config.Document, d config.Defaults) []doctorCheck {
-	var checks []doctorCheck
-	for _, name := range slices.Sorted(maps.Keys(doc.Profiles)) {
-		p := doc.Profiles[name]
-		if !p.NestedContainers {
-			continue
-		}
-		row := "nestedContainers (" + name + ")"
-		backendName := firstNonEmpty(p.Backend, d.Backend)
-		if config.IsMicrovmBackend(backendName) {
-			checks = append(checks, doctorCheck{row, "info",
-				"ignored on " + backendName + " — a microVM runs container engines natively"})
-			continue
-		}
-		engine, err := backend.ResolveEngine(backendName, d)
-		if err != nil {
-			checks = append(checks, warnCheck(row, err.Error()))
-			continue
-		}
-		if engine != "podman" {
-			checks = append(checks, doctorCheck{row, "info",
-				"nested podman is single-uid on a " + engine + " engine — images that switch user " +
-					"(postgres) need backend = \"podman\""})
-			continue
-		}
-		if uids, gids := hostSubIDCounts(); uids == 0 || gids == 0 {
-			checks = append(checks, warnCheck(row,
-				"no subordinate uid/gid ranges for this user (/etc/subuid, /etc/subgid) — the nested "+
-					"podman stays single-uid, so images that switch user won't run; grant a range "+
-					"(usermod --add-subuids/--add-subgids)"))
-			continue
-		}
-		checks = append(checks, okCheck(row, "podman engine + host subordinate ranges — multi-uid nested containers work"))
-	}
-	return checks
-}
-
-// vmRunnerInstalled reports whether any microVM runner is actually installed on
-// this host, so doctor can tell a healthy docker/podman-less VM-only host from a
-// host with no isolation engine at all.
-func vmRunnerInstalled(d config.Defaults) bool {
-	for _, e := range backend.SweepEngines(d) {
-		if backend.IsVMEngine(e) {
-			return true
-		}
-	}
-	return false
-}
-
 // firstVMEngine returns the engine identity of the first installed microVM
-// runner, or "" when none is installed. It backs the VM-only toolbox-image row
+// runner, or "" when none is installed. It backs the toolbox-image row
 // (the tar store check is runner-independent, so the first installed runner is
 // as good as any).
 func firstVMEngine(d config.Defaults) string {
-	for _, e := range backend.SweepEngines(d) {
-		if backend.IsVMEngine(e) {
-			return e
-		}
+	engines := backend.SweepEngines(d)
+	if len(engines) == 0 {
+		return ""
 	}
-	return ""
+	return engines[0]
 }
 
 // profileBackendChecks reports, per profile, whether its effective backend can
@@ -334,8 +244,8 @@ func profileBackendChecks(doc *config.Document, d config.Defaults) []doctorCheck
 
 // reportMicrovm builds doctor's microVM-backend row: whether smolvm is
 // installed (with its version), and on Linux whether /dev/kvm is present. A
-// missing smolvm is a warning, not an error — a host using only the container
-// backend does not need it — with an install hint; a present smolvm without
+// missing smolvm is a warning, not an error — a host running everything on
+// microsandbox does not need it — with an install hint; a present smolvm without
 // KVM is flagged because the backend cannot boot a machine there.
 func reportMicrovm() doctorCheck {
 	const name = "microvm (smolvm)"
@@ -394,7 +304,7 @@ func underWSL() bool {
 
 // reportSessions builds doctor's persistent-session rows for one engine: a
 // running/stopped tally for the current project, and a warning listing
-// orphaned session containers — sandboxer-managed but with their
+// orphaned session machines — sandboxer-managed but with their
 // sandboxer.base directory gone — together with a removal hint. The orphan
 // probe is purely advisory, so its failure is not a finding.
 func reportSessions(engine string) []doctorCheck {

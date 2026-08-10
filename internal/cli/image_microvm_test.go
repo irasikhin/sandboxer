@@ -35,15 +35,11 @@ func TestBuildImageMicrovmRoutesToVMBuild(t *testing.T) {
 
 	var vmImage string
 	var vmSpec toolbox.Spec
-	oldVM, oldC := backendBuildVMImage, toolboxBuild
-	defer func() { backendBuildVMImage, toolboxBuild = oldVM, oldC }()
+	oldVM := backendBuildVMImage
+	defer func() { backendBuildVMImage = oldVM }()
 	backendBuildVMImage = func(_, image string, spec toolbox.Spec, _ io.Writer) error {
 		vmImage = image
 		vmSpec = spec
-		return nil
-	}
-	toolboxBuild = func(toolbox.BuildOpts) error {
-		t.Fatal("the container build must not run for backend=microvm")
 		return nil
 	}
 
@@ -65,7 +61,6 @@ func TestBuildImageMicrovmRoutesToVMBuild(t *testing.T) {
 func TestBuildImageMicrovmNoEngine(t *testing.T) {
 	newProject(t)
 	fakeSmolvmOnPath(t)
-	t.Setenv("SANDBOXER_ENGINE", "")
 
 	oldVM := backendBuildVMImage
 	defer func() { backendBuildVMImage = oldVM }()
@@ -138,15 +133,20 @@ func TestRemoveImageMicrovm(t *testing.T) {
 	}
 }
 
-// TestImageBackendPrecedence: backend is flag > profile > default.
+// TestImageBackendPrecedence: backend is flag > profile > default, resolved
+// to the runner's engine identity.
 func TestImageBackendPrecedence(t *testing.T) {
 	fakeSmolvmOnPath(t)
-	d := config.Defaults{Backend: "docker"}
+	d := config.Defaults{Backend: "microvm"}
 
-	if be, eng, err := imageBackend("microvm", "", nil, d); err != nil || be != "microvm" || eng != "smolvm" {
-		t.Errorf("flag microvm → (%q, %q, %v)", be, eng, err)
+	if eng, err := imageBackend("microvm", nil, d); err != nil || eng != "smolvm" {
+		t.Errorf("flag microvm → (%q, %v)", eng, err)
 	}
-	if be, _, err := imageBackend("", "", &config.Profile{Backend: "microvm"}, d); err != nil || be != "microvm" {
-		t.Errorf("profile microvm → (%q, %v)", be, err)
+	if eng, err := imageBackend("", &config.Profile{Backend: "microvm"}, d); err != nil || eng != "smolvm" {
+		t.Errorf("profile microvm → (%q, %v)", eng, err)
+	}
+	// A container-era default is an error, not a silent engine.
+	if _, err := imageBackend("", nil, config.Defaults{Backend: "docker"}); err == nil {
+		t.Error("a docker default must error after the container-backend removal")
 	}
 }

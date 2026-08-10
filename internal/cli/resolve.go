@@ -12,7 +12,6 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/irasikhin/sandboxer/internal/backend"
 	"github.com/irasikhin/sandboxer/internal/config"
 	"github.com/irasikhin/sandboxer/internal/sandbox"
 )
@@ -25,12 +24,12 @@ type commonFlags struct {
 	backend   string
 	domains   string
 	noSetup   bool
-	ephemeral bool // --ephemeral: one-shot container instead of the persistent session
+	ephemeral bool // --ephemeral: one-shot machine instead of the persistent session
 	recreate  bool // --recreate: force session rebuild even if running (enter only)
 }
 
 // bindTarget registers the flags that only RESOLVE which sandbox to act on —
-// everything resolveTarget reads. Commands that never build a container
+// everything resolveTarget reads. Commands that never launch a machine
 // (reset works on the host worktrees) take these alone: binding runtime flags
 // they cannot honour would accept them silently.
 func bindTarget(cmd *cobra.Command, f *commonFlags) {
@@ -41,12 +40,12 @@ func bindTarget(cmd *cobra.Command, f *commonFlags) {
 }
 
 // bindExisting registers the flags shared by commands that operate on an
-// existing sandbox AND resolve its runtime (enter/exec/show/stop/recreate/rm/
-// compose) — the resolution flags plus the runtime overrides.
+// existing sandbox AND resolve its runtime (enter/exec/show/stop/recreate/rm)
+// — the resolution flags plus the runtime overrides.
 func bindExisting(cmd *cobra.Command, f *commonFlags) {
 	bindTarget(cmd, f)
 	fl := cmd.Flags()
-	fl.StringVar(&f.backend, "backend", "", "backend: docker | podman | microvm | microsandbox")
+	fl.StringVar(&f.backend, "backend", "", "backend: microsandbox | microvm")
 	fl.StringVar(&f.domains, "allow-domains", "", "egress allowlist, csv (e.g. api.anthropic.com,github.com)")
 }
 
@@ -287,11 +286,8 @@ func (t *target) runtime(f commonFlags) (config.Runtime, error) {
 		config.Overrides{Backend: f.backend, Session: session, Domains: f.domains})
 }
 
-// backendLabel reports the backend to show in the banner: for a container
-// backend it is the engine that will actually be used (docker→podman auto-
-// detect, an explicitly requested engine honored when installed) rather than the
-// raw configured value, so the banner can never claim "docker" while podman
-// runs.
+// backendLabel reports the backend to show in the banner, naming the runner
+// binary beside the backend so the banner matches what actually runs.
 func backendLabel(rt config.Runtime) string {
 	switch rt.Backend {
 	case "microvm":
@@ -299,7 +295,7 @@ func backendLabel(rt config.Runtime) string {
 	case "microsandbox":
 		return "microsandbox (msb)"
 	}
-	return backend.EngineLabel(rt.Backend, config.LoadDefaults())
+	return rt.Backend
 }
 
 // configLine summarises the resolved settings so a command always tells the user
