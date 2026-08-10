@@ -158,8 +158,11 @@ func TestMSB_EgressAllowlist_RealEngine(t *testing.T) {
 		t.Fatalf("EnsureSession: %v", err)
 	}
 
-	// The allowed domain resolves inside the guest…
-	if code, _ := ExecSession(o, name, []string{"sh", "-c", "nslookup example.com >/dev/null 2>&1"}); code != 0 {
+	// The allowed domain resolves inside the guest… (getent, not nslookup: it
+	// exists in BOTH images this test may boot — busybox getent on the default
+	// alpine, glibc getent in the toolbox image; nslookup exists in neither
+	// guaranteed form and cost this test a 127 on the real image.)
+	if code, _ := ExecSession(o, name, []string{"sh", "-c", "getent hosts example.com >/dev/null 2>&1"}); code != 0 {
 		t.Errorf("the allowed domain did not resolve inside the guest (code %d)", code)
 	}
 	// …and a domain that is not on the list is refused.
@@ -198,11 +201,15 @@ func TestMSB_NestedContainer_RealEngine(t *testing.T) {
 		t.Skip("no outbound DNS on this host — skipping the nested-container check")
 	}
 	dest := itest.MSBTempDir(t)
-	// The guest pulls from Docker Hub, so the allowlist covers the registry.
+	// The guest pulls from Docker Hub, so the allowlist covers the registry —
+	// including BOTH blob CDNs: Hub has served blobs from cloudflare.docker.com
+	// historically and from cloudfront.docker.com since 2026 (observed live —
+	// the name-bound deny on the new CDN host failed every pull with 125).
 	o := msbITOpts(t, engine, "itmsbctr", dest)
 	o.RT = config.Runtime{Egress: true, Domains: []string{
 		"docker.io", "registry-1.docker.io", "auth.docker.io",
 		"production.cloudflare.docker.com",
+		"production.cloudfront.docker.com",
 	}}
 	name := SessionName(o.Slug, o.BaseDir)
 	itest.CleanupSandbox(t, name)

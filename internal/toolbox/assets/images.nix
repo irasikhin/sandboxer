@@ -279,6 +279,9 @@ in
         less
         neovim
         procps
+        # glibc's getent — NSS-aware name/identity lookups for agents and the
+        # e2e suite's resolve probes (busybox images carry their own).
+        getent
         ripgrep
         fd
         tree
