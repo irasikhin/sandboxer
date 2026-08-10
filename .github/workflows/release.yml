@@ -90,7 +90,6 @@ jobs:
           extra_nix_config: |
             experimental-features = nix-command flakes
             accept-flake-config = true
-      - run: nix build .#proxyImage --no-link --print-build-logs
       - run: nix build .#image --no-link --print-build-logs
 
   publish:
