@@ -142,6 +142,21 @@ func TestMSBNetworkArgs(t *testing.T) {
 				"-e", "NO_PROXY=localhost", "-e", "no_proxy=localhost",
 			},
 		},
+		{
+			// The guest's 127.0.0.1 is its own stack, so a loopback proxy is
+			// rewritten to msb's host alias AND the host group is opened on the
+			// proxy port — with `public` restated, since any explicit --net
+			// replaces the implicit open default.
+			name: "loopback proxy is rewritten to the host alias",
+			o:    RunOpts{RT: config.Runtime{Egress: true, Proxy: "http://127.0.0.1:8888"}},
+			want: []string{
+				"-e", "HTTP_PROXY=http://host.microsandbox.internal:8888",
+				"-e", "http_proxy=http://host.microsandbox.internal:8888",
+				"-e", "HTTPS_PROXY=http://host.microsandbox.internal:8888",
+				"-e", "https_proxy=http://host.microsandbox.internal:8888",
+				"--net", "public", "--net-rule", "allow@host:tcp:8888",
+			},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -619,6 +634,31 @@ func TestMSBEnsureImage(t *testing.T) {
 	_ = os.Remove(vmImagePath(o.Image) + ".sha256")
 	if _, err := msbEnsureImage(o); err != nil || built != 1 || loaded != config.DefaultImage {
 		t.Errorf("a rebuilt tar was not reimported (built=%d loaded=%q, err=%v)", built, loaded, err)
+	}
+}
+
+// TestMSBGuestProxyURL pins the loopback rewrite: msb's guest loopback is
+// guest-local (no TSI passthrough), so a host-loopback proxy must become the
+// host.microsandbox.internal alias plus an allow@host rule on its port, while
+// any other proxy passes through with no rule (allow@public covers it).
+func TestMSBGuestProxyURL(t *testing.T) {
+	tests := []struct {
+		raw, url, rule string
+	}{
+		{"http://127.0.0.1:8888", "http://host.microsandbox.internal:8888", "allow@host:tcp:8888"},
+		{"http://localhost:3128", "http://host.microsandbox.internal:3128", "allow@host:tcp:3128"},
+		{"http://[::1]:3128", "http://host.microsandbox.internal:3128", "allow@host:tcp:3128"},
+		{"http://127.1.2.3:80", "http://host.microsandbox.internal:80", "allow@host:tcp:80"},
+		{"http://localhost", "http://host.microsandbox.internal", "allow@host:tcp"},
+		{"http://proxy.corp:3128", "http://proxy.corp:3128", ""},
+		{"http://10.0.0.5:3128", "http://10.0.0.5:3128", ""},
+		{"not a url", "not a url", ""},
+	}
+	for _, tt := range tests {
+		gotURL, gotRule := msbGuestProxyURL(tt.raw)
+		if gotURL != tt.url || gotRule != tt.rule {
+			t.Errorf("msbGuestProxyURL(%q) = %q, %q; want %q, %q", tt.raw, gotURL, gotRule, tt.url, tt.rule)
+		}
 	}
 }
 

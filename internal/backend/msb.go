@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"maps"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -195,8 +196,10 @@ func msbCommonArgs(o RunOpts) []string {
 //
 //   - egress.proxy set → proxy-delegated egress (the container's direct mode):
 //     leave the network open and point the guest's HTTP(S) clients at the proxy.
-//     There is no squid in the path, so the proxy IS the control point; localhost
-//     is not rewritten — the guest reaches a host-local proxy as-is.
+//     There is no squid in the path, so the proxy IS the control point. A
+//     loopback proxy is REWRITTEN to msbHostAlias and the host group opened on
+//     its port (msbGuestProxyURL) — unlike smolvm's TSI, msb's guest has a real
+//     network stack where 127.0.0.1 is guest-local.
 //   - egress disabled (egress.enabled = false / SANDBOXER_NO_EGRESS) → open, no
 //     flags at all.
 //   - egress on with an allowlist → --no-net (default deny) plus one allow rule
@@ -213,12 +216,19 @@ func msbCommonArgs(o RunOpts) []string {
 // domain added or egress toggled recreates the machine.
 func msbNetworkArgs(o RunOpts) []string {
 	if p := o.RT.Proxy; p != "" {
+		p, hostRule := msbGuestProxyURL(p)
 		args := []string{
 			"-e", "HTTP_PROXY=" + p, "-e", "http_proxy=" + p,
 			"-e", "HTTPS_PROXY=" + p, "-e", "https_proxy=" + p,
 		}
 		if o.RT.NoProxy != "" {
 			args = append(args, "-e", "NO_PROXY="+o.RT.NoProxy, "-e", "no_proxy="+o.RT.NoProxy)
+		}
+		if hostRule != "" {
+			// Any explicit --net flag replaces the implicit open default, so
+			// `public` must be restated alongside the host rule to keep this
+			// the "open network + proxy" mode.
+			args = append(args, "--net", "public", "--net-rule", hostRule)
 		}
 		return args
 	}
@@ -233,6 +243,40 @@ func msbNetworkArgs(o RunOpts) []string {
 			"allow@"+t+":tcp:80,allow@"+t+":tcp:443")
 	}
 	return args
+}
+
+// msbHostAlias is microsandbox's magic hostname: its DNS forwarder synthesizes
+// the sandbox's gateway IP for it, and a gateway-bound dial is rewritten to the
+// HOST loopback at connect time (msb crates/network: HOST_ALIAS +
+// resolve_host_dst) — msb's host.docker.internal. It is the only way a guest
+// reaches a proxy bound to the host's 127.0.0.1: the guest's loopback is its
+// own smoltcp stack, so dialing 127.0.0.1 in-guest is refused immediately.
+const msbHostAlias = "host.microsandbox.internal"
+
+// msbGuestProxyURL adapts egress.proxy for the msb guest, mirroring
+// config.ContainerProxyURL: a loopback proxy host (the common tunnel-client
+// case) becomes msbHostAlias, everything else passes through untouched. The
+// second return is the --net-rule that dial needs — gateway IPs classify as
+// the `host` destination group, which the default allow@public policy DENIES —
+// scoped to the proxy's port ("" when nothing was rewritten: a public proxy is
+// already covered by allow@public).
+func msbGuestProxyURL(raw string) (guestURL, hostRule string) {
+	u, err := url.Parse(raw)
+	if err != nil || u.Host == "" {
+		return raw, ""
+	}
+	h := u.Hostname()
+	if h != "localhost" && h != "::1" && !strings.HasPrefix(h, "127.") {
+		return raw, ""
+	}
+	newHost := msbHostAlias
+	rule := "allow@host:tcp"
+	if port := u.Port(); port != "" {
+		newHost += ":" + port
+		rule += ":" + port
+	}
+	u.Host = newHost
+	return u.String(), rule
 }
 
 // msbNetTargets maps the allowlist onto microsandbox rule targets. Every entry

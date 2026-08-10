@@ -245,7 +245,15 @@ recreates the machine). There is no squid sidecar on either runner.
 **microsandbox** defaults to an open network, and the same four states map onto
 its policy engine:
 
-1. `egress.proxy` set → the same proxy-delegated mode (open network + proxy env).
+1. `egress.proxy` set → the same proxy-delegated mode (open network + proxy env),
+   with one translation: microsandbox's guest has a **real network stack**, so
+   `127.0.0.1` in the guest is the guest itself — no TSI passthrough. A loopback
+   proxy URL is therefore rewritten to `host.microsandbox.internal` (msb's DNS
+   resolves it to the gateway, and a gateway dial lands on the host's loopback)
+   and the policy gets `--net public --net-rule allow@host:tcp:<port>`, because
+   gateway dials classify as the `host` group, which the default `allow@public`
+   policy denies. A non-loopback proxy passes through untouched (a LAN-private
+   proxy address is not reachable under the default public-only policy today).
 2. egress off → open network, no rules.
 3. an allowlist → `--no-net` (default deny) plus, per domain, an allow rule for
    HTTP and HTTPS: `allow@*.domain:tcp:80,allow@*.domain:tcp:443`. This is the
