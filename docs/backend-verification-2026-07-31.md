@@ -1,5 +1,7 @@
 # Backend verification pass — 2026-07-31
 
+> **Historical record — predates the msb-only migration** (the container backend and smolvm were since removed; microsandbox is the only backend).
+
 A full pass over all four isolation backends on one host, at `088d93f` (v0.66.0
 + 3 dependency commits). Motivation: CI exercises the integration suite on
 **docker only**, the microVM legs run nightly against `alpine`, and the

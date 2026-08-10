@@ -1,5 +1,7 @@
 # microVM backend — Phase 0 spike report
 
+> **Historical record — predates the msb-only migration** (the container backend and smolvm were since removed; microsandbox is the only backend).
+
 **Verdict: GO on the Linux leg.** Every load-bearing assumption from
 `plans/modular-questing-codd.md` held on a real KVM host. macOS and Windows legs
 are deferred until hardware is available (their checks are duplicated into

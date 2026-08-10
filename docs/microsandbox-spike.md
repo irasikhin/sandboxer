@@ -1,5 +1,7 @@
 # microsandbox vs smolvm — spike report
 
+> **Historical record — predates the msb-only migration** (the container backend and smolvm were since removed; microsandbox is the only backend).
+
 **Verdict: microsandbox (`msb`) is a credible, arguably better-fitting alternative to smolvm.**
 It passes every security invariant the smolvm spike checked, sits on the same libkrun VMM (so the
 isolation primitive is identical and the cgo-libkrun escape hatch is shared), and adds four things

@@ -1,5 +1,11 @@
 # microVM e2e checklist (macOS & Windows)
 
+> **Historical — predates the msb-only migration.** Written when smolvm and the
+> container backend still existed; the smolvm legs and `--backend` comparisons
+> no longer apply (msb is the only runner, `-run TestMSB_`). The macOS/Windows
+> hardware passes it describes were consciously waived for the migration and
+> remain TODO — the platform reasoning below still holds.
+
 The Linux microVM e2e runs automatically (`.github/workflows/e2e.yml`, on
 GitHub's KVM-capable runners, plus `scripts/itest.sh -run TestVM_`). macOS and
 Windows have **no hosted-CI path** for hardware virtualization:
