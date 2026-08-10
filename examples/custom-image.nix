@@ -1,5 +1,5 @@
-# A config with a customized toolbox image (builds run in a builder
-# container; host nix only evaluates this config):
+# A config with a customized toolbox image (built with host nix on first
+# use):
 #
 #   sandboxer image build -f ./examples/custom-image.nix   # build the variant
 #   sandboxer create -f ./examples/custom-image.nix        # or just create +
@@ -11,7 +11,7 @@
 # profiles. The stock sandboxer-toolbox:latest is untouched.
 {
   name = "custom-image";
-  backend = "podman";
+  backend = "microsandbox";
   srcs = [ { src = "."; branch = "feat/custom-image"; } ];
 
   image = {

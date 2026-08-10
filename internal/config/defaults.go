@@ -44,18 +44,8 @@ func LegacyConfigDirPath() string { return filepath.Join(LegacyStateDirName, "co
 // migration hint when it is present but the new location is not.
 const LegacyConfigFileName = ".sandboxer.yaml"
 
-// DefaultImage is the toolbox image reference used by the container backend.
+// DefaultImage is the toolbox image reference the backend boots.
 const DefaultImage = "sandboxer-toolbox:latest"
-
-// DefaultProxyImage is the egress-proxy image: a minimal squid that enforces the
-// domain allowlist for a sandbox. It is built locally beside the toolbox image
-// (sandboxer image build) and runs as the egress sidecar — the sandboxer binary
-// is never in the network path.
-const DefaultProxyImage = "sandboxer-proxy:latest"
-
-// ProxyImage returns the egress-proxy image reference (SANDBOXER_PROXY_IMAGE
-// override, else the built-in default).
-func ProxyImage() string { return envOr("SANDBOXER_PROXY_IMAGE", DefaultProxyImage) }
 
 // DefaultDomains is the egress allowlist used when none is configured: AI API
 // endpoints, common package registries across ecosystems, and the container
@@ -89,7 +79,6 @@ type Defaults struct {
 	Session string
 	Domains string
 	Image   string
-	Engine  string
 	Proxy   string // SANDBOXER_PROXY — global proxy URL, lowest precedence
 	NoProxy string // SANDBOXER_NO_PROXY — NO_PROXY for direct mode
 	Mem     string
@@ -103,11 +92,10 @@ type Defaults struct {
 // LoadDefaults reads the SANDBOXER_* environment.
 func LoadDefaults() Defaults {
 	return Defaults{
-		Backend:  envOr("SANDBOXER_BACKEND", "docker"),
+		Backend:  envOr("SANDBOXER_BACKEND", "microsandbox"),
 		Session:  os.Getenv("SANDBOXER_SESSION"),
 		Domains:  envOr("SANDBOXER_DOMAINS", DefaultDomains),
 		Image:    envOr("SANDBOXER_IMAGE", DefaultImage),
-		Engine:   os.Getenv("SANDBOXER_ENGINE"),
 		Proxy:    os.Getenv("SANDBOXER_PROXY"),
 		NoProxy:  os.Getenv("SANDBOXER_NO_PROXY"),
 		Mem:      os.Getenv("SANDBOXER_MEM"),

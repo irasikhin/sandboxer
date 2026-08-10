@@ -28,7 +28,7 @@ func TestValidateSkipAndParseErrors(t *testing.T) {
 	if err := ValidateDomains([]string{"", "  ", "ok.com"}); err != nil {
 		t.Errorf("ValidateDomains(blanks + ok) = %v, want nil", err)
 	}
-	if err := ValidateProxy("http://%zz", true); err == nil {
+	if err := ValidateProxy("http://%zz"); err == nil {
 		t.Error("ValidateProxy(unparseable) = nil, want parse error")
 	}
 }

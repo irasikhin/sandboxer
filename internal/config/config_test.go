@@ -73,27 +73,26 @@ func TestResolveRuntimePrecedence(t *testing.T) {
 }
 
 // TestResolveRuntimeLimits pins the resource-cap resolution: a profile's
-// limits: overrides the SANDBOXER_MEM/SANDBOXER_CPU env defaults, memory/cpus
-// fall back to those defaults when the profile is silent, and pids comes
-// straight from the profile (no env default).
+// limits: overrides the SANDBOXER_MEM/SANDBOXER_CPU env defaults, and
+// memory/cpus fall back to those defaults when the profile is silent.
 func TestResolveRuntimeLimits(t *testing.T) {
-	// Profile limits win over the env defaults; pids is profile-only.
-	p := &Profile{Limits: Limits{Memory: "4G", CPUs: "2", Pids: 512}}
+	// Profile limits win over the env defaults.
+	p := &Profile{Limits: Limits{Memory: "4G", CPUs: "2"}}
 	rt, err := ResolveRuntime(p, Defaults{Mem: "1G", CPU: "1"}, "base.com", Overrides{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if rt.Mem != "4G" || rt.CPU != "2" || rt.Pids != 512 {
-		t.Errorf("profile limits should win: mem=%q cpu=%q pids=%d", rt.Mem, rt.CPU, rt.Pids)
+	if rt.Mem != "4G" || rt.CPU != "2" {
+		t.Errorf("profile limits should win: mem=%q cpu=%q", rt.Mem, rt.CPU)
 	}
 
-	// No profile limits → the env defaults apply, pids stays uncapped.
+	// No profile limits → the env defaults apply.
 	rt2, err := ResolveRuntime(&Profile{}, Defaults{Mem: "1G", CPU: "1"}, "base.com", Overrides{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if rt2.Mem != "1G" || rt2.CPU != "1" || rt2.Pids != 0 {
-		t.Errorf("env limits should apply: mem=%q cpu=%q pids=%d", rt2.Mem, rt2.CPU, rt2.Pids)
+	if rt2.Mem != "1G" || rt2.CPU != "1" {
+		t.Errorf("env limits should apply: mem=%q cpu=%q", rt2.Mem, rt2.CPU)
 	}
 }
 
@@ -143,83 +142,22 @@ func TestEgressBoolMigrationHint(t *testing.T) {
 	}
 }
 
-// TestValidateRoutes pins the per-domain route validation: a route needs a
-// domain and a proxy, every routed domain must be covered by the allowlist
-// (leading-dot suffix matching), an https parent is rejected under egress, and a
-// domain may route to only one proxy.
-func TestValidateRoutes(t *testing.T) {
-	allowed := []string{"api.anthropic.com", "github.com"}
-	cases := []struct {
-		name   string
-		routes []Route
-		egress bool
-		ok     bool
-	}{
-		{"nil is fine", nil, true, true},
-		{"valid covered route", []Route{{Domains: []string{"api.anthropic.com"}, Proxy: "http://bypass:8080"}}, true, true},
-		{"subdomain covered by allowlist entry", []Route{{Domains: []string{"api.anthropic.com"}, Proxy: "http://p:1"}}, true, true},
-		{"no domains", []Route{{Proxy: "http://p:1"}}, true, false},
-		{"no proxy", []Route{{Domains: []string{"github.com"}}}, true, false},
-		{"uncovered domain", []Route{{Domains: []string{"evil.com"}, Proxy: "http://p:1"}}, true, false},
-		{"https parent under egress rejected", []Route{{Domains: []string{"github.com"}, Proxy: "https://p:1"}}, true, false},
-		{"https parent ok with egress off", []Route{{Domains: []string{"github.com"}, Proxy: "https://p:1"}}, false, true},
-		{"domain in two routes", []Route{
-			{Domains: []string{"github.com"}, Proxy: "http://p:1"},
-			{Domains: []string{"github.com"}, Proxy: "http://q:2"},
-		}, true, false},
-	}
-	for _, c := range cases {
-		err := ValidateRoutes(allowed, c.routes, c.egress)
-		if (err == nil) != c.ok {
-			t.Errorf("%s: ValidateRoutes err=%v, want ok=%v", c.name, err, c.ok)
-		}
-	}
-
-	// domainCovered mirrors squid's leading-dot suffix match.
-	if !domainCovered("api.anthropic.com", []string{"anthropic.com"}) {
-		t.Error("an allowlist entry should cover its subdomains")
-	}
-	if domainCovered("notanthropic.com", []string{"anthropic.com"}) {
-		t.Error("a non-suffix domain must not be covered")
-	}
-}
-
-// TestResolveRuntimeRoutes: routes are validated (and rejected) only in the
-// allowlist mode; in direct mode they are carried but not validated (ignored at
-// run time).
-func TestResolveRuntimeRoutes(t *testing.T) {
-	bad := &Profile{Egress: Egress{
-		AllowedDomains: []string{"github.com"},
-		Routes:         []Route{{Domains: []string{"evil.com"}, Proxy: "http://p:1"}},
-	}}
-	if _, err := ResolveRuntime(bad, Defaults{}, "", Overrides{}); err == nil {
-		t.Error("a route domain outside the allowlist must fail with the allowlist on")
-	}
-	off := false
-	bad.Egress.Enabled = &off
-	if _, err := ResolveRuntime(bad, Defaults{}, "", Overrides{}); err != nil {
-		t.Errorf("routes must not be validated with the allowlist off: %v", err)
-	}
-}
-
 func TestValidateProxy(t *testing.T) {
 	cases := []struct {
-		name   string
-		url    string
-		egress bool
-		ok     bool
+		name string
+		url  string
+		ok   bool
 	}{
-		{"empty", "", true, true},
-		{"valid http, egress on", "http://host.docker.internal:3128", true, true},
-		{"valid http, egress off", "http://host.docker.internal:3128", false, true},
-		{"https with egress on rejected", "https://p:3128", true, false},
-		{"https with egress off ok", "https://p:3128", false, true},
-		{"scheme-less rejected", "p:3128", true, false},
-		{"hostless rejected", "http://", true, false},
-		{"unparseable rejected", "http://%zz", true, false},
+		{"empty", "", true},
+		{"valid http", "http://proxy.corp:3128", true},
+		{"valid https", "https://p:3128", true},
+		{"scheme-less rejected", "p:3128", false},
+		{"hostless rejected", "http://", false},
+		{"unparseable rejected", "http://%zz", false},
+		{"socks rejected", "socks5://p:1080", false},
 	}
 	for _, c := range cases {
-		err := ValidateProxy(c.url, c.egress)
+		err := ValidateProxy(c.url)
 		if (err == nil) != c.ok {
 			t.Errorf("%s: ValidateProxy err=%v, want ok=%v", c.name, err, c.ok)
 		}
@@ -228,16 +166,16 @@ func TestValidateProxy(t *testing.T) {
 
 func TestResolveRuntimeProxy(t *testing.T) {
 	// A single proxy URL is carried into Runtime and keeps egress on (chained).
-	p := &Profile{Egress: Egress{Proxy: "http://host.docker.internal:3128"}}
+	p := &Profile{Egress: Egress{Proxy: "http://proxy.corp:3128"}}
 	rt, err := ResolveRuntime(p, Defaults{}, "base.com", Overrides{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if rt.Proxy != "http://host.docker.internal:3128" {
+	if rt.Proxy != "http://proxy.corp:3128" {
 		t.Errorf("proxy not carried into Runtime: %q", rt.Proxy)
 	}
 	if !rt.Egress {
-		t.Error("a proxy with egress on must keep the allowlist on (chained mode)")
+		t.Error("a proxy must not silently disable egress (the resolved flag still reports on)")
 	}
 
 	// SANDBOXER_PROXY (Defaults.Proxy) is the lowest-precedence fallback.
@@ -257,10 +195,11 @@ func TestResolveRuntimeProxy(t *testing.T) {
 		t.Errorf("profile proxy should beat env default: %q", rt3.Proxy)
 	}
 
-	// https + egress on is rejected at resolve time.
-	bad := &Profile{Egress: Egress{Proxy: "https://p:3128"}}
-	if _, err := ResolveRuntime(bad, Defaults{}, "base.com", Overrides{}); err == nil {
-		t.Error("ResolveRuntime should reject an https proxy with egress on")
+	// An https proxy is fine in every egress state — the guest talks to the
+	// proxy directly, there is no chaining sidecar.
+	hp := &Profile{Egress: Egress{Proxy: "https://p:3128"}}
+	if _, err := ResolveRuntime(hp, Defaults{}, "base.com", Overrides{}); err != nil {
+		t.Errorf("ResolveRuntime must accept an https proxy: %v", err)
 	}
 }
 
@@ -277,19 +216,18 @@ func TestEgressDisabled(t *testing.T) {
 	}
 }
 
-func TestEgressDisabledSkipsProxyAndRouteValidation(t *testing.T) {
+func TestEgressDisabledResolution(t *testing.T) {
 	off := false
-	// egress.enabled = false: an https proxy and an off-allowlist route are both
-	// legal — the allowlist and its route peers are not in the path.
+	// egress.enabled = false: an https proxy is legal and the resolved Egress
+	// flag reports off.
 	p := &Profile{Egress: Egress{
 		Enabled:        &off,
 		Proxy:          "https://corp:8080",
 		AllowedDomains: []string{"github.com"},
-		Routes:         []Route{{Domains: []string{"evil.com"}, Proxy: "https://p:1"}},
 	}}
 	rt, err := ResolveRuntime(p, Defaults{}, "base.com", Overrides{})
 	if err != nil {
-		t.Fatalf("direct mode should accept an https proxy and unvalidated routes: %v", err)
+		t.Fatalf("direct mode should accept an https proxy: %v", err)
 	}
 	if rt.Egress {
 		t.Error("egress.enabled = false must resolve to Egress off")

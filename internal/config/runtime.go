@@ -1,6 +1,7 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"net/url"
 	"regexp"
@@ -10,25 +11,21 @@ import (
 // Runtime is the fully-resolved set of effective settings for one sandbox
 // invocation (the bash load_runtime result). It carries no filesystem state.
 type Runtime struct {
-	// Proxy is the resolved proxy URL (empty = none). With Egress on it is the
-	// parent the allowlist sidecar chains through; with Egress off the agent
-	// talks to it directly. The backend rewrites a localhost host to the host
-	// gateway before use (see backend.ContainerProxyURL).
+	// Proxy is the resolved proxy URL (empty = none). With a proxy set the
+	// guest's HTTP(S) clients are pointed at it over an open VM network — the
+	// proxy is the egress control point. A loopback host is adapted for the
+	// guest at launch (see backend.msbGuestProxyURL).
 	Proxy   string
-	NoProxy string   // NO_PROXY, applied only in direct mode (Egress off)
+	NoProxy string   // NO_PROXY, applied alongside Proxy
 	Domains []string // resolved egress allowlist
 	Backend string
 	Session string // SessionPersistent or SessionEphemeral (resolved; never empty)
 	Egress  bool
-	// Routes send specific domains through a dedicated upstream proxy (see
-	// Egress.Routes). Applied only with Egress on; ignored in direct mode.
-	Routes []Route
-	// Resource caps threaded into the container run (--memory/--cpus/--pids-limit).
-	// Mem/CPU resolve profile-over-env (limits: over SANDBOXER_MEM/SANDBOXER_CPU);
-	// Pids has no env default. Empty/zero means uncapped.
-	Mem  string
-	CPU  string
-	Pids int
+	// Resource caps sizing the machine. Mem/CPU resolve profile-over-env
+	// (limits: over SANDBOXER_MEM/SANDBOXER_CPU); empty means the microVM
+	// default size.
+	Mem string
+	CPU string
 	// AutoResume relaunches recorded agents when a saved session layout is
 	// restored (profile autoResume, killed by SANDBOXER_NO_RESUME=1). Not part
 	// of the create argv, so it never affects the session ConfigHash.
@@ -62,7 +59,7 @@ func ResolveRuntime(p *Profile, d Defaults, baseDomains string, f Overrides) (Ru
 		NoProxy: firstNonEmpty(p.Egress.NoProxy, d.NoProxy),
 		Egress:  p.EgressEnabled(),
 	}
-	if err := ValidateProxy(rt.Proxy, rt.Egress); err != nil {
+	if err := ValidateProxy(rt.Proxy); err != nil {
 		return Runtime{}, err
 	}
 	if err := ValidateImageSpec(p.Image); err != nil {
@@ -79,9 +76,8 @@ func ResolveRuntime(p *Profile, d Defaults, baseDomains string, f Overrides) (Ru
 	// folding them together made "allow nothing" silently resolve to the full
 	// built-in default set, i.e. the one spelling a reader is sure means
 	// "deny everything" was the one that opened 40 domains. An explicit empty
-	// list now stays empty; the backends already have a defined answer for it
-	// (the container path refuses with errEmptyAllowlist and points at
-	// egress.enabled = false, a microVM boots with no route at all).
+	// list now stays empty; the backends have a defined answer for it (a
+	// microVM boots with no route at all — a fully offline machine).
 	var domains []string
 	switch {
 	case f.Domains != "":
@@ -96,15 +92,6 @@ func ResolveRuntime(p *Profile, d Defaults, baseDomains string, f Overrides) (Ru
 		return Runtime{}, err
 	}
 
-	// Routes only take effect with the allowlist on; validate them there (they
-	// are otherwise ignored in direct mode, with a CLI warning).
-	rt.Routes = p.Egress.Routes
-	if rt.Egress {
-		if err := ValidateRoutes(rt.Domains, rt.Routes, rt.Egress); err != nil {
-			return Runtime{}, err
-		}
-	}
-
 	rt.Backend = firstNonEmpty(f.Backend, p.Backend, d.Backend)
 	// Session deviates from the others: the env (d.Session) sits ABOVE the
 	// profile, because SANDBOXER_SESSION=ephemeral is an operator kill-switch
@@ -115,10 +102,9 @@ func ResolveRuntime(p *Profile, d Defaults, baseDomains string, f Overrides) (Ru
 	rt.AutoResume = !d.NoResume && p.AutoResumeEnabled()
 
 	// Resource caps: a profile's limits: overrides the SANDBOXER_MEM/SANDBOXER_CPU
-	// env defaults; pids has no env default and comes straight from the profile.
+	// env defaults.
 	rt.Mem = firstNonEmpty(p.Limits.Memory, d.Mem)
 	rt.CPU = firstNonEmpty(p.Limits.CPUs, d.CPU)
-	rt.Pids = p.Limits.Pids
 	return rt, nil
 }
 
@@ -178,60 +164,32 @@ func validateDomain(d string) error {
 	return nil
 }
 
-// ValidateBackend rejects an unsupported isolation backend. sandboxer runs every
-// agent inside a container (podman/docker) or a microVM (microvm, via smolvm);
-// an empty value means auto-detect the container engine. The native (host
-// /sandbox) backend was removed — a stale "backend: native" gets a clear
-// migration error instead of silently running a container.
+// ValidateBackend rejects an unsupported isolation backend. sandboxer runs
+// every agent inside a real microVM — "microvm" (smolvm) or "microsandbox"
+// (msb). The docker/podman container backend was removed, so a stale
+// container-era value ("", "auto", "docker", "podman") gets a clear migration
+// error instead of silently resolving to anything.
 func ValidateBackend(rt Runtime) error {
 	switch rt.Backend {
-	case "", "auto", "podman", "docker":
-		return nil
 	case "microvm", "microsandbox":
-		return validateMicrovm(rt)
+		return nil
+	case "", "auto", "docker", "podman":
+		return fmt.Errorf("the docker/podman container backend was removed — set backend = \"microsandbox\" "+
+			"(or \"microvm\"); a microVM runs container engines natively, so docker/podman still work "+
+			"INSIDE the sandbox (got backend %q)", rt.Backend)
 	case "native":
-		return fmt.Errorf("the native backend was removed — sandboxer is container-only now; use backend: docker or podman")
+		return errors.New("the native backend was removed — use backend = \"microsandbox\" (or \"microvm\")")
 	default:
-		return fmt.Errorf("unknown backend %q — use docker, podman, microvm or microsandbox", rt.Backend)
+		return fmt.Errorf("unknown backend %q — use microsandbox or microvm", rt.Backend)
 	}
 }
 
 // IsMicrovmBackend reports whether b names a microVM backend — a real virtual
-// machine per sandbox — rather than a container engine. Two runners sit on the
-// same libkrun VMM and share every rule the CLI applies to microVMs: "microvm"
-// (smolvm) and "microsandbox" (msb). Callers that must distinguish the RUNNER
-// compare the backend string itself.
+// machine per sandbox. Two runners sit on the same libkrun VMM and share every
+// rule the CLI applies to microVMs: "microvm" (smolvm) and "microsandbox"
+// (msb). Callers that must distinguish the RUNNER compare the backend string
+// itself.
 func IsMicrovmBackend(b string) bool { return b == "microvm" || b == "microsandbox" }
-
-// validateMicrovm rejects only the egress shapes the microVM backend genuinely
-// cannot honor; everything else is first-class:
-//
-//   - egress.proxy → proxy-delegated egress: the guest's HTTP(S) clients are
-//     pointed at the proxy (HTTP_PROXY/HTTPS_PROXY/NO_PROXY env) over an open
-//     network — the microVM analogue of the container's direct mode. There is no
-//     squid, so the proxy IS the egress control point. When an allowlist is ALSO
-//     set the two coexist: the proxy forwards, and the allowlist is enforced by
-//     the proxy rather than at the VM network layer (smolvm cannot both filter
-//     at the network layer AND reach a host-local proxy — that needs the open
-//     TSI network). That trade is surfaced as a warning at enter/exec
-//     (warnMicrovmProxy), NOT a hard error: a proxy + a default allowlist is the
-//     common case and must not block the sandbox.
-//   - egress.routes → rejected: per-domain upstream proxies are a squid
-//     cache_peer feature neither microVM runner has an analogue for.
-//
-// (egress.noProxy is honored alongside a proxy, ignored without one.)
-//
-// The allowlist itself is first-class on both runners, with one difference worth
-// knowing: smolvm's --allow-host resolves and permits an EXACT host, while
-// microsandbox's rules are name-bound suffixes, so `.example.com` keeps covering
-// subdomains exactly as the squid sidecar does.
-func validateMicrovm(rt Runtime) error {
-	if len(rt.Routes) > 0 {
-		return fmt.Errorf("egress.routes is not supported by the %s backend "+
-			"(no per-domain upstream proxies / squid); remove it or use a container backend", rt.Backend)
-	}
-	return nil
-}
 
 // ValidateSession rejects an unknown session mode. The resolved value always
 // carries a mode (the default is persistent), so anything else is a typo in
@@ -246,11 +204,10 @@ func ValidateSession(rt Runtime) error {
 }
 
 // ValidateProxy rejects a malformed proxy URL. The proxy must parse to an
-// http:// or https:// URL with a host. When the egress allowlist is on the proxy
-// is chained through the sidecar (squid cache_peer), which cannot speak TLS to a
-// parent yet — so an https:// proxy is only accepted with egress off (direct
-// mode). An empty proxy is valid (no proxy).
-func ValidateProxy(proxyURL string, egress bool) error {
+// http:// or https:// URL with a host — both schemes are fine in every egress
+// state, since the guest talks to the proxy directly (there is no chaining
+// sidecar). An empty proxy is valid (no proxy).
+func ValidateProxy(proxyURL string) error {
 	if proxyURL == "" {
 		return nil
 	}
@@ -262,73 +219,11 @@ func ValidateProxy(proxyURL string, egress bool) error {
 		return fmt.Errorf("invalid proxy %q — expected an http://host:port URL", proxyURL)
 	}
 	switch u.Scheme {
-	case "http":
-		return nil
-	case "https":
-		if egress {
-			return fmt.Errorf("proxy %q uses https — with the egress allowlist on only an http:// proxy "+
-				"works (the sidecar chains over http); set egress.enabled = false to use it as a direct https proxy", proxyURL)
-		}
+	case "http", "https":
 		return nil
 	default:
 		return fmt.Errorf("invalid proxy %q — expected an http://host:port URL", proxyURL)
 	}
-}
-
-// ValidateRoutes checks the per-domain proxy routes against the allowlist. Each
-// route needs at least one domain and a proxy that passes ValidateProxy (an
-// https parent is rejected under egress, like the default proxy). Every routed
-// domain must be covered by the allowlist — squid denies a domain before it ever
-// reaches the route's cache_peer otherwise, so an uncovered domain is dead config
-// — and a domain may route to only one proxy. Empty routes is valid (nil error).
-func ValidateRoutes(allowed []string, routes []Route, egress bool) error {
-	claimed := map[string]int{} // routed domain -> route index (catch a domain in two routes)
-	for i, r := range routes {
-		if len(r.Domains) == 0 {
-			return fmt.Errorf("egress.routes[%d]: a route needs at least one domain", i)
-		}
-		if r.Proxy == "" {
-			return fmt.Errorf("egress.routes[%d]: a route needs a proxy", i)
-		}
-		if err := ValidateProxy(r.Proxy, egress); err != nil {
-			return fmt.Errorf("egress.routes[%d]: %w", i, err)
-		}
-		for _, d := range r.Domains {
-			d = strings.TrimSpace(d)
-			if d == "" {
-				return fmt.Errorf("egress.routes[%d]: empty domain", i)
-			}
-			if err := validateDomain(d); err != nil {
-				return fmt.Errorf("egress.routes[%d]: %w", i, err)
-			}
-			if prev, ok := claimed[d]; ok {
-				return fmt.Errorf("egress.routes: domain %q is in routes %d and %d — a domain can route to only one proxy", d, prev, i)
-			}
-			claimed[d] = i
-			if !domainCovered(d, allowed) {
-				return fmt.Errorf("egress.routes[%d]: domain %q is not covered by egress.allowedDomains — "+
-					"squid denies it before the route proxy; add it to allowedDomains", i, d)
-			}
-		}
-	}
-	return nil
-}
-
-// domainCovered reports whether domain d is permitted by the allowlist under the
-// same leading-dot suffix matching squid uses (an entry a matches a and any x.a),
-// mirroring squidConf's dstdomain semantics.
-func domainCovered(d string, allowed []string) bool {
-	d = strings.TrimPrefix(strings.TrimSpace(d), ".")
-	for _, a := range allowed {
-		a = strings.TrimPrefix(strings.TrimSpace(a), ".")
-		if a == "" {
-			continue
-		}
-		if d == a || strings.HasSuffix(d, "."+a) {
-			return true
-		}
-	}
-	return false
 }
 
 func splitCSV(s string) []string {

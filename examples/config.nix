@@ -8,9 +8,9 @@
   # Sandbox name (slug). Names the sandbox dir ./sandboxes/<name>/.
   name = "feature-x";
 
-  # Isolation backend — a podman or docker container built from the toolbox
-  # image (works with any agent).
-  backend = "podman";
+  # Isolation backend — a real microVM per sandbox (libkrun), booted from
+  # the toolbox image (works with any agent): microsandbox | microvm.
+  backend = "microsandbox";
 
   # The sources the sandbox sees — always explicit (src = "." is this repo,
   # whole; relative paths resolve against the project root). branch is

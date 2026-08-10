@@ -2,20 +2,20 @@ package config
 
 import (
 	"slices"
+	"strings"
 	"testing"
 )
 
 func TestLoadDefaultsFromEnv(t *testing.T) {
-	t.Setenv("SANDBOXER_BACKEND", "docker")
+	t.Setenv("SANDBOXER_BACKEND", "microvm")
 	t.Setenv("SANDBOXER_DOMAINS", "a.com")
 	t.Setenv("SANDBOXER_IMAGE", "img:1")
-	t.Setenv("SANDBOXER_ENGINE", "docker")
 	t.Setenv("SANDBOXER_MEM", "2G")
 	t.Setenv("SANDBOXER_CPU", "50%")
 
 	d := LoadDefaults()
-	if d.Backend != "docker" || d.Domains != "a.com" ||
-		d.Image != "img:1" || d.Engine != "docker" ||
+	if d.Backend != "microvm" || d.Domains != "a.com" ||
+		d.Image != "img:1" ||
 		d.Mem != "2G" || d.CPU != "50%" {
 		t.Errorf("LoadDefaults from env = %+v", d)
 	}
@@ -24,13 +24,13 @@ func TestLoadDefaultsFromEnv(t *testing.T) {
 func TestLoadDefaultsBare(t *testing.T) {
 	for _, k := range []string{
 		"SANDBOXER_BACKEND", "SANDBOXER_DOMAINS",
-		"SANDBOXER_IMAGE", "SANDBOXER_ENGINE", "SANDBOXER_MEM", "SANDBOXER_CPU",
+		"SANDBOXER_IMAGE", "SANDBOXER_MEM", "SANDBOXER_CPU",
 	} {
 		t.Setenv(k, "")
 	}
 
 	d := LoadDefaults()
-	if d.Backend != "docker" || d.Domains != DefaultDomains || d.Image != DefaultImage {
+	if d.Backend != "microsandbox" || d.Domains != DefaultDomains || d.Image != DefaultImage {
 		t.Errorf("bare defaults = %+v", d)
 	}
 }
@@ -63,39 +63,37 @@ func TestLoadMissingFile(t *testing.T) {
 }
 
 func TestValidateBackend(t *testing.T) {
-	// The container backends and an empty (auto-detect) value are accepted.
-	for _, be := range []string{"", "auto", "podman", "docker"} {
-		if err := ValidateBackend(Runtime{Backend: be}); err != nil {
-			t.Errorf("backend %q should be allowed: %v", be, err)
+	// given/when/then: only the microVM backends are accepted, in every egress
+	// shape (allowlist, proxy alone, proxy + noProxy, proxy + allowlist).
+	for _, rt := range []Runtime{
+		{Backend: "microvm", Egress: true, Domains: []string{"a.com"}},
+		{Backend: "microsandbox", Egress: true, Domains: []string{"a.com"}},
+		{Backend: "microvm", Proxy: "http://p:3128"},
+		{Backend: "microvm", Proxy: "http://p:3128", NoProxy: "localhost"},
+		{Backend: "microsandbox", Proxy: "http://p:3128", Egress: true, Domains: []string{"a.com"}},
+	} {
+		if err := ValidateBackend(rt); err != nil {
+			t.Errorf("backend %q should be allowed: %v", rt.Backend, err)
 		}
 	}
-	// The removed native backend gets a clear migration error.
+	// The removed container-era values get the migration error naming the fix.
+	for _, be := range []string{"", "auto", "podman", "docker"} {
+		err := ValidateBackend(Runtime{Backend: be})
+		if err == nil {
+			t.Errorf("backend %q must be rejected (container backend removed)", be)
+			continue
+		}
+		if !strings.Contains(err.Error(), "microsandbox") {
+			t.Errorf("backend %q error %q must point at the microsandbox backend", be, err)
+		}
+	}
+	// The removed native backend gets a clear migration error too.
 	if err := ValidateBackend(Runtime{Backend: "native"}); err == nil {
 		t.Error("native backend should be rejected (removed)")
 	}
-	// Any other value is rejected too.
+	// Any other value is rejected as unknown.
 	if err := ValidateBackend(Runtime{Backend: "qemu"}); err == nil {
 		t.Error("unknown backend should be rejected")
-	}
-}
-
-func TestValidateBackendMicrovm(t *testing.T) {
-	// Accepted: a plain allowlist; a proxy alone; a proxy + noProxy; and — the
-	// common homelab case — a proxy TOGETHER with an active allowlist (they
-	// coexist, with a warning; the proxy is the egress path).
-	for _, rt := range []Runtime{
-		{Backend: "microvm", Egress: true, Domains: []string{"a.com"}},
-		{Backend: "microvm", Proxy: "http://p:3128"},
-		{Backend: "microvm", Proxy: "http://p:3128", NoProxy: "localhost"},
-		{Backend: "microvm", Proxy: "http://p:3128", Egress: true, Domains: []string{"a.com"}},
-	} {
-		if err := ValidateBackend(rt); err != nil {
-			t.Errorf("microvm should allow %+v: %v", rt, err)
-		}
-	}
-	// Rejected: only egress.routes (no squid cache_peer analogue).
-	if err := ValidateBackend(Runtime{Backend: "microvm", Routes: []Route{{}}}); err == nil {
-		t.Error("microvm should reject egress.routes")
 	}
 }
 

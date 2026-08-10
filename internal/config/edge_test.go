@@ -39,10 +39,9 @@ func TestResolveRuntimeValidation(t *testing.T) {
 		t.Error("ResolveRuntime(invalid domain) = nil error, want error")
 	}
 
-	// an https proxy is rejected while the egress allowlist is on (chained mode
-	// cannot speak TLS to a parent)
-	p := &Profile{Egress: Egress{Proxy: "https://corp:8080"}}
+	// a malformed proxy URL is rejected at resolve time
+	p := &Profile{Egress: Egress{Proxy: "corp:8080"}}
 	if _, err := ResolveRuntime(p, Defaults{}, "", Overrides{}); err == nil {
-		t.Error("ResolveRuntime(https proxy + egress on) = nil error, want error")
+		t.Error("ResolveRuntime(scheme-less proxy) = nil error, want error")
 	}
 }

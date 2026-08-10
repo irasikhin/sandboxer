@@ -1,4 +1,4 @@
-# Config that narrows the sandbox to a subset of the repo, with a container
+# Config that narrows the sandbox to a subset of the repo, with a microVM
 # backend and a custom agent set.
 #
 # A sandbox exposes SOURCES: each srcs entry is a git repo checked out into a
@@ -10,7 +10,7 @@
 # copy-in and no push-back.
 {
   name = "integ";
-  backend = "podman";
+  backend = "microsandbox";
 
   egress = {
     allowedDomains = [

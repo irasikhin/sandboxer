@@ -8,7 +8,7 @@
 // config-level inheritance. Scalar settings may also come from flags and
 // SANDBOXER_* env vars; the resolved profile is serialized to JSON and stored
 // under the state dir's _meta/<slug>.profile.json — that JSON is the single
-// artifact the container backend and the sandbox package read.
+// artifact the backend and the sandbox package read.
 package config
 
 import (
@@ -24,7 +24,7 @@ import (
 	"strings"
 )
 
-// Mount is an extra bind mount for the container backend.
+// Mount is an extra host directory shared into the sandbox.
 type Mount struct {
 	Source string `json:"source"`
 	Target string `json:"target"`
@@ -68,71 +68,37 @@ type Src struct {
 // a domain allowlist (Enabled), the allowlist itself, and the proxy settings.
 // It is the whole "egress" attrset in the config.
 type Egress struct {
-	// Enabled toggles sandboxer's own egress control — the squid allowlist
-	// sidecar. Default true (nil == on): sandboxer enforces AllowedDomains (and
-	// Routes), and a Proxy, if set, is chained through the sidecar (http:// only).
-	// false is the escape hatch: NO sidecar, the agent talks to Proxy DIRECTLY
-	// (HTTP(S)_PROXY) and that proxy is trusted to police egress — AllowedDomains
-	// and Routes are then IGNORED (NoProxy applies instead). Because the allowlist
-	// is inert when disabled, the safe default is on; see the "Proxy handling"
-	// comment below and EgressEnabled. SANDBOXER_NO_EGRESS=1 is the operator
+	// Enabled toggles sandboxer's own egress control — the machine-level
+	// allowlist. Default true (nil == on): sandboxer enforces AllowedDomains.
+	// false is the escape hatch: an open VM network, where a Proxy (if set) is
+	// trusted to police egress — AllowedDomains is then IGNORED (NoProxy
+	// applies instead). Because the allowlist is inert when disabled, the safe
+	// default is on; see EgressEnabled. SANDBOXER_NO_EGRESS=1 is the operator
 	// kill-switch that forces it off regardless.
 	Enabled *bool `json:"enabled,omitempty"`
 	// AllowedDomains is the allowlist — the ONLY domains the sandbox may reach.
-	// Enforced when Enabled; ignored when disabled (the proxy is trusted instead).
+	// Enforced when Enabled and no Proxy is set; with a Proxy the proxy is the
+	// egress control point (see backend.vmNetworkArgs / msbNetworkArgs).
 	AllowedDomains []string `json:"allowedDomains,omitempty"`
-	// Proxy is the single proxy URL the sandbox routes through (http://host:port,
-	// or https:// only when Enabled is false). Empty means no proxy. Enabled
-	// decides whether it CHAINS through the allowlist sidecar (on) or the agent
-	// talks to it DIRECTLY (off). A localhost/127.0.0.1 host is rewritten to the
-	// host gateway at launch (see backend.ContainerProxyURL).
+	// Proxy is the single proxy URL the sandbox routes through (http:// or
+	// https://host:port). Empty means no proxy. With a proxy set the guest's
+	// HTTP(S) clients are pointed at it over an open VM network — the proxy IS
+	// the egress control point. A localhost/127.0.0.1 host is adapted for the
+	// guest at launch (smolvm's TSI reaches host loopback as-is; msb rewrites
+	// it to host.microsandbox.internal).
 	Proxy string `json:"proxy,omitempty"`
-	// NoProxy is the NO_PROXY list applied only when Enabled is false; it is
-	// ignored when traffic is chained through the allowlist sidecar.
+	// NoProxy is the NO_PROXY list applied alongside Proxy.
 	NoProxy string `json:"noProxy,omitempty"`
-	// Routes send specific destination domains through a dedicated upstream proxy
-	// (a squid cache_peer), overriding Proxy for just those domains — e.g. bypass
-	// a geo-block for one API while everything else stays direct or on the default
-	// proxy. Routes only apply when Enabled; they are ignored when disabled, where
-	// the agent talks to Proxy directly.
-	Routes []Route `json:"routes,omitempty"`
 }
 
-// Route pins a set of destination domains to a dedicated upstream proxy. Every
-// routed domain must also be in Egress.AllowedDomains (squid denies it before
-// the peer otherwise), and a domain may appear in at most one route.
-type Route struct {
-	Domains []string `json:"domains,omitempty"`
-	Proxy   string   `json:"proxy,omitempty"`
-}
-
-// Limits caps a sandbox container's resources. Every field is optional; an empty
-// field means "no cap". Memory is an engine memory string (e.g. 2G, 512m), CPUs
-// a core count or systemd-style quota (1.5 or 150%), and Pids the PID-count cap
-// (--pids-limit) that bounds fork-bomb blast radius. Memory/CPUs override the
-// SANDBOXER_MEM / SANDBOXER_CPU env defaults; Pids has no env default.
+// Limits caps a sandbox machine's resources. Every field is optional; an empty
+// field means the microVM default size. Memory is a memory string (e.g. 2G,
+// 512m), CPUs a whole vCPU count or systemd-style quota (2 or 200%). Both
+// override the SANDBOXER_MEM / SANDBOXER_CPU env defaults.
 type Limits struct {
 	Memory string `json:"memory,omitempty"`
 	CPUs   string `json:"cpus,omitempty"`
-	Pids   int    `json:"pids,omitempty"`
 }
-
-// Proxy handling: a sandbox reaches the outside world through ONE proxy URL
-// (Egress.Proxy, an `http://host:port` or `https://host:port`). There is no
-// separate "upstream" vs "corporate" mode — Egress.Enabled decides the trust
-// model:
-//
-//   - Enabled (the default): the allowlist sidecar stays up and CHAINS allowed
-//     traffic through the proxy (squid cache_peer). sandboxer keeps enforcing the
-//     domain allowlist AND the traffic still leaves via the proxy. Only an http://
-//     proxy works here (the sidecar cannot speak TLS to a parent yet).
-//   - Disabled (egress.enabled = false): the agent talks to the proxy DIRECTLY
-//     (HTTP(S)_PROXY env) and that proxy is trusted to police egress. http:// or
-//     https:// both work.
-//
-// A proxy whose host is localhost/127.0.0.1 is rewritten to the host gateway
-// (host.docker.internal) at container-launch time, so "a proxy on my host" works
-// with the obvious URL — see backend.ContainerProxyURL.
 
 // ImageSpec customizes the toolbox image a profile's sandbox runs in. Every
 // key is flat data — nothing needs pkgs at config time; the one thing that
@@ -347,13 +313,6 @@ type Profile struct {
 	// Image customizes the toolbox image variant this profile's sandbox runs
 	// in; an empty spec keeps the stock image. See ImageSpec.
 	Image ImageSpec `json:"image,omitempty"`
-	// NestedContainers lets the sandbox run its own ROOTLESS podman (the image
-	// ships one). It is opt-in because it costs isolation: creating a user
-	// namespace needs the engine's seccomp filter off and /proc unmasked, so a
-	// profile that does not ask for it keeps the stock posture. Capabilities
-	// stay dropped and no-new-privileges stays on either way — see
-	// backend.nestedContainerArgs and SECURITY.md.
-	NestedContainers bool `json:"nestedContainers,omitempty"`
 	// HostConfigs wires the HOST's agent identity into the sandbox, two
 	// halves under one opt-in:
 	//   - config seed: the registry seed paths (~/.claude + ~/.claude.json,
@@ -384,8 +343,8 @@ type Profile struct {
 	// egress.enabled pattern). It never enters the container's create argv, so
 	// toggling it can NOT read as a changed profile and never rebuilds a session.
 	AutoResume *bool `json:"autoResume,omitempty"`
-	// Limits caps the sandbox container's memory/cpus/pids; empty fields inherit
-	// the SANDBOXER_MEM/SANDBOXER_CPU env defaults (memory/cpus) or stay uncapped.
+	// Limits caps the sandbox machine's memory/cpus; empty fields inherit
+	// the SANDBOXER_MEM/SANDBOXER_CPU env defaults.
 	Limits Limits `json:"limits,omitempty"`
 }
 
@@ -410,17 +369,23 @@ var removedKeys = map[string]string{
 	"model":      "removed — set the agent's own env var instead, e.g. env: { ANTHROPIC_MODEL: opus }",
 	"proxy":      "moved under egress: — use egress.proxy",
 	"noProxy":    "moved under egress: — use egress.noProxy",
-	"network":    "renamed to egress — use egress.allowedDomains / egress.proxy / egress.noProxy / egress.routes (and egress.enabled = false to disable the allowlist)",
-	"agent":      "removed — a sandbox is not bound to one agent (choose per exec); use agents: for credential passthrough and egress.routes to route an API domain through a proxy",
-	"agentProxy": "removed — route by destination instead: egress.routes",
-	"roots":      "removed — sandboxes are git worktrees now (no copy mode); mount other trees with extraMounts",
-	"context":    "removed — a git-worktree sandbox already contains the repo's files (nothing is copied in)",
-	"agents":     "removed — set hostConfigs = true to seed the sandbox home from the host's agent configs (credentials included), or log in / export API keys INSIDE the sandbox (its $HOME persists)",
-	"extraPkgs":  "renamed — image.packages (same nixpkgs attr names; overlay-defined attrs may be listed too)",
-	"hook":       "removed — put static customization in image.{packages,files,env}; anything needing pkgs is a plain nixpkgs overlay file: image.overlay = \"./overlay.nix\"",
-	"nix":        "replaced by image.overlay — a file with a PLAIN nixpkgs overlay (final: prev: { … }); expose computed packages/files as overlay attrs and list them in image.packages",
-	"deps":       "replaced by srcs — e.g. srcs = [ { src = \".\"; include = [ \"/some/dir/\" ]; } ] (src = path to a repo; include = directory paths/patterns; empty include = the whole repo)",
-	"defaults":   "removed — profiles are self-contained; share between them with ordinary nix (let base = { ... }; in { profiles.web = base // { ... }; })",
+	"network":    "renamed to egress — use egress.allowedDomains / egress.proxy / egress.noProxy (and egress.enabled = false to disable the allowlist)",
+	"agent":      "removed — a sandbox is not bound to one agent (choose per exec); use hostConfigs for credential passthrough",
+	"agentProxy": "removed — use egress.proxy (the proxy is the egress control point)",
+	"nestedContainers": "removed with the container backend — a microVM runs container engines natively, " +
+		"so docker/podman work inside every sandbox with no opt-in",
+	"routes": "removed with the container backend — per-domain upstream proxies were a squid cache_peer " +
+		"feature; use a single egress.proxy that routes by destination itself",
+	"pids": "removed with the container backend — the microVM backends have no PID-count cap " +
+		"(limits.memory / limits.cpus bound the machine instead)",
+	"roots":     "removed — sandboxes are git worktrees now (no copy mode); mount other trees with extraMounts",
+	"context":   "removed — a git-worktree sandbox already contains the repo's files (nothing is copied in)",
+	"agents":    "removed — set hostConfigs = true to seed the sandbox home from the host's agent configs (credentials included), or log in / export API keys INSIDE the sandbox (its $HOME persists)",
+	"extraPkgs": "renamed — image.packages (same nixpkgs attr names; overlay-defined attrs may be listed too)",
+	"hook":      "removed — put static customization in image.{packages,files,env}; anything needing pkgs is a plain nixpkgs overlay file: image.overlay = \"./overlay.nix\"",
+	"nix":       "replaced by image.overlay — a file with a PLAIN nixpkgs overlay (final: prev: { … }); expose computed packages/files as overlay attrs and list them in image.packages",
+	"deps":      "replaced by srcs — e.g. srcs = [ { src = \".\"; include = [ \"/some/dir/\" ]; } ] (src = path to a repo; include = directory paths/patterns; empty include = the whole repo)",
+	"defaults":  "removed — profiles are self-contained; share between them with ordinary nix (let base = { ... }; in { profiles.web = base // { ... }; })",
 }
 
 // annotateRemovedKeys upgrades the strict decoder's `unknown field "<key>"`

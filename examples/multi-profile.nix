@@ -17,7 +17,7 @@ let
     ];
   };
   api = {
-    backend = "docker";
+    backend = "microsandbox";
     egress = net;
     srcs = [ { src = "."; branch = "devops/api"; include = [ "/shared/proto/" ]; } ];
     env.NODE_ENV = "development";
@@ -25,9 +25,9 @@ let
 in
 {
   profiles = {
-    # Frontend: container backend, sandbox narrowed to the shared UI lib.
+    # Frontend: sandbox narrowed to the shared UI lib.
     web = {
-      backend = "podman";
+      backend = "microvm";
       egress = net;
       srcs = [ { src = "."; branch = "devops/web"; include = [ "/shared/ui/" ]; } ];
       env.NODE_ENV = "development";
