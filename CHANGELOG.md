@@ -6,6 +6,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.78.0] — 2026-08-11
+
+### Added
+
+- flag an msb older than the verified release (f28f267)
+
+### Fixed
+
+- create validates the whole runtime before writing any state (9950ad3)
+
+
 ## [0.77.0] — 2026-08-11
 
 ### Added
@@ -1209,3 +1220,4 @@ isolated, containerized dev sandbox, on a local Linux machine:
 [0.76.0]: https://github.com/irasikhin/sandboxer/compare/v0.75.0...v0.76.0
 [0.76.1]: https://github.com/irasikhin/sandboxer/compare/v0.76.0...v0.76.1
 [0.77.0]: https://github.com/irasikhin/sandboxer/compare/v0.76.1...v0.77.0
+[0.78.0]: https://github.com/irasikhin/sandboxer/compare/v0.77.0...v0.78.0
