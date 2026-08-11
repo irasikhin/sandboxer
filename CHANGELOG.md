@@ -6,6 +6,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.76.1] — 2026-08-11
+
+### Fixed
+
+- pull the prebuilt image explicitly at ensure, with retries (2049037)
+
+### CI
+
+- skopeo needs --insecure-policy on a bare runner; self-test on edit (032d7c5)
+- dest-creds instead of login; surface push errors as annotations (18a70a9)
+- override the runner's v1 registries.conf — skopeo refuses it (7c6f7a0)
+
+
 ## [0.76.0] — 2026-08-10
 
 ### ⚠ Breaking changes
@@ -1187,3 +1200,4 @@ isolated, containerized dev sandbox, on a local Linux machine:
 [0.74.0]: https://github.com/irasikhin/sandboxer/compare/v0.73.7...v0.74.0
 [0.75.0]: https://github.com/irasikhin/sandboxer/compare/v0.74.0...v0.75.0
 [0.76.0]: https://github.com/irasikhin/sandboxer/compare/v0.75.0...v0.76.0
+[0.76.1]: https://github.com/irasikhin/sandboxer/compare/v0.76.0...v0.76.1
