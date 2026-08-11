@@ -66,6 +66,22 @@ func newCreateCmd() *cobra.Command {
 			if t.profile == nil {
 				return fmt.Errorf("no profile for %q — scaffold one with 'sandboxer config init', then re-create", t.slug)
 			}
+			// Resolve and validate the WHOLE runtime before any state is
+			// written: an invalid profile (a retired key, a bad proxy,
+			// image.ref plus customization, an unknown backend, a bad session
+			// mode) must fail while create has made NOTHING — running it after
+			// the snapshot and worktrees left a half-created sandbox behind
+			// with the diagnosis arriving over its corpse.
+			rtCreate, err := t.runtime(f)
+			if err != nil {
+				return err
+			}
+			if err := config.ValidateBackend(rtCreate); err != nil {
+				return err
+			}
+			if err := config.ValidateSession(rtCreate); err != nil {
+				return err
+			}
 			if t.json != nil {
 				if err := t.base.WriteProfileJSON(t.slug, t.json); err != nil {
 					return err
@@ -76,21 +92,6 @@ func newCreateCmd() *cobra.Command {
 			}
 			seedHostConfigs(t, cmd.ErrOrStderr())
 			warnIgnoredConfig(cmd.ErrOrStderr(), t.base.Src)
-			rtCreate, err := t.runtime(f)
-			if err != nil {
-				return err
-			}
-			// Validate here too, not only on enter/exec: a profile every other
-			// command hard-refuses (a microVM backend with egress.routes, an
-			// unknown backend, a bad session mode) must fail BEFORE the user is
-			// told the sandbox is ready — otherwise create leaves worktrees and
-			// a state dir behind and the diagnosis arrives on the first enter.
-			if err := config.ValidateBackend(rtCreate); err != nil {
-				return err
-			}
-			if err := config.ValidateSession(rtCreate); err != nil {
-				return err
-			}
 			fmt.Fprintln(cmd.ErrOrStderr(), configLine(rtCreate, t.slug, t.profile, backendLabel(rtCreate)))
 			// Same one-line-per-source report enter prints. create used to say
 			// only where to review each branch, which left the one thing worth

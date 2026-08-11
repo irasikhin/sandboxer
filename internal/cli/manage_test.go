@@ -439,14 +439,23 @@ func TestRmBrokenProfileStillTearsDownSession(t *testing.T) {
 	project := newProject(t)
 	fakeMsb(t)
 	cfg := filepath.Join(t.TempDir(), "p.nix")
-	profile := "{ name = \"feat\"; egress.allowedDomains = [ \"not a domain\" ]; }\n"
-	if err := os.WriteFile(cfg, []byte(profile), 0o644); err != nil {
+	if err := os.WriteFile(cfg,
+		[]byte("{ name = \"feat\"; srcs = [ { src = \".\"; branch = \"t/rm\"; } ]; }\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	// create fails resolving the runtime, but only AFTER the sandbox files and
-	// the profile snapshot are written — exactly the broken state rm must cope with.
-	if code, _, _ := run("create", "--src", project, "--config", cfg); code != 1 {
-		t.Fatalf("create with a broken profile should fail resolving the runtime")
+	if code, _, errs := run("create", "--src", project, "--config", cfg); code != 0 {
+		t.Fatalf("create = %d, %s", code, errs)
+	}
+	// Corrupt the STORED snapshot into an unresolvable profile — create
+	// validates before writing anything now, so the broken state rm must cope
+	// with arises from later edits, not from create itself.
+	base, err := sandbox.ResolveBase(project)
+	if err != nil {
+		t.Fatal(err)
+	}
+	broken := `{"name":"feat","egress":{"allowedDomains":["not a domain"]}}`
+	if err := os.WriteFile(base.ProfileJSONPath("feat"), []byte(broken), 0o600); err != nil {
+		t.Fatal(err)
 	}
 	dest := sandboxDir(project, "feat")
 	calls, _ := stubRemoveSession(t, dest, nil)
