@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"text/tabwriter"
 
@@ -271,9 +272,44 @@ func reportMicrosandbox() doctorCheck {
 	case !homeOK:
 		return warnCheck(name, fmt.Sprintf("%s present, but MSB_HOME is too deep (%s) — every sandbox's agent socket derives from it and must stay under 108 bytes; point MSB_HOME at a short path",
 			version, backend.MsbHome()))
+	case olderMsb(version):
+		return warnCheck(name, fmt.Sprintf("%s present, but the backend's argv dialect is verified "+
+			"against msb %s — older releases miss flags and behaviors sandboxer relies on "+
+			"(pull-on-create, --net profiles); upgrade msb (the repo's nix package ships %s)",
+			version, backend.MsbVerifiedVersion, backend.MsbVerifiedVersion))
 	default:
 		return okCheck(name, version+" available")
 	}
+}
+
+// olderMsb reports whether the reported `msb --version` line names a release
+// older than the one the backend's argv translation is verified against.
+// Best-effort and fail-open: an unparseable line (a dev build, a renamed
+// binary) never warns — the check exists to catch the KNOWN trap of a stale
+// packaged release, not to gatekeep.
+func olderMsb(versionLine string) bool {
+	fields := strings.Fields(versionLine)
+	if len(fields) < 2 {
+		return false
+	}
+	return semverLess(fields[len(fields)-1], backend.MsbVerifiedVersion)
+}
+
+// semverLess compares two dotted numeric versions (a < b); false on any
+// unparseable segment.
+func semverLess(a, b string) bool {
+	as, bs := strings.Split(a, "."), strings.Split(b, ".")
+	for i := 0; i < len(as) && i < len(bs); i++ {
+		ai, errA := strconv.Atoi(as[i])
+		bi, errB := strconv.Atoi(bs[i])
+		if errA != nil || errB != nil {
+			return false
+		}
+		if ai != bi {
+			return ai < bi
+		}
+	}
+	return len(as) < len(bs)
 }
 
 // underWSL reports whether this process runs inside a WSL distro, so doctor can

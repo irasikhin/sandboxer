@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/irasikhin/sandboxer/internal/backend"
 	"github.com/irasikhin/sandboxer/internal/config"
 )
 
@@ -53,6 +54,42 @@ func TestDoctorMicrosandboxRow(t *testing.T) {
 	_, out, _ = run("doctor")
 	if !strings.Contains(out, "MSB_HOME is too deep") {
 		t.Errorf("doctor did not flag a too-deep MSB_HOME:\n%s", out)
+	}
+
+	// An installed msb OLDER than the verified release is flagged: the argv
+	// dialect gaps (no -i is fine, no --net is not) bite exactly there.
+	old := filepath.Join(dir, "msb-old")
+	if err := os.WriteFile(old, []byte("#!/bin/sh\necho 'msb 0.6.5'\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("SANDBOXER_MSB", old)
+	t.Setenv("MSB_HOME", "/tmp/m")
+	_, out, _ = run("doctor")
+	if !strings.Contains(out, "verified against msb "+backend.MsbVerifiedVersion) {
+		t.Errorf("doctor did not flag an older msb:\n%s", out)
+	}
+}
+
+// TestOlderMsb pins the version comparison: only a parseable, strictly older
+// release warns — dev builds and unparseable lines stay fail-open.
+func TestOlderMsb(t *testing.T) {
+	cases := []struct {
+		line string
+		old  bool
+	}{
+		{"msb 0.6.5", true},
+		{"msb 0.6.7", false},
+		{"msb 0.6.10", false},
+		{"msb 0.7.0", false},
+		{"microsandbox 0.5.9", true},
+		{"msb 0.6.7-fake", false}, // unparseable segment → fail-open
+		{"garbage", false},
+		{"", false},
+	}
+	for _, c := range cases {
+		if got := olderMsb(c.line); got != c.old {
+			t.Errorf("olderMsb(%q) = %v, want %v", c.line, got, c.old)
+		}
 	}
 }
 

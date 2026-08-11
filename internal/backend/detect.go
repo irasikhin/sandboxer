@@ -68,6 +68,13 @@ func msbBin() string {
 	return "msb"
 }
 
+// MsbVerifiedVersion is the microsandbox release this backend's argv
+// translation is verified against — the same release nix/microsandbox.nix pins
+// (keep the two in step; the integration suite gates a bump). doctor warns on
+// an older installed msb: the migration's live bugs #3 and #5 were exactly a
+// dialect gap between the verified release and the host's binary.
+const MsbVerifiedVersion = "0.6.7"
+
 // MsbStatus reports the microsandbox backend's host readiness for `doctor`:
 // whether the msb binary is found (via msbBin), its `--version` line when it
 // runs, whether /dev/kvm exists on Linux (always true off Linux, where the
