@@ -185,6 +185,11 @@ func starterProfile(name string, d config.Defaults) string {
   # Resource caps (empty = the microVM default size): memory/cpus.
   # limits = { memory = "4G"; cpus = "2"; };
 
+  # A PREBUILT image for this profile (optional) — a pinned release of the
+  # stock toolbox, or your own published image; pulled and cached on first
+  # use. Mutually exclusive with tools/customization below.
+  # image.ref = "ghcr.io/irasikhin/sandboxer-toolbox:v0.76.1";
+
   # Custom toolbox image (optional). Sandboxes then run a content-addressed
   # variant built on first use (cached after; the stock image is untouched).
   # Everything here is flat data; anything needing pkgs at build time goes

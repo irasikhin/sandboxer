@@ -44,8 +44,8 @@ func baseOnly(src string) (*sandbox.Base, error) {
 // way, from sandbox.IDLen, so the handle the table prints and the one commands
 // accept can never drift apart.
 const (
-	listFmt    = "%-2s %-*s %-16s %s\n"
-	listAllFmt = "%-2s %-*s %-*s %-16s %s\n"
+	listFmt    = "%-2s %-*s %-16s %-9s %s\n"
+	listAllFmt = "%-2s %-*s %-*s %-16s %-9s %s\n"
 )
 
 // Column budget for the host-wide table: fixedListCols is what listAllFmt
@@ -115,6 +115,7 @@ type listEntry struct {
 	Project     string `json:"project"`
 	Sandbox     string `json:"sandbox"`
 	State       string `json:"state"`
+	Image       string `json:"image,omitempty"`
 	Active      bool   `json:"active,omitempty"`
 	ProjectGone bool   `json:"projectGone,omitempty"`
 }
@@ -133,6 +134,7 @@ func writeListJSON(out io.Writer, projects []sandbox.Project, states map[string]
 				Project:     p.Src,
 				Sandbox:     slug,
 				State:       sessionState(states[p.Dir], slug),
+				Image:       imageLabel(loadStoredProfile(p.Base, slug)),
 				Active:      slug != "" && slug == cur,
 				ProjectGone: p.Gone,
 			})
@@ -147,7 +149,7 @@ func printList(cmd *cobra.Command, base *sandbox.Base, wide bool) {
 	out := cmd.OutOrStdout()
 	cur := base.Current()
 	states := projectSessionStates(base.Dir)
-	fmt.Fprintf(out, listFmt, "", sandbox.IDLen, "ID", "SANDBOX", "STATE")
+	fmt.Fprintf(out, listFmt, "", sandbox.IDLen, "ID", "SANDBOX", "STATE", "IMAGE")
 	for _, slug := range base.Agents() {
 		marker := ""
 		if slug == cur {
@@ -158,7 +160,8 @@ func printList(cmd *cobra.Command, base *sandbox.Base, wide bool) {
 			slugDisp = truncate(slug, 16)
 		}
 		fmt.Fprintf(out, listFmt,
-			marker, sandbox.IDLen, base.ID(slug), slugDisp, sessionState(states, slug))
+			marker, sandbox.IDLen, base.ID(slug), slugDisp, sessionState(states, slug),
+			imageLabel(loadStoredProfile(base, slug)))
 	}
 	fmt.Fprintln(out)
 	fmt.Fprintln(out, "* = active (use). enter <s> | exec <s> -- cmd | show [s] | path [s] | rm <s>")
@@ -168,7 +171,7 @@ func printList(cmd *cobra.Command, base *sandbox.Base, wide bool) {
 // so the PROJECT column can be sized to what is actually there — and so an empty
 // host prints a hint instead of a header with nothing under it.
 type allRow struct {
-	marker, id, project, slug, state string
+	marker, id, project, slug, state, image string
 }
 
 // printAll renders the host-wide listing: every project's sandboxes in one
@@ -211,6 +214,7 @@ func printAll(cmd *cobra.Command, projects []sandbox.Project, wide bool) {
 			rows = append(rows, allRow{
 				marker: marker, id: p.ID(slug), project: project, slug: slugDisp,
 				state: sessionState(states[p.Dir], slug),
+				image: imageLabel(loadStoredProfile(p.Base, slug)),
 			})
 		}
 	}
@@ -219,10 +223,10 @@ func printAll(cmd *cobra.Command, projects []sandbox.Project, wide bool) {
 		return
 	}
 	width := projectWidth(longest, outWidth(out), wide)
-	fmt.Fprintf(out, listAllFmt, "", sandbox.IDLen, "ID", width, "PROJECT", "SANDBOX", "STATE")
+	fmt.Fprintf(out, listAllFmt, "", sandbox.IDLen, "ID", width, "PROJECT", "SANDBOX", "STATE", "IMAGE")
 	for _, r := range rows {
 		fmt.Fprintf(out, listAllFmt, r.marker, sandbox.IDLen, r.id,
-			width, truncateLeft(r.project, width), r.slug, r.state)
+			width, truncateLeft(r.project, width), r.slug, r.state, r.image)
 	}
 	fmt.Fprintln(out)
 	// Only the markers actually in the table get explained — a legend for a

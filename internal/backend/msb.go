@@ -761,14 +761,14 @@ func msbEnsureImage(o RunOpts) (string, error) {
 	return o.Image, nil
 }
 
-// msbCreateFailHint names the likeliest cause when a create died with the
-// STOCK image absent from msb's store: the default ref is prebuilt and pulled
-// from GHCR at create time, so on an offline (or blocked) host the pull is
-// what failed — an actionable situation the raw msb error does not name. Only
-// the default triggers it: a user-set ref or a loaded variant fails for its
-// own reasons.
+// msbCreateFailHint names the likeliest cause when a create died with a
+// PULLABLE image (the default or a profile's image.ref) absent from msb's
+// store: prebuilt refs are pulled from their registry, so on an offline (or
+// blocked) host the pull is what failed — an actionable situation the raw msb
+// error does not name. A var- variant is excluded: it is never pulled and
+// fails for its own build reasons.
 func msbCreateFailHint(image string) string {
-	if image != config.DefaultImage || msbImageExists(image) {
+	if strings.Contains(image, ":var-") || msbImageExists(image) {
 		return ""
 	}
 	return "\n  (network needed to pull the prebuilt image — or build locally: sandboxer image build)"

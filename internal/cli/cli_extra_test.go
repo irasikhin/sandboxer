@@ -188,6 +188,22 @@ func TestConfigLine(t *testing.T) {
 		}
 	}
 
+	// The image label: the profile's own ref (tail-truncated when long), a
+	// var- marker for customization, the default otherwise.
+	refProf := &config.Profile{Image: config.ImageSpec{Ref: "ghcr.io/me/mine:7"}}
+	if l := configLine(rt, "feat", refProf, "msb"); !strings.Contains(l, "image=ghcr.io/me/mine:7") {
+		t.Errorf("configLine missing the profile ref image label: %q", l)
+	}
+	varProf := &config.Profile{Tools: []string{"go"}}
+	if l := configLine(rt, "feat", varProf, "msb"); !strings.Contains(l, "image=var- (local build)") {
+		t.Errorf("configLine missing the variant image label: %q", l)
+	}
+	if lbl := imageLabel(&config.Profile{Image: config.ImageSpec{
+		Ref: "registry.example.com/a/very/long/path/toolbox:some-tag"}}); !strings.HasPrefix(lbl, "…") ||
+		!strings.HasSuffix(lbl, "toolbox:some-tag") {
+		t.Errorf("imageLabel long-ref truncation = %q, want …-prefixed tail", lbl)
+	}
+
 	// Chained mode: allowlist stays on, traffic routed through the proxy.
 	up := config.Runtime{Backend: "docker", Egress: true, Proxy: "http://p:3128", Domains: []string{"a.com"}}
 	if l := configLine(up, "feat", nil, "docker"); !strings.Contains(l, "egress=on→proxy (1 domains)") {

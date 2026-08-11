@@ -231,9 +231,21 @@ func profileBackendChecks(doc *config.Document, d config.Defaults) []doctorCheck
 	for _, name := range slices.Sorted(maps.Keys(doc.Profiles)) {
 		p := doc.Profiles[name]
 		backendName := firstNonEmpty(p.Backend, d.Backend)
-		if _, err := backend.ResolveEngine(backendName, d); err != nil {
+		engine, err := backend.ResolveEngine(backendName, d)
+		if err != nil {
 			checks = append(checks, warnCheck("profile "+name,
 				fmt.Sprintf("backend %q cannot run here: %v", backendName, err)))
+			continue
+		}
+		// A profile on its own prebuilt ref: report whether that image is
+		// actually cached — the stock row above covers only the default.
+		if ref := p.Image.Ref; ref != "" {
+			if backend.ImageExists(engine, ref) {
+				checks = append(checks, okCheck("profile "+name+" image "+ref, "present in the image store"))
+			} else {
+				checks = append(checks, warnCheck("profile "+name+" image "+ref,
+					"not cached yet — pulled on first enter (prefetch: sandboxer image pull "+name+")"))
+			}
 		}
 	}
 	return checks

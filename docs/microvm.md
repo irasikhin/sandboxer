@@ -142,6 +142,15 @@ makes the cached copy read as stale, so a rebuild/pull + `recreate` is how a
 new image reaches a sandbox. `nix run .#build-image` also places the tar into
 the store.
 
+**Per-profile images**: a profile may name its own prebuilt reference —
+`image.ref = "ghcr.io/…:tag"` (tag or digest form) — and its sandbox runs
+exactly that, pulled and cached like the default (profile ref >
+`SANDBOXER_IMAGE` > compiled default). Mutually exclusive with image
+customization, which always builds a local `var-` variant instead. The enter
+banner and `sandboxer list`'s IMAGE column show which image each sandbox runs;
+`image pull <profile>` refreshes a profile's ref, and `image build` refuses a
+ref-only profile (its refresh story is the pull).
+
 ## Egress
 
 Egress is a create-time policy folded into the session hash (changing it

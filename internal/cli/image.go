@@ -8,9 +8,12 @@ import (
 )
 
 // resolveImage picks the toolbox image for a profile. Without image
-// customization (`tools:` / `image:`) it is the configured default image; with
-// any it is the spec's content-addressed variant tag (built on demand by the
-// backend, shared across identical customizations). A variant's tracking input
+// customization (`tools:` / `image:`) it is the profile's own prebuilt ref
+// (image.ref) when set, else the configured default image — profile ref >
+// SANDBOXER_IMAGE > the compiled default, the same profile-over-env rung
+// egress.proxy uses. With any customization it is the spec's content-addressed
+// variant tag (built on demand by the backend, shared across identical
+// customizations; ref×customization is rejected at validation). A variant's tracking input
 // revs (the "" / "latest" default) are pinned to concrete commits first — a
 // stamped-cache hit, or a one-time resolve on a miss. Resolving runs host `git
 // ls-remote` (git is a hard requirement; there is no engine in this path), so a
@@ -26,6 +29,9 @@ func resolveImage(prof *config.Profile, stderr io.Writer) (string, toolbox.Spec,
 		return "", toolbox.Spec{}, err
 	}
 	if spec.Empty() {
+		if prof != nil && prof.Image.Ref != "" {
+			return prof.Image.Ref, spec, nil
+		}
 		return config.LoadDefaults().Image, spec, nil
 	}
 	spec, err = toolbox.PinSpec(spec, false, stderr)

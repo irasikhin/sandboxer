@@ -46,6 +46,15 @@ func TestValidateImageSpec(t *testing.T) {
 		{"uppercase hex rejected", ImageSpec{NixpkgsRev: strings.Repeat("A", 40)}, false},
 		{"branch name rejected", ImageSpec{NixpkgsRev: "main"}, false},
 		{"non-hex rejected", ImageSpec{NixpkgsRev: strings.Repeat("g", 40)}, false},
+		// image.ref: a prebuilt reference, alone or not at all.
+		{"ref alone", ImageSpec{Ref: "ghcr.io/me/img:2"}, true},
+		{"ref digest form", ImageSpec{Ref: "ghcr.io/me/img@sha256:" + strings.Repeat("ab", 32)}, true},
+		{"ref with whitespace", ImageSpec{Ref: "ghcr.io/me img:2"}, false},
+		{"ref plus packages", ImageSpec{Ref: "ghcr.io/me/img:2", Packages: []string{"ripgrep"}}, false},
+		{"ref plus overlay", ImageSpec{Ref: "ghcr.io/me/img:2", Overlay: "/x.nix"}, false},
+		{"ref plus pinned rev", ImageSpec{Ref: "ghcr.io/me/img:2", NixpkgsRev: strings.Repeat("a1", 20)}, false},
+		// A tracking rev is stock behavior, not customization — ref may carry it.
+		{"ref plus latest rev", ImageSpec{Ref: "ghcr.io/me/img:2", NixpkgsRev: "latest"}, true},
 	}
 	for _, c := range cases {
 		err := ValidateImageSpec(c.s)

@@ -3,6 +3,7 @@ package toolbox
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"maps"
 	"os"
@@ -77,6 +78,14 @@ func ResolveSpec(p *config.Profile) (Spec, error) {
 	slices.Sort(attrs)
 	if err := config.ValidateImageSpec(p.Image); err != nil {
 		return Spec{}, err
+	}
+	// tools: feeds the same var- spec as image.packages, so the
+	// ref×customization exclusion (ValidateImageSpec) must also see the
+	// merged attrs — ResolveRuntime states the same rule for the
+	// validate-only paths that never build a spec.
+	if p.Image.Ref != "" && len(attrs) > 0 {
+		return Spec{}, errors.New("image.ref and tools/image.packages are mutually exclusive: " +
+			"customization builds a local var- image — a prebuilt ref cannot be customized on top")
 	}
 	s := Spec{
 		Attrs:       attrs,

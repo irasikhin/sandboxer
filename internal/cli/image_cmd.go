@@ -72,6 +72,7 @@ variant that is never published — build those with 'sandboxer image build'.`,
 			if err != nil {
 				return err
 			}
+			image := d.Image
 			if prof != nil {
 				spec, err := toolbox.ResolveSpec(prof)
 				if err != nil {
@@ -81,15 +82,19 @@ variant that is never published — build those with 'sandboxer image build'.`,
 					return fmt.Errorf("this profile customizes the image — its variant is built " +
 						"locally, never published; build it with: sandboxer image build")
 				}
+				// A ref-only profile is exactly as pullable as the default.
+				if prof.Image.Ref != "" {
+					image = prof.Image.Ref
+				}
 			}
 			engine, err := imageBackend(backendFlag, prof, d)
 			if err != nil {
 				return err
 			}
-			if err := backendPullImage(engine, d.Image, cmd.OutOrStdout(), cmd.ErrOrStderr()); err != nil {
+			if err := backendPullImage(engine, image, cmd.OutOrStdout(), cmd.ErrOrStderr()); err != nil {
 				return err
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "pulled image: %s\n", d.Image)
+			fmt.Fprintf(cmd.OutOrStdout(), "pulled image: %s\n", image)
 			return nil
 		},
 	}
@@ -124,7 +129,8 @@ func newImageRmCmd() *cobra.Command {
 				if err != nil {
 					return err
 				}
-				if !spec.Empty() {
+				switch {
+				case !spec.Empty():
 					// Resolve tracking revs so the variant tag matches what would
 					// be built (host git on a cold cache — no engine, no resolver
 					// container). A cold cache simply resolves the latest revs,
@@ -135,6 +141,8 @@ func newImageRmCmd() *cobra.Command {
 						return err
 					}
 					image = spec.Tag()
+				case prof.Image.Ref != "":
+					image = prof.Image.Ref
 				}
 			}
 			// Resolve the backend BEFORE removing: it errors early on a

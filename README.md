@@ -380,8 +380,28 @@ new sources live.
 
 ### Custom toolbox image (`image:`)
 
-A profile can customize the toolbox image itself — without forking it (the
-build runs with host nix, like everything else nix-shaped here).
+**A prebuilt image per profile** — the lightest form of image control: point a
+profile at any pullable reference (a pinned release of the stock toolbox, or an
+image you published yourself), and its sandbox runs exactly that:
+
+```nix
+{
+  profiles = {
+    work   = { srcs = [ … ]; };  # the stock default (nightly latest)
+    pinned = { srcs = [ … ]; image.ref = "ghcr.io/irasikhin/sandboxer-toolbox:v0.76.1"; };
+  };
+}
+```
+
+`image.ref` is mutually exclusive with the customization below (customization
+always builds a local variant — a prebuilt ref cannot be built on top of), and
+sits above the `SANDBOXER_IMAGE` global in precedence. Refresh it with
+`sandboxer image pull <profile>`; the banner and `sandboxer list`'s IMAGE
+column show which image each sandbox runs.
+
+**Or customize the image** — a profile can customize the toolbox image itself,
+without forking it (the build runs with host nix, like everything else
+nix-shaped here).
 Everything is **flat data** in `image`; the one thing that needs `pkgs` at
 build time (an overlay) is a separate file:
 

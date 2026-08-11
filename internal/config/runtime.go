@@ -65,6 +65,13 @@ func ResolveRuntime(p *Profile, d Defaults, baseDomains string, f Overrides) (Ru
 	if err := ValidateImageSpec(p.Image); err != nil {
 		return Runtime{}, err
 	}
+	// tools: is image customization too (it feeds the var- spec), just not an
+	// ImageSpec field — the ref×customization exclusion must see it here,
+	// where the whole profile is in hand.
+	if p.Image.Ref != "" && len(p.Tools) > 0 {
+		return Runtime{}, errors.New("image.ref and tools are mutually exclusive: tools packs " +
+			"build a local var- image — a prebuilt ref cannot be customized on top")
+	}
 	if err := ValidateSrcs(p.Srcs); err != nil {
 		return Runtime{}, err
 	}

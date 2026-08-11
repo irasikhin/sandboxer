@@ -105,6 +105,15 @@ type Limits struct {
 // does (an overlay) lives in its own file. An empty spec means the stock
 // image.
 type ImageSpec struct {
+	// Ref selects a PREBUILT image for this profile — a full registry
+	// reference (tag or digest form) the backend pulls and caches, e.g. a
+	// pinned release of the stock toolbox or a user-published image. It is
+	// the third rung of the reference precedence: profile ref > the
+	// SANDBOXER_IMAGE global > the compiled default. Mutually exclusive with
+	// every customization field below: customization always BUILDS a local
+	// var- image from the flake — there is no mechanism to build on top of a
+	// pulled ref (see ValidateImageSpec).
+	Ref string `json:"ref,omitempty"`
 	// Packages are nixpkgs attribute names baked into the image (dotted
 	// attribute paths like nodePackages.pnpm are allowed). They resolve
 	// against the OVERLAID package set, so an attr defined by Overlay is
@@ -243,6 +252,17 @@ var imageRevRe = regexp.MustCompile(`^[0-9a-f]{40}$`)
 // tags, and nix treats a non-40-hex rev in a github: flakeref as a ref needing
 // a GitHub API resolve — a network dependency a pin must not have.
 func ValidateImageSpec(s ImageSpec) error {
+	if s.Ref != "" {
+		if !s.Empty() {
+			return errors.New("image.ref and image customization are mutually exclusive: " +
+				"customization (packages/files/env/overlay/nixpkgsRev, tools) always builds a " +
+				"local var- image from the flake — a prebuilt ref cannot be customized on top; " +
+				"drop the ref or the customization")
+		}
+		if strings.ContainsAny(s.Ref, " \t\n\r") {
+			return fmt.Errorf("invalid image.ref %q — an image reference carries no whitespace", s.Ref)
+		}
+	}
 	for path := range s.Files {
 		if !filepath.IsAbs(path) {
 			return fmt.Errorf("image.files key %q must be an absolute in-image path", path)

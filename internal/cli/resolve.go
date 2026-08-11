@@ -311,8 +311,29 @@ func configLine(rt config.Runtime, slug string, prof *config.Profile, backendSho
 		}
 		srcs = len(prof.Srcs)
 	}
-	return fmt.Sprintf("sandboxer %s: %s — backend=%s egress=%s profile=%s srcs=%d",
-		Version, slug, backendShown, egressLabel(rt), profile, srcs)
+	return fmt.Sprintf("sandboxer %s: %s — backend=%s egress=%s image=%s profile=%s srcs=%d",
+		Version, slug, backendShown, egressLabel(rt), imageLabel(prof), profile, srcs)
+}
+
+// imageLabel names the image a profile resolves to, cheaply enough for a
+// banner: the profile's prebuilt ref, a "var- (local build)" marker for a
+// customized profile (the concrete tag needs pin resolution — too heavy
+// here), or the configured default. Long refs keep only their tail — the
+// registry prefix is the least distinguishing part.
+func imageLabel(prof *config.Profile) string {
+	ref := config.LoadDefaults().Image
+	if prof != nil {
+		switch {
+		case prof.Image.Ref != "":
+			ref = prof.Image.Ref
+		case len(prof.Tools) > 0 || !prof.Image.Empty():
+			return "var- (local build)"
+		}
+	}
+	if len(ref) > 30 {
+		return "…" + ref[len(ref)-29:]
+	}
+	return ref
 }
 
 // egressLabel renders the resolved egress posture for the configLine. It names

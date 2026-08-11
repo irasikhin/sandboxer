@@ -930,10 +930,16 @@ esac
 		t.Errorf("default-image create failure = %v, want the pull/build hint", err)
 	}
 
-	// A user-set ref fails for its own reasons — no misleading hint.
+	// A user-set ref (a profile's image.ref) is exactly as pullable as the
+	// default — the same hint applies when it is absent from the store.
 	o.Image = "example.com/custom:1"
-	if _, err := EnsureSession(o); err == nil || strings.Contains(err.Error(), "network needed") {
-		t.Errorf("custom-image create failure = %v, want no prebuilt-pull hint", err)
+	if _, err := EnsureSession(o); err == nil || !strings.Contains(err.Error(), "network needed") {
+		t.Errorf("custom-ref create failure = %v, want the pull/build hint", err)
+	}
+
+	// A var- variant is never pulled — it fails for its own build reasons.
+	if hint := msbCreateFailHint("sandboxer-toolbox:var-cafe01234567"); hint != "" {
+		t.Errorf("variant hint = %q, want none", hint)
 	}
 
 	// A default already in msb's store did not fail on the pull either.

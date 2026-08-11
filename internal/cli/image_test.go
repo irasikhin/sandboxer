@@ -58,6 +58,27 @@ func TestResolveImage(t *testing.T) {
 		t.Errorf("image %q != spec tag %q", img2, spec2.Tag())
 	}
 
+	// A profile's prebuilt ref wins over the configured default (profile >
+	// SANDBOXER_IMAGE > compiled default — the egress.proxy precedence rung).
+	img3, spec3, err := resolveImage(&config.Profile{
+		Image: config.ImageSpec{Ref: "ghcr.io/me/custom:2"},
+	}, io.Discard)
+	if err != nil || img3 != "ghcr.io/me/custom:2" || !spec3.Empty() {
+		t.Errorf("image.ref profile → %q, %+v, %v; want the ref with an empty spec", img3, spec3, err)
+	}
+
+	// ref × customization is rejected, on either customization axis.
+	if _, _, err := resolveImage(&config.Profile{
+		Image: config.ImageSpec{Ref: "ghcr.io/me/custom:2", Packages: []string{"ripgrep"}},
+	}, io.Discard); err == nil || !strings.Contains(err.Error(), "mutually exclusive") {
+		t.Errorf("ref+packages must be rejected, got %v", err)
+	}
+	if _, _, err := resolveImage(&config.Profile{
+		Tools: []string{"go"}, Image: config.ImageSpec{Ref: "ghcr.io/me/custom:2"},
+	}, io.Discard); err == nil || !strings.Contains(err.Error(), "mutually exclusive") {
+		t.Errorf("ref+tools must be rejected, got %v", err)
+	}
+
 	if _, _, err := resolveImage(&config.Profile{Tools: []string{"nope"}}, io.Discard); err == nil {
 		t.Error("unknown tool pack must error")
 	}

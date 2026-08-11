@@ -55,6 +55,13 @@ stock image profile-less sandboxes use.`,
 			if err != nil {
 				return err
 			}
+			// A ref-only profile runs a PREBUILT image: building the stock
+			// flake under someone else's reference would lie about what the
+			// ref names. Its refresh story is a pull, not a build.
+			if prof != nil && prof.Image.Ref != "" {
+				return fmt.Errorf("this profile runs the prebuilt image %s — refresh it with: "+
+					"sandboxer image pull %s", prof.Image.Ref, posArg(args))
+			}
 			spec, err := toolbox.ResolveSpec(prof)
 			if err != nil {
 				return err

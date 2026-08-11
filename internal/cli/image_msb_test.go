@@ -164,6 +164,30 @@ func TestImagePull(t *testing.T) {
 		!strings.Contains(errs, "sandboxer image build") {
 		t.Errorf("pull of a customized profile = (%d, %q), want a refusal with the build hint", code, errs)
 	}
+
+	// A ref-only profile is exactly as pullable as the default: pull fetches
+	// ITS reference, not the configured default.
+	refCfg := filepath.Join(t.TempDir(), "ref.nix")
+	if err := os.WriteFile(refCfg, []byte("{ name = \"feat\"; image.ref = \"ghcr.io/me/mine:7\"; }\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if code, out, errs := run("image", "pull", "-f", refCfg); code != 0 || !strings.Contains(out, "ghcr.io/me/mine:7") {
+		t.Errorf("pull of a ref profile = (%d, %q, %q), want its own ref pulled", code, out, errs)
+	}
+	if data, _ := os.ReadFile(log); !strings.Contains(string(data), "pull ghcr.io/me/mine:7") {
+		t.Errorf("msb argv log = %q, want the profile's ref", data)
+	}
+
+	// image build refuses a ref-only profile — its refresh story is the pull.
+	if code, _, errs := run("image", "build", "-f", refCfg); code != 1 ||
+		!strings.Contains(errs, "sandboxer image pull") {
+		t.Errorf("build of a ref profile = (%d, %q), want a refusal with the pull hint", code, errs)
+	}
+
+	// image rm respects the profile's ref too.
+	if code, out, _ := run("image", "rm", "-f", refCfg); code != 0 || !strings.Contains(out, "ghcr.io/me/mine:7") {
+		t.Errorf("rm of a ref profile = (%d, %q), want its own ref removed", code, out)
+	}
 }
 
 // TestRemoveImageMsb: `image rm` reaches the store via the microsandbox engine
