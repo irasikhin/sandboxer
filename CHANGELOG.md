@@ -6,6 +6,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.77.0] — 2026-08-11
+
+### Added
+
+- per-profile prebuilt image — image.ref (618340c)
+
+
 ## [0.76.1] — 2026-08-11
 
 ### Fixed
@@ -1201,3 +1208,4 @@ isolated, containerized dev sandbox, on a local Linux machine:
 [0.75.0]: https://github.com/irasikhin/sandboxer/compare/v0.74.0...v0.75.0
 [0.76.0]: https://github.com/irasikhin/sandboxer/compare/v0.75.0...v0.76.0
 [0.76.1]: https://github.com/irasikhin/sandboxer/compare/v0.76.0...v0.76.1
+[0.77.0]: https://github.com/irasikhin/sandboxer/compare/v0.76.1...v0.77.0
