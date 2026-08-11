@@ -3,6 +3,7 @@ package backend
 import (
 	"bytes"
 	"compress/gzip"
+	"errors"
 	"io"
 	"maps"
 	"os"
@@ -449,6 +450,12 @@ func setupFakeMSB(t *testing.T) string {
 	t.Setenv("SANDBOXER_STATE", filepath.Join(dir, "state"))
 	t.Setenv("FAKE_LOG", log)
 	t.Setenv("FAKE_MACHINES", filepath.Join(dir, "machines-live"))
+	// The lifecycle under test starts at create; the ensure step's registry
+	// pull (absent refs always "pull" against a fake store) is stubbed so no
+	// test depends on the fake script growing a pull dialect.
+	restorePull := msbPullImage
+	msbPullImage = func(_, _ string, _, _ io.Writer) error { return nil }
+	t.Cleanup(func() { msbPullImage = restorePull })
 	return log
 }
 
@@ -775,18 +782,60 @@ func TestMSBEnsureImage(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	o := RunOpts{Engine: msbEngine, Image: "ghcr.io/x/y:1"}
-	if ref, err := msbEnsureImage(o); err != nil || ref != o.Image {
-		t.Errorf("a public ref must pass through: %q, %v", ref, err)
+	restorePull := msbPullImage
+	t.Cleanup(func() { msbPullImage = restorePull })
+	pulled := 0
+	msbPullImage = func(_, ref string, _, _ io.Writer) error {
+		pulled++
+		cached[ref] = true
+		return nil
 	}
 
-	// The DEFAULT ref is prebuilt and public too now: pass-through, never a
-	// local autobuild — msb pulls it at create time.
-	o.Image = config.DefaultImage
-	if ref, err := msbEnsureImage(o); err != nil || ref != config.DefaultImage || built != 0 || loaded != "" {
-		t.Errorf("the prebuilt default must pass through untouched: ref=%q err=%v built=%d loaded=%q",
-			ref, err, built, loaded)
+	// An uncustomized ref ABSENT from msb's store is pulled EXPLICITLY first —
+	// pull-on-create only exists on newer msb, so enter must not rely on it
+	// (verified live: an older msb booted nothing until a manual pull).
+	o := RunOpts{Engine: msbEngine, Image: "ghcr.io/x/y:1"}
+	if ref, err := msbEnsureImage(o); err != nil || ref != o.Image || pulled != 1 {
+		t.Errorf("an absent public ref must be pulled then passed through: %q, %v, pulled=%d", ref, err, pulled)
 	}
+	// Now cached: no second pull.
+	if ref, err := msbEnsureImage(o); err != nil || ref != o.Image || pulled != 1 {
+		t.Errorf("a cached ref must not re-pull: %q, %v, pulled=%d", ref, err, pulled)
+	}
+
+	// The DEFAULT ref is prebuilt and public too now: pulled when absent, never
+	// a local autobuild.
+	o.Image = config.DefaultImage
+	if ref, err := msbEnsureImage(o); err != nil || ref != config.DefaultImage || pulled != 2 || built != 0 || loaded != "" {
+		t.Errorf("the prebuilt default must pull, not build: ref=%q err=%v pulled=%d built=%d loaded=%q",
+			ref, err, pulled, built, loaded)
+	}
+
+	// A flaky pull is RETRIED — msb resumes partial layers, so a second
+	// attempt continues a multi-GB download instead of starting over.
+	o.Image = "ghcr.io/x/flaky:1"
+	attempts := 0
+	msbPullImage = func(_, ref string, _, _ io.Writer) error {
+		attempts++
+		if attempts == 1 {
+			return errors.New("error decoding response body")
+		}
+		cached[ref] = true
+		return nil
+	}
+	if ref, err := msbEnsureImage(o); err != nil || ref != o.Image || attempts != 2 {
+		t.Errorf("a flaky pull must retry and succeed: %q, %v, attempts=%d", ref, err, attempts)
+	}
+
+	// A persistently failed pull is an actionable error naming the local-build
+	// escape hatch, after the retries are exhausted.
+	o.Image = "ghcr.io/x/absent:9"
+	attempts = 0
+	msbPullImage = func(_, _ string, _, _ io.Writer) error { attempts++; return errors.New("net down") }
+	if _, err := msbEnsureImage(o); err == nil || !strings.Contains(err.Error(), "sandboxer image build") || attempts != 3 {
+		t.Errorf("a failed pull must retry 3x then hint the local build, got attempts=%d err=%v", attempts, err)
+	}
+	msbPullImage = func(_, ref string, _, _ io.Writer) error { pulled++; cached[ref] = true; return nil }
 
 	// A customized profile's variant is the one image still built locally.
 	o.Spec = toolbox.Spec{Attrs: []string{"nixpkgs.ripgrep"}}

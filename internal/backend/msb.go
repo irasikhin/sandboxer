@@ -701,9 +701,42 @@ func msbRemoveImage(ref string) error {
 // here — it exists nowhere public — ensured in msb's store by building the
 // tar (once, with host nix) and loading it on first use unless
 // SANDBOXER_NO_AUTOBUILD is set.
+// msbPullImage is the pull seam msbEnsureImage goes through, so a test can
+// stand in for the network-bound registry pull.
+var msbPullImage = PullImage
+
 func msbEnsureImage(o RunOpts) (string, error) {
 	if o.Spec.Empty() {
-		return o.Image, nil // prebuilt or user-chosen — msb pulls (or has) it
+		// Prebuilt or user-chosen ref. Pull it EXPLICITLY when it is absent
+		// from msb's store: pull-on-create exists only on newer msb (0.6.7+),
+		// and even there it runs silently inside create — an explicit pull
+		// works on every 0.6.x, shows progress, and fails with an actionable
+		// error instead of a cryptic create failure. Verified live: enter on
+		// an msb without pull-on-create booted nothing until a manual pull.
+		if !msbImageExists(o.Image) {
+			if o.Stderr != nil {
+				fmt.Fprintf(o.Stderr, "sandboxer: pulling prebuilt image %s…\n", o.Image)
+			}
+			// Retry a few times: a multi-GB pull on a flaky link dies on a
+			// single stream reset, and msb resumes partially-downloaded
+			// layers, so a retry continues rather than starts over (observed
+			// live: attempt 1 "error decoding response body", attempt 2
+			// completed).
+			var err error
+			for attempt := 1; attempt <= 3; attempt++ {
+				if err = msbPullImage(msbEngine, o.Image, o.Stderr, o.Stderr); err == nil {
+					break
+				}
+				if attempt < 3 && o.Stderr != nil {
+					fmt.Fprintf(o.Stderr, "sandboxer: pull interrupted (%v) — retrying (%d/3)…\n", err, attempt)
+				}
+			}
+			if err != nil {
+				return "", fmt.Errorf("pull %q: %w — offline or blocked? build locally with: "+
+					"sandboxer image build", o.Image, err)
+			}
+		}
+		return o.Image, nil
 	}
 	if msbImageExists(o.Image) && msbImageCurrent(o.Image) {
 		return o.Image, nil
