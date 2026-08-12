@@ -6,6 +6,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.78.2] — 2026-08-12
+
+### Fixed
+
+- materialize sets a squatting non-worktree dir aside first (d5565f0)
+
+
 ## [0.78.1] — 2026-08-12
 
 ### Fixed
@@ -1229,3 +1236,4 @@ isolated, containerized dev sandbox, on a local Linux machine:
 [0.77.0]: https://github.com/irasikhin/sandboxer/compare/v0.76.1...v0.77.0
 [0.78.0]: https://github.com/irasikhin/sandboxer/compare/v0.77.0...v0.78.0
 [0.78.1]: https://github.com/irasikhin/sandboxer/compare/v0.78.0...v0.78.1
+[0.78.2]: https://github.com/irasikhin/sandboxer/compare/v0.78.1...v0.78.2
