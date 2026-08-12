@@ -845,6 +845,57 @@ func TestDetachSetsAsideSquattingRepo(t *testing.T) {
 	}
 }
 
+// TestMaterializeOverSquattingRepo is the second half of the squatting-repo
+// story: the source stays WANTED in srcs. The squatter makes the managed path
+// read as "not materialized", so sync routes it to Ensure — whose `git
+// worktree add` refuses an occupied dir. The sync must set the squatter aside
+// (content intact), free the branch's stale admin entry, and check the
+// worktree out fresh at the same path.
+func TestMaterializeOverSquattingRepo(t *testing.T) {
+	repo := gitRepoWithCommit(t)
+	other := gitRepoWithCommit(t)
+	b, err := ResolveBase(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pj := fmt.Sprintf(`{"srcs":[{"src":".","branch":"feat/mq"},{"src":%q,"branch":"feat/mq2"}]}`, other)
+	if err := b.WriteProfileJSON("mq", []byte(pj)); err != nil {
+		t.Fatal(err)
+	}
+	if err := b.MakeSandbox("mq", io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	occupied := b.Srcs("mq")[1]
+
+	// given: an in-guest `git init` replaced the pointer file; work inside
+	if err := os.Remove(filepath.Join(occupied.Path, ".git")); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, occupied.Path, "init", "-q")
+	writeFile(t, filepath.Join(occupied.Path, "wip.txt"), "precious")
+
+	// when: the SAME srcs re-sync (the source is still wanted)
+	srcs, err := b.SyncSrcs("mq", io.Discard)
+	if err != nil {
+		t.Fatalf("SyncSrcs over an occupied managed path: %v", err)
+	}
+	if len(srcs) != 2 {
+		t.Fatalf("srcs = %+v, want 2", srcs)
+	}
+	// then: a fresh worktree on the branch sits at the managed path…
+	if !worktree.IsWorktree(occupied.Path) {
+		t.Error("managed path was not re-materialized as a worktree")
+	}
+	if br := strings.TrimSpace(runGit(t, occupied.Path, "rev-parse", "--abbrev-ref", "HEAD")); br != "feat/mq2" {
+		t.Errorf("branch = %q, want feat/mq2", br)
+	}
+	// …and the squatter's content survived under _detached/.
+	moved, err := filepath.Glob(filepath.Join(b.detachedDir("mq"), "mq-*", "wip.txt"))
+	if err != nil || len(moved) != 1 {
+		t.Errorf("squatter's work not preserved under _detached: %v (err=%v)", moved, err)
+	}
+}
+
 // TestWorktreesDirOverride: a profile worktreesDir relocates the sandbox —
 // absolute or relative to the project root — and the project-wide worktree
 // sweep honors it without ever removing a user-chosen root wholesale.

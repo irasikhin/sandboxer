@@ -630,7 +630,7 @@ func (b *Base) SyncSrcs(slug string, w io.Writer) ([]Source, error) {
 				if _, err := worktree.Unsparse(s.Path, w); err != nil {
 					return nil, err
 				}
-			} else if err := b.materializeSrc(s, w); err != nil {
+			} else if err := b.materializeSrc(slug, s, w); err != nil {
 				return nil, err
 			}
 		} else if err := b.linkAdoptedSrc(s, w); err != nil {
@@ -726,13 +726,41 @@ func warnAdoptedUnreachable(srcs []Source, w io.Writer) {
 //     back to the managed path — uncommitted work returns with it;
 //   - the registered directory no longer exists (removed by hand, not via
 //     git): prune the stale registration and check out fresh.
-func (b *Base) materializeSrc(s Source, w io.Writer) error {
+func (b *Base) materializeSrc(slug string, s Source, w io.Writer) error {
 	if wt, ok := worktree.FindWorktree(s.RepoRoot, s.Branch); ok {
 		switch {
 		case !dirExists(wt):
 			_ = worktree.Prune(s.RepoRoot)
 		case isSetAside(wt):
 			return b.reattachSrc(wt, s, w)
+		}
+	}
+	// The managed path can be OCCUPIED by something that is not a linked
+	// worktree — the live case is a standalone repo an in-guest `git init`
+	// left behind (its .git is a real directory). Ensure's `git worktree add`
+	// refuses a non-empty dir, so set the squatter aside first, content
+	// intact, and free the branch from any admin entry still naming the path.
+	if dirExists(s.Path) && !worktree.IsWorktree(s.Path) {
+		entries, err := os.ReadDir(s.Path)
+		if err != nil {
+			return err
+		}
+		if len(entries) == 0 {
+			_ = os.Remove(s.Path)
+		} else {
+			target, err := b.detachTarget(slug, s)
+			if err != nil {
+				return err
+			}
+			if err := os.Rename(s.Path, target); err != nil {
+				return fmt.Errorf("set aside the directory occupying %s: %w", s.Path, err)
+			}
+			_ = worktree.Prune(s.RepoRoot)
+			if w != nil {
+				fmt.Fprintf(w, "sandboxer: srcs %s: a foreign directory occupied the managed path — "+
+					"moved to %s (content kept); checking out %s fresh\n",
+					filepath.Base(s.RepoRoot), target, s.Branch)
+			}
 		}
 	}
 	return worktree.Ensure(s.RepoRoot, s.Path, s.Branch, w)
