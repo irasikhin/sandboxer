@@ -6,6 +6,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.78.1] — 2026-08-12
+
+### Fixed
+
+- a standalone repo squatting a managed path is set aside, not moved (763b35d)
+
+
 ## [0.78.0] — 2026-08-11
 
 ### Added
@@ -1221,3 +1228,4 @@ isolated, containerized dev sandbox, on a local Linux machine:
 [0.76.1]: https://github.com/irasikhin/sandboxer/compare/v0.76.0...v0.76.1
 [0.77.0]: https://github.com/irasikhin/sandboxer/compare/v0.76.1...v0.77.0
 [0.78.0]: https://github.com/irasikhin/sandboxer/compare/v0.77.0...v0.78.0
+[0.78.1]: https://github.com/irasikhin/sandboxer/compare/v0.78.0...v0.78.1
