@@ -244,10 +244,19 @@ func Prune(repoToplevel string) error {
 // resolves inside a work tree. Used so a teardown only routes a real worktree
 // through git (anything else is just removed).
 func IsWorktree(dest string) bool {
-	if _, err := os.Lstat(filepath.Join(dest, ".git")); err != nil {
+	fi, err := os.Lstat(filepath.Join(dest, ".git"))
+	if err != nil || !fi.Mode().IsRegular() {
+		// A LINKED worktree's .git is a regular file ("gitdir: …"). A real
+		// .git DIRECTORY is a standalone repo squatting the path — the live
+		// case is an agent inside the guest running `git init` over the
+		// pointer file, whose gitdir target is a host path the guest cannot
+		// see. Such a dir is not ours to drive with `git worktree` plumbing
+		// (move/remove refuse it with "is not a .git file"); answering false
+		// routes every caller to the rename-aside handling that preserves
+		// its content.
 		return false
 	}
-	_, err := run(dest, "rev-parse", "--is-inside-work-tree")
+	_, err = run(dest, "rev-parse", "--is-inside-work-tree")
 	return err == nil
 }
 

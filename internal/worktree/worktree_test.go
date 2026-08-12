@@ -115,6 +115,14 @@ func TestEnsureFull(t *testing.T) {
 	if IsWorktree(t.TempDir()) {
 		t.Error("IsWorktree(plain) = true, want false")
 	}
+	// A STANDALONE repo (.git is a real directory) is not a linked worktree —
+	// the live case is an in-guest `git init` over the pointer file; `git
+	// worktree move/remove` refuse such a dir, so IsWorktree must not claim it.
+	standalone := t.TempDir()
+	git(t, standalone, "init", "-q")
+	if IsWorktree(standalone) {
+		t.Error("IsWorktree(standalone repo) = true, want false")
+	}
 }
 
 // TestUnsparseWidensALegacyWorktree is the upgrade path: a worktree a

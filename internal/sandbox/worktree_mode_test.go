@@ -794,6 +794,57 @@ func TestDetachSetsAsideNonWorktreeDir(t *testing.T) {
 	}
 }
 
+// TestDetachSetsAsideSquattingRepo reproduces the live failure: an agent inside
+// the guest ran `git init` over the worktree's pointer file (whose gitdir names
+// a host path the guest cannot see), leaving a STANDALONE repo squatting the
+// managed path. Dropping that source must set the directory aside — `git
+// worktree move` refuses it ("is not a .git file") — and prune the shared
+// repo's now-broken admin entry so the branch is checkout-able again.
+func TestDetachSetsAsideSquattingRepo(t *testing.T) {
+	repo := gitRepoWithCommit(t)
+	other := gitRepoWithCommit(t)
+	b, err := ResolveBase(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pj := fmt.Sprintf(`{"srcs":[{"src":".","branch":"feat/sq"},{"src":%q,"branch":"feat/sq2"}]}`, other)
+	if err := b.WriteProfileJSON("sq", []byte(pj)); err != nil {
+		t.Fatal(err)
+	}
+	if err := b.MakeSandbox("sq", io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	dropped := b.Srcs("sq")[1]
+
+	// given: the pointer file replaced by a real repo, with work inside
+	if err := os.Remove(filepath.Join(dropped.Path, ".git")); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, dropped.Path, "init", "-q")
+	writeFile(t, filepath.Join(dropped.Path, "wip.txt"), "precious")
+
+	// when: that source is dropped from srcs
+	if err := b.WriteProfileJSON("sq", []byte(`{"srcs":[{"src":".","branch":"feat/sq"}]}`)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := b.SyncSrcs("sq", io.Discard); err != nil {
+		t.Fatalf("SyncSrcs over a squatting repo: %v", err)
+	}
+	// then: moved aside with its contents, never driven through git worktree
+	if _, err := os.Stat(dropped.Path); !os.IsNotExist(err) {
+		t.Errorf("squatting repo still under the sandbox dir (err=%v)", err)
+	}
+	moved, err := filepath.Glob(filepath.Join(b.detachedDir("sq"), "sq-*", "wip.txt"))
+	if err != nil || len(moved) != 1 {
+		t.Errorf("squatting repo's work not preserved under _detached: %v (err=%v)", moved, err)
+	}
+	// and: the shared repo no longer holds the stale admin entry, so the
+	// branch is free for a fresh checkout.
+	if out := runGit(t, other, "worktree", "list"); strings.Contains(out, dropped.Path) {
+		t.Errorf("stale worktree admin entry survived the set-aside:\n%s", out)
+	}
+}
+
 // TestWorktreesDirOverride: a profile worktreesDir relocates the sandbox —
 // absolute or relative to the project root — and the project-wide worktree
 // sweep honors it without ever removing a user-chosen root wholesale.

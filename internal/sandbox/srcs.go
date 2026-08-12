@@ -892,6 +892,12 @@ func (b *Base) detachSrc(slug string, s Source, w io.Writer) error {
 		if err := os.Rename(s.Path, target); err != nil {
 			return fmt.Errorf("set dropped source %s aside: %w", name, err)
 		}
+		// The shared repo may still hold this path's worktree ADMIN entry (a
+		// squatting repo replaced the pointer file, not the bookkeeping) — and
+		// a live entry keeps its branch "checked out", blocking a future
+		// checkout. The rename above broke the entry's link, so prune drops
+		// exactly it; best-effort, the set-aside itself succeeded.
+		_ = worktree.Prune(s.RepoRoot)
 		if w != nil {
 			fmt.Fprintf(w, "sandboxer: source %s dropped — its directory moved to %s (not a git worktree)\n",
 				name, target)
