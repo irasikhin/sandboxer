@@ -6,6 +6,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.79.0] — 2026-08-12
+
+### Added
+
+- guard git in the guest against 'repairing' a managed worktree (0d4f58f)
+
+
 ## [0.78.2] — 2026-08-12
 
 ### Fixed
@@ -1237,3 +1244,4 @@ isolated, containerized dev sandbox, on a local Linux machine:
 [0.78.0]: https://github.com/irasikhin/sandboxer/compare/v0.77.0...v0.78.0
 [0.78.1]: https://github.com/irasikhin/sandboxer/compare/v0.78.0...v0.78.1
 [0.78.2]: https://github.com/irasikhin/sandboxer/compare/v0.78.1...v0.78.2
+[0.79.0]: https://github.com/irasikhin/sandboxer/compare/v0.78.2...v0.79.0
