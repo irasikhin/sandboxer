@@ -39,6 +39,8 @@ func TestMSBCreateArgv(t *testing.T) {
 		"-e", "SANDBOXER_IN_CONTAINER=1",
 		"-e", "SANDBOXER_SLUG=s", "-e", "SANDBOXER_SANDBOX_DIR=/d",
 		"-e", "LANG=C.UTF-8",
+		"-e", "DOCKER_HOST=unix:///var/run/docker.sock",
+		"-e", "TESTCONTAINERS_RYUK_DISABLED=true",
 		"-e", "HOME=/d/.home", "-v", "/d/.home:/d/.home",
 		"-m", "2048M", "-c", "2",
 		"img:1",

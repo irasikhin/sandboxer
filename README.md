@@ -468,9 +468,14 @@ migration hint.
 No engine socket ever comes from the host (this is not docker-in-docker), and
 pulls go through the sandbox's **egress allowlist** like any other traffic —
 allow the registry's domains or the pull is refused (the defaults cover
-docker.io/ghcr.io/quay.io and their CDNs). What does *not* work is anything
-that expects the HOST's Docker API socket; inside the guest, tools talk to the
-guest's own engine.
+docker.io/ghcr.io/quay.io and their CDNs). Inside the guest, the engine
+serves a **docker-compatible API socket at `/var/run/docker.sock`** (started
+on demand by the image's `podman-socket` helper, wired into every shell and
+`exec`), with `DOCKER_HOST` and `TESTCONTAINERS_RYUK_DISABLED` set — so
+**testcontainers** suites (Java/Go/Python) run with zero configuration. What
+does *not* work is anything that expects the HOST's Docker API socket; the
+mount set is the wall, and the only engine socket in the sandbox is the
+guest's own.
 
 ### Multiple profiles in one file
 

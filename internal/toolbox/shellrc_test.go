@@ -118,6 +118,31 @@ func TestImageBakesNestedPodman(t *testing.T) {
 	}
 }
 
+// TestImageBakesPodmanSocket guards the testcontainers layer: the nested
+// podman's docker-compatible API socket — the docker.sock testcontainers and
+// docker clients connect to — is started lazily by a podman-socket helper,
+// wired into BOTH entry paths (the interactive rc for enter/tmux panes, the
+// CLI's exec/run wrap) and into the image env (DOCKER_HOST points clients at
+// the socket; TESTCONTAINERS_RYUK_DISABLED skips the reaper sidecar that is
+// podman's #1 failure mode — the disposable sandbox machine is the cleanup
+// boundary instead), so a testcontainers suite works with zero configuration.
+func TestImageBakesPodmanSocket(t *testing.T) {
+	s := imageDefinition(t)
+	for _, want := range []string{
+		`writeShellScriptBin "podman-socket"`,
+		"podman system service",
+		"unix:///var/run/docker.sock",
+		`"DOCKER_HOST=unix:///var/run/docker.sock"`,
+		"TESTCONTAINERS_RYUK_DISABLED=true",
+		"podmanSocket",
+		"command -v podman-socket", // the rc.sh wiring
+	} {
+		if !strings.Contains(s, want) {
+			t.Errorf("images.nix missing podman-socket piece %q", want)
+		}
+	}
+}
+
 // TestImageBakesDockerShim guards the docker-compatibility layer: a `docker`
 // on PATH that execs podman (never a real client — no daemon socket is ever
 // mounted into a sandbox), and the compose provider `docker compose` needs.

@@ -234,6 +234,26 @@ func TestMSB_NestedContainer_RealEngine(t *testing.T) {
 	if code, _ := ExecSession(o, name, []string{"podman", "--version"}); code != 0 {
 		t.Fatalf("podman absent inside the guest (code %d)", code)
 	}
+	// testcontainers & docker clients talk to a docker-compatible API SOCKET,
+	// never a CLI: the image must expose the nested engine on the standard
+	// docker.sock path, and the daemon must SURVIVE the exec that started it
+	// (the ensure runs detached, for the persistent machine — this check runs
+	// in a separate exec than the ensure above).
+	if code, _ := ExecSession(o, name, []string{"podman-socket"}); code != 0 {
+		t.Fatalf("podman-socket ensure failed inside the guest (code %d)", code)
+	}
+	var sockOut bytes.Buffer
+	so := o
+	so.Stdout = &sockOut
+	if code, _ := ExecSession(so, name, []string{"sh", "-c",
+		"curl -sf --unix-socket /var/run/docker.sock http://localhost/_ping && echo; " +
+			"echo \"DOCKER_HOST=$DOCKER_HOST TESTCONTAINERS_RYUK_DISABLED=$TESTCONTAINERS_RYUK_DISABLED\""}); code != 0 {
+		t.Fatalf("docker-compatible API socket dead inside the guest (code %d)", code)
+	}
+	wantSock := "OK\nDOCKER_HOST=unix:///var/run/docker.sock TESTCONTAINERS_RYUK_DISABLED=true\n"
+	if got := sockOut.String(); got != wantSock {
+		t.Errorf("socket probe = %q, want %q", got, wantSock)
+	}
 	// A plain container pulls and runs.
 	if code, _ := ExecSession(o, name, []string{"docker", "run", "--rm",
 		"docker.io/library/alpine:3.21", "sh", "-c", "echo NESTED-OK"}); code != 0 {
