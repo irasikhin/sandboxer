@@ -143,6 +143,44 @@ let
     printf 'root:x:0:\nnobody:x:65534:\n' > $out/etc/group
   '';
 
+  # git with a sandbox-awareness guard. A managed source is a HOST worktree:
+  # its .git is a pointer FILE whose gitdir names a host path deliberately not
+  # mounted (git never enters the sandbox — the mount set is the wall). Plain
+  # git greets that with "fatal: not a git repository", which reads as
+  # breakage — and an agent then "repairs" it with `git init`, orphaning the
+  # host worktree (the live incident this guard closes). The wrapper explains
+  # the design at exactly the moment of confusion and refuses, instead of
+  # letting the confusing fatal invite a destructive fix. Everything else —
+  # repos cloned inside the sandbox, plain dirs — passes straight through.
+  gitGuarded = pkgs.symlinkJoin {
+    name = "git-guarded";
+    paths = [ pkgs.git ];
+    postBuild = ''
+      rm $out/bin/git
+      cat > $out/bin/git <<GUARD
+      #!${pkgs.runtimeShell}
+      d=\$PWD
+      while [ -n "\$d" ] && [ "\$d" != "/" ]; do
+        if [ -e "\$d/.git" ]; then
+          if [ -f "\$d/.git" ]; then
+            tgt=\$(${pkgs.gnused}/bin/sed -n 's/^gitdir: //p' "\$d/.git" 2>/dev/null)
+            if [ -n "\$tgt" ] && [ ! -e "\$tgt" ]; then
+              echo "sandboxer: \$d is a sandboxer-managed git WORKTREE — its git metadata lives on the HOST and is deliberately not mounted here (the mount set is the isolation wall)." >&2
+              echo "sandboxer: git cannot operate on this tree from inside the sandbox. Edit the files; committing and reviewing happen on the host." >&2
+              echo "sandboxer: do NOT 'git init' here — it would orphan the host worktree and your uncommitted work gets set aside on the next sync." >&2
+              exit 128
+            fi
+          fi
+          break
+        fi
+        d=\$(${pkgs.coreutils}/bin/dirname "\$d")
+      done
+      exec ${pkgs.git}/bin/git "\$@"
+      GUARD
+      chmod +x $out/bin/git
+    '';
+  };
+
   # `docker` inside the sandbox — a shim, not the real client. The docker
   # CLI speaks to a daemon over a socket, and no engine socket is ever
   # mounted into a sandbox (that is the whole point: not docker-in-docker),
@@ -264,7 +302,6 @@ in
       (with pkgs; [
         bashInteractive
         coreutils
-        git
         rsync
         jq
         curl
@@ -338,6 +375,7 @@ in
         gitConfig
         tmuxConf
         dockerShim
+        gitGuarded
         guestNss
         containersPolicy
         containersRegistries

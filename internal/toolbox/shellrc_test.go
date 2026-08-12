@@ -1,6 +1,7 @@
 package toolbox
 
 import (
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -48,6 +49,29 @@ func TestFlakeEmbedsShellRc(t *testing.T) {
 		if !strings.Contains(s, want) {
 			t.Errorf("images.nix missing %q — shell rc not wired", want)
 		}
+	}
+}
+
+// TestFlakeEmbedsGitGuard guards the in-guest git wrapper: a managed source's
+// .git is a pointer file whose gitdir names an unmounted host path, and plain
+// git's "fatal: not a git repository" invited an agent to "repair" the tree
+// with `git init` (the live incident). The wrapper must stay wired — replacing
+// bin/git, explaining the design, and refusing — and plain `git` must stay OUT
+// of the base contents (a second bin/git would race the wrapper for the path).
+func TestFlakeEmbedsGitGuard(t *testing.T) {
+	s := imageDefinition(t)
+	for _, want := range []string{
+		"gitGuarded",
+		"gitdir: ",
+		"managed git WORKTREE",
+		"do NOT 'git init' here",
+	} {
+		if !strings.Contains(s, want) {
+			t.Errorf("images.nix missing %q — the git guard is not wired", want)
+		}
+	}
+	if regexp.MustCompile(`(?m)^\s{8}git$`).MatchString(s) {
+		t.Error("plain `git` is back in the image contents — it would shadow the guarded wrapper")
 	}
 }
 

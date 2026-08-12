@@ -85,6 +85,13 @@ Windows/WSL2 are **cross-platform in code but not live-verified** — see
   edits on the host (`git log`/`git diff`/`git merge <branch>`). There is no
   copy-back over host files.
 
+  The image's `git` carries a guard for exactly this shape: a worktree's `.git`
+  is a pointer file naming an unmounted host gitdir, and plain git greets that
+  with `fatal: not a git repository` — which an agent has been observed to
+  "repair" with `git init`, orphaning the host worktree. The wrapper explains
+  the design and refuses (exit 128) instead; git anywhere else in the guest
+  works normally.
+
   Note what this means for the host side: a narrowed sandbox's worktree holds
   the excluded files in full, one directory above the shared ones. That is
   deliberate (it is what lets an IDE open the branch), and it makes the absence
