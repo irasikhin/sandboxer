@@ -708,7 +708,7 @@ func validateSessionName(name string) error {
 func persistentEnterBanner(slug, engine, dir, machine string) string {
 	return fmt.Sprintf(
 		"sandboxer: persistent session %s in %q (%s) — %s\n"+
-			"sandboxer: Ctrl-Space d DETACHES — the tmux session and everything in it keep running; reattach: sandboxer enter %s\n"+
+			"sandboxer: Ctrl-Space d DETACHES (also Ctrl-b d, Alt-d, or type `detach`) — the tmux session and everything in it keep running; reattach: sandboxer enter %s\n"+
 			"sandboxer: exiting the shell ENDS that tmux session (the machine itself stays) — the next enter opens a fresh one",
 		machine, slug, engine, dir, slug)
 }
@@ -724,7 +724,7 @@ func staleSessionEnterBanner(slug, engine, dir, machine, why string) string {
 		"sandboxer: persistent session %s in %q (%s) — %s\n"+
 			"sandboxer: attaching as-is: the session is stale (%s) but is running a tmux session — not rebuilding it under you\n"+
 			"sandboxer: the new configuration applies once it is empty, or now: sandboxer stop %s && sandboxer enter %s\n"+
-			"sandboxer: Ctrl-Space d DETACHES — the tmux session and everything in it keep running; reattach: sandboxer enter %s\n"+
+			"sandboxer: Ctrl-Space d DETACHES (also Ctrl-b d, Alt-d, or type `detach`) — the tmux session and everything in it keep running; reattach: sandboxer enter %s\n"+
 			"sandboxer: exiting the shell ENDS that tmux session (the machine itself stays) — the next enter opens a fresh one",
 		machine, slug, engine, dir, why, slug, slug, slug)
 }

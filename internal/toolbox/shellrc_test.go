@@ -75,6 +75,28 @@ func TestFlakeEmbedsGitGuard(t *testing.T) {
 	}
 }
 
+// TestFlakeShipsDetachEscapeHatches guards the ways OUT of an attached
+// session when the prefix key never reaches tmux — Ctrl-Space is a common
+// input-method toggle, and `exit` ends the session rather than leaving it
+// running, so a single prefix is a trap. C-b stays as the second prefix, Alt-d
+// detaches with no prefix at all, and `detach` is a command on PATH.
+func TestFlakeShipsDetachEscapeHatches(t *testing.T) {
+	s := imageDefinition(t)
+	for _, want := range []string{
+		"set -g prefix2 C-b",
+		"bind -n M-d detach-client",
+		`writeShellScriptBin "detach"`,
+		"detachCmd",
+	} {
+		if !strings.Contains(s, want) {
+			t.Errorf("images.nix missing detach escape hatch %q", want)
+		}
+	}
+	if strings.Contains(s, "unbind C-b") {
+		t.Error("C-b is unbound again — it is the fallback prefix when Ctrl-Space is eaten")
+	}
+}
+
 // TestFlakeBakesToolingPack guards that the baseline tooling humans and agents
 // rely on (pager, editor, process tools, search, archives, delta git pager)
 // stays baked into the image, and that /etc/gitconfig routes the pager through

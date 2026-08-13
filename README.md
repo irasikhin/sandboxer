@@ -212,7 +212,10 @@ By default `enter` attaches a **tmux session inside a persistent session
 machine** (`tmux -L sandboxer`, mouse scrolling on, sandboxer prompt in
 every pane; the prefix is `Ctrl-Space`, so `Ctrl-Space c` opens a new window):
 **`Ctrl-Space d` detaches** — the tmux session and whatever is running in it
-keep going, and a later `sandboxer enter feat` drops straight back in; a second
+keep going, and a later `sandboxer enter feat` drops straight back in. If
+`Ctrl-Space` never reaches tmux (a desktop input-method toggle claims it on
+many Linux setups), use any of **`Ctrl-b d`** (the second prefix), **`Alt-d`**
+(no prefix) or just type **`detach`** — never `exit`, which ends the session; a second
 terminal attaches the same session in parallel (`--session <name>` opens a
 separate one in the same machine). **Exiting the shell is not the same
 thing**: it closes the session's last pane, which ends the tmux session (and,

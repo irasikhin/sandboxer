@@ -172,7 +172,8 @@ layout comes back.
   in the profile or `SANDBOXER_NO_RESUME=1`.
 - If reattach refuses because the **profile changed or the image was rebuilt**,
   the next `enter` recreates an idle session — but it refuses while another client
-  is still attached. Detach the other client (Ctrl-Space d) or `sandboxer stop <slug>`
+  is still attached. Detach the other client (Ctrl-Space d, Ctrl-b d, Alt-d, or
+  the `detach` command) or `sandboxer stop <slug>`
   first.
 - Force a clean slate: `sandboxer stop <slug>` then `enter`, or `rm <slug>` and
   re-`create`.

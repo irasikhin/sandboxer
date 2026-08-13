@@ -187,6 +187,19 @@ let
     '';
   };
 
+  # `detach` as a COMMAND: the escape hatch when no key reaches tmux (an
+  # input-method toggle eating Ctrl-Space, a terminal swallowing Alt-d, a
+  # nested multiplexer). Typing `exit` instead ENDS the tmux session and with
+  # it whatever the agent was running — this leaves it running, exactly as the
+  # prefix binding would.
+  detachCmd = pkgs.writeShellScriptBin "detach" ''
+    if [ -z "$TMUX" ]; then
+      echo "detach: not inside the sandbox's tmux session (nothing to detach from)" >&2
+      exit 1
+    fi
+    exec ${pkgs.tmux}/bin/tmux detach-client
+  '';
+
   # `docker` inside the sandbox — a shim, not the real client. The docker
   # CLI speaks to a daemon over a socket, and no engine socket is ever
   # mounted into a sandbox (that is the whole point: not docker-in-docker),
@@ -284,8 +297,14 @@ let
     # bash's Ctrl-a (beginning of line). e.g. Ctrl-Space c = new window,
     # Ctrl-Space d = detach, Ctrl-Space " / % = split panes.
     set -g prefix C-Space
-    unbind C-b
+    # C-b stays as the SECOND prefix rather than being unbound: Ctrl-Space is
+    # a popular input-method toggle (ibus/GNOME/KDE), and a desktop that eats
+    # it used to leave no way to detach — with `exit` ending the session, that
+    # is a trap, not an inconvenience. Whichever prefix reaches tmux works.
+    set -g prefix2 C-b
     bind C-Space send-prefix
+    # Detach without any prefix at all, for a terminal that swallows both.
+    bind -n M-d detach-client
     # Reload without leaving the sandbox.
     bind r source-file /etc/tmux.conf \; display-message "tmux.conf reloaded"
 
@@ -448,6 +467,7 @@ in
         gitConfig
         tmuxConf
         dockerShim
+        detachCmd
         podmanSocket
         gitGuarded
         guestNss
