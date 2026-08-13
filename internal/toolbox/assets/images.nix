@@ -59,6 +59,12 @@ let
     export PAGER="''${PAGER:-less}"
     export LESS="''${LESS:--R}"
 
+    # testcontainers (and any docker client) needs the nested podman's
+    # docker-compatible API socket; ensure it — idempotent, quiet, detached.
+    # The image carries podman-socket; an older cached image without it
+    # simply skips (the `command -v` guard), never errors the shell.
+    command -v podman-socket >/dev/null 2>&1 && podman-socket >/dev/null 2>&1 || true
+
     # extension points: plugin drop-ins (image) then the user file (home)
     for f in /etc/sandboxer/rc.d/*.sh; do [ -r "$f" ] && . "$f"; done
     [ -r "$HOME/.config/sandboxer/rc" ] && . "$HOME/.config/sandboxer/rc"
@@ -191,6 +197,48 @@ let
   # image.packages collides with this name; that is the profile's call.
   dockerShim = pkgs.writeShellScriptBin "docker" ''
     exec ${pkgs.podman}/bin/podman "$@"
+  '';
+
+  # testcontainers & friends talk to a docker-compatible API SOCKET, never a
+  # CLI: without one every testcontainers suite fails with "Could not find a
+  # valid Docker environment", and the docker compose shim needs it too. This
+  # helper lazily starts the nested podman's API service on the standard
+  # docker socket path. Idempotent (the socket check is the fast path),
+  # detached (nohup + </dev/null: it must outlive the shell that started it
+  # and keep serving the persistent machine between enter/exec calls), and
+  # raced safely — a stale pidfile from a previous machine boot is ignored
+  # when its pid no longer names a podman process (kill -0 + the comm name),
+  # so a reused pid can never read as "already running" with no socket up.
+  # Wired into the interactive rc (below) and prefixed onto every exec/run
+  # command by the CLI; a sandbox with no podman simply never gets a socket
+  # and tools that need one fail on their own, loudly.
+  podmanSocket = pkgs.writeShellScriptBin "podman-socket" ''
+    # already up — the fast path every shell after the first takes
+    [ -S /var/run/docker.sock ] && exit 0
+    pid=/var/run/sandboxer-podman.pid
+    if [ -f "$pid" ]; then
+      p=$(cat "$pid" 2>/dev/null)
+      # alive AND a podman process: comm is the executable name, so a reused
+      # pid from before a machine restart never reads as "already running"
+      if kill -0 "$p" 2>/dev/null && [ "$(cat "/proc/$p/comm" 2>/dev/null)" = podman ]; then
+        exit 0
+      fi
+    fi
+    rm -f "$pid"
+    mkdir -p /run /var/run /var/log/sandboxer
+    nohup podman system service --time=0 unix:///var/run/docker.sock \
+      </dev/null >>/var/log/sandboxer/podman-socket.log 2>&1 &
+    echo $! > "$pid"
+    # wait for the socket to accept connections (podman binds in well under
+    # a second; 3s is the worst-case stall when the engine is broken)
+    i=0
+    while [ $i -lt 30 ]; do
+      [ -S /var/run/docker.sock ] && exit 0
+      i=$((i+1))
+      sleep 0.1
+    done
+    echo "sandboxer: podman API socket did not come up — see /var/log/sandboxer/podman-socket.log" >&2
+    exit 1
   '';
 
   # System tmux config at /etc/tmux.conf — tmux reads it by default.
@@ -375,6 +423,7 @@ in
         gitConfig
         tmuxConf
         dockerShim
+        podmanSocket
         gitGuarded
         guestNss
         containersPolicy
@@ -401,6 +450,14 @@ in
         "LANG=C.UTF-8"
         # Point maven and the JVM tooling at the baked JDK.
         "JAVA_HOME=${pkgs.jdk25.home}"
+        # testcontainers reads DOCKER_HOST for the engine endpoint; the socket
+        # itself is started lazily by podman-socket (see above).
+        "DOCKER_HOST=unix:///var/run/docker.sock"
+        # Ryuk, testcontainers' reaper sidecar, is the #1 podman failure mode
+        # (privileged container + docker-socket mount assumptions); the
+        # sandbox machine itself is the cleanup boundary — sandboxer rm/clean
+        # wipes everything a test run leaves behind.
+        "TESTCONTAINERS_RYUK_DISABLED=true"
       ]
       ++ userEnv;
     };

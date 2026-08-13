@@ -429,6 +429,12 @@ composes with scripts and CI.`,
 			if _, err := t.base.SyncSrcs(t.slug, narrate); err != nil {
 				return err
 			}
+			// The nested podman's docker-compatible API socket is the one thing
+			// an exec (unlike an interactive shell, whose rc ensures it) would
+			// otherwise start without — testcontainers and docker clients would
+			// fail with "cannot connect to the daemon". Ensure it lazily in the
+			// same wrap both the session and the one-shot path run.
+			rest = podmanSocketPrefix(rest)
 			// Re-resolve after the snapshot landed (worktreesDir may have changed).
 			dest = t.base.SandboxDir(t.slug)
 			rt, rtErr := t.runtime(f)
@@ -607,6 +613,24 @@ func warnOpenNetwork(w io.Writer, rt config.Runtime, prof *config.Profile) {
 		msg += " — and hostConfigs is on, so seeded credentials could be exfiltrated"
 	}
 	fmt.Fprintln(w, msg)
+}
+
+// podmanSocketPrefix wraps an in-guest user command so the nested podman's
+// docker-compatible API socket — the docker.sock testcontainers and docker
+// clients connect to — is ensured before the command runs (the interactive
+// shell path gets the same via rc.sh). The ensure is idempotent and
+// NON-fatal (`|| true`): a sandbox whose socket cannot come up still runs
+// the command, and the failure surfaces where it belongs, in the tool that
+// needs the socket. The wrap re-execs the original command with its argv
+// intact: $0 carries the original argv0 through bash -c, and exec replaces
+// the wrapper process, so exit codes and signals propagate unchanged.
+func podmanSocketPrefix(cmd []string) []string {
+	if len(cmd) == 0 {
+		return nil
+	}
+	return append([]string{"bash", "-c",
+		"command -v podman-socket >/dev/null 2>&1 && podman-socket >/dev/null 2>&1 || true; exec \"$0\" \"$@\"",
+		cmd[0]}, cmd[1:]...)
 }
 
 // tmuxLaunch wraps an in-guest launch command (the then-branch) with the
@@ -825,7 +849,7 @@ func runSetup(t *target, rt config.Runtime, engine string, noSetup bool, errOut 
 		Mem:             rt.Mem,
 		CPU:             rt.CPU,
 		Interactive:     false,
-		Args:            []string{"bash", "-lc", t.profile.Setup},
+		Args:            podmanSocketPrefix([]string{"bash", "-lc", t.profile.Setup}),
 		NoEgress:        noEgress(),
 		Stdout:          setupOut,
 		Stderr:          setupOut,

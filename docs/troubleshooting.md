@@ -191,7 +191,9 @@ toolbox image ships podman with a `docker` shim and `podman-compose`, running
 natively against the guest kernel (full uid range, no opt-in — the old
 `nestedContainers` key is retired). Anything that expects the *host's* Docker
 API socket won't find one; inside the guest, tools talk to the guest's own
-engine.
+engine — which also serves a docker-compatible socket at
+`/var/run/docker.sock` (started on demand by the image's `podman-socket`
+helper), so testcontainers suites run with zero configuration.
 
 **Which platforms are supported?** Linux with KVM is the supported, exercised
 platform. macOS (Apple Silicon, Hypervisor.framework) and Windows (inside

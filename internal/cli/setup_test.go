@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"slices"
 	"strings"
 	"testing"
 
@@ -63,8 +64,8 @@ func TestRunSetupRunsStampsAndIsIdempotent(t *testing.T) {
 	if err := runSetup(tp, config.Runtime{}, "microsandbox", false, &buf); err != nil {
 		t.Fatalf("setup: %v", err)
 	}
-	if len(gotArgs) != 3 || gotArgs[0] != "bash" || gotArgs[1] != "-lc" || gotArgs[2] != "make build" {
-		t.Errorf("setup argv = %v", gotArgs)
+	if !slices.Equal(gotArgs, podmanSocketPrefix([]string{"bash", "-lc", "make build"})) {
+		t.Errorf("setup argv = %v, want the podman-socket-wrapped bash -lc make build", gotArgs)
 	}
 	if p, _ := base.SetupPending("s", "make build"); p {
 		t.Error("setup must be stamped done after a clean run")

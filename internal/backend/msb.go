@@ -164,6 +164,12 @@ func msbCommonArgs(o RunOpts) []string {
 		"-e", "SANDBOXER_SLUG="+o.Slug,
 		"-e", "SANDBOXER_SANDBOX_DIR="+o.Dest,
 		"-e", "LANG=C.UTF-8",
+		// The nested podman's docker-compatible API socket endpoint and the
+		// testcontainers reaper kill-switch, in the machine env like LANG:
+		// the image's OCI env carries the same values, and this half covers
+		// images that predate them (see the LANG precedent).
+		"-e", "DOCKER_HOST=unix:///var/run/docker.sock",
+		"-e", "TESTCONTAINERS_RYUK_DISABLED=true",
 	)
 	if o.DestGen != "" {
 		args = append(args, "-e", "SANDBOXER_SANDBOX_GEN="+o.DestGen)

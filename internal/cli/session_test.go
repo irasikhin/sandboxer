@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -345,8 +346,8 @@ func TestExecRoutesToFreshSession(t *testing.T) {
 		t.Fatalf("calls: inspect=%d exec=%d run=%d ensure=%d, want 1/1/0/0",
 			len(c.inspect), len(c.exec), len(c.run), len(c.ensure))
 	}
-	if got := c.exec[0]; len(got) != 2 || got[0] != "echo" || got[1] != "hi" {
-		t.Errorf("exec argv = %v", got)
+	if got := c.exec[0]; !slices.Equal(got, podmanSocketPrefix([]string{"echo", "hi"})) {
+		t.Errorf("exec argv = %v, want the podman-socket-wrapped echo hi", got)
 	}
 }
 

@@ -3,6 +3,7 @@ package cli
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -41,6 +42,24 @@ func TestValidateSessionName(t *testing.T) {
 		if err := validateSessionName(bad); err == nil {
 			t.Errorf("validateSessionName(%q) accepted an unsafe name", bad)
 		}
+	}
+}
+
+// TestPodmanSocketPrefix pins the exec wrap: every in-guest user command is
+// prefixed with the podman-socket ensure (idempotent, NON-fatal — a sandbox
+// whose socket cannot come up still runs the command, and the tool that needs
+// the socket fails on its own), and the original command re-execs with its
+// argv intact (argv0 preserved as bash -c's $0).
+func TestPodmanSocketPrefix(t *testing.T) {
+	got := podmanSocketPrefix([]string{"npm", "test", "--", "x y"})
+	want := []string{"bash", "-c",
+		"command -v podman-socket >/dev/null 2>&1 && podman-socket >/dev/null 2>&1 || true; exec \"$0\" \"$@\"",
+		"npm", "test", "--", "x y"}
+	if !slices.Equal(got, want) {
+		t.Errorf("podmanSocketPrefix = %q, want %q", got, want)
+	}
+	if got := podmanSocketPrefix(nil); got != nil {
+		t.Errorf("podmanSocketPrefix(nil) = %q, want nil", got)
 	}
 }
 
