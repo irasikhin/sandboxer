@@ -6,6 +6,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.80.0] — 2026-08-13
+
+### Added
+
+- serve a docker-compatible podman socket for testcontainers (#15) (01686f7)
+- bring the guest podman socket up at machine boot (78cf824)
+
+
 ## [0.79.0] — 2026-08-12
 
 ### Added
@@ -1245,3 +1253,4 @@ isolated, containerized dev sandbox, on a local Linux machine:
 [0.78.1]: https://github.com/irasikhin/sandboxer/compare/v0.78.0...v0.78.1
 [0.78.2]: https://github.com/irasikhin/sandboxer/compare/v0.78.1...v0.78.2
 [0.79.0]: https://github.com/irasikhin/sandboxer/compare/v0.78.2...v0.79.0
+[0.80.0]: https://github.com/irasikhin/sandboxer/compare/v0.79.0...v0.80.0
