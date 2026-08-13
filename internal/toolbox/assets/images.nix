@@ -375,6 +375,30 @@ in
         delta
         gnumake
         unzip
+        # LLM-agent batteries: the everyday tools an agent reaches for and
+        # used to hit "command not found" on — network/egress forensics
+        # (the allowlist is NAME-bound, so "why can't I reach X" starts with
+        # dig/ip/ping/nc), YAML/JSON config editing (yq), artifact and binary
+        # inspection (file/binutils/xxd), archive creation (zip), in-place
+        # edits that survive a busy file (moreutils' sponge), shell linting
+        # for the scripts agents write (shellcheck), port/file holder
+        # forensics (lsof), TLS debugging (openssl s_client), and the GitHub
+        # CLI for PRs/issues (auth: GH_TOKEN in the profile env, or
+        # `gh auth login` — the default egress allowlist covers api.github.com).
+        bind.dnsutils
+        iproute2
+        iputils
+        netcat-openbsd
+        yq-go
+        file
+        binutils
+        xxd
+        zip
+        moreutils
+        shellcheck
+        lsof
+        openssl
+        gh
         # everyday language runtimes — baked into the BASE image so
         # scripts and builds just work (the tools packs still exist
         # for pinned per-profile variants). python3 carries a few
@@ -386,6 +410,7 @@ in
             click
             pyyaml
             jinja2
+            requests
           ]
         ))
         nodejs

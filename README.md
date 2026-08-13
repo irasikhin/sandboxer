@@ -71,7 +71,10 @@ tmux (auto-attached by `enter`), and **docker/podman for nested containers** —
 they run natively against the guest's own kernel, no opt-in and no engine
 socket from the host (pulls go through the egress allowlist, whose defaults
 include docker.io/ghcr.io/quay.io and
-mirror.gcr.io). Each sandbox gets its own isolated home, and network/proxy
+mirror.gcr.io). LLM-agent batteries are baked in too — dig/ip/ping/nc for
+egress forensics, yq for YAML/JSON, file/binutils/xxd for artifact
+inspection, shellcheck, lsof, openssl, the GitHub CLI, and more. Each sandbox
+gets its own isolated home, and network/proxy
 are wired per config. Agent auth is yours to choose: with `hostConfigs = true`
 (the scaffolded default) the sandbox home is seeded with a COPY of your host
 agent configs — `~/.claude` (settings, skills, memory) + `~/.claude.json`,
