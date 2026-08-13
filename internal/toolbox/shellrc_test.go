@@ -92,6 +92,31 @@ func TestFlakeBakesToolingPack(t *testing.T) {
 	}
 }
 
+// TestFlakeBakesAgentBatteries guards the LLM-agent tooling: the everyday
+// tools an agent reaches for and used to hit "command not found" on —
+// network/egress forensics (dig/ip/ping/nc), YAML editing (yq), artifact
+// inspection (file/binutils/xxd/zip), sponge, shellcheck, lsof, openssl and
+// the GitHub CLI. The short names (file/zip/gh) are anchored to a whole
+// contents line — a substring check would false-match files.json, unzip and
+// ghcr.io.
+func TestFlakeBakesAgentBatteries(t *testing.T) {
+	s := imageDefinition(t)
+	for _, want := range []string{
+		"bind.dnsutils", "iproute2", "iputils", "netcat-openbsd",
+		"yq-go", "binutils", "xxd", "moreutils", "shellcheck",
+		"lsof", "openssl",
+	} {
+		if !strings.Contains(s, want) {
+			t.Errorf("images.nix missing agent tooling %q", want)
+		}
+	}
+	for _, re := range []string{`(?m)^\s{8}file$`, `(?m)^\s{8}zip$`, `(?m)^\s{8}gh$`} {
+		if !regexp.MustCompile(re).MatchString(s) {
+			t.Errorf("images.nix missing agent tooling %q", re)
+		}
+	}
+}
+
 // TestImageBakesNestedPodman guards the nested-podman layer end to end: the
 // runtime pieces (shadow carries newuidmap/newgidmap, what a MULTI-uid nested
 // namespace is built with), and the image-side bits without which a rootless
@@ -168,7 +193,7 @@ func TestImageBakesPythonBatteries(t *testing.T) {
 	if !strings.Contains(s, "python3.withPackages") {
 		t.Error("images.nix ships a bare python3 — the batteries (click/pyyaml/jinja2) are not wired")
 	}
-	for _, want := range []string{"click", "pyyaml", "jinja2"} {
+	for _, want := range []string{"click", "pyyaml", "jinja2", "requests"} {
 		if !strings.Contains(s, want) {
 			t.Errorf("images.nix python batteries missing %q", want)
 		}
