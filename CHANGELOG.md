@@ -6,6 +6,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.81.0] — 2026-08-13
+
+### Added
+
+- bake the LLM-agent CLI batteries into the base image (#16) (a5e7d8c)
+
+### Fixed
+
+- detaching must not hinge on one key that desktops steal (c46ca35)
+
+
 ## [0.80.0] — 2026-08-13
 
 ### Added
@@ -1254,3 +1265,4 @@ isolated, containerized dev sandbox, on a local Linux machine:
 [0.78.2]: https://github.com/irasikhin/sandboxer/compare/v0.78.1...v0.78.2
 [0.79.0]: https://github.com/irasikhin/sandboxer/compare/v0.78.2...v0.79.0
 [0.80.0]: https://github.com/irasikhin/sandboxer/compare/v0.79.0...v0.80.0
+[0.81.0]: https://github.com/irasikhin/sandboxer/compare/v0.80.0...v0.81.0
