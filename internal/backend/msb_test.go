@@ -497,6 +497,12 @@ func TestMSBSessionLifecycle(t *testing.T) {
 	if strings.Contains(readFile(t, log), "\nstart ") {
 		t.Error("a start followed a create that already boots the machine")
 	}
+	// A booted machine gets its docker-compatible API socket brought up, so a
+	// HEADLESS workload (exec, an agent) finds one — the rc.sh path only ever
+	// covers interactive shells.
+	if !strings.Contains(readFile(t, log), "exec "+name+" -- "+podmanSocketBin) {
+		t.Errorf("create did not start the guest podman socket:\n%s", readFile(t, log))
+	}
 
 	logBefore := readFile(t, log)
 	if got, err := EnsureSession(o); err != nil || got != name {

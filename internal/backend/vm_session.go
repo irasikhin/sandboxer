@@ -83,6 +83,7 @@ func vmEnsureSession(o RunOpts) (string, error) {
 		if err := execx.Run(msbBin(), msbStartArgv(name)...); err != nil {
 			return "", fmt.Errorf("start machine %s: %w", name, err)
 		}
+		startPodmanService(name)
 		return name, nil
 	case actRecreate:
 		notice(o.Stderr, "recreating session: "+staleReason(info, hash))
@@ -90,6 +91,22 @@ func vmEnsureSession(o RunOpts) (string, error) {
 	default: // actCreate
 		return vmCreateSession(o, name, hash)
 	}
+}
+
+// startPodmanService brings the guest's docker-compatible API socket up as
+// part of BOOTING a machine, so it is there for every workload — not only the
+// interactive shells whose rc.sh starts it lazily. An agent driven through
+// `exec` (the common headless case) never sources that rc, and Testcontainers
+// or a docker SDK then found DOCKER_HOST pointing at nothing.
+//
+// Called only where a machine just booted (create/start): the service has no
+// timeout, so it lives as long as the machine, and paying an extra exec on
+// every enter/exec would tax the hot path for nothing. Best-effort by design —
+// a sandbox whose workload never touches the engine API must not fail to start
+// because this did; the in-image script is idempotent (an older cached image
+// without it simply is not there, and the exec fails harmlessly).
+func startPodmanService(name string) {
+	_ = execx.Run(msbBin(), msbGuestExecArgv(name, []string{podmanSocketBin})...)
 }
 
 // vmCreateSession creates the machine and records its identity. `msb create`
@@ -139,6 +156,7 @@ func vmCreateSession(o RunOpts, name, hash string) (string, error) {
 	if err := writeVMRecord(vmRecord{Name: name, BaseDir: o.BaseDir, Slug: o.Slug, Hash: hash, ImageID: imageID, MountIDs: o.MountIDs}); err != nil {
 		notice(o.Stderr, "warning: could not record session state: "+err.Error())
 	}
+	startPodmanService(name)
 	return name, nil
 }
 
