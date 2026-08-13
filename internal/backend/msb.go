@@ -49,6 +49,12 @@ const msbEngine = "microsandbox"
 // auth env instead of a plain --env. See msbSecretArgs for the trade.
 const msbSecretsEnv = "SANDBOXER_MSB_SECRETS"
 
+// podmanSocketBin is the in-image script that brings the guest's
+// docker-compatible API socket up at /var/run/docker.sock (idempotent, pid-
+// guarded; see images.nix podmanSocket). It is the GUEST's own podman — no
+// host engine socket is ever shared into a sandbox.
+const podmanSocketBin = "podman-socket"
+
 // msbCreateArgv assembles the msb argv that creates the named sandbox for o:
 // `msb create --name N <labels> <common> IMAGE`. `msb create` also BOOTS the
 // machine — the lifecycle never follows it with a start — and the image is a

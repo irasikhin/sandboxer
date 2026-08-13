@@ -51,8 +51,9 @@ backend enforced.
 compose work against the guest's own kernel with a full uid range — no opt-in
 (`nestedContainers` is a retired key), no seccomp widening, no subuid grants.
 The nested podman also serves a **docker-compatible API socket at
-`/var/run/docker.sock`**, started lazily by the image's `podman-socket` helper
-(the interactive rc and every `exec`/`run` command ensure it, idempotently and
+`/var/run/docker.sock`**, brought up by the image's `podman-socket` helper
+when the machine BOOTS (backend.startPodmanService, so a headless `exec` finds
+it too — not just the interactive rc, which also ensures it, idempotently and
 detached), with `DOCKER_HOST` and `TESTCONTAINERS_RYUK_DISABLED` baked into
 the image env — so **testcontainers** suites (Java/Go/Python) work with zero
 configuration; Ryuk is off because the disposable sandbox machine is the
