@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"bytes"
 	"encoding/json"
 	"os"
 	"strings"
@@ -69,6 +70,42 @@ func TestNoGitKillSwitch(t *testing.T) {
 	line := srcLine(tg.base.Srcs("s")[0])
 	if !strings.Contains(line, "SANDBOXER_NO_GIT") {
 		t.Errorf("srcLine = %q, want the kill-switch named", line)
+	}
+}
+
+// TestShowJSONCarriesTheGitShare: `show --json` reports the share and the host
+// path it exposes, and says nothing when git stays out — a consumer must be
+// able to tell a sandbox's real reach from the JSON alone.
+func TestShowJSONCarriesTheGitShare(t *testing.T) {
+	decode := func(t *testing.T, tg *target) []showSource {
+		t.Helper()
+		var buf bytes.Buffer
+		if err := writeShowJSON(&buf, tg, config.Runtime{}); err != nil {
+			t.Fatal(err)
+		}
+		var doc struct {
+			Sources []showSource `json:"sources"`
+		}
+		if err := json.Unmarshal(buf.Bytes(), &doc); err != nil {
+			t.Fatalf("show --json is not valid JSON: %v\n%s", err, buf.String())
+		}
+		return doc.Sources
+	}
+
+	shared := decode(t, gitShareTarget(t, config.GitRW))
+	if len(shared) != 1 || shared[0].Git != config.GitRW || shared[0].GitDir != "/repo/.git" {
+		t.Errorf("sources = %+v, want the read-write share and its host path", shared)
+	}
+
+	off := decode(t, gitShareTarget(t, ""))
+	if len(off) != 1 || off[0].Git != "" || off[0].GitDir != "" {
+		t.Errorf("sources = %+v, want no git fields for a default source", off)
+	}
+
+	tg := gitShareTarget(t, config.GitRO)
+	t.Setenv("SANDBOXER_NO_GIT", "1")
+	if killed := decode(t, tg); len(killed) != 1 || killed[0].Git != "" {
+		t.Errorf("sources = %+v, want no share reported under SANDBOXER_NO_GIT=1", killed)
 	}
 }
 

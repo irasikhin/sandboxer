@@ -482,6 +482,16 @@ func annotateRemovedKeys(err error) error {
 	if strings.Contains(msg, "Go struct field Profile.egress of type config.Egress") {
 		hints = append(hints, "  `egress` is now an attrset — set egress.enabled = false (was egress = false); omit it for the default allowlist (was egress = true)")
 	}
+	// A source's `git` is the one key whose name invites a bool — "give this
+	// source git" reads as true/false — while the value is a MODE, because
+	// read-only and read-write are very different grants. Say so, instead of
+	// letting the decoder's type error stand as the answer.
+	if strings.Contains(msg, "Go struct field Src.srcs.git of type string") {
+		hints = append(hints, "  `git` on a source takes a MODE, not a bool — git = \"ro\" shares the repository's "+
+			"git dir READ-ONLY (log/diff/blame work inside; the host repo cannot be written), git = \"rw\" shares it "+
+			"writable (the agent can commit, and .git/hooks becomes host-side code it can edit); omit it (or \"off\") "+
+			"to keep git out of the sandbox")
+	}
 	if len(hints) == 0 {
 		return err
 	}

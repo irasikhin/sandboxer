@@ -93,5 +93,34 @@ func TestSrcsGitDirOfALinkedWorktree(t *testing.T) {
 	}
 }
 
+// TestSrcsGitDirOfARemoteSource: a remote src is worktree'd from the host-side
+// cache clone, so the git dir a share exposes is the CACHE's — never anything
+// of the user's. The remote branch of the resolve has its own git-dir lookup,
+// which this pins.
+func TestSrcsGitDirOfARemoteSource(t *testing.T) {
+	origin := gitRepoWithCommit(t)
+	b, err := ResolveBase(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	profile := `{"srcs":[{"src":"file://` + origin + `","branch":"feat/rem","git":"ro"}]}`
+	if err := b.WriteProfileJSON("rem", []byte(profile)); err != nil {
+		t.Fatal(err)
+	}
+	if err := b.MakeSandbox("rem", io.Discard); err != nil {
+		t.Fatalf("MakeSandbox: %v", err)
+	}
+	srcs := b.Srcs("rem")
+	if len(srcs) != 1 {
+		t.Fatalf("srcs = %+v, want one source", srcs)
+	}
+	if !strings.HasPrefix(srcs[0].GitDir, b.remotesDir()) {
+		t.Errorf("GitDir = %q, want it inside the remotes cache %q", srcs[0].GitDir, b.remotesDir())
+	}
+	if got := GitMounts(srcs); len(got) != 1 || got[0].Source != srcs[0].GitDir {
+		t.Errorf("GitMounts = %+v, want the cache clone's git dir", got)
+	}
+}
+
 // quote renders a path as a JSON string for the inline profile fixtures.
 func quote(s string) string { return `"` + strings.ReplaceAll(s, `\`, `\\`) + `"` }

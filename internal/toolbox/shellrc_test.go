@@ -65,6 +65,10 @@ func TestFlakeEmbedsGitGuard(t *testing.T) {
 		"gitdir: ",
 		"managed git WORKTREE",
 		"do NOT 'git init' here",
+		// The way OUT: the refusal must name the key that turns git on, or the
+		// message is a dead end for anyone whose source legitimately needs it.
+		`git = \"ro\"`,
+		`git = \"rw\"`,
 	} {
 		if !strings.Contains(s, want) {
 			t.Errorf("images.nix missing %q — the git guard is not wired", want)

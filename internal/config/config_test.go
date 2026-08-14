@@ -142,6 +142,23 @@ func TestEgressBoolMigrationHint(t *testing.T) {
 	}
 }
 
+// TestGitBoolHint: `git = true` is the shape a reader reaches for first, and
+// the decoder answers it with a Go type error. The hint must name the modes
+// instead — this is a NEW key, so it is a usability answer, not a migration.
+func TestGitBoolHint(t *testing.T) {
+	dir := t.TempDir()
+	cfg := writeFile(t, dir, "g.nix", "{ name = \"x\"; srcs = [ { src = \".\"; branch = \"b\"; git = true; } ]; }\n")
+	_, err := LoadDocument(cfg)
+	if err == nil {
+		t.Fatal("git = true must be rejected — the key takes a mode")
+	}
+	for _, want := range []string{`git = "ro"`, `git = "rw"`} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error %q missing %q", err, want)
+		}
+	}
+}
+
 func TestValidateProxy(t *testing.T) {
 	cases := []struct {
 		name string
