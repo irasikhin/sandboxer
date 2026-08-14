@@ -6,6 +6,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.83.0] — 2026-08-14
+
+### Added
+
+- bake a comparison pack into the toolbox (diff, patch, difft, dyff) (34ea6ca)
+- source-code pack + fuller python batteries with uv as the way out (7a4c22f)
+
+### Fixed
+
+- tell a bool `git = true` which mode it wants, and cover the share live (158abac)
+
+
 ## [0.82.0] — 2026-08-14
 
 ### Added
@@ -1274,3 +1286,4 @@ isolated, containerized dev sandbox, on a local Linux machine:
 [0.80.0]: https://github.com/irasikhin/sandboxer/compare/v0.79.0...v0.80.0
 [0.81.0]: https://github.com/irasikhin/sandboxer/compare/v0.80.0...v0.81.0
 [0.82.0]: https://github.com/irasikhin/sandboxer/compare/v0.81.0...v0.82.0
+[0.83.0]: https://github.com/irasikhin/sandboxer/compare/v0.82.0...v0.83.0
