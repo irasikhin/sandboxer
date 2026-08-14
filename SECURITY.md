@@ -74,16 +74,16 @@ Windows/WSL2 are **cross-platform in code but not live-verified** — see
 
 ### What the isolation gives you
 
-- **Sources are git worktrees; git never enters the sandbox.** Each source
-  repo is checked out host-side into a complete worktree on its configured
-  branch. The guest is shared ONLY the directories the profile's
-  `include` lists (all of it when `include` is absent) — **the mount set is the
-  boundary**: an excluded path is not shared, so it does not exist inside the
-  sandbox, and the agent cannot reach it by any path. No git metadata is
-  shared either, so the agent cannot read repo history, widen the selection,
-  touch refs, or reach hooks/config at all; you review and commit its file
-  edits on the host (`git log`/`git diff`/`git merge <branch>`). There is no
-  copy-back over host files.
+- **Sources are git worktrees; git does not enter the sandbox unless a source
+  asks it to.** Each source repo is checked out host-side into a complete
+  worktree on its configured branch. The guest is shared ONLY the directories
+  the profile's `include` lists (all of it when `include` is absent) — **the
+  mount set is the boundary**: an excluded path is not shared, so it does not
+  exist inside the sandbox, and the agent cannot reach it by any path. By
+  default no git metadata is shared either, so the agent cannot read repo
+  history, widen the selection, touch refs, or reach hooks/config at all; you
+  review and commit its file edits on the host (`git log`/`git diff`/`git merge
+  <branch>`). There is no copy-back over host files.
 
   The image's `git` carries a guard for exactly this shape: a worktree's `.git`
   is a pointer file naming an unmounted host gitdir, and plain git greets that
@@ -91,6 +91,29 @@ Windows/WSL2 are **cross-platform in code but not live-verified** — see
   "repair" with `git init`, orphaning the host worktree. The wrapper explains
   the design and refuses (exit 128) instead; git anywhere else in the guest
   works normally.
+
+- **The opt-in git share (`git = "ro"` / `"rw"` on a source) is a deliberate
+  hole in that wall.** It shares the repository's common git dir at its own host
+  path — which is what makes the worktree's `.git` pointer resolve inside the
+  guest — and it hands over the WHOLE repository, not the sandbox's branch:
+
+  - **Every branch's history becomes readable**, including files a narrowing
+    `include` would have withheld (`git show HEAD:excluded/path`), and any
+    secret ever committed. The two keys are therefore mutually exclusive;
+    `config.ValidateGit` refuses the combination rather than letting the weaker
+    one silently win.
+  - **`rw` additionally makes `.git/hooks` and `.git/config` writable**, and
+    those are code the HOST's git executes on your next `git status` in that
+    repo (`core.fsmonitor`, `core.sshCommand`, `post-checkout`, aliases). An
+    `rw` share means you trust the sandbox's agent with your repository.
+    `ro` cannot write anything: history is readable, the host repo is not
+    modifiable, and `commit`/`checkout` inside the sandbox fail.
+  - Pushing from inside is not enabled by either mode — no credentials or ssh
+    agent reach a sandbox, and the forge still has to be in the egress
+    allowlist.
+  - Both modes are per-source and off by default; `SANDBOXER_NO_GIT=1` is the
+    operator kill-switch that forces every source back to off regardless of the
+    profile. `sandboxer show` names the share on the source's line.
 
   Note what this means for the host side: a narrowed sandbox's worktree holds
   the excluded files in full, one directory above the shared ones. That is

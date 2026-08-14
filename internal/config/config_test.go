@@ -385,6 +385,68 @@ func TestValidateInclude(t *testing.T) {
 	}
 }
 
+// TestValidateGit covers the git-share modes and the one combination that is
+// refused: a shared git dir alongside a narrowing include, where the two keys
+// would claim opposite things about the same source.
+func TestValidateGit(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		mode    string
+		include []string
+		wantErr string // "" = accepted; else a substring the message must carry
+	}{
+		{name: "absent is off", mode: ""},
+		{name: "explicit off", mode: GitOff},
+		{name: "read-only", mode: GitRO},
+		{name: "read-write", mode: GitRW},
+		{name: "off alongside include", mode: GitOff, include: []string{"/src/"}},
+		{name: "shared with an explicit whole-repo include", mode: GitRO, include: []string{"**"}},
+
+		{name: "unknown mode", mode: "yes", wantErr: "is not a mode"},
+		{name: "mode is not a bool", mode: "true", wantErr: "is not a mode"},
+		{name: "case matters", mode: "RO", wantErr: "is not a mode"},
+		{name: "ro plus include", mode: GitRO, include: []string{"/src/"}, wantErr: "cannot be combined with include"},
+		{name: "rw plus include", mode: GitRW, include: []string{"/src/"}, wantErr: "cannot be combined with include"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			err := ValidateGit(tc.mode, tc.include)
+			if tc.wantErr == "" {
+				if err != nil {
+					t.Fatalf("ValidateGit(%q, %v) = %v, want accepted", tc.mode, tc.include, err)
+				}
+				return
+			}
+			if err == nil {
+				t.Fatalf("ValidateGit(%q, %v) accepted, want an error mentioning %q", tc.mode, tc.include, tc.wantErr)
+			}
+			if !strings.Contains(err.Error(), tc.wantErr) {
+				t.Errorf("ValidateGit(%q, %v) = %q, want it to mention %q", tc.mode, tc.include, err, tc.wantErr)
+			}
+		})
+	}
+}
+
+// TestValidateSrcsChecksGit pins that the per-source git mode is reached by the
+// profile-wide validation — `config validate` must catch it, not just enter.
+func TestValidateSrcsChecksGit(t *testing.T) {
+	err := ValidateSrcs([]Src{
+		{Src: ".", Branch: "main"},
+		{Src: "../lib", Branch: "main", Git: GitRW, Include: []string{"/src/"}},
+	})
+	if err == nil || !strings.Contains(err.Error(), "cannot be combined with include") {
+		t.Fatalf("ValidateSrcs = %v, want the git/include conflict reported", err)
+	}
+}
+
+// TestGitShared: only the two sharing modes share anything.
+func TestGitShared(t *testing.T) {
+	for mode, want := range map[string]bool{"": false, GitOff: false, GitRO: true, GitRW: true, "nonsense": false} {
+		if got := GitShared(mode); got != want {
+			t.Errorf("GitShared(%q) = %v, want %v", mode, got, want)
+		}
+	}
+}
+
 // TestWholeRepo: only an absent or explicitly catch-all include means "no
 // narrowing" — anything else puts the sandbox on view mounts.
 func TestWholeRepo(t *testing.T) {

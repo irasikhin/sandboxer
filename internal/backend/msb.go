@@ -189,6 +189,13 @@ func msbCommonArgs(o RunOpts) []string {
 	for _, m := range o.SrcMounts {
 		args = append(args, "-v", m+":"+m)
 	}
+	// The opt-in git-dir shares, right after the sources they belong to: a
+	// worktree's .git names its git dir by ABSOLUTE HOST PATH, so identity
+	// mapping is not a convention here but the mechanism (see
+	// sandbox.GitMounts).
+	for _, m := range o.GitMounts {
+		args = append(args, "-v", msbVolume(m))
+	}
 	args = append(args, "-m", vmMemMiB(o.Mem)+"M", "-c", vmCPUs(o.CPU))
 	args = append(args, msbNetworkArgs(o)...)
 	args = append(args, msbSecretArgs(o)...)
@@ -424,6 +431,17 @@ func msbAuthEnvArgs(o RunOpts) []string {
 	return args
 }
 
+// msbVolume renders one share in the msb dialect: src:target, with :ro
+// appended for a read-only one. Shared by the profile's extraMounts and the
+// git-dir shares so a mode never means two different things.
+func msbVolume(m config.Mount) string {
+	vol := m.Source + ":" + m.Target
+	if m.Mode == "ro" {
+		vol += ":ro"
+	}
+	return vol
+}
+
 // msbExtraMountsAndEnv adds the profile's extraMounts and env injections in the
 // msb dialect: -v src:target[:ro] and -e k=v, keys sorted so map order never
 // leaks into the argv.
@@ -433,11 +451,7 @@ func msbExtraMountsAndEnv(p *config.Profile) []string {
 	}
 	var out []string
 	for _, m := range p.ExtraMounts {
-		vol := m.Source + ":" + m.Target
-		if m.Mode == "ro" {
-			vol += ":ro"
-		}
-		out = append(out, "-v", vol)
+		out = append(out, "-v", msbVolume(m))
 	}
 	for _, k := range slices.Sorted(maps.Keys(p.Env)) {
 		out = append(out, "-e", k+"="+p.Env[k])
@@ -463,6 +477,9 @@ func msbPreflight(o RunOpts) error {
 		return err
 	}
 	paths := append([]string{o.Dest, o.HomeDir}, o.SrcMounts...)
+	for _, m := range o.GitMounts {
+		paths = append(paths, m.Target)
+	}
 	if o.Profile != nil {
 		for _, m := range o.Profile.ExtraMounts {
 			paths = append(paths, m.Target)

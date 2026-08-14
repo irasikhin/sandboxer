@@ -11,10 +11,10 @@
 // <slug>/, grouped by their (explicitly configured) branch. The host worktree
 // is always a COMPLETE checkout; a source's `include` narrows what the CONTAINER
 // sees by mounting only the listed directories (see Mounts) — with no include,
-// <slug>/ is mounted whole. Git metadata is NEVER mounted either way, so the
-// mount set is the access boundary and commits happen on the host. A source
-// that is not a git repository (or has no commit) is rejected — there is no
-// copy-mode fallback.
+// <slug>/ is mounted whole. Git metadata is not mounted unless the source opts
+// in with git = "ro"/"rw" (see GitMounts), so by default the mount set is the
+// access boundary and commits happen on the host. A source that is not a git
+// repository (or has no commit) is rejected — there is no copy-mode fallback.
 package sandbox
 
 import (

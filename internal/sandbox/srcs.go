@@ -44,6 +44,18 @@ type Source struct {
 	// elsewhere. Empty for a managed source, whose Path already IS that slot.
 	// See linkAdoptedSrc for why being mounted is not enough.
 	Link string `json:"link,omitempty"`
+	// Git is the source's opt-in git-dir share: "" / config.GitOff (the
+	// default — no git inside), config.GitRO or config.GitRW. It comes from
+	// the profile's srcs entry verbatim (see config.Src.Git).
+	Git string `json:"git,omitempty"`
+	// GitDir is the repository's COMMON git directory (git rev-parse
+	// --git-common-dir), resolved at sync time and recorded so the mount
+	// assembly never has to shell out to git again. It is the path a shared
+	// source mounts, and it is the common dir rather than <RepoRoot>/.git
+	// because the source repo may itself be a linked worktree, whose .git is a
+	// pointer file — the objects and refs live one level out. Recorded even
+	// when Git is off, so flipping the key needs no re-resolve.
+	GitDir string `json:"gitDir,omitempty"`
 }
 
 // Name is the label this source is addressed by within its sandbox: the last
@@ -276,8 +288,9 @@ func (b *Base) resolveSrcs(slug string, specs []config.Src, prev []Source, w io.
 			// Check out origin/<branch> when the remote has it, so branch: names
 			// an UPSTREAM branch instead of forking a new one off the default.
 			worktree.PrepareBranch(cacheDir, spec.Branch)
+			_, cacheGitDir, _ := worktree.Detect(cacheDir)
 			src := Source{RepoRoot: cacheDir, Include: spec.Include, Remote: spec.Src,
-				Branch: spec.Branch, Managed: true}
+				Branch: spec.Branch, Managed: true, Git: spec.Git, GitDir: cacheGitDir}
 			if err := worktree.ValidBranch(cacheDir, src.Branch); err != nil {
 				return nil, fmt.Errorf("srcs entry %q: %w", spec.Src, err)
 			}
@@ -298,7 +311,7 @@ func (b *Base) resolveSrcs(slug string, specs []config.Src, prev []Source, w io.
 		if fi, err := os.Stat(path); err != nil || !fi.IsDir() {
 			return nil, fmt.Errorf("srcs entry %q: no such directory", spec.Src)
 		}
-		top, _, ok := worktree.Detect(path)
+		top, gitDir, ok := worktree.Detect(path)
 		if !ok {
 			return nil, fmt.Errorf("srcs entry %q: not a git repository with a commit — "+
 				"point src at a repo (sandboxer config edit), or git init && git commit it "+
@@ -312,7 +325,7 @@ func (b *Base) resolveSrcs(slug string, specs []config.Src, prev []Source, w io.
 		}
 		seenRepo[top] = true
 
-		src := Source{RepoRoot: top, Include: spec.Include}
+		src := Source{RepoRoot: top, Include: spec.Include, Git: spec.Git, GitDir: gitDir}
 		src.Branch = spec.Branch
 		if src.Branch == "" {
 			hint := ""
@@ -1193,6 +1206,38 @@ func Mounts(srcs []Source) (mountDest bool, mounts []string, err error) {
 		mounts = append(mounts, dirs...)
 	}
 	return false, sortedUnique(mounts), nil
+}
+
+// GitMounts returns the git directories the sandbox shares — one per source
+// that opted in with git = "ro"/"rw" (config.Src.Git), empty for the default
+// where git never enters. Source and Target are the same path: the backend
+// shares host paths identity-mapped, and that is what makes this work at all —
+// a worktree's .git is a POINTER FILE holding the absolute host path of its
+// git dir, so mounting that dir where it already lives makes the pointer
+// resolve verbatim inside the guest, with no rewriting (which would break the
+// host's own view of the same file) and no `git worktree repair`. The back
+// pointer (<gitdir>/worktrees/<n>/gitdir) matches for the same reason, so an
+// in-guest `git worktree prune` cannot mistake the host's worktree for a stale
+// registration and unregister it.
+//
+// Sorted and de-duplicated like the source mounts: this lands in the create
+// argv, so a stable order keeps the session hash stable — and flipping the key
+// changes the argv, which is exactly what makes the machine read as stale and
+// get rebuilt with (or without) git.
+func GitMounts(srcs []Source) []config.Mount {
+	var out []config.Mount
+	seen := map[string]bool{}
+	for _, s := range srcs {
+		if !config.GitShared(s.Git) || s.GitDir == "" || seen[s.GitDir] {
+			continue
+		}
+		seen[s.GitDir] = true
+		// The two vocabularies coincide by design: a mount's mode is spelled
+		// "ro"/"rw" (extraMounts), and so are the git modes that share one.
+		out = append(out, config.Mount{Source: s.GitDir, Target: s.GitDir, Mode: s.Git})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Source < out[j].Source })
+	return out
 }
 
 // sortedUnique sorts paths and drops exact duplicates (nil in → nil out).

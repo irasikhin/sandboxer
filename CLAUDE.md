@@ -104,7 +104,8 @@ was extracted from:
   checkout, so an IDE can open it; negations/unanchored paths are rejected, and patterns match directories
   only, never files — a mount names a path, not a file set; see `docs/view-mounts-design.md`). srcs is ALWAYS explicit — an empty list is rejected;
   the scaffolded config seeds `srcs = [{src = "."; branch = "feat/<name>";}]`. Relative src paths
-  resolve against the PROJECT ROOT (not the profile file's dir). **Git never enters the sandbox**: no git-dir shares, no `GIT_CONFIG_*` — the
+  resolve against the PROJECT ROOT (not the profile file's dir). **Git does not enter the sandbox unless a
+  source opts in**: no git-dir shares by default, no `GIT_CONFIG_*` — the
   MOUNT SET is the wall (`sandbox.Mounts` decides it): unnarrowed = one stable rw mount of `<slug>/` (plus
   adopted paths), so srcs edits are picked up by every enter/exec (a LIVE session sees them immediately);
   narrowed = `<slug>/` is NOT mounted at all (the host worktrees under it are complete — that absence IS the
@@ -114,6 +115,18 @@ was extracted from:
   deleted). Teardown removes managed worktrees only and KEEPS branches (`recreate --full`
   deletes just the ones sandboxer minted — recorded per source). **git-only:** a non-git source is rejected
   with an init hint; non-git trees come in via `extraMounts`.
+  **Opt-in git share** (`config.Src.Git` → `Source.Git`/`GitDir` → `sandbox.GitMounts` → `RunOpts.GitMounts`):
+  per source, `git = "ro"|"rw"` shares the repo's COMMON git dir (`worktree.Detect`'s second return, recorded
+  at resolve time — the src may itself be a linked worktree) identity-mapped at its own host path. That
+  identity mapping IS the mechanism: a worktree's `.git` is a pointer file holding an ABSOLUTE host path, so
+  mounting the dir where it already lives makes it resolve in the guest with no rewriting (which would break
+  the host's view of the same file) and keeps `git worktree prune` from unregistering the host's worktree.
+  `git` + `include` = HARD ERROR (`config.ValidateGit`): history carries the excluded files back in.
+  `rw` also hands over `.git/hooks`+`.git/config` = code the HOST's git later runs — documented in
+  SECURITY.md, not blocked. `SANDBOXER_NO_GIT=1` = kill switch (applied in `target.mounts`, like `noEgress`).
+  The share is in the create argv → session hash, but deliberately NOT in MountGen (a git dir is not
+  recreated under a live session). The image's `git` wrapper only fires when the pointer is unresolvable,
+  so a shared source needs no guest-side change.
   **Remote srcs** (`internal/worktree/remote.go`): a `src` that is a git URL
   (`IsRemoteURL`: https/ssh/git/file scheme or scp-like `git@host:path`) is CLONED once into
   `<stateDir>/_remotes/<name>-<hash>/` (detached HEAD so every branch is free for `worktree add`), then treated

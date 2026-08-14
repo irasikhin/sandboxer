@@ -238,16 +238,17 @@ disable with autoResume = false in the profile, or SANDBOXER_NO_RESUME=1.`,
 			if err != nil {
 				return err
 			}
-			mountDest, srcMounts, mountGen, mountIDs, err := t.mounts()
+			mp, err := t.mounts()
 			if err != nil {
 				return err
 			}
 			o := backend.RunOpts{
 				Engine: engine, Image: image, Spec: spec, Dest: dest, Slug: t.slug,
-				MountDest:        mountDest,
-				MountGen:         mountGen,
-				MountIDs:         mountIDs,
-				SrcMounts:        srcMounts,
+				MountDest:        mp.Dest,
+				MountGen:         mp.Gen,
+				MountIDs:         mp.IDs,
+				SrcMounts:        mp.Src,
+				GitMounts:        mp.Git,
 				HomeDir:          t.base.HomeDir(t.slug),
 				SessionStatePath: t.base.SessionStatePath(t.slug),
 				DestGen:          t.base.Gen(t.slug),
@@ -294,7 +295,7 @@ disable with autoResume = false in the profile, or SANDBOXER_NO_RESUME=1.`,
 					case !info.Running:
 						useSession = true // not running → safe to converge
 					case info.Hash != backendWantHash(o):
-						staleWhy, driftDetail, drift = mountDriftWhy(o, info, mountIDs)
+						staleWhy, driftDetail, drift = mountDriftWhy(o, info, mp.IDs)
 					case !backend.ImageFresh(info.ImageID, backendImageID(engine, o.Image)):
 						staleWhy = "image rebuilt"
 					default:
@@ -465,16 +466,17 @@ composes with scripts and CI.`,
 			if err != nil {
 				return err
 			}
-			mountDest, srcMounts, mountGen, mountIDs, err := t.mounts()
+			mp, err := t.mounts()
 			if err != nil {
 				return err
 			}
 			o := backend.RunOpts{
 				Engine: engine, Image: image, Spec: spec, Dest: dest, Slug: t.slug,
-				MountDest: mountDest,
-				MountGen:  mountGen,
-				MountIDs:  mountIDs,
-				SrcMounts: srcMounts,
+				MountDest: mp.Dest,
+				MountGen:  mp.Gen,
+				MountIDs:  mp.IDs,
+				SrcMounts: mp.Src,
+				GitMounts: mp.Git,
 				HomeDir:   t.base.HomeDir(t.slug),
 				DestGen:   t.base.Gen(t.slug),
 				AuthEnv:   hostAuthEnv(t.profile),
@@ -500,7 +502,7 @@ composes with scripts and CI.`,
 						// Same accurate diagnosis as enter, never the prompt: a
 						// one-shot already runs against the current mounts, and
 						// exec has no terminal contract to ask on.
-						why, detail, drift := mountDriftWhy(o, info, mountIDs)
+						why, detail, drift := mountDriftWhy(o, info, mp.IDs)
 						if drift {
 							fmt.Fprintln(cmd.ErrOrStderr(), detail)
 						}
@@ -581,6 +583,11 @@ func hostAuthEnv(p *config.Profile) []string {
 
 // noEgress reports whether the egress allowlist is disabled via the environment.
 func noEgress() bool { return os.Getenv("SANDBOXER_NO_EGRESS") == "1" }
+
+// noGit reports whether the sources' opt-in git-dir shares are disabled via
+// the environment — the operator kill-switch that forces every source back to
+// the default (no git inside), whatever the profile says.
+func noGit() bool { return os.Getenv("SANDBOXER_NO_GIT") == "1" }
 
 // warnMicrovmProxy notes the egress posture when a sandbox has BOTH a proxy
 // and an allowlist: the proxy is the egress path (open network at the VM
@@ -819,7 +826,7 @@ func runSetup(t *target, rt config.Runtime, engine string, noSetup bool, errOut 
 		return rerr
 	}
 	fmt.Fprintf(errOut, "sandboxer: running setup for %q…\n", t.slug)
-	mountDest, srcMounts, mountGen, mountIDs, merr := t.mounts()
+	mp, merr := t.mounts()
 	if merr != nil {
 		return merr
 	}
@@ -836,10 +843,11 @@ func runSetup(t *target, rt config.Runtime, engine string, noSetup bool, errOut 
 	code, err := backendRun(backend.RunOpts{
 		Engine: engine, Image: image, Spec: spec,
 		Dest: t.base.SandboxDir(t.slug), Slug: t.slug,
-		MountDest:       mountDest,
-		MountGen:        mountGen,
-		MountIDs:        mountIDs,
-		SrcMounts:       srcMounts,
+		MountDest:       mp.Dest,
+		MountGen:        mp.Gen,
+		MountIDs:        mp.IDs,
+		SrcMounts:       mp.Src,
+		GitMounts:       mp.Git,
 		HomeDir:         t.base.HomeDir(t.slug),
 		DestGen:         t.base.Gen(t.slug),
 		AuthEnv:         hostAuthEnv(t.profile),

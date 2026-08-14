@@ -57,24 +57,51 @@ type target struct {
 	json    []byte          // profile JSON when loaded from a file (for storing)
 }
 
-// mounts returns the sandbox's source bind mounts, whether its <slug>/ root is
-// one of them, the mounts' inode fingerprint (RunOpts.MountGen) and the same
-// identities encoded for the session label (RunOpts.MountIDs). All four are
-// ALWAYS derived together (see sandbox.Mounts / MountIdentities): mounting the
-// root while a source is narrowed would expose every excluded file, and both
-// the fingerprint and the recorded identities must cover exactly the mounts
-// that end up in the argv, so the tuple must never be assembled field by field
-// at a call site — a fingerprint and a label describing different mount sets
-// would make the drift diagnosis lie. One stat pass feeds both. It errors when
-// an include pattern resolves to nothing (or the worktree cannot be walked) —
-// fail closed rather than launch a sandbox with a silently empty view.
-func (t *target) mounts() (mountDest bool, srcMounts []string, mountGen, mountIDs string, err error) {
-	mountDest, srcMounts, err = sandbox.Mounts(t.base.Srcs(t.slug))
+// mountPlan is everything a machine's shares are made of: the source mounts,
+// whether the sandbox's <slug>/ root is one of them, the opt-in git-dir shares,
+// the mounts' inode fingerprint (RunOpts.MountGen) and the same identities
+// encoded for the session label (RunOpts.MountIDs).
+type mountPlan struct {
+	Dest bool
+	Src  []string
+	Git  []config.Mount
+	Gen  string
+	IDs  string
+}
+
+// mounts derives the sandbox's whole mount plan. Every field is ALWAYS derived
+// together (see sandbox.Mounts / MountIdentities): mounting the root while a
+// source is narrowed would expose every excluded file, and both the fingerprint
+// and the recorded identities must cover exactly the mounts that end up in the
+// argv, so the plan must never be assembled field by field at a call site — a
+// fingerprint and a label describing different mount sets would make the drift
+// diagnosis lie. One stat pass feeds both. It errors when an include pattern
+// resolves to nothing (or the worktree cannot be walked) — fail closed rather
+// than launch a sandbox with a silently empty view.
+//
+// The git shares are the one part that is NOT fingerprinted: a git dir is not
+// a directory git recreates under a live session (a checkout or rebase swaps
+// the files a source mount points at, never .git itself), and they are absent
+// from a default sandbox anyway. SANDBOXER_NO_GIT=1 drops them here, at the
+// single point every launching command passes through — the operator
+// kill-switch outranks the profile, like SANDBOXER_NO_EGRESS over egress.
+func (t *target) mounts() (mountPlan, error) {
+	srcs := t.base.Srcs(t.slug)
+	mountDest, srcMounts, err := sandbox.Mounts(srcs)
 	if err != nil {
-		return false, nil, "", "", err
+		return mountPlan{}, err
 	}
 	ids := sandbox.MountIdentities(srcMounts)
-	return mountDest, srcMounts, sandbox.FingerprintIDs(ids), sandbox.EncodeMountIDs(ids), nil
+	p := mountPlan{
+		Dest: mountDest,
+		Src:  srcMounts,
+		Gen:  sandbox.FingerprintIDs(ids),
+		IDs:  sandbox.EncodeMountIDs(ids),
+	}
+	if !noGit() {
+		p.Git = sandbox.GitMounts(srcs)
+	}
+	return p, nil
 }
 
 // resolveProfileFile selects the profile file and returns it together with
@@ -383,6 +410,15 @@ func srcLine(s sandbox.Source) string {
 	where := s.Path
 	if !s.Managed {
 		where = fmt.Sprintf("%s → %s, adopted", s.Link, s.Path)
+	}
+	// A shared git dir is a property of the sandbox's REACH, like adoption —
+	// name it on the source's line rather than leaving it to be inferred from
+	// the profile block.
+	if config.GitShared(s.Git) {
+		where += ", git:" + s.Git
+		if noGit() {
+			where += " (off: SANDBOXER_NO_GIT)"
+		}
 	}
 	return fmt.Sprintf("%s → %s%s (%s)", filepath.Base(s.RepoRoot), s.Branch, scope, where)
 }

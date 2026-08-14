@@ -150,14 +150,17 @@ let
   '';
 
   # git with a sandbox-awareness guard. A managed source is a HOST worktree:
-  # its .git is a pointer FILE whose gitdir names a host path deliberately not
-  # mounted (git never enters the sandbox — the mount set is the wall). Plain
-  # git greets that with "fatal: not a git repository", which reads as
+  # its .git is a pointer FILE whose gitdir names a host path that is not
+  # mounted unless the source opted in with git = "ro"/"rw" (by default git
+  # does not enter the sandbox — the mount set is the wall). Plain git greets
+  # the un-shared case with "fatal: not a git repository", which reads as
   # breakage — and an agent then "repairs" it with `git init`, orphaning the
   # host worktree (the live incident this guard closes). The wrapper explains
-  # the design at exactly the moment of confusion and refuses, instead of
-  # letting the confusing fatal invite a destructive fix. Everything else —
-  # repos cloned inside the sandbox, plain dirs — passes straight through.
+  # the design at exactly the moment of confusion, names the key that would
+  # change it, and refuses — instead of letting the confusing fatal invite a
+  # destructive fix. Everything else — a source whose git dir IS shared (its
+  # pointer resolves, so the guard never fires), repos cloned inside the
+  # sandbox, plain dirs — passes straight through.
   gitGuarded = pkgs.symlinkJoin {
     name = "git-guarded";
     paths = [ pkgs.git ];
@@ -174,6 +177,7 @@ let
               echo "sandboxer: \$d is a sandboxer-managed git WORKTREE — its git metadata lives on the HOST and is deliberately not mounted here (the mount set is the isolation wall)." >&2
               echo "sandboxer: git cannot operate on this tree from inside the sandbox. Edit the files; committing and reviewing happen on the host." >&2
               echo "sandboxer: do NOT 'git init' here — it would orphan the host worktree and your uncommitted work gets set aside on the next sync." >&2
+              echo "sandboxer: to have git here, the HOST owner sets git = \"ro\" (history) or git = \"rw\" (commits) on this source in sandboxer.nix and re-enters." >&2
               exit 128
             fi
           fi

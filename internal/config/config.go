@@ -62,7 +62,34 @@ type Src struct {
 	// same location; a branch checked out in the REPOSITORY ITSELF or in
 	// another sandbox is refused — see sandbox.checkAdoptable.
 	Branch string `json:"branch,omitempty"`
+	// Git opts THIS source out of the "git never enters the sandbox" default by
+	// sharing its repository's git directory into the guest: "" / "off" (the
+	// default — no git metadata is shared, commits happen on the host), "ro"
+	// (the git dir is shared READ-ONLY: log/diff/blame/show work inside, the
+	// host repository cannot be written) or "rw" (shared read-write: the agent
+	// commits inside the sandbox).
+	//
+	// It is deliberately per-source and off by default, because sharing a git
+	// dir hands over the WHOLE repository, not this branch: every branch's
+	// history is readable (including files a narrowing include would have
+	// withheld — which is why the two are mutually exclusive, see ValidateGit),
+	// and "rw" additionally makes .git/hooks and .git/config — code the HOST's
+	// git executes — writable from inside. SANDBOXER_NO_GIT=1 forces every
+	// source back to off.
+	Git string `json:"git,omitempty"`
 }
+
+// The values of Src.Git: no git dir shared (the default), shared read-only,
+// shared read-write.
+const (
+	GitOff = "off"
+	GitRO  = "ro"
+	GitRW  = "rw"
+)
+
+// GitShared reports whether a Src.Git value shares the repository's git dir
+// into the sandbox at all ("" and "off" do not).
+func GitShared(mode string) bool { return mode == GitRO || mode == GitRW }
 
 // Egress holds the sandbox's outbound-traffic policy: whether sandboxer enforces
 // a domain allowlist (Enabled), the allowlist itself, and the proxy settings.
@@ -228,17 +255,47 @@ func ValidateInclude(include []string) error {
 	return nil
 }
 
-// ValidateSrcs checks every source's include patterns. Path/branch validation
-// needs the repo on disk and lives in sandbox.resolveSrcs; this half is pure
-// and runs wherever a profile is resolved, so `config validate` catches a bad
-// pattern without touching git. (The src/branch-required checks live in the
-// CLI's validateProfile, NOT here: resolveSrcs calls this first, and a generic
-// message would shadow its richer errors — the recorded-branch hint.)
+// ValidateSrcs checks every source's include patterns and git mode. Path/branch
+// validation needs the repo on disk and lives in sandbox.resolveSrcs; this half
+// is pure and runs wherever a profile is resolved, so `config validate` catches
+// a bad pattern without touching git. (The src/branch-required checks live in
+// the CLI's validateProfile, NOT here: resolveSrcs calls this first, and a
+// generic message would shadow its richer errors — the recorded-branch hint.)
 func ValidateSrcs(srcs []Src) error {
 	for _, s := range srcs {
 		if err := ValidateInclude(s.Include); err != nil {
 			return err
 		}
+		if err := ValidateGit(s.Git, s.Include); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// ValidateGit checks a source's git mode and refuses the one combination that
+// would be a lie: git together with a narrowing include.
+//
+// include narrows what the sandbox can reach by mounting only the listed
+// directories — the excluded files exist on the host but not inside. A shared
+// git dir carries the complete history of every branch, so `git show
+// HEAD:excluded/file` reconstitutes exactly what the include withheld: the two
+// keys claim opposite things about the same source, and silently letting the
+// weaker one win is how a narrowed sandbox ends up leaking its whole repo.
+// Refusing makes the user pick which wall they meant.
+func ValidateGit(mode string, include []string) error {
+	switch mode {
+	case "", GitOff, GitRO, GitRW:
+	default:
+		return fmt.Errorf("srcs: git = %q is not a mode — use %q (the default: no git metadata in the sandbox), "+
+			"%q (share the repository's git dir read-only: log/diff/blame inside, the host repo stays untouched) "+
+			"or %q (share it read-write: the agent can commit)", mode, GitOff, GitRO, GitRW)
+	}
+	if GitShared(mode) && !WholeRepo(include) {
+		return fmt.Errorf("srcs: git = %q cannot be combined with include — include narrows the sandbox by "+
+			"mounting only %v, but a shared git dir carries the FULL history of every branch, so the excluded "+
+			"files come back through `git show HEAD:<path>`; keep include (and commit on the host) or drop it "+
+			"and keep git", mode, include)
 	}
 	return nil
 }

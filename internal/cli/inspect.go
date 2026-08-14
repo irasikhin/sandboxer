@@ -435,6 +435,10 @@ type showSource struct {
 	Include []string `json:"include,omitempty"`
 	Path    string   `json:"path"`
 	Adopted bool     `json:"adopted,omitempty"`
+	// Git is the source's git-dir share ("ro"/"rw"), absent for the default
+	// where git does not enter the sandbox; GitDir is the host path it shares.
+	Git    string `json:"git,omitempty"`
+	GitDir string `json:"gitDir,omitempty"`
 	// Link is where an adopted source sits inside the sandbox directory (a
 	// symlink to Path). Absent for a managed source, whose Path is already
 	// there — so a consumer can tell the two apart without string surgery.
@@ -461,10 +465,14 @@ func writeShowJSON(out io.Writer, t *target, rt config.Runtime) error {
 	}
 	sources := []showSource{}
 	for _, s := range t.base.Srcs(t.slug) {
-		sources = append(sources, showSource{
+		e := showSource{
 			Repo: s.RepoRoot, Branch: s.Branch, Include: s.Include,
 			Path: s.Path, Adopted: !s.Managed, Link: s.Link,
-		})
+		}
+		if config.GitShared(s.Git) && !noGit() {
+			e.Git, e.GitDir = s.Git, s.GitDir
+		}
+		sources = append(sources, e)
 	}
 	doc := struct {
 		Slug    string          `json:"slug"`
@@ -569,17 +577,18 @@ func sessionHashOpts(t *target, rt config.Runtime, engine string) (backend.RunOp
 	if err != nil {
 		return backend.RunOpts{}, false
 	}
-	mountDest, srcMounts, mountGen, mountIDs, err := t.mounts()
+	mp, err := t.mounts()
 	if err != nil {
 		return backend.RunOpts{}, false
 	}
 	return backend.RunOpts{
 		Engine: engine, Image: image, Spec: spec,
 		Dest: t.base.SandboxDir(t.slug), Slug: t.slug, BaseDir: t.base.Dir,
-		MountDest: mountDest,
-		MountGen:  mountGen,
-		MountIDs:  mountIDs,
-		SrcMounts: srcMounts,
+		MountDest: mp.Dest,
+		MountGen:  mp.Gen,
+		MountIDs:  mp.IDs,
+		SrcMounts: mp.Src,
+		GitMounts: mp.Git,
 		HomeDir:   t.base.HomeDir(t.slug),
 		DestGen:   t.base.Gen(t.slug),
 		AuthEnv:   hostAuthEnv(t.profile),

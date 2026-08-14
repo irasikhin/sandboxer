@@ -35,6 +35,16 @@ type RunOpts struct {
 	// every source's exposed directories. Sorted by the caller: the order is
 	// part of the session-hash contract.
 	SrcMounts []string
+	// GitMounts are the opt-in git-dir shares (sandbox.GitMounts): a source
+	// whose profile entry set git = "ro"/"rw" shares its repository's common
+	// git dir at its own host path, so git works inside the sandbox. Empty by
+	// default — git does not enter a sandbox unless a source asks for it, and
+	// an "rw" share hands the agent the whole repository, hooks and config
+	// included. Source == Target for every entry (the identity mapping is what
+	// makes the worktree's .git pointer resolve inside the guest); Mode is
+	// "ro" or "rw". Sorted by the caller: it is part of the hashed argv, so a
+	// flipped mode rebuilds the machine.
+	GitMounts []config.Mount
 	Slug      string
 	BaseDir   string // host state dir (config.StateDir); names the persistent session (zero value fine for one-shot runs)
 	// SessionStatePath is the host file where the session's tmux layout is saved

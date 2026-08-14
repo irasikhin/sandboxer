@@ -77,6 +77,58 @@ func TestMSBCreateArgvNarrowed(t *testing.T) {
 	}
 }
 
+// TestMSBCreateArgvGitMounts pins the opt-in git share: identity-mapped like a
+// source (the worktree's .git names its git dir by absolute HOST path, so only
+// the same path resolves inside the guest), with :ro appended for a read-only
+// one — and absent entirely when no source asked for it.
+func TestMSBCreateArgvGitMounts(t *testing.T) {
+	base := RunOpts{
+		MountDest: true, Image: "img:1", Dest: "/d", Slug: "s",
+		Stdin: strings.NewReader(""), Stdout: &bytes.Buffer{},
+	}
+	if j := strings.Join(msbCreateArgv(base, "n", "h"), " "); strings.Contains(j, ".git") {
+		t.Errorf("a default sandbox shares no git dir, got %q", j)
+	}
+
+	ro := base
+	ro.GitMounts = []config.Mount{{Source: "/repo/.git", Target: "/repo/.git", Mode: "ro"}}
+	if j := strings.Join(msbCreateArgv(ro, "n", "h"), " "); !strings.Contains(j, "-v /repo/.git:/repo/.git:ro") {
+		t.Errorf("read-only git share missing or writable in %q", j)
+	}
+
+	rw := base
+	rw.GitMounts = []config.Mount{{Source: "/repo/.git", Target: "/repo/.git", Mode: "rw"}}
+	j := strings.Join(msbCreateArgv(rw, "n", "h"), " ")
+	if !strings.Contains(j, "-v /repo/.git:/repo/.git") || strings.Contains(j, "/repo/.git:ro") {
+		t.Errorf("read-write git share wrong in %q", j)
+	}
+
+	// The share is part of the machine's configuration, so flipping it must
+	// rebuild rather than leave a live session with a git dir it should not
+	// have (or should).
+	if vmSessionWantHash(ro) == vmSessionWantHash(base) {
+		t.Error("sharing a git dir did not flip the session hash")
+	}
+	if vmSessionWantHash(rw) == vmSessionWantHash(ro) {
+		t.Error("ro → rw did not flip the session hash")
+	}
+}
+
+// TestMSBGitMountPreflight: a git dir under /tmp is shadowed by the guest's
+// tmpfs exactly like any other share, and must be reported as such instead of
+// silently arriving empty.
+func TestMSBGitMountPreflight(t *testing.T) {
+	o := RunOpts{
+		Image: "img:1", Dest: "/d", Slug: "s", HomeDir: "/d/.home",
+		GitMounts: []config.Mount{{Source: "/tmp/r/.git", Target: "/tmp/r/.git", Mode: "ro"}},
+		Stdin:     strings.NewReader(""), Stdout: &bytes.Buffer{},
+	}
+	err := msbPreflight(o)
+	if err == nil || !strings.Contains(err.Error(), "/tmp/r/.git") {
+		t.Fatalf("msbPreflight = %v, want the shadowed git share named", err)
+	}
+}
+
 // TestMSBHashArgv pins the hash contract: the name and the labels are excluded
 // (a rename or a relabel must never recreate a machine), while a real
 // configuration change flips it.

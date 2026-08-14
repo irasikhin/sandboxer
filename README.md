@@ -30,11 +30,13 @@ project's `.gitignore` (worktrees never land in a commit); relocate it with
 the profile's `worktreesDir` (absolute, `~`, or project-relative). Run sandboxer inside a repo and it just works — the
 scaffolded config pins the whole repo as the one source, on an explicit
 branch (always explicit, never implied). The
-sandbox sees **only the files the sources select — git itself never enters
-it**: no `.git` shares, no history, no hooks. The agent edits files; the edits
-land live in the host-side worktree, where you review and commit them with
-plain git. Your working tree and current branch are never touched, and nothing
-is copied.
+sandbox sees **only the files the sources select — and by default git itself
+does not enter it**: no `.git` shares, no history, no hooks. The agent edits
+files; the edits land live in the host-side worktree, where you review and
+commit them with plain git. Your working tree and current branch are never
+touched, and nothing is copied. A source that genuinely needs git inside opts
+in per source with `git = "ro"` (history: `log`/`diff`/`blame`) or `git = "rw"`
+(the agent commits) — see [SECURITY.md](SECURITY.md) for what that hands over.
 
 - **Sandbox** — a set of sources materialized as git worktrees under one dir.
 - **slug** — a short sandbox name (`feat`, `bugfix-auth`, …), set at `create`.
@@ -42,8 +44,10 @@ is copied.
   repo root — relative to the project root, so other repos work too — **or a
   git URL**), a REQUIRED `branch:` (the branch the worktree lives on — it also
   names the directory the worktree sits under; a branch already checked out elsewhere is
-  adopted as-is) and an optional `include:` (directory paths or patterns — only
-  the selected directories exist in the sandbox). The scaffold seeds
+  adopted as-is), an optional `include:` (directory paths or patterns — only
+  the selected directories exist in the sandbox) and an optional `git:`
+  (`"ro"`/`"rw"` — share this repo's git dir so git works inside; mutually
+  exclusive with `include`, off by default). The scaffold seeds
   `srcs = [ { src = "."; branch = "feat/<name>"; } ]` — this repo, whole.
   Editing srcs applies on the next `enter`/`exec` — a running session sees the
   change live, no recreate.
