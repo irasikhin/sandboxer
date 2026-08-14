@@ -69,7 +69,7 @@ Isolation — every sandbox is a real **microVM** on
 [microsandbox](https://microsandbox.dev) (`msb`, libkrun: KVM on Linux, HVF on
 macOS): its own guest kernel behind a hardware-virtualization boundary, booted
 from the toolbox image; see [docs/microvm.md](./docs/microvm.md). The
-image has the agents baked in (claude, opencode, crush, aider, pi, gemini) plus an
+image has the agents baked in (claude, opencode, crush, pi, gemini) plus an
 everyday toolchain: python3 (pytest, rich, httpx, ruamel-yaml/tomlkit,
 jsonschema, bs4 — plus `uv` for anything else), node/npm, jdk+maven, redocly,
 ripgrep/fd/jq/…, code tooling (ast-grep, ctags, tokei, bat, fzf, entr, ruff),
@@ -85,7 +85,7 @@ gets its own isolated home, and network/proxy
 are wired per config. Agent auth is yours to choose: with `hostConfigs = true`
 (the scaffolded default) the sandbox home is seeded with a COPY of your host
 agent configs — `~/.claude` (settings, skills, memory) + `~/.claude.json`,
-`~/.codex`, `~/.gemini`, opencode/crush/aider — transcripts/caches excluded,
+`~/.codex`, `~/.gemini`, opencode/crush — transcripts/caches excluded,
 never mounted, never written back, and your in-sandbox edits always win; the
 agents' auth env vars set on the host (`ANTHROPIC_API_KEY`,
 `CLAUDE_CODE_OAUTH_TOKEN`, …) are passed through as well. Claude's rotating

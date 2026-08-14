@@ -508,7 +508,7 @@ func setupFakeMSB(t *testing.T) string {
 	// pull (absent refs always "pull" against a fake store) is stubbed so no
 	// test depends on the fake script growing a pull dialect.
 	restorePull := msbPullImage
-	msbPullImage = func(_, _ string, _, _ io.Writer) error { return nil }
+	msbPullImage = func(_, _ string, _ bool, _, _ io.Writer) error { return nil }
 	t.Cleanup(func() { msbPullImage = restorePull })
 	return log
 }
@@ -845,11 +845,23 @@ func TestMSBEnsureImage(t *testing.T) {
 	restorePull := msbPullImage
 	t.Cleanup(func() { msbPullImage = restorePull })
 	pulled := 0
-	msbPullImage = func(_, ref string, _, _ io.Writer) error {
+	forced := false
+	msbPullImage = func(_, ref string, force bool, _, _ io.Writer) error {
 		pulled++
+		forced = forced || force
 		cached[ref] = true
 		return nil
 	}
+	// The create path pulls only what is MISSING, so it must never force: a
+	// forced pull re-downloads unconditionally, which would turn every cold
+	// create into a multi-GB fetch of an image the host may already be
+	// getting for the first time anyway. Forcing belongs to `image pull`,
+	// whose whole job is the refresh msb will otherwise no-op.
+	t.Cleanup(func() {
+		if forced {
+			t.Error("msbEnsureImage forced a pull — that is the refresh command's job, not a cold create's")
+		}
+	})
 
 	// An uncustomized ref ABSENT from msb's store is pulled EXPLICITLY first —
 	// pull-on-create only exists on newer msb, so enter must not rely on it
@@ -875,7 +887,7 @@ func TestMSBEnsureImage(t *testing.T) {
 	// attempt continues a multi-GB download instead of starting over.
 	o.Image = "ghcr.io/x/flaky:1"
 	attempts := 0
-	msbPullImage = func(_, ref string, _, _ io.Writer) error {
+	msbPullImage = func(_, ref string, _ bool, _, _ io.Writer) error {
 		attempts++
 		if attempts == 1 {
 			return errors.New("error decoding response body")
@@ -891,11 +903,11 @@ func TestMSBEnsureImage(t *testing.T) {
 	// escape hatch, after the retries are exhausted.
 	o.Image = "ghcr.io/x/absent:9"
 	attempts = 0
-	msbPullImage = func(_, _ string, _, _ io.Writer) error { attempts++; return errors.New("net down") }
+	msbPullImage = func(_, _ string, _ bool, _, _ io.Writer) error { attempts++; return errors.New("net down") }
 	if _, err := msbEnsureImage(o); err == nil || !strings.Contains(err.Error(), "sandboxer image build") || attempts != 3 {
 		t.Errorf("a failed pull must retry 3x then hint the local build, got attempts=%d err=%v", attempts, err)
 	}
-	msbPullImage = func(_, ref string, _, _ io.Writer) error { pulled++; cached[ref] = true; return nil }
+	msbPullImage = func(_, ref string, _ bool, _, _ io.Writer) error { pulled++; cached[ref] = true; return nil }
 
 	// A customized profile's variant is the one image still built locally.
 	o.Spec = toolbox.Spec{Attrs: []string{"nixpkgs.ripgrep"}}
@@ -941,18 +953,18 @@ func TestPullImage(t *testing.T) {
 	t.Setenv("FAKE_PULL_LOG", log)
 
 	var out bytes.Buffer
-	if err := PullImage(msbEngine, "ghcr.io/x/toolbox:latest", &out, io.Discard); err != nil {
+	if err := PullImage(msbEngine, "ghcr.io/x/toolbox:latest", true, &out, io.Discard); err != nil {
 		t.Fatalf("PullImage: %v", err)
 	}
-	if got := readFile(t, log); !strings.Contains(got, "pull ghcr.io/x/toolbox:latest") {
-		t.Errorf("msb argv = %q, want `pull <ref>`", got)
+	if got := readFile(t, log); !strings.Contains(got, "pull -f ghcr.io/x/toolbox:latest") {
+		t.Errorf("msb argv = %q, want `pull -f <ref>` (a refresh msb cannot no-op)", got)
 	}
 	if !strings.Contains(out.String(), "progress") {
 		t.Errorf("stdout = %q, want the runner's progress streamed through", out.String())
 	}
 
 	t.Setenv("SANDBOXER_MSB", "/nonexistent/msb-xyz")
-	if err := PullImage(msbEngine, "img:1", io.Discard, io.Discard); err == nil ||
+	if err := PullImage(msbEngine, "img:1", true, io.Discard, io.Discard); err == nil ||
 		!strings.Contains(err.Error(), "msb pull img:1") {
 		t.Errorf("failed pull = %v, want an error naming the command", err)
 	}

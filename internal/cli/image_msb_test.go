@@ -115,7 +115,7 @@ func TestBuildImageNoMsb(t *testing.T) {
 	}
 }
 
-// TestImagePull: `image pull` shells out to `msb pull <ref>` with the image
+// TestImagePull: `image pull` shells out to `msb pull -f <ref>` with the image
 // resolved like the other image commands (SANDBOXER_IMAGE over the prebuilt
 // default), streaming through and reporting what was pulled; a profile with
 // image customization is refused — its variant is never published.
@@ -137,8 +137,8 @@ func TestImagePull(t *testing.T) {
 		t.Fatalf("image pull = %d, %s", code, errs)
 	}
 	data, err := os.ReadFile(log)
-	if err != nil || !strings.Contains(string(data), "pull "+config.DefaultImage) {
-		t.Errorf("msb argv log = %q, %v; want `pull %s`", data, err, config.DefaultImage)
+	if err != nil || !strings.Contains(string(data), "pull -f "+config.DefaultImage) {
+		t.Errorf("msb argv log = %q, %v; want `pull -f %s`", data, err, config.DefaultImage)
 	}
 	if !strings.Contains(out, config.DefaultImage) {
 		t.Errorf("pull output = %q, want the pulled ref", out)
@@ -149,7 +149,7 @@ func TestImagePull(t *testing.T) {
 	if code, _, errs := run("image", "pull"); code != 0 {
 		t.Fatalf("image pull (SANDBOXER_IMAGE) = %d, %s", code, errs)
 	}
-	if data, _ := os.ReadFile(log); !strings.Contains(string(data), "pull example.com/custom:1") {
+	if data, _ := os.ReadFile(log); !strings.Contains(string(data), "pull -f example.com/custom:1") {
 		t.Errorf("msb argv log = %q, want the SANDBOXER_IMAGE ref", data)
 	}
 	t.Setenv("SANDBOXER_IMAGE", "")
@@ -174,7 +174,7 @@ func TestImagePull(t *testing.T) {
 	if code, out, errs := run("image", "pull", "-f", refCfg); code != 0 || !strings.Contains(out, "ghcr.io/me/mine:7") {
 		t.Errorf("pull of a ref profile = (%d, %q, %q), want its own ref pulled", code, out, errs)
 	}
-	if data, _ := os.ReadFile(log); !strings.Contains(string(data), "pull ghcr.io/me/mine:7") {
+	if data, _ := os.ReadFile(log); !strings.Contains(string(data), "pull -f ghcr.io/me/mine:7") {
 		t.Errorf("msb argv log = %q, want the profile's ref", data)
 	}
 

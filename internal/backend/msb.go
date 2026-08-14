@@ -753,7 +753,7 @@ func msbEnsureImage(o RunOpts) (string, error) {
 			// completed).
 			var err error
 			for attempt := 1; attempt <= 3; attempt++ {
-				if err = msbPullImage(msbEngine, o.Image, o.Stderr, o.Stderr); err == nil {
+				if err = msbPullImage(msbEngine, o.Image, false, o.Stderr, o.Stderr); err == nil {
 					break
 				}
 				if attempt < 3 && o.Stderr != nil {

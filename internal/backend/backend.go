@@ -151,8 +151,21 @@ func RemoveImage(_, image string) error {
 // reaches an already-cached host without it. The fresh digest then reads as
 // stale against a live session's recorded one, and the next enter recreates
 // the machine on the new rootfs.
-func PullImage(_, image string, stdout, stderr io.Writer) error {
-	cmd := exec.Command(msbBin(), "pull", image)
+//
+// force is what makes that refresh real. msb decides "already cached" from the
+// NAME alone — it does not ask the registry whether the digest moved — so a
+// plain pull of a ref the store already holds is a no-op that prints a
+// checkmark. Verified against msb 0.6.7 by pulling a ref whose local content
+// was a different image entirely: still "already cached". The refresh command
+// therefore passes -f (re-download unconditionally), while the create path's
+// pull-when-missing leaves it off: there is nothing cached to refresh, and
+// forcing there would re-fetch a fresh image on every cold create.
+func PullImage(_, image string, force bool, stdout, stderr io.Writer) error {
+	args := []string{"pull"}
+	if force {
+		args = append(args, "-f")
+	}
+	cmd := exec.Command(msbBin(), append(args, image)...)
 	cmd.Stdout = stdout
 	cmd.Stderr = stderr
 	if err := cmd.Run(); err != nil {

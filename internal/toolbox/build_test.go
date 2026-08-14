@@ -9,9 +9,9 @@ import (
 )
 
 func TestRenderNixList(t *testing.T) {
-	got := renderNixList([]string{"gemini-cli", "claude-code", "aider"})
+	got := renderNixList([]string{"gemini-cli", "claude-code", "crush"})
 	// Sorted, one quoted name per line, inside a nix list literal.
-	want := "[\n  \"aider\"\n  \"claude-code\"\n  \"gemini-cli\"\n]\n"
+	want := "[\n  \"claude-code\"\n  \"crush\"\n  \"gemini-cli\"\n]\n"
 	if got != want {
 		t.Errorf("renderNixList =\n%q\nwant\n%q", got, want)
 	}

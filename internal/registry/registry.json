@@ -40,15 +40,6 @@
       { "path": ".config/crush" }
     ]
   },
-  "aider": {
-    "bin": "aider",
-    "authEnv": ["OPENAI_API_KEY", "ANTHROPIC_API_KEY", "DEEPSEEK_API_KEY", "OPENROUTER_API_KEY"],
-    "nixPackage": "aider-chat",
-    "resume": ["aider", "--restore-chat-history"],
-    "seed": [
-      { "path": ".aider.conf.yml" }
-    ]
-  },
   "pi": {
     "bin": "pi",
     "authEnv": ["ANTHROPIC_API_KEY", "OPENAI_API_KEY", "DEEPSEEK_API_KEY"],

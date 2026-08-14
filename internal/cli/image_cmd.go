@@ -61,6 +61,12 @@ republished nightly (the agents move with their releases) and per release tag,
 while a create only pulls a ref that is MISSING from the store — refreshing an
 already-cached ` + "`latest`" + ` is what this command is for.
 
+The download is UNCONDITIONAL (msb pull -f): microsandbox decides "already
+cached" from the image name alone, without asking the registry whether the
+digest moved, so anything short of a forced re-download would leave a moved
+` + "`latest`" + ` sitting unnoticed — which is the one thing this command exists to
+prevent. Expect it to re-fetch the image even when nothing changed.
+
 A live session picks the fresh image up on its next enter: it reads as stale
 and is recreated (the tmux layout is saved and restored). Profiles that
 customize the image (tools, image.packages/overlay) run a locally-built
@@ -91,7 +97,7 @@ variant that is never published — build those with 'sandboxer image build'.`,
 			if err != nil {
 				return err
 			}
-			if err := backendPullImage(engine, image, cmd.OutOrStdout(), cmd.ErrOrStderr()); err != nil {
+			if err := backendPullImage(engine, image, true, cmd.OutOrStdout(), cmd.ErrOrStderr()); err != nil {
 				return err
 			}
 			fmt.Fprintf(cmd.OutOrStdout(), "pulled image: %s\n", image)

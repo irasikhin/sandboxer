@@ -7,7 +7,7 @@ import (
 
 func TestNamesSortedAndComplete(t *testing.T) {
 	got := Names()
-	want := []string{"aider", "claude", "codex", "crush", "gemini", "opencode", "pi"}
+	want := []string{"claude", "codex", "crush", "gemini", "opencode", "pi"}
 	if !slices.Equal(got, want) {
 		t.Fatalf("Names() = %v, want %v", got, want)
 	}
@@ -101,9 +101,9 @@ func TestSeedPaths(t *testing.T) {
 // the CLI they were read from rather than left to drift: claude
 // (--continue/--resume), pi (-c/-r's long forms, pi docs/usage.md), codex
 // (`codex resume [--last]`), opencode and crush (--continue; neither ships a
-// startup picker, only --session <id>), aider (--restore-chat-history, its only
-// history-restoring flag). gemini declares none: its checkpointing is a slash
-// command (/chat resume), with no startup flag to type.
+// startup picker, only --session <id>). gemini declares none: its
+// checkpointing is a slash command (/chat resume), with no startup flag to
+// type.
 func TestResume(t *testing.T) {
 	for _, tc := range []struct {
 		agent, bin string
@@ -114,7 +114,6 @@ func TestResume(t *testing.T) {
 		{agent: "codex", last: []string{"codex", "resume", "--last"}, pick: []string{"codex", "resume"}},
 		{agent: "opencode", last: []string{"opencode", "--continue"}},
 		{agent: "crush", last: []string{"crush", "--continue"}},
-		{agent: "aider", last: []string{"aider", "--restore-chat-history"}},
 		{agent: "gemini"},
 	} {
 		a, err := Get(tc.agent)

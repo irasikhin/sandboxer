@@ -227,7 +227,7 @@ func TestSeedMergeErrorPaths(t *testing.T) {
 	host := t.TempDir()
 	t.Setenv("HOME", host)
 	writeFile(t, filepath.Join(host, ".gemini", "sub", "creds.json"), "x")
-	writeFile(t, filepath.Join(host, ".aider.conf.yml"), "cfg")
+	writeFile(t, filepath.Join(host, ".claude.json"), "cfg")
 	b, err := ResolveBase(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -237,7 +237,7 @@ func TestSeedMergeErrorPaths(t *testing.T) {
 	}
 	home := b.HomeDir("s")
 	// a stale .seedtmp DIRECTORY sits where the file copy stages
-	if err := os.MkdirAll(filepath.Join(home, ".aider.conf.yml.seedtmp", "junk"), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(home, ".claude.json.seedtmp", "junk"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	// and the sandbox's .gemini is read-only, so sub/ cannot be created
@@ -251,8 +251,8 @@ func TestSeedMergeErrorPaths(t *testing.T) {
 	if !strings.Contains(progress.String(), "skipped") {
 		t.Errorf("no warning for failed seeds: %q", progress.String())
 	}
-	if _, err := os.Stat(filepath.Join(home, ".aider.conf.yml")); !os.IsNotExist(err) {
-		t.Errorf(".aider.conf.yml materialized despite a blocked staging path (err=%v)", err)
+	if _, err := os.Stat(filepath.Join(home, ".claude.json")); !os.IsNotExist(err) {
+		t.Errorf(".claude.json materialized despite a blocked staging path (err=%v)", err)
 	}
 	if _, err := os.Stat(filepath.Join(home, ".gemini", "sub")); !os.IsNotExist(err) {
 		t.Errorf("sub/ materialized inside a read-only dir (err=%v)", err)

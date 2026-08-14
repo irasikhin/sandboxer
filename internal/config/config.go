@@ -387,7 +387,7 @@ type Profile struct {
 	// HostConfigs wires the HOST's agent identity into the sandbox, two
 	// halves under one opt-in:
 	//   - config seed: the registry seed paths (~/.claude + ~/.claude.json,
-	//     ~/.codex, ~/.gemini, opencode/crush/aider — settings, skills,
+	//     ~/.codex, ~/.gemini, opencode/crush — settings, skills,
 	//     memory) copied into the sandbox's private home. Claude's rotating
 	//     OAuth pair (.claude/.credentials.json) is deliberately NOT copied:
 	//     a copy dies on the next refresh-token rotation either side

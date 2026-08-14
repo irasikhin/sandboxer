@@ -161,7 +161,7 @@ would quietly change the isolation boundary.
 ## Toolbox image (prebuilt; local builds with host nix)
 
 The agents run inside the `ghcr.io/irasikhin/sandboxer-toolbox:latest` OCI
-image, with the coding agents (claude, opencode, crush, aider, …) baked in.
+image, with the coding agents (claude, opencode, crush, …) baked in.
 The stock image comes **prebuilt from GHCR** — published by
 `.github/workflows/image.yml` nightly (the agent pins re-resolve at build, so
 `latest` tracks their releases) and per release tag — and msb **pulls and
