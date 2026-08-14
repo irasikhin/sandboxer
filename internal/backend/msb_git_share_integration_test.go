@@ -69,6 +69,28 @@ func TestMSB_GitShareOff_RealEngine(t *testing.T) {
 	if code, _ := ExecSession(o, name, []string{"cat", filepath.Join(gitDir, "HEAD")}); code == 0 {
 		t.Error("SECURITY: the repository's git dir was reachable inside a sandbox that never asked for it")
 	}
+
+	// On an image that ships the guarded git (the toolbox one), the wrapper
+	// must turn that dead end into an explanation naming the way out — the
+	// whole reason it exists is that plain git's "fatal: not a git repository"
+	// invited `git init` and orphaned the host worktree.
+	var out bytes.Buffer
+	og := o
+	og.Stdout = &out
+	og.Stderr = &out
+	if code, _ := ExecSession(og, name, []string{"sh", "-c", "command -v git >/dev/null 2>&1"}); code != 0 {
+		return // no git in this image (default alpine) — nothing to guard
+	}
+	out.Reset()
+	code, _ := ExecSession(og, name, []string{"sh", "-c", "cd " + wt + " && git status"})
+	if code != 128 {
+		t.Errorf("git status on an unshared worktree = code %d, want the guard's 128", code)
+	}
+	for _, want := range []string{"managed git WORKTREE", "do NOT 'git init'", `git = "ro"`} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("the guard's message is missing %q:\n%s", want, out.String())
+		}
+	}
 }
 
 // TestMSB_GitShareRO_RealEngine: git = "ro" makes the git dir resolvable at its
