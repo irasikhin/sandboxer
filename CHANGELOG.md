@@ -6,6 +6,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.84.0] — 2026-08-14
+
+### ⚠ Breaking changes
+
+- drop aider, and make `image pull` actually refresh (b780779)
+
+### Added
+
+- drop aider, and make `image pull` actually refresh (b780779)
+
+### Tests
+
+- pin the guard's refusal on an image that ships git (04cbe53)
+
+
 ## [0.83.0] — 2026-08-14
 
 ### Added
@@ -1287,3 +1302,4 @@ isolated, containerized dev sandbox, on a local Linux machine:
 [0.81.0]: https://github.com/irasikhin/sandboxer/compare/v0.80.0...v0.81.0
 [0.82.0]: https://github.com/irasikhin/sandboxer/compare/v0.81.0...v0.82.0
 [0.83.0]: https://github.com/irasikhin/sandboxer/compare/v0.82.0...v0.83.0
+[0.84.0]: https://github.com/irasikhin/sandboxer/compare/v0.83.0...v0.84.0
