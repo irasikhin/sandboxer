@@ -6,6 +6,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.82.0] — 2026-08-14
+
+### Added
+
+- per-source opt-in git-dir share (git = "ro" / "rw") (5217c8e)
+
+
 ## [0.81.0] — 2026-08-13
 
 ### Added
@@ -1266,3 +1273,4 @@ isolated, containerized dev sandbox, on a local Linux machine:
 [0.79.0]: https://github.com/irasikhin/sandboxer/compare/v0.78.2...v0.79.0
 [0.80.0]: https://github.com/irasikhin/sandboxer/compare/v0.79.0...v0.80.0
 [0.81.0]: https://github.com/irasikhin/sandboxer/compare/v0.80.0...v0.81.0
+[0.82.0]: https://github.com/irasikhin/sandboxer/compare/v0.81.0...v0.82.0
