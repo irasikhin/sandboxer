@@ -398,6 +398,21 @@ in
         delta
         gnumake
         unzip
+        # comparison pack. `diff` is NOT part of coreutils, so a sandbox
+        # without diffutils answered the single most reflexive command in
+        # this family with "command not found" — and delta only colors
+        # git's OWN diffs, which a sandbox does not have by default (git
+        # enters only when a source opts in). diffutils brings
+        # diff/cmp/diff3/sdiff (cmp is also the binary-file answer), patch
+        # applies what a diff produced, difftastic (difft) diffs by SYNTAX
+        # rather than by line — the one that survives reformatting and
+        # tells a moved block from a changed one — and dyff compares YAML
+        # and JSON structurally, pairing with the yq-go below for config
+        # and manifest work.
+        diffutils
+        patch
+        difftastic
+        dyff
         # LLM-agent batteries: the everyday tools an agent reaches for and
         # used to hit "command not found" on — network/egress forensics
         # (the allowlist is NAME-bound, so "why can't I reach X" starts with

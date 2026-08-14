@@ -102,14 +102,20 @@ func TestFlakeShipsDetachEscapeHatches(t *testing.T) {
 }
 
 // TestFlakeBakesToolingPack guards that the baseline tooling humans and agents
-// rely on (pager, editor, process tools, search, archives, delta git pager)
-// stays baked into the image, and that /etc/gitconfig routes the pager through
-// delta.
+// rely on (pager, editor, process tools, search, archives, delta git pager,
+// the comparison pack) stays baked into the image, and that /etc/gitconfig
+// routes the pager through delta.
+//
+// diffutils is the load-bearing one: `diff` does not come with coreutils, and
+// delta only colors git's own diffs — which a sandbox has no git for unless a
+// source opted in. Dropping it puts "command not found" behind the most
+// reflexive comparison command there is.
 func TestFlakeBakesToolingPack(t *testing.T) {
 	s := imageDefinition(t)
 	for _, want := range []string{
 		"less", "neovim", "procps", "ripgrep", "fd", "tree",
 		"gnutar", "gzip", "delta", "gnumake", "unzip",
+		"diffutils", "patch", "difftastic", "dyff",
 		`writeTextDir "etc/gitconfig"`, "gitConfig",
 	} {
 		if !strings.Contains(s, want) {
