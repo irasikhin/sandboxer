@@ -413,6 +413,30 @@ in
         patch
         difftastic
         dyff
+        # source-code pack: what an agent needs to READ and CHANGE an
+        # unfamiliar tree, none of which the language runtimes below bring.
+        # ast-grep matches and REWRITES by syntax tree across languages
+        # (`ast-grep -p 'foo($A)' -r 'bar($A)'`) — the one mechanical-refactor
+        # tool that cannot mangle a string literal or a comment the way a
+        # regex sweep does; universal-ctags builds the symbol index neovim
+        # already knows how to jump through (:tag, C-]) so navigation needs
+        # no language server; tokei answers "what IS this repo" in one
+        # command before any of that; bat prints a file with syntax colors
+        # AND line numbers, which is how an agent cites a location; fzf
+        # filters candidate paths/symbols (`fzf -f` is non-interactive, so it
+        # works in a pipeline, not only under a human); entr reruns a command
+        # when files change, the test loop an agent otherwise fakes with
+        # sleep; and ruff lints/formats python with zero config — baked for
+        # the same reason shellcheck is, python3 being right below. Tools
+        # that need per-project configuration (eslint and friends) stay with
+        # the project's own dependencies.
+        ast-grep
+        universal-ctags
+        tokei
+        bat
+        fzf
+        entr
+        ruff
         # LLM-agent batteries: the everyday tools an agent reaches for and
         # used to hit "command not found" on — network/egress forensics
         # (the allowlist is NAME-bound, so "why can't I reach X" starts with
@@ -439,18 +463,50 @@ in
         gh
         # everyday language runtimes — baked into the BASE image so
         # scripts and builds just work (the tools packs still exist
-        # for pinned per-profile variants). python3 carries a few
-        # batteries every glue script reaches for (click CLIs, YAML
-        # config, jinja2 templating); the nixpkgs attr is pyyaml, the
-        # import is `yaml`.
+        # for pinned per-profile variants). python3 carries the batteries
+        # a glue script or an agent reaches for; the nixpkgs attr is
+        # pyyaml, the import is `yaml`.
+        #
+        # The set is chosen by "what cannot be improvised": a test runner
+        # (pytest), round-trip config editing that PRESERVES comments and
+        # layout — ruamel-yaml for YAML and tomlkit for TOML, where pyyaml
+        # and tomllib would silently rewrite a pyproject.toml or a manifest
+        # into unrecognizable shape — schema validation (jsonschema), HTML
+        # parsing (beautifulsoup4 + the lxml backend it wants), modern
+        # HTTP with async and HTTP/2 alongside requests (httpx), the date
+        # parsing everyone reimplements badly (python-dateutil), and
+        # readable terminal output (rich). Together +49 MB over the
+        # previous four.
+        #
+        # numpy/pandas are deliberately NOT here: they would add ~334 MB
+        # to every sandbox for a need that is occasional. That is what uv
+        # below is for — pypi.org and files.pythonhosted.org are in the
+        # default egress allowlist, so `uv venv && uv pip install pandas`
+        # works inside a sandbox out of the box, in seconds.
         (python3.withPackages (
           ps: with ps; [
             click
             pyyaml
             jinja2
             requests
+            pytest
+            rich
+            httpx
+            tomlkit
+            ruamel-yaml
+            jsonschema
+            beautifulsoup4
+            lxml
+            python-dateutil
           ]
         ))
+        # The escape hatch for every python package NOT baked above (and
+        # for a project that pins its own): uv creates a venv and installs
+        # into it in seconds, without touching the read-only nix store the
+        # baked interpreter lives in — which is why plain `pip install`
+        # cannot work here and an agent must not be left to discover that
+        # by failing.
+        uv
         nodejs
         jdk25
         (maven.override { jdk_headless = jdk25; })

@@ -149,6 +149,27 @@ func TestFlakeBakesAgentBatteries(t *testing.T) {
 	}
 }
 
+// TestFlakeBakesSourcePack guards the source-code tooling an agent works a
+// tree with: structural search/rewrite (ast-grep), the symbol index neovim
+// jumps through (universal-ctags), codebase orientation (tokei), syntax-colored
+// reading with line numbers (bat), candidate filtering (fzf), the file-watch
+// test loop (entr) and zero-config python lint/format (ruff). The short names
+// are anchored to a whole contents line: "bat" would otherwise match
+// bashInteractive and "entr" any Entrypoint.
+func TestFlakeBakesSourcePack(t *testing.T) {
+	s := imageDefinition(t)
+	for _, want := range []string{"ast-grep", "universal-ctags", "tokei", "ruff"} {
+		if !strings.Contains(s, want) {
+			t.Errorf("images.nix missing source tooling %q", want)
+		}
+	}
+	for _, re := range []string{`(?m)^\s{8}bat$`, `(?m)^\s{8}fzf$`, `(?m)^\s{8}entr$`} {
+		if !regexp.MustCompile(re).MatchString(s) {
+			t.Errorf("images.nix missing source tooling %q", re)
+		}
+	}
+}
+
 // TestImageBakesNestedPodman guards the nested-podman layer end to end: the
 // runtime pieces (shadow carries newuidmap/newgidmap, what a MULTI-uid nested
 // namespace is built with), and the image-side bits without which a rootless
@@ -218,16 +239,26 @@ func TestImageBakesDockerShim(t *testing.T) {
 }
 
 // TestImageBakesPythonBatteries guards that the base python3 carries the glue
-// libraries baked into the image (click CLIs, YAML config, jinja2 templating),
-// via python3.withPackages — a plain python3 would import-error on them.
+// libraries baked into the image (click CLIs, YAML/TOML config, templating,
+// HTTP, HTML, schema validation, a test runner), via python3.withPackages — a
+// plain python3 would import-error on them — plus uv, the escape hatch for
+// everything not baked: the interpreter lives in the read-only nix store, so
+// `pip install` cannot work and a venv is the only way in.
 func TestImageBakesPythonBatteries(t *testing.T) {
 	s := imageDefinition(t)
 	if !strings.Contains(s, "python3.withPackages") {
 		t.Error("images.nix ships a bare python3 — the batteries (click/pyyaml/jinja2) are not wired")
 	}
-	for _, want := range []string{"click", "pyyaml", "jinja2", "requests"} {
+	for _, want := range []string{
+		"click", "pyyaml", "jinja2", "requests",
+		"pytest", "rich", "httpx", "tomlkit", "ruamel-yaml",
+		"jsonschema", "beautifulsoup4", "lxml", "python-dateutil",
+	} {
 		if !strings.Contains(s, want) {
 			t.Errorf("images.nix python batteries missing %q", want)
 		}
+	}
+	if !regexp.MustCompile(`(?m)^\s{8}uv$`).MatchString(s) {
+		t.Error("images.nix missing uv — nothing outside the baked set could be installed in a sandbox")
 	}
 }
