@@ -6,6 +6,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.85.0] — 2026-08-15
+
+### Added
+
+- bake pi's agent orchestrator and enable it by default (3bbc817)
+
+
 ## [0.84.0] — 2026-08-14
 
 ### ⚠ Breaking changes
@@ -1303,3 +1310,4 @@ isolated, containerized dev sandbox, on a local Linux machine:
 [0.82.0]: https://github.com/irasikhin/sandboxer/compare/v0.81.0...v0.82.0
 [0.83.0]: https://github.com/irasikhin/sandboxer/compare/v0.82.0...v0.83.0
 [0.84.0]: https://github.com/irasikhin/sandboxer/compare/v0.83.0...v0.84.0
+[0.85.0]: https://github.com/irasikhin/sandboxer/compare/v0.84.0...v0.85.0
