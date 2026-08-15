@@ -156,6 +156,19 @@ was extracted from:
   `authEnv` vars set on the host (cli `hostAuthEnv` → RunOpts.AuthEnv; part of the session hash). Claude's
   `.claude/.credentials.json` is seed-SKIPPED: rotating refresh tokens die as copies (401) or hijack the
   host session — subscription auth = `claude setup-token` + export CLAUDE_CODE_OAUTH_TOKEN.
+- **pi packages** (`internal/toolbox/assets/pi-orchestrator/` + `internal/sandbox/pipkgs.go`): pi loads
+  extensions/skills/prompts from the `packages` list in `~/.pi/agent/settings.json` — its ONLY global
+  config (no /etc-level file), which is why registration is host-side against the sandbox home rather
+  than something the image can ship. `pi-agent-orchestrator` is vendored like pi (npm tarball + generated
+  lockfile; devDependencies AND peerDependencies stripped in the src prep — dist/ ships prebuilt and pi
+  supplies the peer packages to extensions itself via an alias map, so stripping them takes the build from
+  368 lock entries to 11), grafted by the overlay in both flakes, and images.nix links it at the STABLE
+  path `/etc/sandboxer/pi-packages/agent-orchestrator` (the settings file outlives image bumps, so it must
+  never name a store path; the literal is duplicated in `sandbox.BakedPiPackages` — keep them in sync).
+  `EnsurePiPackages` MERGES the entry on create/enter/exec (`prepareHome`, AFTER SeedHome so a seeded
+  host settings.json is the file we merge into), dedupes both spellings pi accepts (string and
+  `{source}`), and leaves an unparsable settings.json alone. Opt out: `piPackages = false` /
+  `SANDBOXER_NO_PI_PACKAGES=1`.
 - **Toolbox image** (`internal/toolbox` + flake `dockerTools.buildLayeredImage`): the OCI image with the agents
   baked in; the stock default is PREBUILT — `ghcr.io/irasikhin/sandboxer-toolbox:latest`, pushed by
   `.github/workflows/image.yml` (nightly + per v* tag; msb pulls it on first create, `image pull` refreshes) —

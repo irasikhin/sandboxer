@@ -156,6 +156,35 @@ func TestEnterPassesHostAuthEnv(t *testing.T) {
 	}
 }
 
+// TestEnterRegistersPiPackages: entering a sandbox registers the toolbox
+// image's baked-in pi packages in that sandbox's pi settings, so `pi` comes up
+// with the orchestration package loaded — and SANDBOXER_NO_PI_PACKAGES=1 is
+// the operator kill-switch that leaves pi's settings alone.
+func TestEnterRegistersPiPackages(t *testing.T) {
+	project := sessionProject(t)
+	stubSessionSeams(t, backend.SessionInfo{}, "h")
+	settings := stateDir(project, "_home", "feat", filepath.FromSlash(sandbox.PiSettingsPath))
+
+	if code, _, errs := run("enter", "feat", "--src", project); code != 0 {
+		t.Fatalf("enter = %d, %s", code, errs)
+	}
+	data, err := os.ReadFile(settings)
+	if err != nil || !strings.Contains(string(data), sandbox.BakedPiPackages[0]) {
+		t.Errorf("pi settings = %q (err=%v), want %q registered", data, err, sandbox.BakedPiPackages[0])
+	}
+
+	if err := os.Remove(settings); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("SANDBOXER_NO_PI_PACKAGES", "1")
+	if code, _, errs := run("enter", "feat", "--src", project); code != 0 {
+		t.Fatalf("enter (kill-switch) = %d, %s", code, errs)
+	}
+	if _, err := os.Stat(settings); !os.IsNotExist(err) {
+		t.Errorf("SANDBOXER_NO_PI_PACKAGES=1 must not write pi settings (err=%v)", err)
+	}
+}
+
 // clearAuthEnv empties every registry auth var so a developer's own exported
 // keys can never leak into a test's expectations.
 func clearAuthEnv(t *testing.T) {

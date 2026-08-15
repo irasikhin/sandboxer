@@ -90,7 +90,7 @@ func newCreateCmd() *cobra.Command {
 			if err := t.base.MakeSandbox(t.slug, cmd.ErrOrStderr()); err != nil {
 				return err
 			}
-			seedHostConfigs(t, cmd.ErrOrStderr())
+			prepareHome(t, rtCreate, cmd.ErrOrStderr())
 			warnIgnoredConfig(cmd.ErrOrStderr(), t.base.Src)
 			fmt.Fprintln(cmd.ErrOrStderr(), configLine(rtCreate, t.slug, t.profile, backendLabel(rtCreate)))
 			// Same one-line-per-source report enter prints. create used to say
@@ -229,7 +229,7 @@ disable with autoResume = false in the profile, or SANDBOXER_NO_RESUME=1.`,
 			if err := t.base.EnsureHome(t.slug); err != nil {
 				return err
 			}
-			seedHostConfigs(t, narrate)
+			prepareHome(t, rt, narrate)
 			if err := runSetup(t, rt, engine, f.noSetup, narrate); err != nil {
 				return err
 			}
@@ -458,7 +458,7 @@ composes with scripts and CI.`,
 			if err := t.base.EnsureHome(t.slug); err != nil {
 				return err
 			}
-			seedHostConfigs(t, narrate)
+			prepareHome(t, rt, narrate)
 			if err := runSetup(t, rt, engine, f.noSetup, narrate); err != nil {
 				return err
 			}
@@ -539,13 +539,22 @@ composes with scripts and CI.`,
 	return cmd
 }
 
-// seedHostConfigs seeds the sandbox home from the host's agent configs when
-// the profile opts in (hostConfigs = true) — after EnsureHome, before anything
-// runs in the sandbox. Copy-only and never-overwrite semantics live in
-// sandbox.SeedHome; this is just the profile gate.
-func seedHostConfigs(t *target, w io.Writer) {
+// prepareHome readies the sandbox's private home before anything runs in the
+// sandbox (after EnsureHome), in the order the two steps require:
+//
+//  1. the host's agent configs are seeded when the profile opts in
+//     (hostConfigs = true) — copy-only, never-overwrite semantics live in
+//     sandbox.SeedHome; this is just the profile gate;
+//  2. the image's baked-in pi packages are registered in pi's settings
+//     (sandbox.EnsurePiPackages), which MERGES into the settings.json step 1
+//     may just have seeded — hence second: registering first would leave the
+//     seed's never-overwrite rule to skip the host's own pi settings.
+func prepareHome(t *target, rt config.Runtime, w io.Writer) {
 	if t.profile != nil && t.profile.HostConfigs {
 		t.base.SeedHome(t.slug, w)
+	}
+	if rt.PiPackages {
+		t.base.EnsurePiPackages(t.slug, w)
 	}
 }
 

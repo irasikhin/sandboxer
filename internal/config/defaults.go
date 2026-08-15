@@ -93,20 +93,25 @@ type Defaults struct {
 	// session restore's agent auto-resume — it wins over a profile's
 	// autoResume, like SANDBOXER_NO_EGRESS over egress.enabled.
 	NoResume bool
+	// NoPiPackages (SANDBOXER_NO_PI_PACKAGES=1) is the same kind of kill-switch
+	// for registering the image's baked-in pi packages in a sandbox's pi
+	// settings — it wins over a profile's piPackages.
+	NoPiPackages bool
 }
 
 // LoadDefaults reads the SANDBOXER_* environment.
 func LoadDefaults() Defaults {
 	return Defaults{
-		Backend:  envOr("SANDBOXER_BACKEND", "microsandbox"),
-		Session:  os.Getenv("SANDBOXER_SESSION"),
-		Domains:  envOr("SANDBOXER_DOMAINS", DefaultDomains),
-		Image:    envOr("SANDBOXER_IMAGE", DefaultImage),
-		Proxy:    os.Getenv("SANDBOXER_PROXY"),
-		NoProxy:  os.Getenv("SANDBOXER_NO_PROXY"),
-		Mem:      os.Getenv("SANDBOXER_MEM"),
-		CPU:      os.Getenv("SANDBOXER_CPU"),
-		NoResume: os.Getenv("SANDBOXER_NO_RESUME") == "1",
+		Backend:      envOr("SANDBOXER_BACKEND", "microsandbox"),
+		Session:      os.Getenv("SANDBOXER_SESSION"),
+		Domains:      envOr("SANDBOXER_DOMAINS", DefaultDomains),
+		Image:        envOr("SANDBOXER_IMAGE", DefaultImage),
+		Proxy:        os.Getenv("SANDBOXER_PROXY"),
+		NoProxy:      os.Getenv("SANDBOXER_NO_PROXY"),
+		Mem:          os.Getenv("SANDBOXER_MEM"),
+		CPU:          os.Getenv("SANDBOXER_CPU"),
+		NoResume:     os.Getenv("SANDBOXER_NO_RESUME") == "1",
+		NoPiPackages: os.Getenv("SANDBOXER_NO_PI_PACKAGES") == "1",
 	}
 }
 

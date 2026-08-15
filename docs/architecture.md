@@ -279,3 +279,26 @@ for auth (`authEnv` — passed through from the host when the profile sets
 whether it ships in the image (`image`), and the `nixPackage` used to bake it
 in. **Adding an agent
 is one JSON entry** — never duplicate the catalog. `sandboxer agents` prints it.
+
+### pi packages
+
+One agent extends itself through packages: pi loads extensions, skills and
+prompt templates listed in `~/.pi/agent/settings.json`. sandboxer ships pi's
+orchestration package ([pi-agent-orchestrator](https://github.com/GroepOnline/pi-agent-orchestrator))
+in the image and registers it there by default, in two halves:
+
+```
+   internal/toolbox/assets/pi-orchestrator/   →  /etc/sandboxer/pi-packages/agent-orchestrator
+   (vendored build: npm tarball + lockfile,      (STABLE guest path — a symlink in the
+    dev/peer deps stripped, nix-built)            image, so the store path may move)
+                                                                │
+   internal/sandbox/pipkgs.go  ──── writes the path into ───────┘
+   (create/enter/exec)              <home>/.pi/agent/settings.json → "packages"
+```
+
+The indirection is what makes it survive an image bump: the settings file
+lives in the sandbox's private home and outlives any number of image versions,
+so it must not name a `/nix/store` path directly. Registration is a merge into
+whatever settings the home already has (host-seeded or written by pi), never a
+rewrite; unparsable settings are left alone. Off with `piPackages = false` or
+`SANDBOXER_NO_PI_PACKAGES=1`.

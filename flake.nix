@@ -22,6 +22,9 @@
         # The one image agent nixpkgs does not carry — vendored beside the
         # embedded flake, which grafts it the same way (single source).
         pi = final.callPackage ./internal/toolbox/assets/pi/package.nix { };
+        # pi's multi-agent orchestration package, baked in and registered in
+        # every sandbox's pi settings by default (sandbox.EnsurePiPackages).
+        pi-agent-orchestrator = final.callPackage ./internal/toolbox/assets/pi-orchestrator/package.nix { };
       };
     in
     {

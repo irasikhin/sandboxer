@@ -80,8 +80,13 @@ socket from the host (pulls go through the egress allowlist, whose defaults
 include docker.io/ghcr.io/quay.io and
 mirror.gcr.io). LLM-agent batteries are baked in too — dig/ip/ping/nc for
 egress forensics, yq for YAML/JSON, file/binutils/xxd for artifact
-inspection, shellcheck, lsof, openssl, the GitHub CLI, and more. Each sandbox
-gets its own isolated home, and network/proxy
+inspection, shellcheck, lsof, openssl, the GitHub CLI, and more. **pi comes
+with its orchestration package** ([pi-agent-orchestrator](https://github.com/GroepOnline/pi-agent-orchestrator)
+— subagents, swarms, worktree isolation, the `/agents` dashboard) baked into
+the image and registered in each sandbox's `~/.pi/agent/settings.json`, so `pi`
+starts with it loaded, offline, with no `pi install` and no npm fetch; opt out
+with `piPackages = false` in the profile or `SANDBOXER_NO_PI_PACKAGES=1`. Each
+sandbox gets its own isolated home, and network/proxy
 are wired per config. Agent auth is yours to choose: with `hostConfigs = true`
 (the scaffolded default) the sandbox home is seeded with a COPY of your host
 agent configs — `~/.claude` (settings, skills, memory) + `~/.claude.json`,
@@ -288,6 +293,7 @@ Scalars come from **flags** and `SANDBOXER_*` env vars:
 | egress domains | `--allow-domains a,b` | `SANDBOXER_DOMAINS` |
 | disable egress | — | `SANDBOXER_NO_EGRESS=1` |
 | disable agent auto-resume | — | `SANDBOXER_NO_RESUME=1` (or `autoResume = false` in the profile) |
+| disable the baked-in pi packages | — | `SANDBOXER_NO_PI_PACKAGES=1` (or `piPackages = false` in the profile) |
 | skip auto-scaffold | — | `SANDBOXER_NO_SCAFFOLD=1` (create/enter writes a default `sandboxer.nix` otherwise) |
 | msb binary | — | `SANDBOXER_MSB` (default: `msb` from `PATH`) |
 | image | — | `SANDBOXER_IMAGE` (default `ghcr.io/irasikhin/sandboxer-toolbox:latest`, prebuilt) |

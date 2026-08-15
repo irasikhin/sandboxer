@@ -414,6 +414,14 @@ type Profile struct {
 	// egress.enabled pattern). It never enters the container's create argv, so
 	// toggling it can NOT read as a changed profile and never rebuilds a session.
 	AutoResume *bool `json:"autoResume,omitempty"`
+	// PiPackages registers the pi packages baked into the toolbox image — pi's
+	// multi-agent orchestration package today — in the sandbox's pi settings,
+	// so `pi` starts with them loaded instead of after a manual `pi install`.
+	// Default true; nil means true (the egress.enabled pattern). It only ever
+	// writes the sandbox's own ~/.pi/agent/settings.json (never the host's) and
+	// never enters the machine's create argv, so toggling it cannot read as a
+	// changed profile and never rebuilds a session. See sandbox.EnsurePiPackages.
+	PiPackages *bool `json:"piPackages,omitempty"`
 	// Limits caps the sandbox machine's memory/cpus; empty fields inherit
 	// the SANDBOXER_MEM/SANDBOXER_CPU env defaults.
 	Limits Limits `json:"limits,omitempty"`
@@ -516,6 +524,13 @@ func (p *Profile) EgressEnabled() bool {
 // agents. Default true; an explicit `autoResume = false` restores layout only.
 func (p *Profile) AutoResumeEnabled() bool {
 	return p.AutoResume == nil || *p.AutoResume
+}
+
+// PiPackagesEnabled reports whether the image's baked-in pi packages are
+// registered in the sandbox's pi settings. Default true; an explicit
+// `piPackages = false` leaves pi's settings alone.
+func (p *Profile) PiPackagesEnabled() bool {
+	return p.PiPackages == nil || *p.PiPackages
 }
 
 var sanitizeRe = regexp.MustCompile(`[^A-Za-z0-9_.-]+`)

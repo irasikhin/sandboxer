@@ -160,6 +160,19 @@ Windows/WSL2 are **cross-platform in code but not live-verified** — see
   never overwritten by a later seed. Keeping `hostConfigs` off returns the
   old posture: log in or export a key inside the sandbox when a task needs it.
 
+- **Baked-in pi packages are image code, not fetched code.** Every sandbox's
+  `~/.pi/agent/settings.json` is registered with the pi packages the toolbox
+  image ships (today: pi's orchestration package), by absolute path into the
+  image's read-only store — so pi loads a build that was pinned, hashed and
+  reviewed at image-build time rather than resolving `npm:` at first run
+  inside the sandbox. A pi package is code pi executes with the tools it has,
+  which is the same trust level as the agent itself: it stays inside the
+  sandbox's boundaries (mount set, egress allowlist, the VM), never runs on
+  the host, and the entry is written only into the sandbox's own private home.
+  The registration is a MERGE — a settings file that does not parse is left
+  untouched — and `piPackages = false` (or `SANDBOXER_NO_PI_PACKAGES=1`) opts
+  out entirely.
+
 - **Clean guest environment.** The agent boots from an explicit, clean
   environment: it does **not** inherit your host shell, so an `AWS_*` /
   `GITHUB_*` / `*_TOKEN` left in your environment is invisible to it unless you

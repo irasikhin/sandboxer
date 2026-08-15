@@ -168,6 +168,12 @@ func starterProfile(name string, d config.Defaults) string {
   # Remove (or set false) to keep sandboxes credential-free.
   hostConfigs = true;
 
+  # The pi packages baked into the image (pi-agent-orchestrator: subagents,
+  # swarms, the /agents dashboard) are registered in the sandbox's pi
+  # settings, so "pi" starts with them loaded. Set false to leave pi's
+  # settings alone.
+  # piPackages = false;
+
   # Where the worktrees live (absolute, ~, or relative to the project root);
   # default: ./sandboxes inside the project, auto-added to .gitignore. Set
   # BEFORE creating the sandbox — changing it later sets worktrees aside.

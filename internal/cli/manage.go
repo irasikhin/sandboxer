@@ -245,7 +245,12 @@ each: its binary, whether it ships in the image, the command a restored tmux
 pane relaunches it with (RESUME — empty means the pane comes back as a plain
 shell), and the env vars it reads for auth — nothing is passed through from
 the host; log in or export those vars INSIDE the sandbox (its private $HOME
-persists).`,
+persists).
+
+pi additionally comes with the image's pi packages registered in the sandbox's
+pi settings (pi-agent-orchestrator: subagents, swarms, the /agents dashboard),
+so it starts with them loaded — no 'pi install', no npm fetch. Opt out with
+piPackages = false in the profile, or SANDBOXER_NO_PI_PACKAGES=1.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			tw := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 2, ' ', 0)

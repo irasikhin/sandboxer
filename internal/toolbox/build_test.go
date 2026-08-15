@@ -38,8 +38,15 @@ func TestWriteContext(t *testing.T) {
 	if err := writeContext(dir, Spec{Attrs: []string{"nodejs", "go"}}); err != nil {
 		t.Fatalf("writeContext: %v", err)
 	}
-	for _, f := range []string{"flake.nix", "images.nix", "agents.nix", "tools.nix", "overlay.nix", "files.json", "env.json"} {
-		if _, err := os.Stat(filepath.Join(dir, f)); err != nil {
+	files := []string{"flake.nix", "images.nix", "agents.nix", "tools.nix", "overlay.nix", "files.json", "env.json"}
+	// The vendored packages the embedded flake's overlay grafts in (neither is
+	// in nixpkgs): each contributes its expression AND its lockfile, and a
+	// missing one fails the build inside the builder, far from here.
+	for _, dir := range vendored {
+		files = append(files, dir+"/package.nix", dir+"/package-lock.json")
+	}
+	for _, f := range files {
+		if _, err := os.Stat(filepath.Join(dir, filepath.FromSlash(f))); err != nil {
 			t.Errorf("missing %s in context: %v", f, err)
 		}
 	}

@@ -30,6 +30,11 @@ type Runtime struct {
 	// restored (profile autoResume, killed by SANDBOXER_NO_RESUME=1). Not part
 	// of the create argv, so it never affects the session ConfigHash.
 	AutoResume bool
+	// PiPackages registers the toolbox image's baked-in pi packages in the
+	// sandbox's pi settings (profile piPackages, killed by
+	// SANDBOXER_NO_PI_PACKAGES=1). Like AutoResume, not part of the create
+	// argv, so it never affects the session ConfigHash.
+	PiPackages bool
 }
 
 // Session modes for Runtime.Session: a persistent detached container reused
@@ -107,6 +112,8 @@ func ResolveRuntime(p *Profile, d Defaults, baseDomains string, f Overrides) (Ru
 	// Same shape for the restore's agent auto-resume: the env kill-switch
 	// (SANDBOXER_NO_RESUME=1) outranks the profile's autoResume.
 	rt.AutoResume = !d.NoResume && p.AutoResumeEnabled()
+	// Same shape again for the baked-in pi packages.
+	rt.PiPackages = !d.NoPiPackages && p.PiPackagesEnabled()
 
 	// Resource caps: a profile's limits: overrides the SANDBOXER_MEM/SANDBOXER_CPU
 	// env defaults.

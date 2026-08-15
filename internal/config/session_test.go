@@ -123,6 +123,79 @@ func TestLoadDefaultsNoResume(t *testing.T) {
 	}
 }
 
+// TestResolveRuntimePiPackages pins the pi-package registration gate with the
+// same env-above-profile shape as auto-resume: on by default, off with
+// `piPackages = false`, and SANDBOXER_NO_PI_PACKAGES=1 wins over both.
+func TestResolveRuntimePiPackages(t *testing.T) {
+	on, off := true, false
+	cases := []struct {
+		name    string
+		profile *bool
+		noPi    bool
+		want    bool
+	}{
+		{"default on", nil, false, true},
+		{"profile off", &off, false, false},
+		{"profile on", &on, false, true},
+		{"env kills default", nil, true, false},
+		{"env kills profile on", &on, true, false},
+	}
+	for _, c := range cases {
+		rt, err := ResolveRuntime(&Profile{PiPackages: c.profile}, Defaults{NoPiPackages: c.noPi}, "", Overrides{})
+		if err != nil {
+			t.Fatalf("%s: %v", c.name, err)
+		}
+		if rt.PiPackages != c.want {
+			t.Errorf("%s: PiPackages = %v, want %v", c.name, rt.PiPackages, c.want)
+		}
+	}
+}
+
+// TestPiPackagesEnabled mirrors EgressEnabled: nil means on.
+func TestPiPackagesEnabled(t *testing.T) {
+	on, off := true, false
+	if (&Profile{PiPackages: &off}).PiPackagesEnabled() {
+		t.Error("piPackages=false must disable")
+	}
+	if !(&Profile{}).PiPackagesEnabled() {
+		t.Error("nil piPackages must default on")
+	}
+	if !(&Profile{PiPackages: &on}).PiPackagesEnabled() {
+		t.Error("piPackages=true must enable")
+	}
+}
+
+// TestLoadDefaultsNoPiPackages: the env kill-switch is read strictly as "1".
+func TestLoadDefaultsNoPiPackages(t *testing.T) {
+	t.Setenv("SANDBOXER_NO_PI_PACKAGES", "1")
+	if d := LoadDefaults(); !d.NoPiPackages {
+		t.Error("SANDBOXER_NO_PI_PACKAGES=1 must set NoPiPackages")
+	}
+	t.Setenv("SANDBOXER_NO_PI_PACKAGES", "")
+	if d := LoadDefaults(); d.NoPiPackages {
+		t.Error("unset SANDBOXER_NO_PI_PACKAGES must stay off")
+	}
+}
+
+// TestProfilePiPackagesDecode: the `piPackages` field survives the strict
+// decode and the JSON snapshot.
+func TestProfilePiPackagesDecode(t *testing.T) {
+	p, err := decodeProfileJSON([]byte(`{"name":"x","piPackages":false}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.PiPackagesEnabled() {
+		t.Error("decoded piPackages=false must disable")
+	}
+	data, err := p.JSON()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), `"piPackages": false`) {
+		t.Errorf("JSON snapshot missing piPackages field:\n%s", data)
+	}
+}
+
 // TestProfileAutoResumeDecode: the `autoResume` field survives the strict
 // decode and the JSON snapshot.
 func TestProfileAutoResumeDecode(t *testing.T) {

@@ -39,7 +39,8 @@
           # Agents resolve straight from nixpkgs (prebuilt on cache.nixos.org).
           # The one agent nixpkgs does not carry — pi — is vendored beside this
           # flake and grafted in by our overlay, BEFORE the profile's overlay so
-          # a profile may still override it.
+          # a profile may still override it. pi's orchestration package rides
+          # along the same way (images.nix bakes it at a stable guest path).
           pkgs = import nixpkgs {
             inherit system;
             # Several agents are unfree in nixpkgs (claude-code's license is
@@ -48,7 +49,10 @@
             # breaks on every rename.
             config.allowUnfree = true;
             overlays = [
-              (final: prev: { pi = final.callPackage ./pi/package.nix { }; })
+              (final: prev: {
+                pi = final.callPackage ./pi/package.nix { };
+                pi-agent-orchestrator = final.callPackage ./pi-orchestrator/package.nix { };
+              })
               (import ./overlay.nix)
             ];
           };

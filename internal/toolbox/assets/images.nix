@@ -149,6 +149,24 @@ let
     printf 'root:x:0:\nnobody:x:65534:\n' > $out/etc/group
   '';
 
+  # pi packages baked into the image, exposed at a STABLE guest path. pi loads
+  # a package listed in its settings (`packages: [ … ]`), and a local path
+  # entry is taken verbatim — so the path must not move when the image is
+  # rebuilt: sandboxer writes it into the sandbox's ~/.pi/agent/settings.json
+  # ONCE (sandbox.EnsurePiPackages) and that home outlives any number of image
+  # versions. Hence the indirection: the store path changes on every bump, the
+  # symlink under /etc/sandboxer/pi-packages/ does not. Keep the leaf names in
+  # sync with internal/sandbox/pipkgs.go (the same literal on the Go side).
+  #
+  # agent-orchestrator = multi-agent orchestration for pi (subagents, swarms,
+  # worktree isolation, the /agents dashboard). Registered by default, and a
+  # profile can opt out with piPackages = false.
+  piPackages = pkgs.runCommand "sandboxer-pi-packages" { } ''
+    mkdir -p $out/etc/sandboxer/pi-packages
+    ln -s ${pkgs.pi-agent-orchestrator}/lib/node_modules/@groeponline/pi-agent-orchestrator \
+      $out/etc/sandboxer/pi-packages/agent-orchestrator
+  '';
+
   # git with a sandbox-awareness guard. A managed source is a HOST worktree:
   # its .git is a pointer FILE whose gitdir names a host path that is not
   # mounted unless the source opted in with git = "ro"/"rw" (by default git
@@ -546,6 +564,7 @@ in
         podmanSocket
         gitGuarded
         guestNss
+        piPackages
         containersPolicy
         containersRegistries
         containersStorage
