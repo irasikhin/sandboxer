@@ -6,6 +6,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.86.0] — 2026-08-17
+
+### Added
+
+- bake DeepSeek Harness (dsh) into the toolbox (9e888a2)
+
+
 ## [0.85.0] — 2026-08-15
 
 ### Added
@@ -1311,3 +1318,4 @@ isolated, containerized dev sandbox, on a local Linux machine:
 [0.83.0]: https://github.com/irasikhin/sandboxer/compare/v0.82.0...v0.83.0
 [0.84.0]: https://github.com/irasikhin/sandboxer/compare/v0.83.0...v0.84.0
 [0.85.0]: https://github.com/irasikhin/sandboxer/compare/v0.84.0...v0.85.0
+[0.86.0]: https://github.com/irasikhin/sandboxer/compare/v0.85.0...v0.86.0
