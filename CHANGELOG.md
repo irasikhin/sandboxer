@@ -6,6 +6,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.88.1] — 2026-08-17
+
+### Fixed
+
+- pin the dsh launcher's interpreter, not /usr/bin/env (06ed34d)
+
+
 ## [0.88.0] — 2026-08-17
 
 ### Added
@@ -1335,3 +1342,4 @@ isolated, containerized dev sandbox, on a local Linux machine:
 [0.86.0]: https://github.com/irasikhin/sandboxer/compare/v0.85.0...v0.86.0
 [0.87.0]: https://github.com/irasikhin/sandboxer/compare/v0.86.0...v0.87.0
 [0.88.0]: https://github.com/irasikhin/sandboxer/compare/v0.87.0...v0.88.0
+[0.88.1]: https://github.com/irasikhin/sandboxer/compare/v0.88.0...v0.88.1
