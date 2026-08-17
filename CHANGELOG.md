@@ -6,6 +6,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.87.0] — 2026-08-17
+
+### Added
+
+- publish guest ports so a sandbox's web UI opens on the host (d69f550)
+
+
 ## [0.86.0] — 2026-08-17
 
 ### Added
@@ -1319,3 +1326,4 @@ isolated, containerized dev sandbox, on a local Linux machine:
 [0.84.0]: https://github.com/irasikhin/sandboxer/compare/v0.83.0...v0.84.0
 [0.85.0]: https://github.com/irasikhin/sandboxer/compare/v0.84.0...v0.85.0
 [0.86.0]: https://github.com/irasikhin/sandboxer/compare/v0.85.0...v0.86.0
+[0.87.0]: https://github.com/irasikhin/sandboxer/compare/v0.86.0...v0.87.0
