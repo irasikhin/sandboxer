@@ -7,7 +7,7 @@ import (
 
 func TestNamesSortedAndComplete(t *testing.T) {
 	got := Names()
-	want := []string{"claude", "codex", "crush", "gemini", "opencode", "pi"}
+	want := []string{"claude", "codex", "crush", "dsh", "gemini", "opencode", "pi"}
 	if !slices.Equal(got, want) {
 		t.Fatalf("Names() = %v, want %v", got, want)
 	}
@@ -91,6 +91,21 @@ func TestSeedPaths(t *testing.T) {
 			t.Errorf(".pi/agent seed must skip %s (got %v)", want, pi.Seed[0].Skip)
 		}
 	}
+	// dsh keeps everything under one root (~/.dsh — DSH_HOME's default), so the
+	// seed carries the settings, the home patch layer and the managed
+	// .credentials.yaml (a static API key, unlike claude's rotating pair) while
+	// leaving the machine-bound parts behind: the transcripts and the web app's
+	// storages, plus profiles/node_modules — a symlink farm into the HOST
+	// installation's store path, which resolves to nothing in the sandbox.
+	dsh, _ := Get("dsh")
+	if len(dsh.Seed) != 1 || dsh.Seed[0].Path != ".dsh" {
+		t.Fatalf("dsh seed = %+v, want one entry for .dsh", dsh.Seed)
+	}
+	for _, want := range []string{"sessions", "storages", "profiles/node_modules"} {
+		if !slices.Contains(dsh.Seed[0].Skip, want) {
+			t.Errorf(".dsh seed must skip %s (got %v)", want, dsh.Seed[0].Skip)
+		}
+	}
 }
 
 // TestResume pins the resume surface the session restore relies on: each
@@ -103,7 +118,10 @@ func TestSeedPaths(t *testing.T) {
 // (`codex resume [--last]`), opencode and crush (--continue; neither ships a
 // startup picker, only --session <id>). gemini declares none: its
 // checkpointing is a slash command (/chat resume), with no startup flag to
-// type.
+// type. dsh declares none either: its shipped entry modes are the browser UI
+// and a one-shot headless job — neither is a conversation a restored pane
+// could pick up (its `--resume <id>` example belongs to a terminal app that
+// upstream does not ship).
 func TestResume(t *testing.T) {
 	for _, tc := range []struct {
 		agent, bin string
@@ -115,6 +133,7 @@ func TestResume(t *testing.T) {
 		{agent: "opencode", last: []string{"opencode", "--continue"}},
 		{agent: "crush", last: []string{"crush", "--continue"}},
 		{agent: "gemini"},
+		{agent: "dsh"},
 	} {
 		a, err := Get(tc.agent)
 		if err != nil {

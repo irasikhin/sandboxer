@@ -158,7 +158,7 @@ func starterProfile(name string, d config.Defaults) string {
 
   # Wire YOUR host agent identity into the sandbox: (1) seed its private
   # $HOME from your agent configs — ~/.claude (settings, skills, memory) +
-  # ~/.claude.json, ~/.codex, ~/.gemini, opencode/crush — as a COPY
+  # ~/.claude.json, ~/.codex, ~/.gemini, ~/.dsh, opencode/crush — as a COPY
   # (never mounted, never written back; per-file merge, your in-sandbox
   # edits always win); (2) pass through the agents' auth env vars set on
   # the host (ANTHROPIC_API_KEY, CLAUDE_CODE_OAUTH_TOKEN, ...). Claude's

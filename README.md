@@ -69,7 +69,7 @@ Isolation — every sandbox is a real **microVM** on
 [microsandbox](https://microsandbox.dev) (`msb`, libkrun: KVM on Linux, HVF on
 macOS): its own guest kernel behind a hardware-virtualization boundary, booted
 from the toolbox image; see [docs/microvm.md](./docs/microvm.md). The
-image has the agents baked in (claude, opencode, crush, pi, gemini) plus an
+image has the agents baked in (claude, opencode, crush, pi, gemini, dsh) plus an
 everyday toolchain: python3 (pytest, rich, httpx, ruamel-yaml/tomlkit,
 jsonschema, bs4 — plus `uv` for anything else), node/npm, jdk+maven, redocly,
 ripgrep/fd/jq/…, code tooling (ast-grep, ctags, tokei, bat, fzf, entr, ruff),
@@ -90,7 +90,7 @@ sandbox gets its own isolated home, and network/proxy
 are wired per config. Agent auth is yours to choose: with `hostConfigs = true`
 (the scaffolded default) the sandbox home is seeded with a COPY of your host
 agent configs — `~/.claude` (settings, skills, memory) + `~/.claude.json`,
-`~/.codex`, `~/.gemini`, opencode/crush — transcripts/caches excluded,
+`~/.codex`, `~/.gemini`, `~/.dsh`, opencode/crush — transcripts/caches excluded,
 never mounted, never written back, and your in-sandbox edits always win; the
 agents' auth env vars set on the host (`ANTHROPIC_API_KEY`,
 `CLAUDE_CODE_OAUTH_TOKEN`, …) are passed through as well. Claude's rotating
@@ -603,6 +603,17 @@ sandboxer agents   # catalog: bin, image inclusion, auth env vars (set them INSI
 The registry is a single source of truth, `internal/registry/registry.json` (the
 flake reads it too, to build the image). Adding an agent = one entry.
 
+**dsh** (DeepSeek Harness) is the one agent without a TUI: upstream ships a
+browser UI and a one-shot headless runner, no terminal app. In a pane that
+means `dsh --profile headless "run the tests"` — one persisted session, the
+final answer, exit. `dsh web` also boots (`--profile web`, 127.0.0.1:3080), but
+sandboxer maps no ports out of the microVM, so that UI is reachable only from
+inside the sandbox. It authenticates from `DEEPSEEK_API_KEY` (passed through when set on
+the host) or `~/.dsh/.credentials.yaml`, and its telemetry is disabled at the
+wrapper. Its home is one root — `~/.dsh` (settings, profiles, credentials) —
+seeded like the others, minus the transcripts, the web storages and the
+profile symlink farm.
+
 ## Toolbox image
 
 The agents run inside the **prebuilt**
@@ -622,7 +633,7 @@ The **local build** remains for two cases: a profile's customized `var-`
 variant (never published), and offline/air-gapped hosts — a locally built
 stock image lands in msb's store under the same ref, so a create boots it
 without pulling. It realizes the same minimal OCI image (agents are plain
-nixpkgs packages, prebuilt on cache.nixos.org; pi is vendored in the binary)
+nixpkgs packages, prebuilt on cache.nixos.org; pi and dsh are vendored in the binary)
 as a docker-save tar in the microVM image store (`<state>/images/<tag>.tar`),
 then imports it into microsandbox's own image store (`msb load`) — after that
 every create is boot-only, never a re-import. The `sandboxer` binary is

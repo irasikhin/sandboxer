@@ -161,7 +161,7 @@ would quietly change the isolation boundary.
 ## Toolbox image (prebuilt; local builds with host nix)
 
 The agents run inside the `ghcr.io/irasikhin/sandboxer-toolbox:latest` OCI
-image, with the coding agents (claude, opencode, crush, …) baked in.
+image, with the coding agents (claude, opencode, crush, pi, gemini, dsh) baked in.
 The stock image comes **prebuilt from GHCR** — published by
 `.github/workflows/image.yml` nightly (the agent pins re-resolve at build, so
 `latest` tracks their releases) and per release tag — and msb **pulls and
@@ -212,8 +212,9 @@ the stock prebuilt `:latest` is untouched. `create`/`enter`/`exec` auto-build
 a missing variant on first use.
 
 The flake's `nixpkgs` input — the single input everything, agents included,
-comes from (prebuilt on cache.nixos.org; pi alone is vendored in the binary
-and grafted in by an overlay) — **tracks the remote head by default**:
+comes from (prebuilt on cache.nixos.org; the two agents nixpkgs does not carry,
+pi and dsh, are vendored in the binary and grafted in by an overlay) —
+**tracks the remote head by default**:
 `image build` re-resolves it (on the host, via `git ls-remote`) and stamps the
 result into `~/.cache/sandboxer/image-pins.json`; `enter`/`exec` only ever
 reuse the stamp, so nothing drifts between explicit builds.
@@ -279,6 +280,25 @@ for auth (`authEnv` — passed through from the host when the profile sets
 whether it ships in the image (`image`), and the `nixPackage` used to bake it
 in. **Adding an agent
 is one JSON entry** — never duplicate the catalog. `sandboxer agents` prints it.
+
+An entry is one line only when its `nixPackage` is a plain nixpkgs attr. The
+two agents nixpkgs does not carry — **pi** and **dsh** (DeepSeek Harness) —
+are vendored beside the embedded flake as `<agent>/package.nix` +
+`package-lock.json` (built from the published npm tarball with dev deps
+stripped) and grafted into `pkgs` by the overlay in BOTH flakes, so the attr
+resolves the same way the prebuilt ones do. Bumping one = version +
+`sourceHash` + `npmDepsHash` + lockfile, together; each file's header carries
+the recipe.
+
+dsh is also the one agent with no TUI: upstream ships a browser UI
+(`dsh web`, 127.0.0.1:3080 — reachable only from inside the microVM, since
+sandboxer maps no ports out of it) and a one-shot runner
+(`dsh --profile headless "job"`),
+so it declares no `resume` argv and a restored pane comes back as a plain
+shell. Its whole user state is one root, `~/.dsh` (`DSH_HOME`) — settings,
+the home patch layer, profiles and the managed `.credentials.yaml`; the seed
+copies it minus `sessions`, `storages` and `profiles/node_modules` (a symlink
+farm into the host installation's store path, healed on the next boot).
 
 ### pi packages
 

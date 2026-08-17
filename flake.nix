@@ -19,9 +19,11 @@
         # repackaged upstream binary — not in nixpkgs, needs patching to run
         # on NixOS. See docs/microsandbox-spike.md).
         microsandbox = final.callPackage ./nix/microsandbox.nix { };
-        # The one image agent nixpkgs does not carry — vendored beside the
-        # embedded flake, which grafts it the same way (single source).
+        # The image agents nixpkgs does not carry — vendored beside the
+        # embedded flake, which grafts them the same way (single source).
         pi = final.callPackage ./internal/toolbox/assets/pi/package.nix { };
+        # DeepSeek Harness (`dsh`), likewise built from its npm tarball.
+        dsh = final.callPackage ./internal/toolbox/assets/dsh/package.nix { };
         # pi's multi-agent orchestration package, baked in and registered in
         # every sandbox's pi settings by default (sandbox.EnsurePiPackages).
         pi-agent-orchestrator = final.callPackage ./internal/toolbox/assets/pi-orchestrator/package.nix { };

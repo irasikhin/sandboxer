@@ -57,5 +57,13 @@
     "seed": [
       { "path": ".gemini", "skip": ["tmp"] }
     ]
+  },
+  "dsh": {
+    "bin": "dsh",
+    "authEnv": ["DEEPSEEK_API_KEY", "DEEPSEEK_BASE_URL"],
+    "nixPackage": "dsh",
+    "seed": [
+      { "path": ".dsh", "skip": ["sessions", "storages", "profiles/node_modules"] }
+    ]
   }
 }

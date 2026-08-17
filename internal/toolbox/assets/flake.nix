@@ -37,10 +37,11 @@
           #   ./env.json   — static additions to the image's OCI env.
           #
           # Agents resolve straight from nixpkgs (prebuilt on cache.nixos.org).
-          # The one agent nixpkgs does not carry — pi — is vendored beside this
-          # flake and grafted in by our overlay, BEFORE the profile's overlay so
-          # a profile may still override it. pi's orchestration package rides
-          # along the same way (images.nix bakes it at a stable guest path).
+          # The agents nixpkgs does not carry — pi and dsh — are vendored beside
+          # this flake and grafted in by our overlay, BEFORE the profile's
+          # overlay so a profile may still override them. pi's orchestration
+          # package rides along the same way (images.nix bakes it at a stable
+          # guest path).
           pkgs = import nixpkgs {
             inherit system;
             # Several agents are unfree in nixpkgs (claude-code's license is
@@ -52,6 +53,7 @@
               (final: prev: {
                 pi = final.callPackage ./pi/package.nix { };
                 pi-agent-orchestrator = final.callPackage ./pi-orchestrator/package.nix { };
+                dsh = final.callPackage ./dsh/package.nix { };
               })
               (import ./overlay.nix)
             ];

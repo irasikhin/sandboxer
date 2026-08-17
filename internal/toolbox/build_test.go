@@ -28,6 +28,14 @@ func TestImageAgentPackages(t *testing.T) {
 	if contains(pkgs, "codex") {
 		t.Errorf("codex (image:false) must be excluded, got %v", pkgs)
 	}
+	// The agents nixpkgs does not carry are vendored beside the embedded flake
+	// and grafted into pkgs by its overlay — they must be in the baked list
+	// like any other, or the vendoring buys nothing.
+	for _, want := range []string{"pi", "dsh"} {
+		if !contains(pkgs, want) {
+			t.Errorf("expected vendored agent %q in image agents, got %v", want, pkgs)
+		}
+	}
 	if joined == "" {
 		t.Error("expected at least one image agent")
 	}
