@@ -117,9 +117,18 @@ func ResolveRuntime(p *Profile, d Defaults, baseDomains string, f Overrides) (Ru
 	// Published ports: the flag replaces the profile's list wholesale, and the
 	// kill-switch drops both — one operator switch that closes the sandbox's
 	// only inbound path, whatever the config says.
-	specs := p.Ports
-	if f.Ports != nil {
+	// Precedence flag > profile > SANDBOXER_PORTS, with the allowlist's
+	// present-but-empty distinction: `ports = [ ]` is a non-nil empty slice and
+	// means NO forwards, while an absent attr (nil) leaves the env default in
+	// charge.
+	var specs []string
+	switch {
+	case f.Ports != nil:
 		specs = f.Ports
+	case p.Ports != nil:
+		specs = p.Ports
+	default:
+		specs = splitCSV(d.Ports)
 	}
 	if !d.NoPorts {
 		ports, err := ParsePorts(specs)

@@ -163,6 +163,7 @@ func TestResolveRuntimePorts(t *testing.T) {
 		name    string
 		profile []string
 		flag    []string
+		env     string
 		noPorts bool
 		want    []Port
 	}{
@@ -190,10 +191,33 @@ func TestResolveRuntimePorts(t *testing.T) {
 			flag:    []string{"3080"},
 			noPorts: true,
 		},
+		{
+			// SANDBOXER_PORTS is the "every sandbox forwards this" knob: it
+			// applies when neither the flag nor the profile says anything.
+			name: "env default when nothing else publishes",
+			env:  "3080,9229:9229",
+			want: []Port{
+				{Bind: "127.0.0.1", Host: 3080, Guest: 3080, Proto: "tcp"},
+				{Bind: "127.0.0.1", Host: 9229, Guest: 9229, Proto: "tcp"},
+			},
+		},
+		{
+			name:    "profile outranks the env default",
+			env:     "3080",
+			profile: []string{"8080:3080"},
+			want:    []Port{{Bind: "127.0.0.1", Host: 8080, Guest: 3080, Proto: "tcp"}},
+		},
+		{
+			// The allowlist's present-but-empty distinction: `ports = [ ]` is a
+			// deliberate "no forwards", not a fall-through to the env.
+			name:    "explicitly empty profile ports beat the env default",
+			env:     "3080",
+			profile: []string{},
+		},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			rt, err := ResolveRuntime(&Profile{Ports: c.profile}, Defaults{NoPorts: c.noPorts}, "",
+			rt, err := ResolveRuntime(&Profile{Ports: c.profile}, Defaults{NoPorts: c.noPorts, Ports: c.env}, "",
 				Overrides{Ports: c.flag})
 			if err != nil {
 				t.Fatalf("ResolveRuntime: %v", err)
@@ -216,6 +240,14 @@ func TestResolveRuntimeRejectsBadPort(t *testing.T) {
 	// so nothing is parsed.
 	if _, err := ResolveRuntime(&Profile{Ports: []string{"3080:oops"}}, Defaults{NoPorts: true}, "", Overrides{}); err != nil {
 		t.Fatalf("NoPorts must skip parsing entirely: %v", err)
+	}
+}
+
+// TestLoadDefaultsPorts: SANDBOXER_PORTS carries the every-sandbox forwards.
+func TestLoadDefaultsPorts(t *testing.T) {
+	t.Setenv("SANDBOXER_PORTS", "3080")
+	if d := LoadDefaults(); d.Ports != "3080" {
+		t.Errorf("Defaults.Ports = %q, want the SANDBOXER_PORTS value", d.Ports)
 	}
 }
 

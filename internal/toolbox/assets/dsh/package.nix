@@ -85,19 +85,21 @@ buildNpmPackage {
       # Linux — pure dead weight in a Linux image.
       rm -rf "$out/lib/node_modules/@deepseek-ai/dsh/node_modules/node-pty/prebuilds"
     ''}
-    # Run bin.js through node explicitly, with --expose-internals: the Cordis
-    # loader reaches Node's internal module loader either through that flag or
-    # through the node-addon-require-builtin addon, and the addon
-    # pattern-matches the node binary's own machine code — a nixpkgs-built node
-    # is not one of the shapes it recognizes ("unsupported: no-getter"). Without
-    # the flag NO profile boots at all: the base bundle mounts the HMR service,
-    # whose constructor throws when the loader has no internal handle. It cannot
-    # ride in NODE_OPTIONS either (node refuses --expose-internals there), so it
-    # has to be in argv — hence a node wrapper instead of the shebang.
+    # dsh runs through ./dsh-launch.sh, which owns the two things that have to
+    # be in argv: --expose-internals (NO profile boots without it — see the
+    # script) and, inside a sandbox only, the web bind overlay that makes a
+    # published port actually reach the UI. The wrapper around it carries the
+    # environment.
+    install -Dm644 ${./web-bind.patch.yml} "$out/share/sandboxer/dsh-web-bind.patch.yml"
+    mkdir -p "$out/libexec"
+    substitute ${./dsh-launch.sh} "$out/libexec/dsh-launch" \
+      --subst-var-by node ${lib.getExe nodejs} \
+      --subst-var-by bin "$out/lib/node_modules/@deepseek-ai/dsh/lib/bin.js" \
+      --subst-var-by patch "$out/share/sandboxer/dsh-web-bind.patch.yml"
+    chmod +x "$out/libexec/dsh-launch"
+    patchShebangs "$out/libexec/dsh-launch"
     rm "$out/bin/dsh"
-    makeWrapper ${lib.getExe nodejs} "$out/bin/dsh" \
-      --add-flags --expose-internals \
-      --add-flags "$out/lib/node_modules/@deepseek-ai/dsh/lib/bin.js" \
+    makeWrapper "$out/libexec/dsh-launch" "$out/bin/dsh" \
       --prefix PATH : ${lib.makeBinPath [ pnpm ]} \
       --set-default DSH_TELEMETRY_DISABLED 1
   '';

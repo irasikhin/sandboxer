@@ -54,7 +54,20 @@ func writeContext(ctxDir string, spec Spec) error {
 		if err := os.Mkdir(filepath.Join(ctxDir, dir), 0o755); err != nil {
 			return err
 		}
-		names = append(names, dir+"/package.nix", dir+"/package-lock.json")
+		// EVERY embedded file of the package dir, not a hand-listed pair: a
+		// vendored package is whatever its directory holds (an expression, a
+		// lockfile, and for dsh a launcher script and a config overlay), and a
+		// file left out here would only fail deep inside the builder, as a nix
+		// path that does not exist.
+		entries, err := assets.ReadDir("assets/" + dir)
+		if err != nil {
+			return err
+		}
+		for _, e := range entries {
+			if !e.IsDir() {
+				names = append(names, dir+"/"+e.Name())
+			}
+		}
 	}
 	for _, name := range names {
 		data, err := assets.ReadFile("assets/" + name)

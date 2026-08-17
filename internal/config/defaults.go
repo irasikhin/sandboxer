@@ -89,6 +89,12 @@ type Defaults struct {
 	NoProxy string // SANDBOXER_NO_PROXY — NO_PROXY for direct mode
 	Mem     string
 	CPU     string
+	// Ports is the SANDBOXER_PORTS default — a csv of the same specs the
+	// profile's `ports` takes, for the forward you want in EVERY sandbox
+	// (export it once). Lowest precedence: a profile's own `ports` replaces
+	// it, and an explicitly empty `ports = [ ]` means no forwards rather than
+	// "fall back to the env".
+	Ports string
 	// NoResume (SANDBOXER_NO_RESUME=1) is the operator kill-switch for the
 	// session restore's agent auto-resume — it wins over a profile's
 	// autoResume, like SANDBOXER_NO_EGRESS over egress.enabled.
@@ -114,6 +120,7 @@ func LoadDefaults() Defaults {
 		NoProxy:      os.Getenv("SANDBOXER_NO_PROXY"),
 		Mem:          os.Getenv("SANDBOXER_MEM"),
 		CPU:          os.Getenv("SANDBOXER_CPU"),
+		Ports:        os.Getenv("SANDBOXER_PORTS"),
 		NoResume:     os.Getenv("SANDBOXER_NO_RESUME") == "1",
 		NoPiPackages: os.Getenv("SANDBOXER_NO_PI_PACKAGES") == "1",
 		NoPorts:      os.Getenv("SANDBOXER_NO_PORTS") == "1",

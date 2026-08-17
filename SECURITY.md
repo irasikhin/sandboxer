@@ -239,6 +239,16 @@ Windows/WSL2 are **cross-platform in code but not live-verified** — see
   > address — publish deliberately, and prefer the loopback default.
   > `SANDBOXER_NO_PORTS=1` closes every forward regardless of the config.
   >
+  > One agent's default is adapted to that shape: **dsh's web UI binds the
+  > guest's wildcard address inside a sandbox** (the image's launcher injects
+  > the bind overlay only when `SANDBOXER_IN_CONTAINER` is set). Upstream binds
+  > the guest loopback and refuses `--host 0.0.0.0` — sound advice on a normal
+  > machine, unreachable in a microVM, where the forward is delivered to the
+  > guest's `eth0`. What the wildcard exposes it to is the VM's own NAT, whose
+  > ingress is default-deny except the port you published; the audience is the
+  > host-side bind address, `127.0.0.1` unless you widened it. `--host
+  > 127.0.0.1` inside the sandbox restores upstream's behaviour.
+  >
   > **`egress.enabled = false` with NO proxy is a fully open network** — no
   > allowlist and no proxy, so the agent has unrestricted outbound. sandboxer
   > does not silently accept this as "off": every run labels it

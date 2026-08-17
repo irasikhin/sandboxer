@@ -292,7 +292,7 @@ Scalars come from **flags** and `SANDBOXER_*` env vars:
 | session mode | `--ephemeral` | `SANDBOXER_SESSION` (default `persistent`; the env wins over a profile's `session:`) |
 | egress domains | `--allow-domains a,b` | `SANDBOXER_DOMAINS` |
 | disable egress | — | `SANDBOXER_NO_EGRESS=1` |
-| published ports | `-p/--port 8080:3080` | `SANDBOXER_NO_PORTS=1` disables every forward (or the profile's `ports`) |
+| published ports | `-p/--port 8080:3080` | `SANDBOXER_PORTS` (csv, the forward you want in every sandbox); `SANDBOXER_NO_PORTS=1` disables every forward |
 | disable agent auto-resume | — | `SANDBOXER_NO_RESUME=1` (or `autoResume = false` in the profile) |
 | disable the baked-in pi packages | — | `SANDBOXER_NO_PI_PACKAGES=1` (or `piPackages = false` in the profile) |
 | skip auto-scaffold | — | `SANDBOXER_NO_SCAFFOLD=1` (create/enter writes a default `sandboxer.nix` otherwise) |
@@ -574,9 +574,12 @@ ports = [
 ```
 
 or per run: `sandboxer enter feat -p 8080:3080` (repeatable; the flag replaces
-the profile's list). The forward **binds 127.0.0.1 by default** — the port is
-yours, not the network's — and a non-loopback bind prints a warning naming what
-it exposes. Kill every forward with `SANDBOXER_NO_PORTS=1`.
+the profile's list). For the forward you want in **every** sandbox, export it
+once — `SANDBOXER_PORTS=3080` — the lowest-precedence layer, which a profile's
+own `ports` replaces (`ports = [ ]` means no forwards, not "fall back to the
+env"). The forward **binds 127.0.0.1 by default** — the port is yours, not the
+network's — and a non-loopback bind prints a warning naming what it exposes.
+Kill every forward with `SANDBOXER_NO_PORTS=1`.
 
 Two things happen per published port: microsandbox forwards the host port into
 the guest, **and** the machine's default-deny wall gets the one ingress rule
@@ -587,9 +590,12 @@ sandbox with a published port still cannot resolve a domain that is not on its
 allowlist.
 
 The server inside must listen on `0.0.0.0` (or `::`), not on the guest's own
-`127.0.0.1` — the guest has a real network stack, so its loopback is not the
-interface the forward delivers to. For dsh that is
-`dsh web --host 0.0.0.0 --port 3080`.
+`127.0.0.1` — the guest has a real network stack, and the forward is delivered
+to its `eth0`, never to its loopback (measured; a loopback-bound server is
+simply unreachable). **dsh is handled for you**: inside a sandbox its web UI
+binds the wildcard by default, so `ports = [ "3080" ]` plus a plain `dsh web`
+is the whole setup — pass `--host 127.0.0.1` if you ever want the upstream
+loopback-only behaviour back.
 
 A host port already in use is reported before the machine is built, naming the
 address — instead of a bind error from deep inside the runner.
@@ -644,9 +650,9 @@ flake reads it too, to build the image). Adding an agent = one entry.
 browser UI and a one-shot headless runner, no terminal app. In a pane that
 means `dsh --profile headless "run the tests"` — one persisted session, the
 final answer, exit. `dsh web` also boots (`--profile web`), and with the port
-published — `ports = [ "3080" ]` (or `-p 3080`) plus
-`dsh web --host 0.0.0.0 --port 3080` inside — the UI opens in the host's
-browser at `http://127.0.0.1:3080/` (see [Published ports](#published-ports-ports)). It authenticates from `DEEPSEEK_API_KEY` (passed through when set on
+published — `ports = [ "3080" ]` (or `-p 3080`) plus a plain `dsh web`
+inside — the UI opens in the host's browser at `http://127.0.0.1:3080/`
+(see [Published ports](#published-ports-ports)). It authenticates from `DEEPSEEK_API_KEY` (passed through when set on
 the host) or `~/.dsh/.credentials.yaml`, and its telemetry is disabled at the
 wrapper. Its home is one root — `~/.dsh` (settings, profiles, credentials) —
 seeded like the others, minus the transcripts, the web storages and the

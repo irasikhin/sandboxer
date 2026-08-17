@@ -152,7 +152,15 @@ was extracted from:
   `--no-net`; the ingress rule does not weaken egress. On an OPEN network no rule is emitted — ingress is
   already allow, and a lone rule would flip the implicit `allow@public` egress default to deny. Both flags are
   in the create argv → session hash. Preflight `vmPortsPreflight` refuses a taken host port up front. The
-  guest server must bind `0.0.0.0`, not its own loopback (real network stack; e.g. `dsh web --host 0.0.0.0`).
+  guest server must bind `0.0.0.0`/`::`, NOT its own loopback — the forward lands on the guest's eth0
+  (measured: a 127.0.0.1-bound server is unreachable, `::` and `0.0.0.0` answer). `SANDBOXER_PORTS` (csv) is
+  the lowest-precedence layer (`ports = [ ]` still means none). **dsh's web UI is adapted in the image**:
+  `assets/dsh/dsh-launch.sh` injects `--patch <web-bind.patch.yml>` for a `web` invocation when
+  `SANDBOXER_IN_CONTAINER` is set (rewriting the `web` alias to `--profile web`, which is the only form that
+  takes launcher flags), because upstream binds the guest loopback and REFUSES `--host 0.0.0.0` (a literal
+  string check in dsh-web-app/startup.js; the webserver row's schema is an enum of 127.0.0.1|0.0.0.0, so `::`
+  fails validation too). The overlay changes only the row's FALLBACK (`ctx.webStartup.host ?? '0.0.0.0'`), so
+  an explicit `--host` still wins and a host-side dsh is untouched.
 - **Agent registry** (`internal/registry/registry.json`): the single-source catalog of agents — embedded in the
   binary AND consumed by both flakes (each agent's `nixPackage` is a plain nixpkgs attr — prebuilt from
   cache.nixos.org; pi alone is vendored at `internal/toolbox/assets/pi/`, grafted into pkgs by an overlay in

@@ -1,0 +1,19 @@
+# dsh web, inside a sandboxer sandbox: bind the guest's wildcard address
+# instead of the guest's loopback.
+#
+# Upstream binds 127.0.0.1 (and refuses `--host 0.0.0.0` outright, so the flag
+# is not a way out). In a microVM that makes the UI unreachable: a published
+# port is delivered to the guest's eth0, never to the guest's own loopback —
+# measured, see docs/architecture.md. The wall in front is sandboxer's:
+# default-deny ingress, one rule per port the user published deliberately, and
+# a host-side forward bound to 127.0.0.1 unless they said otherwise. So the
+# audience of this bind is the host's own browser, exactly what upstream's
+# 127.0.0.1 default is for on a normal machine.
+#
+# The row's own expression is kept verbatim except for the FALLBACK, so an
+# explicit `--host 127.0.0.1` still wins. dsh-launch injects this overlay only
+# for a `web` invocation and only when SANDBOXER_IN_CONTAINER is set.
+- id: webserver
+  config:
+    host: !!js ctx.webStartup.host ?? '0.0.0.0'
+    port: !!js ctx.webStartup.port ?? 3080

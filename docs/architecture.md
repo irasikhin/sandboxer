@@ -293,8 +293,21 @@ Both flags sit in the create argv → the session hash, so publishing, moving or
 dropping a port recreates the machine. Defaults and guards: a spec with no bind
 address binds `127.0.0.1` (`config.ParsePorts`), a non-loopback bind is
 announced as a warning at create/enter, a host port already in use is caught by
-`backend.vmPortsPreflight` before the machine is built, and
+`backend.vmPortsPreflight` before the machine is built, `SANDBOXER_PORTS` is the
+lowest-precedence layer for the forward you want in every sandbox, and
 `SANDBOXER_NO_PORTS=1` closes every forward regardless of the config.
+
+**The guest side has a rule of its own:** the forward is delivered to the
+guest's `eth0`, never to the guest's loopback — measured, a server bound to
+`127.0.0.1` inside is unreachable while the same server on `0.0.0.0`/`::`
+answers. That is why the image's **dsh** launcher
+(`internal/toolbox/assets/dsh/dsh-launch.sh`) injects a `--patch` overlay for a
+`web` invocation when `SANDBOXER_IN_CONTAINER` is set: upstream binds the
+guest's loopback and refuses `--host 0.0.0.0` outright, so a plain `dsh web`
+would always look broken from the host's browser. The overlay
+(`web-bind.patch.yml`) restates the webserver row's expression with one change
+— the FALLBACK becomes `0.0.0.0` — so an explicit `--host 127.0.0.1` still
+wins, and outside a sandbox the wrapper does nothing at all.
 
 ## Agent registry (single source)
 
