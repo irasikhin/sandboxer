@@ -292,6 +292,7 @@ Scalars come from **flags** and `SANDBOXER_*` env vars:
 | session mode | `--ephemeral` | `SANDBOXER_SESSION` (default `persistent`; the env wins over a profile's `session:`) |
 | egress domains | `--allow-domains a,b` | `SANDBOXER_DOMAINS` |
 | disable egress | — | `SANDBOXER_NO_EGRESS=1` |
+| published ports | `-p/--port 8080:3080` | `SANDBOXER_NO_PORTS=1` disables every forward (or the profile's `ports`) |
 | disable agent auto-resume | — | `SANDBOXER_NO_RESUME=1` (or `autoResume = false` in the profile) |
 | disable the baked-in pi packages | — | `SANDBOXER_NO_PI_PACKAGES=1` (or `piPackages = false` in the profile) |
 | skip auto-scaffold | — | `SANDBOXER_NO_SCAFFOLD=1` (create/enter writes a default `sandboxer.nix` otherwise) |
@@ -307,7 +308,7 @@ per profile. `cpus` takes a whole vCPU count (or a systemd-style quota like
 `200%`); a fractional count or an unparseable memory size is rejected up
 front rather than silently rounded.
 
-Structured fields (`srcs`, `extraMounts`, `env`, `setup`, `tools`, `image`, `limits`) live in an **optional**
+Structured fields (`srcs`, `extraMounts`, `env`, `ports`, `setup`, `tools`, `image`, `limits`) live in an **optional**
 `sandboxer.nix`. With nothing given, the `sandboxer.nix` in the cwd is
 auto-discovered; `-f`/`--config` points at another config **file**. Several
 profiles live in one file under a `profiles` attrset. See `examples/config.nix`,
@@ -557,6 +558,42 @@ so a tunnel client on your host works with the obvious URL.
 retired — the key errors with a migration hint; use one `egress.proxy` that
 routes by destination itself.
 
+## Published ports (`ports`)
+
+Outbound is the allowlist above; **inbound is `ports`** — the only way into a
+sandbox, and off unless you ask. A dev server (or `dsh web`) started inside is
+reachable from the host's browser once its port is published:
+
+```nix
+ports = [
+  "3080"                # 127.0.0.1:3080 on the host → guest 3080
+  "8080:3080"           # host 8080 → guest 3080
+  "0.0.0.0:8080:3080"   # every host interface — see the warning below
+  "5353:53/udp"         # UDP
+];
+```
+
+or per run: `sandboxer enter feat -p 8080:3080` (repeatable; the flag replaces
+the profile's list). The forward **binds 127.0.0.1 by default** — the port is
+yours, not the network's — and a non-loopback bind prints a warning naming what
+it exposes. Kill every forward with `SANDBOXER_NO_PORTS=1`.
+
+Two things happen per published port: microsandbox forwards the host port into
+the guest, **and** the machine's default-deny wall gets the one ingress rule
+that port needs (`allow:ingress@0.0.0.0/0:tcp:<guest>`). Both are in the create
+argv, so publishing, moving or dropping a port recreates the session — a live
+machine can never disagree with the config. Egress is untouched: a walled
+sandbox with a published port still cannot resolve a domain that is not on its
+allowlist.
+
+The server inside must listen on `0.0.0.0` (or `::`), not on the guest's own
+`127.0.0.1` — the guest has a real network stack, so its loopback is not the
+interface the forward delivers to. For dsh that is
+`dsh web --host 0.0.0.0 --port 3080`.
+
+A host port already in use is reported before the machine is built, naming the
+address — instead of a bind error from deep inside the runner.
+
 ## direnv
 
 `sandboxer hook direnv` surfaces the **active** sandbox (the one set by
@@ -606,9 +643,10 @@ flake reads it too, to build the image). Adding an agent = one entry.
 **dsh** (DeepSeek Harness) is the one agent without a TUI: upstream ships a
 browser UI and a one-shot headless runner, no terminal app. In a pane that
 means `dsh --profile headless "run the tests"` — one persisted session, the
-final answer, exit. `dsh web` also boots (`--profile web`, 127.0.0.1:3080), but
-sandboxer maps no ports out of the microVM, so that UI is reachable only from
-inside the sandbox. It authenticates from `DEEPSEEK_API_KEY` (passed through when set on
+final answer, exit. `dsh web` also boots (`--profile web`), and with the port
+published — `ports = [ "3080" ]` (or `-p 3080`) plus
+`dsh web --host 0.0.0.0 --port 3080` inside — the UI opens in the host's
+browser at `http://127.0.0.1:3080/` (see [Published ports](#published-ports-ports)). It authenticates from `DEEPSEEK_API_KEY` (passed through when set on
 the host) or `~/.dsh/.credentials.yaml`, and its telemetry is disabled at the
 wrapper. Its home is one root — `~/.dsh` (settings, profiles, credentials) —
 seeded like the others, minus the transcripts, the web storages and the

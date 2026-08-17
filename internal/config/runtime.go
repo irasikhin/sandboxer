@@ -35,6 +35,12 @@ type Runtime struct {
 	// SANDBOXER_NO_PI_PACKAGES=1). Like AutoResume, not part of the create
 	// argv, so it never affects the session ConfigHash.
 	PiPackages bool
+	// Ports are the resolved host→guest forwards (profile ports / --port,
+	// killed by SANDBOXER_NO_PORTS=1). UNLIKE AutoResume and PiPackages these
+	// DO enter the create argv — both the `-p` forwards and the ingress rules
+	// they need — so publishing, moving or dropping a port recreates the
+	// machine, exactly as an egress change does.
+	Ports []Port
 }
 
 // Session modes for Runtime.Session: a persistent detached container reused
@@ -49,6 +55,10 @@ type Overrides struct {
 	Backend string
 	Session string // SessionEphemeral when --ephemeral is given
 	Domains string // csv
+	// Ports are the repeatable --port specs; a non-nil slice REPLACES the
+	// profile's ports (the flag is the whole forward set for this run, like
+	// --allow-domains for the allowlist).
+	Ports []string
 }
 
 // ResolveRuntime applies the precedence flags > profile > base(run.env)/defaults.
@@ -102,6 +112,21 @@ func ResolveRuntime(p *Profile, d Defaults, baseDomains string, f Overrides) (Ru
 	rt.Domains = domains
 	if err := ValidateDomains(rt.Domains); err != nil {
 		return Runtime{}, err
+	}
+
+	// Published ports: the flag replaces the profile's list wholesale, and the
+	// kill-switch drops both — one operator switch that closes the sandbox's
+	// only inbound path, whatever the config says.
+	specs := p.Ports
+	if f.Ports != nil {
+		specs = f.Ports
+	}
+	if !d.NoPorts {
+		ports, err := ParsePorts(specs)
+		if err != nil {
+			return Runtime{}, err
+		}
+		rt.Ports = ports
 	}
 
 	rt.Backend = firstNonEmpty(f.Backend, p.Backend, d.Backend)

@@ -3,6 +3,7 @@ package backend
 import (
 	"compress/gzip"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"maps"
@@ -16,6 +17,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"syscall"
 
 	"github.com/irasikhin/sandboxer/internal/config"
 	"github.com/irasikhin/sandboxer/internal/execx"
@@ -197,6 +199,7 @@ func msbCommonArgs(o RunOpts) []string {
 		args = append(args, "-v", msbVolume(m))
 	}
 	args = append(args, "-m", vmMemMiB(o.Mem)+"M", "-c", vmCPUs(o.CPU))
+	args = append(args, msbPortArgs(o)...)
 	args = append(args, msbNetworkArgs(o)...)
 	args = append(args, msbSecretArgs(o)...)
 	if csv := o.RT.DomainsCSV(); csv != "" {
@@ -209,6 +212,45 @@ func msbCommonArgs(o RunOpts) []string {
 		args = append(args, "-v", d+":/run/sandboxer:ro")
 	}
 	args = append(args, msbExtraMountsAndEnv(o.Profile)...)
+	return args
+}
+
+// msbPortArgs renders the published host→guest forwards (`-p BIND:HOST:GUEST`,
+// config.Port.Publish). They sit in the create argv, so publishing, moving or
+// dropping a port recreates the machine rather than leaving a live session with
+// a forward the config no longer describes.
+//
+// Forwarding is only half of it: msb's forward hands the connection to the
+// guest, and the machine's own policy engine decides whether it arrives — see
+// msbIngressRules.
+func msbPortArgs(o RunOpts) []string {
+	var args []string
+	for _, p := range o.RT.Ports {
+		args = append(args, "-p", p.Publish())
+	}
+	return args
+}
+
+// msbIngressRules renders the ingress door each published port needs WHILE THE
+// WALL IS UP. sandboxer boots a walled machine with --no-net, which is sugar
+// for `--net-default deny` in BOTH directions — so without a rule the forward
+// binds on the host, accepts the connection and the guest never sees it (the
+// dial dies as a reset, which reads exactly like a server that isn't running).
+//
+// Verified live against msb 0.6.7: `allow:ingress@host`, `@private` and
+// `@public` do NOT match a forwarded connection; only a `0.0.0.0/0` target
+// does, and `--net-default-ingress` is rejected outright next to --no-net. The
+// rule is therefore source-wide but scoped to the one guest port and protocol,
+// and it changes nothing about egress (a walled machine with the rule still
+// cannot resolve a non-allowlisted domain — checked the same way).
+//
+// An open network needs none: msb leaves ingress at allow when no ingress rule
+// is set, which is what makes a published port work there already.
+func msbIngressRules(o RunOpts) []string {
+	var args []string
+	for _, p := range o.RT.Ports {
+		args = append(args, "--net-rule", p.IngressRule())
+	}
 	return args
 }
 
@@ -270,12 +312,13 @@ func msbNetworkArgs(o RunOpts) []string {
 		if doorRule != "" {
 			args = append(args, "--net-rule", doorRule)
 		}
-		return args
+		return append(args, msbIngressRules(o)...)
 	}
 	if !egressRequired(o) {
 		return nil
 	}
-	return append([]string{"--no-net"}, msbAllowlistRules(o.RT.Domains)...)
+	args := append([]string{"--no-net"}, msbAllowlistRules(o.RT.Domains)...)
+	return append(args, msbIngressRules(o)...)
 }
 
 // msbAllowlistRules renders one --net-rule flag per allowlisted domain: the
@@ -476,6 +519,9 @@ func msbPreflight(o RunOpts) error {
 	if err := vmLimitsPreflight(o); err != nil {
 		return err
 	}
+	if err := vmPortsPreflight(o); err != nil {
+		return err
+	}
 	paths := append([]string{o.Dest, o.HomeDir}, o.SrcMounts...)
 	for _, m := range o.GitMounts {
 		paths = append(paths, m.Target)
@@ -522,6 +568,34 @@ func vmSharePreflight(o RunOpts) error {
 	return fmt.Errorf("the microsandbox backend cannot expose %s: virtio-fs shares directories only, "+
 		"and a regular file has no share analogue — mount a directory that holds it",
 		strings.Join(bad, ", "))
+}
+
+// vmPortsPreflight rejects a published port whose HOST side is already taken —
+// another sandbox, a host service, or a stale machine still holding the
+// forward. The runner's own failure comes late (after the machine is half
+// built) and names a bind error, not the sandbox that owns the port, so the
+// cheap probe here is what turns "create failed" into an actionable line.
+// Only a definite address-in-use answer is an error: a bind refused for any
+// other reason (a privileged port under an unprivileged user, an address the
+// host does not hold) is left to the runner rather than guessed at.
+func vmPortsPreflight(o RunOpts) error {
+	for _, p := range o.RT.Ports {
+		if p.Proto != "tcp" {
+			continue
+		}
+		addr := net.JoinHostPort(p.Bind, strconv.Itoa(p.Host))
+		ln, err := net.Listen("tcp", addr)
+		if err == nil {
+			_ = ln.Close()
+			continue
+		}
+		if errors.Is(err, syscall.EADDRINUSE) {
+			return fmt.Errorf("host port %s is already in use — pick another host port for the %d forward "+
+				"(ports = [ \"<host>:%d\" ]), or stop whatever holds it "+
+				"(another sandbox's forward shows up in `sandboxer list`)", addr, p.Guest, p.Guest)
+		}
+	}
+	return nil
 }
 
 // vmLimitsPreflight rejects a resource limit the microVM cannot honor, before

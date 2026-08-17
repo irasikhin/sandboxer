@@ -260,6 +260,42 @@ the rules):
   feature and is retired with the container backend; the config key errors
   with a migration hint.
 
+## Ingress (published ports)
+
+`ports` is the mirror image of the allowlist and the sandbox's ONLY inbound
+path: a host-side forward per entry, so a server started inside (a dev server,
+dsh's browser UI) opens in the host's browser. It takes TWO flags per port,
+and the second one is the part that is easy to miss:
+
+```
+   ports = [ "8080:3080" ]
+        │
+        ├─ -p 127.0.0.1:8080:3080                    (backend.msbPortArgs)
+        │     the host listener msb forwards into the guest
+        │
+        └─ --net-rule allow:ingress@0.0.0.0/0:tcp:3080   (backend.msbIngressRules)
+              the door in the wall — `--no-net` is sugar for `--net-default
+              deny` in BOTH directions, so without this the forward binds,
+              accepts, and the guest never sees the connection (it dies as a
+              reset, which reads exactly like a server that isn't running)
+```
+
+Measured against msb 0.6.7, not assumed: `allow:ingress@host`, `@private` and
+`@public` do **not** match a forwarded connection — only a `0.0.0.0/0` target
+does — and `--net-default-ingress` is rejected outright next to `--no-net`. The
+rule is scoped to the one guest port and protocol, and it leaves egress exactly
+as it was (a walled machine with a published port still cannot resolve a
+non-allowlisted domain). An open network needs no rule at all: msb leaves
+ingress at allow while no ingress rule exists, and adding one there would flip
+the implicit `allow@public` egress default to deny.
+
+Both flags sit in the create argv → the session hash, so publishing, moving or
+dropping a port recreates the machine. Defaults and guards: a spec with no bind
+address binds `127.0.0.1` (`config.ParsePorts`), a non-loopback bind is
+announced as a warning at create/enter, a host port already in use is caught by
+`backend.vmPortsPreflight` before the machine is built, and
+`SANDBOXER_NO_PORTS=1` closes every forward regardless of the config.
+
 ## Agent registry (single source)
 
 The agent catalog is one JSON file, `internal/registry/registry.json`, that is

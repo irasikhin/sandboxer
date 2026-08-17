@@ -142,6 +142,17 @@ was extracted from:
   `host.microsandbox.internal` + `allow@public,allow@host:tcp:<port>` (proxy alongside an allowlist = the
   proxy enforces it — warning, not error). The policy is in the create argv → session hash. The config block
   is `egress` (`egress.enabled` = false = open network; default on). Disable with `SANDBOXER_NO_EGRESS=1`.
+- **Ingress** (`config.ParsePorts` → `RT.Ports` → `backend.msbPortArgs`/`msbIngressRules`): profile
+  `ports = ["3080" "8080:3080" "0.0.0.0:8080:3080" "5353:53/udp"]` / repeatable `-p` (the flag REPLACES the
+  profile list) — the sandbox's ONLY inbound path, empty by default, bind defaults to 127.0.0.1 (non-loopback
+  = banner WARNING), `SANDBOXER_NO_PORTS=1` = kill switch. Each port renders TWO flags: `-p bind:host:guest`
+  AND — while the wall is up — `--net-rule allow:ingress@0.0.0.0/0:<proto>:<guest>`, because `--no-net` is
+  `--net-default deny` in BOTH directions. Measured on msb 0.6.7 (not assumed): `allow:ingress@host|private|public`
+  do NOT match a forwarded connection, only `0.0.0.0/0` does; `--net-default-ingress` is rejected next to
+  `--no-net`; the ingress rule does not weaken egress. On an OPEN network no rule is emitted — ingress is
+  already allow, and a lone rule would flip the implicit `allow@public` egress default to deny. Both flags are
+  in the create argv → session hash. Preflight `vmPortsPreflight` refuses a taken host port up front. The
+  guest server must bind `0.0.0.0`, not its own loopback (real network stack; e.g. `dsh web --host 0.0.0.0`).
 - **Agent registry** (`internal/registry/registry.json`): the single-source catalog of agents — embedded in the
   binary AND consumed by both flakes (each agent's `nixPackage` is a plain nixpkgs attr — prebuilt from
   cache.nixos.org; pi alone is vendored at `internal/toolbox/assets/pi/`, grafted into pkgs by an overlay in

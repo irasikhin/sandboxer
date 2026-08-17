@@ -227,6 +227,18 @@ Windows/WSL2 are **cross-platform in code but not live-verified** — see
   > to be that half of the boundary. With an empty allowlist the door is the
   > only rule: all egress rides the proxy.
   >
+  > **A published port is a door in the OTHER direction.** `ports` is the
+  > sandbox's only inbound path and is empty unless you ask for it. Each entry
+  > forwards a host port into the guest and opens one matching ingress rule in
+  > the machine's wall (`allow:ingress@0.0.0.0/0:tcp:<guest>` — msb matches a
+  > forwarded connection on no narrower target). The forward binds
+  > **127.0.0.1** unless the spec names another address, so by default only
+  > this host can dial it; a non-loopback bind puts the guest's port on the
+  > network and every run says so with a `WARNING`. Whatever answers on that
+  > port is the agent's software, reachable by anyone who reaches the bind
+  > address — publish deliberately, and prefer the loopback default.
+  > `SANDBOXER_NO_PORTS=1` closes every forward regardless of the config.
+  >
   > **`egress.enabled = false` with NO proxy is a fully open network** — no
   > allowlist and no proxy, so the agent has unrestricted outbound. sandboxer
   > does not silently accept this as "off": every run labels it

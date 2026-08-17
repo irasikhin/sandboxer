@@ -23,6 +23,7 @@ type commonFlags struct {
 	sandbox   string
 	backend   string
 	domains   string
+	ports     []string // --port, repeatable: replaces the profile's ports
 	noSetup   bool
 	ephemeral bool // --ephemeral: one-shot machine instead of the persistent session
 	recreate  bool // --recreate: force session rebuild even if running (enter only)
@@ -47,6 +48,15 @@ func bindExisting(cmd *cobra.Command, f *commonFlags) {
 	fl := cmd.Flags()
 	fl.StringVar(&f.backend, "backend", "", "backend: microsandbox")
 	fl.StringVar(&f.domains, "allow-domains", "", "egress allowlist, csv (e.g. api.anthropic.com,github.com)")
+	bindPorts(cmd, f)
+}
+
+// bindPorts registers the repeatable --port flag. Separate from bindExisting so
+// create — which binds its own resolution flags — publishes ports with exactly
+// the same spelling and help text.
+func bindPorts(cmd *cobra.Command, f *commonFlags) {
+	cmd.Flags().StringArrayVarP(&f.ports, "port", "p", nil,
+		"publish a guest port on the host, repeatable (3080, 8080:3080, 0.0.0.0:8080:3080, 5353:53/udp); replaces the profile's ports")
 }
 
 // target is a resolved (base, slug, profile) tuple.
@@ -310,7 +320,7 @@ func (t *target) runtime(f commonFlags) (config.Runtime, error) {
 		session = config.SessionEphemeral
 	}
 	return config.ResolveRuntime(t.profile, config.LoadDefaults(), t.base.Domains,
-		config.Overrides{Backend: f.backend, Session: session, Domains: f.domains})
+		config.Overrides{Backend: f.backend, Session: session, Domains: f.domains, Ports: f.ports})
 }
 
 // backendLabel reports the backend to show in the banner, naming the runner

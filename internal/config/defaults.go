@@ -97,6 +97,10 @@ type Defaults struct {
 	// for registering the image's baked-in pi packages in a sandbox's pi
 	// settings — it wins over a profile's piPackages.
 	NoPiPackages bool
+	// NoPorts (SANDBOXER_NO_PORTS=1) drops every published port — the operator
+	// kill-switch for the one inbound path into a sandbox, alongside
+	// SANDBOXER_NO_EGRESS for the outbound one.
+	NoPorts bool
 }
 
 // LoadDefaults reads the SANDBOXER_* environment.
@@ -112,6 +116,7 @@ func LoadDefaults() Defaults {
 		CPU:          os.Getenv("SANDBOXER_CPU"),
 		NoResume:     os.Getenv("SANDBOXER_NO_RESUME") == "1",
 		NoPiPackages: os.Getenv("SANDBOXER_NO_PI_PACKAGES") == "1",
+		NoPorts:      os.Getenv("SANDBOXER_NO_PORTS") == "1",
 	}
 }
 

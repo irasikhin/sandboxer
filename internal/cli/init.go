@@ -156,6 +156,13 @@ func starterProfile(name string, d config.Defaults) string {
     # noProxy = "localhost,127.0.0.1,.corp"; # applied alongside proxy
   };
 
+  # Ports: the sandbox's ONLY inbound path — publish a guest port so a dev
+  # server (or dsh's web UI) opens in your host browser. Binds 127.0.0.1
+  # unless the spec says otherwise; the server inside must listen on 0.0.0.0.
+  # Off entirely at runtime: SANDBOXER_NO_PORTS=1.
+  # ports = [ "3080" "8080:3080" ];  # host:guest; "0.0.0.0:8080:3080" exposes it
+  #                                  # to the network, "5353:53/udp" for UDP
+
   # Wire YOUR host agent identity into the sandbox: (1) seed its private
   # $HOME from your agent configs — ~/.claude (settings, skills, memory) +
   # ~/.claude.json, ~/.codex, ~/.gemini, ~/.dsh, opencode/crush — as a COPY

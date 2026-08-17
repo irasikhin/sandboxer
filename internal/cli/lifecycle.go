@@ -102,6 +102,7 @@ func newCreateCmd() *cobra.Command {
 			}
 			warnOpenNetwork(cmd.ErrOrStderr(), rtCreate, t.profile)
 			warnMicrovmProxy(cmd.ErrOrStderr(), rtCreate)
+			reportPorts(cmd.ErrOrStderr(), rtCreate)
 			out := cmd.OutOrStdout()
 			fmt.Fprintf(out, "sandbox %q created: %s\n", t.slug, t.base.SandboxDir(t.slug))
 			fmt.Fprintf(out, "enter:  sandboxer enter %s\n", t.slug)
@@ -119,6 +120,7 @@ func newCreateCmd() *cobra.Command {
 	fl.StringVarP(&f.config, "config", "f", "", "profile file (default: the project sandboxer.nix; pick a profiles section by name)")
 	fl.StringVar(&f.backend, "backend", "", "backend: microsandbox")
 	fl.StringVar(&f.domains, "allow-domains", "", "egress allowlist (csv)")
+	bindPorts(cmd, &f)
 	return cmd
 }
 
@@ -222,6 +224,7 @@ disable with autoResume = false in the profile, or SANDBOXER_NO_RESUME=1.`,
 			}
 			warnOpenNetwork(errOut, rt, t.profile)
 			warnMicrovmProxy(errOut, rt)
+			reportPorts(errOut, rt)
 			engine, err := backend.ResolveEngine(rt.Backend, config.LoadDefaults())
 			if err != nil {
 				return err
@@ -451,6 +454,7 @@ composes with scripts and CI.`,
 			fmt.Fprintln(narrate, configLine(rt, t.slug, t.profile, backendLabel(rt)))
 			warnOpenNetwork(cmd.ErrOrStderr(), rt, t.profile)
 			warnMicrovmProxy(cmd.ErrOrStderr(), rt)
+			reportPorts(cmd.ErrOrStderr(), rt)
 			engine, err := backend.ResolveEngine(rt.Backend, config.LoadDefaults())
 			if err != nil {
 				return err
@@ -629,6 +633,21 @@ func warnOpenNetwork(w io.Writer, rt config.Runtime, prof *config.Profile) {
 		msg += " — and hostConfigs is on, so seeded credentials could be exfiltrated"
 	}
 	fmt.Fprintln(w, msg)
+}
+
+// reportPorts names every published forward, so the URL to open is on screen
+// instead of being reconstructed from the config — and flags the one that is
+// not merely local: a non-loopback bind puts a guest port on the network, where
+// the sandbox's isolation stops being about this machine only.
+func reportPorts(w io.Writer, rt config.Runtime) {
+	for _, p := range rt.Ports {
+		fmt.Fprintf(w, "sandboxer: port %s (open http://%s:%d/ once something listens on %d inside)\n",
+			p, p.Bind, p.Host, p.Guest)
+		if p.Public() {
+			fmt.Fprintf(w, "sandboxer: WARNING — %s:%d is published on a NON-loopback address; "+
+				"anyone who can reach this host can reach the sandbox's port %d\n", p.Bind, p.Host, p.Guest)
+		}
+	}
 }
 
 // podmanSocketPrefix wraps an in-guest user command so the nested podman's

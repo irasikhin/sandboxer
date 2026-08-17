@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"maps"
+	"net"
 	"os"
 	"path/filepath"
 	"slices"
@@ -1212,5 +1213,113 @@ func TestMSBImageIDPrefersStoreTar(t *testing.T) {
 	}
 	if second := msbImageID(name); second == first {
 		t.Fatal("rebuilt tar kept the old image id — a live machine would never read stale")
+	}
+}
+
+// TestMSBPortArgs pins the two halves a published port turns into: the runner's
+// forward in the shared block, and — while the wall is up — the ONE ingress
+// rule that lets the forwarded connection actually reach the guest. Verified
+// against msb 0.6.7: --no-net denies BOTH directions, so the forward alone
+// binds on the host and the dial dies as a reset inside.
+func TestMSBPortArgs(t *testing.T) {
+	ports := []config.Port{
+		{Bind: "127.0.0.1", Host: 8080, Guest: 3080, Proto: "tcp"},
+		{Bind: "0.0.0.0", Host: 5353, Guest: 53, Proto: "udp"},
+	}
+	o := RunOpts{
+		Image: "img:1", Dest: "/d", Slug: "s",
+		RT:    config.Runtime{Egress: true, Domains: []string{"github.com"}, Ports: ports},
+		Stdin: strings.NewReader(""), Stdout: &bytes.Buffer{},
+	}
+	if got, want := msbPortArgs(o), []string{
+		"-p", "127.0.0.1:8080:3080",
+		"-p", "0.0.0.0:5353:53/udp",
+	}; !slices.Equal(got, want) {
+		t.Errorf("msbPortArgs =\n%q\nwant\n%q", got, want)
+	}
+	if got, want := msbNetworkArgs(o), []string{
+		"--no-net",
+		"--net-rule", "allow@*.github.com:tcp:80,allow@*.github.com:tcp:443",
+		"--net-rule", "allow:ingress@0.0.0.0/0:tcp:3080",
+		"--net-rule", "allow:ingress@0.0.0.0/0:udp:53",
+	}; !slices.Equal(got, want) {
+		t.Errorf("msbNetworkArgs (walled) =\n%q\nwant\n%q", got, want)
+	}
+	// The forwards ride in the shared block, so they fold into the session
+	// hash: publishing or moving a port recreates the machine.
+	if j := strings.Join(msbCommonArgs(o), " "); !strings.Contains(j, "-p 127.0.0.1:8080:3080") {
+		t.Errorf("msbCommonArgs must carry the forwards: %q", j)
+	}
+	unpublished := o
+	unpublished.RT.Ports = nil
+	if vmSessionWantHash(o) == vmSessionWantHash(unpublished) {
+		t.Error("publishing a port did not flip the session hash")
+	}
+}
+
+// TestMSBPortArgsOpenNetwork: with no wall there is nothing to open — msb
+// leaves ingress at allow when no ingress rule is set, which is exactly why a
+// published port works on an open network with no rule at all. Emitting one
+// anyway would be the dangerous kind of no-op: an explicit rule replaces the
+// implicit open default, so a lone ingress rule would silently deny egress.
+func TestMSBPortArgsOpenNetwork(t *testing.T) {
+	o := RunOpts{
+		RT:    config.Runtime{Egress: false, Ports: []config.Port{{Bind: "127.0.0.1", Host: 8080, Guest: 3080, Proto: "tcp"}}},
+		Stdin: strings.NewReader(""), Stdout: &bytes.Buffer{},
+	}
+	if got := msbNetworkArgs(o); got != nil {
+		t.Errorf("msbNetworkArgs (open) = %q, want none", got)
+	}
+	if got, want := msbPortArgs(o), []string{"-p", "127.0.0.1:8080:3080"}; !slices.Equal(got, want) {
+		t.Errorf("msbPortArgs = %q, want %q", got, want)
+	}
+}
+
+// TestMSBPortArgsProxyWall: the combined wall gets its ingress doors too, after
+// the allowlist and the proxy's own door.
+func TestMSBPortArgsProxyWall(t *testing.T) {
+	o := RunOpts{
+		RT: config.Runtime{
+			Egress: true, Proxy: "http://127.0.0.1:8888",
+			Ports: []config.Port{{Bind: "127.0.0.1", Host: 3080, Guest: 3080, Proto: "tcp"}},
+		},
+		Stdin: strings.NewReader(""), Stdout: &bytes.Buffer{},
+	}
+	got := msbNetworkArgs(o)
+	if len(got) < 2 || !slices.Equal(got[len(got)-2:], []string{"--net-rule", "allow:ingress@0.0.0.0/0:tcp:3080"}) {
+		t.Errorf("msbNetworkArgs (proxy wall) = %q, want the ingress door last", got)
+	}
+	if !slices.Contains(got, "allow@host:tcp:8888") {
+		t.Errorf("msbNetworkArgs (proxy wall) lost the proxy door: %q", got)
+	}
+}
+
+// TestMSBPortsPreflight: a host port someone else already holds is caught
+// BEFORE the machine is built, naming the address — msb's own failure arrives
+// late and names only a bind error.
+func TestMSBPortsPreflight(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Skipf("cannot bind a probe listener: %v", err)
+	}
+	defer ln.Close()
+	taken := ln.Addr().(*net.TCPAddr).Port
+
+	o := RunOpts{
+		Image: "img:1", Dest: "/d", Slug: "s", HomeDir: "/d/.home",
+		RT:    config.Runtime{Ports: []config.Port{{Bind: "127.0.0.1", Host: taken, Guest: 3080, Proto: "tcp"}}},
+		Stdin: strings.NewReader(""), Stdout: &bytes.Buffer{},
+	}
+	err = msbPreflight(o)
+	if err == nil || !strings.Contains(err.Error(), "already in use") {
+		t.Fatalf("msbPreflight = %v, want the taken host port reported", err)
+	}
+
+	// A free port passes, and a UDP forward is not probed at all (a TCP bind
+	// says nothing about it).
+	free := o
+	free.RT.Ports = []config.Port{{Bind: "127.0.0.1", Host: taken, Guest: 53, Proto: "udp"}}
+	if err := msbPreflight(free); err != nil {
+		t.Fatalf("msbPreflight (udp) = %v, want nil", err)
 	}
 }

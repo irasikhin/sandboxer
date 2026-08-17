@@ -372,6 +372,16 @@ type Profile struct {
 	WorktreesDir string            `json:"worktreesDir,omitempty"`
 	ExtraMounts  []Mount           `json:"extraMounts,omitempty"`
 	Env          map[string]string `json:"env,omitempty"`
+	// Ports publishes guest ports on the host, so a server started INSIDE the
+	// sandbox (a dev server, dsh's browser UI) can be opened from the host's
+	// browser. Specs are microsandbox's own grammar — "3080", "8080:3080",
+	// "0.0.0.0:8080:3080", "5353:53/udp" — and bind to 127.0.0.1 unless the
+	// spec names another address (see ParsePorts). Each forward also opens the
+	// ONE ingress rule its port needs in the machine's default-deny wall;
+	// nothing else about the egress allowlist changes. Empty = no inbound path
+	// into the sandbox at all, which is the default.
+	// SANDBOXER_NO_PORTS=1 is the operator kill-switch.
+	Ports []string `json:"ports,omitempty"`
 	// Setup is a one-time shell script run inside the sandbox (bash -lc) before
 	// the user/agent takes over — e.g. `npm ci`, a build, a DB seed. It runs
 	// once per sandbox (re-run only when the script changes) under the same
