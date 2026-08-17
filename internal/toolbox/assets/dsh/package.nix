@@ -35,6 +35,7 @@
   nodejs,
   python3,
   pnpm,
+  runtimeShell,
 }:
 
 let
@@ -96,8 +97,14 @@ buildNpmPackage {
       --subst-var-by node ${lib.getExe nodejs} \
       --subst-var-by bin "$out/lib/node_modules/@deepseek-ai/dsh/lib/bin.js" \
       --subst-var-by patch "$out/share/sandboxer/dsh-web-bind.patch.yml"
+    # The interpreter is pinned HERE, not left to patchShebangs: buildNpmPackage's
+    # fixup does not reach this file, and the toolbox image is a nix userland with
+    # no /usr/bin/env at all — an unpatched `#!/usr/bin/env bash` makes every dsh
+    # invocation inside a sandbox die with "bad interpreter". --replace-fail so a
+    # reworded shebang breaks the build instead of shipping that again.
+    substituteInPlace "$out/libexec/dsh-launch" \
+      --replace-fail '#!/usr/bin/env bash' '#!${runtimeShell}'
     chmod +x "$out/libexec/dsh-launch"
-    patchShebangs "$out/libexec/dsh-launch"
     rm "$out/bin/dsh"
     makeWrapper "$out/libexec/dsh-launch" "$out/bin/dsh" \
       --prefix PATH : ${lib.makeBinPath [ pnpm ]} \
