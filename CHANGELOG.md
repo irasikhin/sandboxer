@@ -6,6 +6,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.88.3] — 2026-08-21
+
+### Fixed
+
+- report the forwards the MACHINE has, not the ones the config wants (a869617)
+
+
 ## [0.88.2] — 2026-08-21
 
 ### Fixed
@@ -1351,3 +1358,4 @@ isolated, containerized dev sandbox, on a local Linux machine:
 [0.88.0]: https://github.com/irasikhin/sandboxer/compare/v0.87.0...v0.88.0
 [0.88.1]: https://github.com/irasikhin/sandboxer/compare/v0.88.0...v0.88.1
 [0.88.2]: https://github.com/irasikhin/sandboxer/compare/v0.88.1...v0.88.2
+[0.88.3]: https://github.com/irasikhin/sandboxer/compare/v0.88.2...v0.88.3
