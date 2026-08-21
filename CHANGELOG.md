@@ -6,6 +6,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.89.0] — 2026-08-21
+
+### Added
+
+- ship findutils — `find` and `xargs` were missing (d710cdf)
+
+
 ## [0.88.4] — 2026-08-21
 
 ### Fixed
@@ -1367,3 +1374,4 @@ isolated, containerized dev sandbox, on a local Linux machine:
 [0.88.2]: https://github.com/irasikhin/sandboxer/compare/v0.88.1...v0.88.2
 [0.88.3]: https://github.com/irasikhin/sandboxer/compare/v0.88.2...v0.88.3
 [0.88.4]: https://github.com/irasikhin/sandboxer/compare/v0.88.3...v0.88.4
+[0.89.0]: https://github.com/irasikhin/sandboxer/compare/v0.88.4...v0.89.0
