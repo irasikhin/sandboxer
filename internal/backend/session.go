@@ -98,6 +98,16 @@ func InspectSession(_, name string) SessionInfo {
 	return vmInspectSession(name)
 }
 
+// SessionPorts reports the forwards the named machine publishes RIGHT NOW, as
+// the runner itself sees them — not what the profile asks for. The two differ
+// exactly when it matters: a forward lives in the create argv, so a session
+// created before a port was configured publishes nothing while the config reads
+// perfectly right, and that gap is what turns into "unable to connect" in a
+// browser. nil means unknown (no machine, no runner, unreadable output).
+func SessionPorts(_, name string) []config.Port {
+	return msbSessionPorts(name)
+}
+
 // SessionIdle reports whether the session machine holds NOTHING worth
 // preserving: its in-guest tmux server (the one `enter` attaches, socket
 // "sandboxer") runs no session at all. It is the deciding fact when a running

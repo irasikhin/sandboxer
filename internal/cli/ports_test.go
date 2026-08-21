@@ -75,63 +75,118 @@ func TestNoPortsKillSwitch(t *testing.T) {
 	}
 }
 
-// TestWarnStalePorts: the one message that keeps enter honest. A forward lives
-// in the create argv, so attaching to a machine that predates it publishes
-// nothing — the banner must say so, or the browser's "unable to connect" is the
-// first the user hears of it.
-func TestWarnStalePorts(t *testing.T) {
+// TestVerifyPorts: the message that keeps enter honest. It reports what the
+// MACHINE publishes, so a session created before the port existed is caught as
+// a fact rather than inferred from staleness — and an unreachable runner stays
+// silent instead of crying wolf.
+func TestVerifyPorts(t *testing.T) {
+	p3080 := config.Port{Bind: "127.0.0.1", Host: 3080, Guest: 3080, Proto: "tcp"}
+	rt := config.Runtime{Ports: []config.Port{p3080}}
+
+	restore := backendSessionPorts
+	t.Cleanup(func() { backendSessionPorts = restore })
+
 	var b bytes.Buffer
-	warnStalePorts(&b, config.Runtime{}, "feat")
+	backendSessionPorts = func(_, _ string) []config.Port { return []config.Port{p3080} }
+	verifyPorts(&b, rt, "feat", "microsandbox", "m")
 	if b.Len() != 0 {
-		t.Errorf("no ports must print nothing, got %q", b.String())
+		t.Errorf("published forward must print nothing, got %q", b.String())
 	}
+
 	b.Reset()
-	warnStalePorts(&b, config.Runtime{Ports: []config.Port{
-		{Bind: "127.0.0.1", Host: 3080, Guest: 3080, Proto: "tcp"},
-	}}, "feat")
+	backendSessionPorts = func(_, _ string) []config.Port { return []config.Port{} }
+	verifyPorts(&b, rt, "feat", "microsandbox", "m")
 	out := b.String()
-	for _, want := range []string{"WARNING", "NOT in this running machine", "sandboxer stop feat"} {
+	for _, want := range []string{"WARNING", "does NOT publish", "127.0.0.1:3080→3080/tcp", "sandboxer stop feat"} {
 		if !strings.Contains(out, want) {
-			t.Errorf("stale-ports warning = %q, want it to mention %q", out, want)
+			t.Errorf("missing forward warning = %q, want it to mention %q", out, want)
 		}
+	}
+
+	// Unknown (no runner, unreadable output) is not evidence of a missing
+	// forward, and no configured port means nothing to check.
+	b.Reset()
+	backendSessionPorts = func(_, _ string) []config.Port { return nil }
+	verifyPorts(&b, rt, "feat", "microsandbox", "m")
+	verifyPorts(&b, config.Runtime{}, "feat", "microsandbox", "m")
+	if b.Len() != 0 {
+		t.Errorf("unknown/none must stay silent, got %q", b.String())
 	}
 }
 
-// TestPortsBlock pins show's ports section: a live session names the URL to
-// open, anything else says why nothing answers there yet.
+// TestPortsBlock pins show's ports section: it reports what the RUNNING
+// machine publishes, not what the config wishes for — the difference is the
+// whole reason the block exists.
 func TestPortsBlock(t *testing.T) {
 	fresh, stale := true, false
-	ports := config.Runtime{Ports: []config.Port{{Bind: "127.0.0.1", Host: 8080, Guest: 3080, Proto: "tcp"}}}
+	p8080 := config.Port{Bind: "127.0.0.1", Host: 8080, Guest: 3080, Proto: "tcp"}
+	ports := config.Runtime{Ports: []config.Port{p8080}}
 
 	var b bytes.Buffer
-	printPortsBlock(&b, config.Runtime{}, showSession{State: "running", Fresh: &fresh})
+	printPortsBlock(&b, config.Runtime{}, showSession{State: "running", Fresh: &fresh}, nil)
 	if !strings.Contains(b.String(), "(none") {
 		t.Errorf("no ports = %q, want the empty note", b.String())
 	}
 
 	b.Reset()
-	printPortsBlock(&b, ports, showSession{State: "running", Fresh: &fresh})
-	if out := b.String(); !strings.Contains(out, "open http://127.0.0.1:8080/") || strings.Contains(out, "NOT live") {
-		t.Errorf("live session = %q, want the URL", out)
+	printPortsBlock(&b, ports, showSession{State: "running", Fresh: &fresh}, []config.Port{p8080})
+	if out := b.String(); !strings.Contains(out, "open http://127.0.0.1:8080/") || strings.Contains(out, "NOT published") {
+		t.Errorf("published forward = %q, want the URL", out)
+	}
+
+	// The case that sent a user to a browser error page: the machine runs and
+	// reads fresh, but it was created without the forward.
+	b.Reset()
+	printPortsBlock(&b, ports, showSession{State: "running", Fresh: &fresh}, nil)
+	if out := b.String(); !strings.Contains(out, "NOT published by the running machine") ||
+		!strings.Contains(out, "created without it") {
+		t.Errorf("missing forward = %q, want the rebuild hint", out)
 	}
 
 	b.Reset()
-	printPortsBlock(&b, ports, showSession{State: "running", Fresh: &stale, StaleWhy: "profile changed"})
-	if out := b.String(); !strings.Contains(out, "NOT live yet") || !strings.Contains(out, "profile changed") {
+	printPortsBlock(&b, ports, showSession{State: "running", Fresh: &stale, StaleWhy: "profile changed"}, nil)
+	if out := b.String(); !strings.Contains(out, "stale") || !strings.Contains(out, "profile changed") {
 		t.Errorf("stale session = %q, want the reason", out)
 	}
 
 	b.Reset()
-	printPortsBlock(&b, ports, showSession{State: "none"})
-	if out := b.String(); !strings.Contains(out, "does not exist") {
+	printPortsBlock(&b, ports, showSession{State: "none"}, nil)
+	if out := b.String(); !strings.Contains(out, "no session machine yet") {
 		t.Errorf("missing session = %q, want the create hint", out)
 	}
 
-	// The JSON projection carries the same verdict.
-	if got := showPorts(ports, showSession{State: "running", Fresh: &fresh}); len(got) != 1 || !got[0].Live || got[0].URL != "http://127.0.0.1:8080/" {
-		t.Errorf("showPorts (live) = %+v", got)
+	// A forward the machine still holds after the config dropped it explains a
+	// host port that looks taken by nobody.
+	b.Reset()
+	printPortsBlock(&b, config.Runtime{}, showSession{State: "running", Fresh: &fresh}, []config.Port{p8080})
+	if out := b.String(); !strings.Contains(out, "no longer in the config") {
+		t.Errorf("leftover forward = %q, want it named", out)
 	}
-	if got := showPorts(ports, showSession{State: "stopped"}); len(got) != 1 || got[0].Live {
-		t.Errorf("showPorts (stopped) = %+v", got)
+
+	// The JSON projection carries the same verdict.
+	if got := showPorts(ports, []config.Port{p8080}); len(got) != 1 || !got[0].Live || got[0].URL != "http://127.0.0.1:8080/" {
+		t.Errorf("showPorts (published) = %+v", got)
+	}
+	if got := showPorts(ports, nil); len(got) != 1 || got[0].Live {
+		t.Errorf("showPorts (absent) = %+v", got)
+	}
+}
+
+// TestLivePorts: the runner is asked only about a machine that is running —
+// anything else forwards nothing by definition.
+func TestLivePorts(t *testing.T) {
+	called := 0
+	restore := backendSessionPorts
+	backendSessionPorts = func(_, _ string) []config.Port {
+		called++
+		return []config.Port{{Bind: "127.0.0.1", Host: 8080, Guest: 3080, Proto: "tcp"}}
+	}
+	t.Cleanup(func() { backendSessionPorts = restore })
+
+	if got := livePorts(config.Runtime{}, showSession{State: "stopped"}); got != nil || called != 0 {
+		t.Errorf("stopped session = %+v (runner called %d times), want none", got, called)
+	}
+	if got := livePorts(config.Runtime{}, showSession{State: "running", Container: "m"}); len(got) != 1 || called != 1 {
+		t.Errorf("running session = %+v (runner called %d times)", got, called)
 	}
 }

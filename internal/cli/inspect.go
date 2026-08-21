@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"unicode/utf8"
 
@@ -418,7 +419,8 @@ func newShowCmd() *cobra.Command {
 				fmt.Fprintln(out, "(no profile)")
 			}
 			printSourcesBlock(out, t)
-			printPortsBlock(out, rtShow, sessionStatus(t, rtShow))
+			sess := sessionStatus(t, rtShow)
+			printPortsBlock(out, rtShow, sess, livePorts(rtShow, sess))
 			printSessionBlock(out, t, rtShow)
 			return nil
 		},
@@ -476,6 +478,7 @@ func writeShowJSON(out io.Writer, t *target, rt config.Runtime) error {
 		sources = append(sources, e)
 	}
 	session := sessionStatus(t, rt)
+	live := livePorts(rt, session)
 	doc := struct {
 		Slug    string          `json:"slug"`
 		Backend string          `json:"backend"`
@@ -485,7 +488,7 @@ func writeShowJSON(out io.Writer, t *target, rt config.Runtime) error {
 		Session showSession     `json:"session"`
 	}{
 		Slug: t.slug, Backend: rt.Backend, Profile: profile,
-		Sources: sources, Ports: showPorts(rt, session), Session: session,
+		Sources: sources, Ports: showPorts(rt, live), Session: session,
 	}
 	enc := json.NewEncoder(out)
 	enc.SetIndent("", "  ")
@@ -505,62 +508,80 @@ type showPort struct {
 	Live  bool   `json:"live"`
 }
 
-// portsLive reports whether the forwards in the resolved config are the ones
-// the running session was created with: only a running AND fresh session
-// carries them (a stale one predates the current create argv, a stopped or
-// absent one has no listener at all).
-func portsLive(s showSession) bool {
-	return s.State == "running" && s.Fresh != nil && *s.Fresh
+// livePorts asks the RUNNER what the session machine publishes right now. It
+// is the only honest answer to "why does my browser get nothing": the profile
+// says what should be forwarded, the machine says what is, and a session
+// created before the port was configured is the case where they differ. An
+// absent or non-running machine forwards nothing, so the call is skipped.
+func livePorts(rt config.Runtime, s showSession) []config.Port {
+	if s.State != "running" {
+		return nil
+	}
+	return backendSessionPorts(rt.Backend, s.Container)
 }
 
-// showPorts projects the resolved forwards for `show --json`.
-func showPorts(rt config.Runtime, s showSession) []showPort {
-	live := portsLive(s)
+// portPublished reports whether the machine's live forwards include p — matched
+// on the whole tuple, since a forward moved to another host port or bind is a
+// different door, not the same one.
+func portPublished(p config.Port, live []config.Port) bool {
+	return slices.Contains(live, p)
+}
+
+// showPorts projects the resolved forwards for `show --json`, each marked with
+// whether the running machine actually publishes it.
+func showPorts(rt config.Runtime, live []config.Port) []showPort {
 	out := make([]showPort, 0, len(rt.Ports))
 	for _, p := range rt.Ports {
 		out = append(out, showPort{
 			Bind: p.Bind, Host: p.Host, Guest: p.Guest, Proto: p.Proto,
-			URL: fmt.Sprintf("http://%s:%d/", p.Bind, p.Host), Live: live,
+			URL: fmt.Sprintf("http://%s:%d/", p.Bind, p.Host), Live: portPublished(p, live),
 		})
 	}
 	return out
 }
 
-// printPortsBlock renders show's "== ports ==" lines: the forwards the config
-// publishes and the URL each one answers on — but only when the running
-// session actually has them. A configured port beside a stale or stopped
-// session is precisely the state where the config looks right and the browser
-// says "unable to connect", so it is named here rather than left to be
-// discovered in a browser.
-func printPortsBlock(out io.Writer, rt config.Runtime, s showSession) {
+// printPortsBlock renders show's "== ports ==" lines: every forward the config
+// publishes, whether the RUNNING machine actually has it, and — when it does
+// not — why nothing answers there. This block exists because the failure it
+// describes is invisible otherwise: the config reads right, the server inside
+// runs, and only the browser reports the truth.
+func printPortsBlock(out io.Writer, rt config.Runtime, s showSession, live []config.Port) {
 	fmt.Fprintln(out, "== ports ==")
-	if len(rt.Ports) == 0 {
+	if len(rt.Ports) == 0 && len(live) == 0 {
 		fmt.Fprintln(out, "(none — no inbound path into the sandbox)")
 		return
 	}
 	for _, p := range rt.Ports {
-		if portsLive(s) {
+		if portPublished(p, live) {
 			fmt.Fprintf(out, "%s — open http://%s:%d/\n", p, p.Bind, p.Host)
 			continue
 		}
-		fmt.Fprintf(out, "%s — NOT live yet (session %s; a forward only exists in a machine created with it)\n",
-			p, portsSessionWhy(s))
+		fmt.Fprintf(out, "%s — NOT published by the running machine (%s)\n", p, portsSessionWhy(s))
+	}
+	// A forward the machine has and the config does not: the leftover of an
+	// edit that has not been applied yet. Naming it explains why a host port
+	// is taken by a sandbox that no longer asks for it.
+	for _, p := range live {
+		if !slices.Contains(rt.Ports, p) {
+			fmt.Fprintf(out, "%s — published by the running machine but no longer in the config "+
+				"(it goes on the next rebuild)\n", p)
+		}
 	}
 }
 
-// portsSessionWhy names, in a few words, why the forwards are not up.
+// portsSessionWhy names, in a few words, why a configured forward is not up.
 func portsSessionWhy(s showSession) string {
 	switch {
 	case s.State == "none":
-		return "does not exist — create it with `sandboxer enter`"
+		return "no session machine yet — `sandboxer enter` creates it"
 	case s.State == "unknown":
-		return "state is unknown"
+		return "session state unknown — no microVM runner installed"
 	case s.State != "running":
-		return s.State + " — start it with `sandboxer enter`"
+		return "the session machine is " + s.State + " — `sandboxer enter` starts it"
 	case s.Fresh != nil && !*s.Fresh:
-		return "is stale: " + s.StaleWhy + " — rebuild with `sandboxer stop` then `sandboxer enter`"
+		return "the session is stale (" + s.StaleWhy + ") — apply with `sandboxer stop` then `sandboxer enter`"
 	default:
-		return s.State
+		return "the machine was created without it — `sandboxer stop` then `sandboxer enter` rebuilds it"
 	}
 }
 

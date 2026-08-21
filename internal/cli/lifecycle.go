@@ -6,7 +6,9 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
+	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -330,7 +332,6 @@ disable with autoResume = false in the profile, or SANDBOXER_NO_RESUME=1.`,
 			switch {
 			case staleWhy != "":
 				fmt.Fprintln(narrate, staleSessionEnterBanner(t.slug, engine, dest, name, staleWhy))
-				warnStalePorts(errOut, rt, t.slug)
 			case useSession:
 				fmt.Fprintln(narrate, persistentEnterBanner(t.slug, engine, dest, name))
 			default:
@@ -343,6 +344,7 @@ disable with autoResume = false in the profile, or SANDBOXER_NO_RESUME=1.`,
 			case staleWhy != "":
 				// Attach to what is already running — deliberately NOT through
 				// EnsureSession, which would recreate the stale machine.
+				verifyPorts(errOut, rt, t.slug, engine, name)
 				code, runErr = backendExecSession(o, name, tmuxEnterArgs(sessionName))
 				attached = true
 			case useSession:
@@ -352,6 +354,7 @@ disable with autoResume = false in the profile, or SANDBOXER_NO_RESUME=1.`,
 					fmt.Fprintln(errOut, "sandboxer:", err)
 					runErr = err
 				} else {
+					verifyPorts(errOut, rt, t.slug, engine, name)
 					code, runErr = backendExecSession(o, name, tmuxRestoreArgs(sessionName, o.SessionStatePath, resumeFor(rt)))
 					attached = true
 				}
@@ -651,20 +654,35 @@ func reportPorts(w io.Writer, rt config.Runtime) {
 	}
 }
 
-// warnStalePorts corrects the one promise the banner above cannot keep. enter
-// prints the resolved forwards ("open http://127.0.0.1:3080/"), but a forward
-// lives in the CREATE argv — so a session machine created before the port was
-// configured does not have it, and this branch is exactly the case where enter
-// attaches to such a machine instead of rebuilding it. Without this line the two
-// messages contradict each other and the browser gets the last word ("unable to
-// connect") while the config reads perfectly right.
-func warnStalePorts(w io.Writer, rt config.Runtime, slug string) {
+// verifyPorts checks the forwards against the machine that is about to be
+// attached — the runner's own view, not the resolved config. enter advertises
+// the ports it resolved ("open http://127.0.0.1:3080/"), but a forward lives in
+// the CREATE argv: a session created before the port was configured does not
+// have it, and enter deliberately attaches to a running session rather than
+// rebuilding it under a live tmux. Without this the two messages contradict
+// each other and the browser gets the last word ("unable to connect") on a URL
+// sandboxer had just printed. Silent when the runner cannot answer — an unknown
+// is not evidence of a missing forward.
+func verifyPorts(w io.Writer, rt config.Runtime, slug, engine, machine string) {
 	if len(rt.Ports) == 0 {
 		return
 	}
-	fmt.Fprintf(w, "sandboxer: WARNING — the published port(s) are NOT in this running machine: a forward is part of "+
-		"the create argv, so nothing listens on the host until the session is rebuilt "+
-		"(sandboxer stop %s && sandboxer enter %s)\n", slug, slug)
+	live := backendSessionPorts(engine, machine)
+	if live == nil {
+		return
+	}
+	var missing []string
+	for _, p := range rt.Ports {
+		if !slices.Contains(live, p) {
+			missing = append(missing, p.String())
+		}
+	}
+	if len(missing) == 0 {
+		return
+	}
+	fmt.Fprintf(w, "sandboxer: WARNING — this machine does NOT publish %s: a forward is part of the create argv, "+
+		"so nothing listens on the host until the session is rebuilt (sandboxer stop %s && sandboxer enter %s)\n",
+		strings.Join(missing, ", "), slug, slug)
 }
 
 // podmanSocketPrefix wraps an in-guest user command so the nested podman's
@@ -836,6 +854,7 @@ var (
 	backendEnsureSession    = backend.EnsureSession
 	backendExecSession      = backend.ExecSession
 	backendInspectSession   = backend.InspectSession
+	backendSessionPorts     = backend.SessionPorts
 	backendSessionIdle      = backend.SessionIdle
 	backendSyncSessionState = backend.SyncSessionState
 	backendWantHash         = backend.SessionWantHash

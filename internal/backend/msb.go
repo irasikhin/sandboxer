@@ -735,6 +735,53 @@ var msbListMachines = func() []vmMachine {
 	return parseMSBSandboxes(out)
 }
 
+// parseMSBPorts extracts the forwards a machine actually publishes from
+// `msb inspect --format json`. The machine's ACTIVE config is the authority —
+// the config it booted with, which is what the host-side listener reflects —
+// so a session created before a port was added reports none of it, however the
+// profile reads today. Unreadable output is "unknown", never "no ports".
+func parseMSBPorts(out []byte) []config.Port {
+	var doc struct {
+		Active struct {
+			Network struct {
+				Ports []struct {
+					GuestPort int    `json:"guest_port"`
+					HostBind  string `json:"host_bind"`
+					HostPort  int    `json:"host_port"`
+					Protocol  string `json:"protocol"`
+				} `json:"ports"`
+			} `json:"network"`
+		} `json:"active_config"`
+	}
+	if json.Unmarshal(out, &doc) != nil {
+		return nil
+	}
+	ports := make([]config.Port, 0, len(doc.Active.Network.Ports))
+	for _, p := range doc.Active.Network.Ports {
+		proto := strings.ToLower(p.Protocol)
+		if proto == "" {
+			proto = "tcp"
+		}
+		bind := p.HostBind
+		if bind == "" {
+			bind = config.DefaultPortBind
+		}
+		ports = append(ports, config.Port{Bind: bind, Host: p.HostPort, Guest: p.GuestPort, Proto: proto})
+	}
+	return ports
+}
+
+// msbSessionPorts runs `msb inspect` and reports what the named machine
+// publishes right now. A package var so a test can inject a fake; an absent
+// machine or unreadable output answers nil.
+var msbSessionPorts = func(name string) []config.Port {
+	out, err := exec.Command(msbBin(), "inspect", name, "--format", "json").Output()
+	if err != nil {
+		return nil
+	}
+	return parseMSBPorts(out)
+}
+
 // --- images ------------------------------------------------------------------
 
 // msbImageInspect reports the image's manifest digest from msb's local store, or

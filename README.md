@@ -602,11 +602,12 @@ address — instead of a bind error from deep inside the runner.
 
 Because a forward is part of the machine's create argv, adding `ports` to a
 sandbox whose session is already running applies on the next rebuild: `enter`
-attaches to a live session rather than killing what runs in it, and warns that
-the forwards are not in that machine (`sandboxer stop <slug> && sandboxer enter
-<slug>` applies them now). `sandboxer show <slug>` has a `== ports ==` block
-that says which forwards are live and, when they are not, why — see
-[docs/troubleshooting.md](./docs/troubleshooting.md#a-published-port-doesnt-answer-on-the-host).
+attaches to a live session rather than killing what runs in it. Both `enter` and
+`sandboxer show <slug>` then report what the **running machine** actually
+publishes — asked of the runner, not inferred from the config — so a forward
+that is not there is named on the spot (`sandboxer stop <slug> && sandboxer
+enter <slug>` applies it), instead of turning into an unexplained browser error.
+See [docs/troubleshooting.md](./docs/troubleshooting.md#a-published-port-doesnt-answer-on-the-host).
 
 ## direnv
 

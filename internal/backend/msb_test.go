@@ -1323,3 +1323,29 @@ func TestMSBPortsPreflight(t *testing.T) {
 		t.Fatalf("msbPreflight (udp) = %v, want nil", err)
 	}
 }
+
+// TestParseMSBPorts pins how the runner's own view of a machine's forwards is
+// read: the ACTIVE config is the authority (what the machine booted with), so
+// a session created before a port was added reports none of it however the
+// profile reads today.
+func TestParseMSBPorts(t *testing.T) {
+	out := []byte(`{"active_config":{"network":{"ports":[
+		{"guest_port":3080,"host_bind":"127.0.0.1","host_port":8080,"protocol":"tcp"},
+		{"guest_port":53,"host_bind":"","host_port":5353,"protocol":""}]}},
+		"config":{"network":{"ports":[{"guest_port":9999,"host_bind":"127.0.0.1","host_port":9999,"protocol":"tcp"}]}}}`)
+	want := []config.Port{
+		{Bind: "127.0.0.1", Host: 8080, Guest: 3080, Proto: "tcp"},
+		{Bind: "127.0.0.1", Host: 5353, Guest: 53, Proto: "tcp"},
+	}
+	if got := parseMSBPorts(out); !slices.Equal(got, want) {
+		t.Errorf("parseMSBPorts = %+v, want %+v", got, want)
+	}
+	// A machine with no forwards, and unreadable output, both answer "none"
+	// rather than crashing a `show`.
+	if got := parseMSBPorts([]byte(`{"active_config":{"network":{}}}`)); len(got) != 0 {
+		t.Errorf("no ports = %+v, want empty", got)
+	}
+	if got := parseMSBPorts([]byte("not json")); got != nil {
+		t.Errorf("garbage = %+v, want nil", got)
+	}
+}

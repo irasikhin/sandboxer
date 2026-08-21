@@ -174,8 +174,14 @@ fine. Three causes, in the order they actually happen:
    sandboxer stop <slug> && sandboxer enter <slug>
    ```
 
-   `sandboxer show <slug>` has a `== ports ==` block that states this outright:
-   a forward is either "open http://…" or "NOT live yet" with the reason.
+   You do not have to guess: `enter` asks the runner what the machine it is
+   attaching to actually publishes and warns when a configured forward is not
+   there, and `sandboxer show <slug>` has a `== ports ==` block saying the same
+   per port ("open http://…" vs "NOT published by the running machine", with the
+   reason). If neither mentions your port at all, the config never resolved one
+   — check that the profile really carries `ports` (or that `SANDBOXER_PORTS` is
+   exported in the shell you run sandboxer from) and that the binary is new
+   enough: `sandboxer --version` ≥ 0.87.0.
 
 2. **You opened the LAN address the app printed.** dsh prints
    `dsh web: http://127.0.0.1:3080 (LAN: http://172.16.0.50:3080)`. That LAN
