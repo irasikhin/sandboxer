@@ -6,6 +6,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.88.2] — 2026-08-21
+
+### Fixed
+
+- say when a published port is not in the running machine (b389f97)
+
+
 ## [0.88.1] — 2026-08-17
 
 ### Fixed
@@ -1343,3 +1350,4 @@ isolated, containerized dev sandbox, on a local Linux machine:
 [0.87.0]: https://github.com/irasikhin/sandboxer/compare/v0.86.0...v0.87.0
 [0.88.0]: https://github.com/irasikhin/sandboxer/compare/v0.87.0...v0.88.0
 [0.88.1]: https://github.com/irasikhin/sandboxer/compare/v0.88.0...v0.88.1
+[0.88.2]: https://github.com/irasikhin/sandboxer/compare/v0.88.1...v0.88.2
