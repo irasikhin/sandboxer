@@ -72,7 +72,7 @@ from the toolbox image; see [docs/microvm.md](./docs/microvm.md). The
 image has the agents baked in (claude, opencode, crush, pi, gemini, dsh) plus an
 everyday toolchain: python3 (pytest, rich, httpx, ruamel-yaml/tomlkit,
 jsonschema, bs4 — plus `uv` for anything else), node/npm, jdk+maven, redocly,
-ripgrep/fd/jq/…, code tooling (ast-grep, ctags, tokei, bat, fzf, entr, ruff),
+ripgrep/fd/find/xargs/jq/…, code tooling (ast-grep, ctags, tokei, bat, fzf, entr, ruff),
 diff/patch plus structural diffs (difftastic for code, dyff for YAML/JSON),
 tmux (auto-attached by `enter`), and **docker/podman for nested containers** —
 they run natively against the guest's own kernel, no opt-in and no engine

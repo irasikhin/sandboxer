@@ -398,6 +398,13 @@ in
         gnused
         gawk
         gnugrep
+        # findutils: `find` and `xargs`. NOT part of coreutils, and fd/rg do
+        # not stand in for them — an agent (and half the shell snippets on the
+        # internet) reflexively types `find . -name … -exec` or pipes into
+        # `xargs`, and a sandbox without them answers "command not found" to
+        # the most basic file walk there is. Reported live by dsh, which fell
+        # back to `tree` to enumerate a tree.
+        findutils
         openssh
         which
         # tooling pack: pager, editor, process tools, fast search,

@@ -137,6 +137,9 @@ func TestFlakeBakesAgentBatteries(t *testing.T) {
 		"bind.dnsutils", "iproute2", "iputils", "netcat-openbsd",
 		"yq-go", "binutils", "xxd", "moreutils", "shellcheck",
 		"lsof", "openssl",
+		// find/xargs: not in coreutils, and not replaced by fd/rg — the
+		// reflexive file walk must not answer "command not found".
+		"findutils",
 	} {
 		if !strings.Contains(s, want) {
 			t.Errorf("images.nix missing agent tooling %q", want)
