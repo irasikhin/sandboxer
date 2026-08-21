@@ -28,4 +28,17 @@
   egress = {
     allowedDomains = [ "api.anthropic.com" "registry.npmjs.org" ];
   };
+
+  # Published ports: the sandbox's only inbound path (empty = none). Each entry
+  # forwards a host port into the guest, so a dev server — or dsh's web UI —
+  # opens in the host's browser. Binds 127.0.0.1 unless the spec names another
+  # address; the server inside must listen on 0.0.0.0. A forward is part of the
+  # machine's create argv, so adding one applies when the session is rebuilt
+  # (sandboxer stop <slug> && sandboxer enter <slug>).
+  ports = [
+    "3080"              # 127.0.0.1:3080 on the host → 3080 in the sandbox
+    # "8080:3080"       # host 8080 → guest 3080
+    # "0.0.0.0:8080:3080" # every host interface (a warning says so)
+    # "5353:53/udp"     # UDP
+  ];
 }

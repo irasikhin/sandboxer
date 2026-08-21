@@ -135,7 +135,12 @@ func validateProfile(p config.Profile) error {
 			return fmt.Errorf("srcs entry %q: branch is required — every source names its branch explicitly, e.g. { src = %q; branch = \"devops/my-change\"; }", s.Src, s.Src)
 		}
 	}
-	rt, err := config.ResolveRuntime(&p, config.Defaults{}, "", config.Overrides{})
+	// LoadDefaults, not a zero Defaults: validate must judge the config the way
+	// the commands that RUN it do, and an omitted `backend` resolves to the
+	// SANDBOXER_BACKEND default there. Judging it against nothing turned a
+	// perfectly valid file into "the docker/podman container backend was
+	// removed (got backend \"\")" — an error about a key the user never wrote.
+	rt, err := config.ResolveRuntime(&p, config.LoadDefaults(), "", config.Overrides{})
 	if err != nil {
 		return err
 	}

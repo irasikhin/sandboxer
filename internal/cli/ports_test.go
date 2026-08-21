@@ -190,3 +190,24 @@ func TestLivePorts(t *testing.T) {
 		t.Errorf("running session = %+v (runner called %d times)", got, called)
 	}
 }
+
+// TestValidateProfileUsesEnvDefaults: `config validate` judges a profile the
+// way the commands that RUN it do. An omitted `backend` is normal — it resolves
+// to the SANDBOXER_BACKEND default — so validate must not report it as the
+// retired container backend, which is what judging against a zero Defaults did.
+func TestValidateProfileUsesEnvDefaults(t *testing.T) {
+	p := config.Profile{Srcs: []config.Src{{Src: ".", Branch: "feat/x"}}, Ports: []string{"3080"}}
+	if err := validateProfile(p); err != nil {
+		t.Fatalf("validateProfile(no backend) = %v, want nil", err)
+	}
+	// A retired value the user DID write is still an error.
+	p.Backend = "docker"
+	if err := validateProfile(p); err == nil {
+		t.Error("validateProfile(backend=docker) = nil, want the migration error")
+	}
+	// And a malformed port is caught here too, before anything is created.
+	bad := config.Profile{Srcs: []config.Src{{Src: ".", Branch: "feat/x"}}, Ports: []string{"3080:nope"}}
+	if err := validateProfile(bad); err == nil {
+		t.Error("validateProfile(bad port) = nil, want the parse error")
+	}
+}
