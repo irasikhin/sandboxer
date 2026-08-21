@@ -418,6 +418,7 @@ func newShowCmd() *cobra.Command {
 				fmt.Fprintln(out, "(no profile)")
 			}
 			printSourcesBlock(out, t)
+			printPortsBlock(out, rtShow, sessionStatus(t, rtShow))
 			printSessionBlock(out, t, rtShow)
 			return nil
 		},
@@ -474,19 +475,93 @@ func writeShowJSON(out io.Writer, t *target, rt config.Runtime) error {
 		}
 		sources = append(sources, e)
 	}
+	session := sessionStatus(t, rt)
 	doc := struct {
 		Slug    string          `json:"slug"`
 		Backend string          `json:"backend"`
 		Profile json.RawMessage `json:"profile"`
 		Sources []showSource    `json:"sources"`
+		Ports   []showPort      `json:"ports,omitempty"`
 		Session showSession     `json:"session"`
 	}{
 		Slug: t.slug, Backend: rt.Backend, Profile: profile,
-		Sources: sources, Session: sessionStatus(t, rt),
+		Sources: sources, Ports: showPorts(rt, session), Session: session,
 	}
 	enc := json.NewEncoder(out)
 	enc.SetIndent("", "  ")
 	return enc.Encode(doc)
+}
+
+// showPort is one published forward in `show --json`: what the config
+// publishes, plus whether the machine that is RUNNING actually carries it —
+// a forward lives in the create argv, so a session created before the port was
+// configured has none however the config reads.
+type showPort struct {
+	Bind  string `json:"bind"`
+	Host  int    `json:"host"`
+	Guest int    `json:"guest"`
+	Proto string `json:"proto"`
+	URL   string `json:"url"`
+	Live  bool   `json:"live"`
+}
+
+// portsLive reports whether the forwards in the resolved config are the ones
+// the running session was created with: only a running AND fresh session
+// carries them (a stale one predates the current create argv, a stopped or
+// absent one has no listener at all).
+func portsLive(s showSession) bool {
+	return s.State == "running" && s.Fresh != nil && *s.Fresh
+}
+
+// showPorts projects the resolved forwards for `show --json`.
+func showPorts(rt config.Runtime, s showSession) []showPort {
+	live := portsLive(s)
+	out := make([]showPort, 0, len(rt.Ports))
+	for _, p := range rt.Ports {
+		out = append(out, showPort{
+			Bind: p.Bind, Host: p.Host, Guest: p.Guest, Proto: p.Proto,
+			URL: fmt.Sprintf("http://%s:%d/", p.Bind, p.Host), Live: live,
+		})
+	}
+	return out
+}
+
+// printPortsBlock renders show's "== ports ==" lines: the forwards the config
+// publishes and the URL each one answers on — but only when the running
+// session actually has them. A configured port beside a stale or stopped
+// session is precisely the state where the config looks right and the browser
+// says "unable to connect", so it is named here rather than left to be
+// discovered in a browser.
+func printPortsBlock(out io.Writer, rt config.Runtime, s showSession) {
+	fmt.Fprintln(out, "== ports ==")
+	if len(rt.Ports) == 0 {
+		fmt.Fprintln(out, "(none — no inbound path into the sandbox)")
+		return
+	}
+	for _, p := range rt.Ports {
+		if portsLive(s) {
+			fmt.Fprintf(out, "%s — open http://%s:%d/\n", p, p.Bind, p.Host)
+			continue
+		}
+		fmt.Fprintf(out, "%s — NOT live yet (session %s; a forward only exists in a machine created with it)\n",
+			p, portsSessionWhy(s))
+	}
+}
+
+// portsSessionWhy names, in a few words, why the forwards are not up.
+func portsSessionWhy(s showSession) string {
+	switch {
+	case s.State == "none":
+		return "does not exist — create it with `sandboxer enter`"
+	case s.State == "unknown":
+		return "state is unknown"
+	case s.State != "running":
+		return s.State + " — start it with `sandboxer enter`"
+	case s.Fresh != nil && !*s.Fresh:
+		return "is stale: " + s.StaleWhy + " — rebuild with `sandboxer stop` then `sandboxer enter`"
+	default:
+		return s.State
+	}
 }
 
 // printSourcesBlock renders show's "== sources ==" lines: the RESOLVED sources

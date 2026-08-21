@@ -158,6 +158,47 @@ container-era rootful engine, or a stray `sudo sandboxer` run.
   `sudo chown -R "$USER:$USER" "${XDG_STATE_HOME:-$HOME/.local/state}/sandboxer"`.
 - If a sandbox is wedged, `sandboxer rm <slug>` removes its state; re-`create` it.
 
+## A published port doesn't answer on the host
+
+The browser says *unable to connect* (or spins forever) on
+`http://127.0.0.1:<port>/` even though the server inside the sandbox started
+fine. Three causes, in the order they actually happen:
+
+1. **The session machine predates the port.** A forward lives in the machine's
+   create argv, so a session created before you added `ports` simply does not
+   have it — and `enter` attaches to a running session rather than rebuilding it
+   under your tmux (it says so, and now also warns that the forwards are not in
+   that machine). Apply it:
+
+   ```bash
+   sandboxer stop <slug> && sandboxer enter <slug>
+   ```
+
+   `sandboxer show <slug>` has a `== ports ==` block that states this outright:
+   a forward is either "open http://…" or "NOT live yet" with the reason.
+
+2. **You opened the LAN address the app printed.** dsh prints
+   `dsh web: http://127.0.0.1:3080 (LAN: http://172.16.0.50:3080)`. That LAN
+   address is the GUEST's own address inside the microVM's NAT: from the host it
+   is not routable (the host sends it to your default gateway and the connection
+   times out). Always open the host side — `http://127.0.0.1:<host port>/`,
+   the URL `create`/`enter` print.
+
+3. **The server inside bound the guest's loopback.** The forward is delivered to
+   the guest's `eth0`, never to its `127.0.0.1`, so a loopback-bound server is
+   unreachable. Bind `0.0.0.0` (or `::`) inside. Check from within the sandbox:
+
+   ```bash
+   ss -ltn | grep <port>      # want 0.0.0.0:<port>, not 127.0.0.1:<port>
+   ```
+
+   dsh needs nothing here — inside a sandbox its web UI binds the wildcard by
+   default (see [architecture.md](./architecture.md#ingress-published-ports)).
+
+One more thing worth ruling out early: a shell/browser HTTP proxy that does not
+exempt localhost turns the same request into a hang. `curl --noproxy '*'
+http://127.0.0.1:<port>/` answering while a plain `curl` does not is the tell.
+
 ## Persistent session won't reattach
 
 `enter` shells into a persistent session machine; a later `enter`

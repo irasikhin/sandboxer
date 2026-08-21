@@ -74,3 +74,64 @@ func TestNoPortsKillSwitch(t *testing.T) {
 		t.Errorf("SANDBOXER_NO_PORTS=1 must drop the forward: %q", errs)
 	}
 }
+
+// TestWarnStalePorts: the one message that keeps enter honest. A forward lives
+// in the create argv, so attaching to a machine that predates it publishes
+// nothing — the banner must say so, or the browser's "unable to connect" is the
+// first the user hears of it.
+func TestWarnStalePorts(t *testing.T) {
+	var b bytes.Buffer
+	warnStalePorts(&b, config.Runtime{}, "feat")
+	if b.Len() != 0 {
+		t.Errorf("no ports must print nothing, got %q", b.String())
+	}
+	b.Reset()
+	warnStalePorts(&b, config.Runtime{Ports: []config.Port{
+		{Bind: "127.0.0.1", Host: 3080, Guest: 3080, Proto: "tcp"},
+	}}, "feat")
+	out := b.String()
+	for _, want := range []string{"WARNING", "NOT in this running machine", "sandboxer stop feat"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("stale-ports warning = %q, want it to mention %q", out, want)
+		}
+	}
+}
+
+// TestPortsBlock pins show's ports section: a live session names the URL to
+// open, anything else says why nothing answers there yet.
+func TestPortsBlock(t *testing.T) {
+	fresh, stale := true, false
+	ports := config.Runtime{Ports: []config.Port{{Bind: "127.0.0.1", Host: 8080, Guest: 3080, Proto: "tcp"}}}
+
+	var b bytes.Buffer
+	printPortsBlock(&b, config.Runtime{}, showSession{State: "running", Fresh: &fresh})
+	if !strings.Contains(b.String(), "(none") {
+		t.Errorf("no ports = %q, want the empty note", b.String())
+	}
+
+	b.Reset()
+	printPortsBlock(&b, ports, showSession{State: "running", Fresh: &fresh})
+	if out := b.String(); !strings.Contains(out, "open http://127.0.0.1:8080/") || strings.Contains(out, "NOT live") {
+		t.Errorf("live session = %q, want the URL", out)
+	}
+
+	b.Reset()
+	printPortsBlock(&b, ports, showSession{State: "running", Fresh: &stale, StaleWhy: "profile changed"})
+	if out := b.String(); !strings.Contains(out, "NOT live yet") || !strings.Contains(out, "profile changed") {
+		t.Errorf("stale session = %q, want the reason", out)
+	}
+
+	b.Reset()
+	printPortsBlock(&b, ports, showSession{State: "none"})
+	if out := b.String(); !strings.Contains(out, "does not exist") {
+		t.Errorf("missing session = %q, want the create hint", out)
+	}
+
+	// The JSON projection carries the same verdict.
+	if got := showPorts(ports, showSession{State: "running", Fresh: &fresh}); len(got) != 1 || !got[0].Live || got[0].URL != "http://127.0.0.1:8080/" {
+		t.Errorf("showPorts (live) = %+v", got)
+	}
+	if got := showPorts(ports, showSession{State: "stopped"}); len(got) != 1 || got[0].Live {
+		t.Errorf("showPorts (stopped) = %+v", got)
+	}
+}

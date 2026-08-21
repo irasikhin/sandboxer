@@ -330,6 +330,7 @@ disable with autoResume = false in the profile, or SANDBOXER_NO_RESUME=1.`,
 			switch {
 			case staleWhy != "":
 				fmt.Fprintln(narrate, staleSessionEnterBanner(t.slug, engine, dest, name, staleWhy))
+				warnStalePorts(errOut, rt, t.slug)
 			case useSession:
 				fmt.Fprintln(narrate, persistentEnterBanner(t.slug, engine, dest, name))
 			default:
@@ -648,6 +649,22 @@ func reportPorts(w io.Writer, rt config.Runtime) {
 				"anyone who can reach this host can reach the sandbox's port %d\n", p.Bind, p.Host, p.Guest)
 		}
 	}
+}
+
+// warnStalePorts corrects the one promise the banner above cannot keep. enter
+// prints the resolved forwards ("open http://127.0.0.1:3080/"), but a forward
+// lives in the CREATE argv — so a session machine created before the port was
+// configured does not have it, and this branch is exactly the case where enter
+// attaches to such a machine instead of rebuilding it. Without this line the two
+// messages contradict each other and the browser gets the last word ("unable to
+// connect") while the config reads perfectly right.
+func warnStalePorts(w io.Writer, rt config.Runtime, slug string) {
+	if len(rt.Ports) == 0 {
+		return
+	}
+	fmt.Fprintf(w, "sandboxer: WARNING — the published port(s) are NOT in this running machine: a forward is part of "+
+		"the create argv, so nothing listens on the host until the session is rebuilt "+
+		"(sandboxer stop %s && sandboxer enter %s)\n", slug, slug)
 }
 
 // podmanSocketPrefix wraps an in-guest user command so the nested podman's
