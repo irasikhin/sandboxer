@@ -234,6 +234,41 @@ let
     exec ${pkgs.podman}/bin/podman "$@"
   '';
 
+  # `docker-compose` (the hyphenated v1 spelling) alongside `docker compose`:
+  # the same muscle memory the docker shim above serves, and every second
+  # README still says the hyphen. Routed to podman-compose, which is what
+  # `podman compose` uses too.
+  composeShim = pkgs.writeShellScriptBin "docker-compose" ''
+    exec ${pkgs.podman-compose}/bin/podman-compose "$@"
+  '';
+
+  # `java` and friends ON PATH. The JDK's own $out/bin is a SYMLINK to
+  # lib/openjdk/bin, and the layered-image merge resolves it into
+  # ./lib/openjdk/bin/… without ever creating ./bin/java — so with PATH=/bin
+  # the image had a JDK (JAVA_HOME, mvn) but no `java` at all (verified by
+  # tarball inspection). Real per-tool symlinks land where PATH looks.
+  jdkBin = pkgs.runCommand "jdk-bin" { } ''
+    mkdir -p $out/bin
+    for f in ${pkgs.jdk25}/lib/openjdk/bin/*; do
+      ln -s "$f" "$out/bin/$(basename "$f")"
+    done
+  '';
+
+  # `pip` that explains itself. The baked interpreter lives in the read-only
+  # nix store, so pip cannot install into it — and nixpkgs' python does not
+  # ship pip at all, which leaves an agent with "command not found" (or "No
+  # module named pip") and no idea what to do instead. uv is the answer, in
+  # the sandbox's own directory, and the default egress allowlist already
+  # covers pypi.
+  pipHint = pkgs.writeShellScriptBin "pip" ''
+    echo "sandboxer: this python lives in the read-only nix store — pip cannot install into it." >&2
+    echo "sandboxer: use uv instead (pypi.org is in the default egress allowlist):" >&2
+    echo "sandboxer:   uv venv && . .venv/bin/activate && uv pip install <pkg>" >&2
+    echo "sandboxer: or, for a one-off run:  uv run --with <pkg> python -c '...'" >&2
+    echo "sandboxer: the baked interpreter already carries pytest, httpx, rich, ruamel-yaml, tomlkit, jsonschema, bs4." >&2
+    exit 1
+  '';
+
   # testcontainers & friends talk to a docker-compatible API SOCKET, never a
   # CLI: without one every testcontainers suite fails with "Could not find a
   # valid Docker environment", and the docker compose shim needs it too. This
@@ -405,12 +440,84 @@ in
         # the most basic file walk there is. Reported live by dsh, which fell
         # back to `tree` to enumerate a tree.
         findutils
+        # The rest of the POSIX/base-system userland — everything a shell
+        # script or an agent assumes exists on any Linux box and that neither
+        # coreutils nor the packs below carry. Placed EARLY on purpose: the
+        # image layer is assembled by copying each entry over the previous one
+        # (dockerTools rsyncs them in list order), so a name that already comes
+        # from a later entry — procps' kill, shadow's login/su — keeps winning.
+        # This pack only fills gaps.
+        #
+        #   util-linux — the single biggest one: column, rev, hexdump/hd,
+        #     script (record a session), flock (the shell's only real lock),
+        #     setsid/unshare/nsenter, uuidgen, getopt, look, cal, logger,
+        #     more, whereis, namei, rename, hardlink, mountpoint, taskset,
+        #     ionice, renice, prlimit, lsblk/findmnt/lsns/lsfd, dmesg, ipcs.
+        #   psmisc — pstree, killall, fuser (who holds this file/port).
+        #   nettools — hostname, netstat, ifconfig, route, arp: iproute2 is
+        #     the modern spelling, but half the scripts (and agents) still
+        #     type the classic ones.
+        #   bzip2/xz/zstd/cpio/p7zip — the archive formats tar meets in the
+        #     wild (.tar.bz2/.tar.xz/.tar.zst, .cpio, .7z); gzip, tar and
+        #     zip/unzip are already above.
+        #   wget — the other download verb every README uses.
+        #   bc — arithmetic in a shell (dc rides along).
+        #   time — `command time -v` for max RSS; bash's builtin cannot.
+        #   gettext — envsubst, the template step of every deploy script.
+        #   ed — the POSIX line editor scripts drive non-interactively.
+        #   nano — an editor a human can leave without knowing vim.
+        #   htop/ncdu/pv — what is running, what ate the disk, how far along.
+        #   socat — the swiss-army pipe next to nc.
+        #   dos2unix — CRLF files from a Windows checkout.
+        #   sqlite — read the .db an unfamiliar tool left behind.
+        #   strace — why a syscall failed; a real kernel here, so it works.
+        #   whois — domain lookups next to dig.
+        #   rlwrap — line editing for a REPL that has none.
+        #   man-db + man-pages — `man 2 open`, `man 7 signal`, and the pages
+        #     the baked tools ship; tzdata makes TZ= work in date/python.
+        util-linux
+        psmisc
+        nettools
+        bzip2
+        xz
+        zstd
+        cpio
+        p7zip
+        wget
+        bc
+        time
+        gettext
+        ed
+        nano
+        htop
+        ncdu
+        pv
+        socat
+        dos2unix
+        sqlite
+        strace
+        whois
+        rlwrap
+        man-db
+        man-pages
+        # groff — man's renderer, here for its own sake: nroff/tbl/eqn/pic as
+        # commands. man-db does NOT need it in contents (it calls groff by
+        # store path), and adding it does not silence groff's cosmetic
+        # `cannot select font 'CW'` warning on stderr — measured both ways;
+        # the page itself renders correctly either way.
+        groff
+        tzdata
         openssh
         which
         # tooling pack: pager, editor, process tools, fast search,
         # archives, nicer git diffs, make/unzip — for humans and agents
         less
-        neovim
+        # `vi` and `vim` too: scripts, git and half of muscle memory call
+        # those names, and plain `neovim` installs only `nvim`.
+        (neovim.override {
+          viAlias = true;
+          vimAlias = true;
+        })
         procps
         # glibc's getent — NSS-aware name/identity lookups for agents and the
         # e2e suite's resolve probes (busybox images carry their own).
@@ -475,6 +582,7 @@ in
         bind.dnsutils
         iproute2
         iputils
+        traceroute
         netcat-openbsd
         yq-go
         file
@@ -567,6 +675,9 @@ in
         gitConfig
         tmuxConf
         dockerShim
+        composeShim
+        jdkBin
+        pipHint
         detachCmd
         podmanSocket
         gitGuarded
@@ -594,6 +705,15 @@ in
         # UTF-8 by default: agent TUIs and tmux need a UTF-8 locale or
         # glyphs degrade to '_' (glibc ships C.UTF-8 unconditionally).
         "LANG=C.UTF-8"
+        # Where the baked packages' man pages actually live. The image merges
+        # every package at the root, so the pages are /share/man — a path no
+        # man-db default mentions, which is why `man socat` answered "no manual
+        # entry" with 577 pages sitting right there (measured inside the VM).
+        "MANPATH=/share/man"
+        # Same story for the timezone database: glibc looks in
+        # /usr/share/zoneinfo, the image has /share/zoneinfo, so TZ= was
+        # silently ignored (TZ=Asia/Tokyo date +%Z printed "Asia", not "JST").
+        "TZDIR=/share/zoneinfo"
         # Point maven and the JVM tooling at the baked JDK.
         "JAVA_HOME=${pkgs.jdk25.home}"
         # testcontainers reads DOCKER_HOST for the engine endpoint; the socket

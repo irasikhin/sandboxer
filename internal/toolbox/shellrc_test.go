@@ -140,6 +140,24 @@ func TestFlakeBakesAgentBatteries(t *testing.T) {
 		// find/xargs: not in coreutils, and not replaced by fd/rg — the
 		// reflexive file walk must not answer "command not found".
 		"findutils",
+		// the POSIX/base-system userland every script assumes: column/rev/
+		// flock/script/uuidgen (util-linux), pstree/killall/fuser (psmisc),
+		// the classic net trio (nettools), the archive formats tar meets
+		// (bzip2/xz/zstd/cpio/p7zip), and the everyday rest.
+		"util-linux", "psmisc", "nettools", "bzip2", "xz", "zstd", "cpio",
+		"p7zip", "wget", "bc", "gettext", "socat", "sqlite", "strace",
+		"man-db", "man-pages", "tzdata", "traceroute",
+		// `java` on PATH: the JDK's own bin is a symlink the image merge
+		// resolves away, so the per-tool symlinks are what PATH sees.
+		"jdkBin",
+		// the hyphenated compose spelling, and a pip that says use uv.
+		"composeShim", "pipHint",
+		// vi/vim, not just nvim.
+		"viAlias",
+		// the two env vars that make baked data findable: man pages live at
+		// /share/man and the tzdb at /share/zoneinfo, neither of which any
+		// default search path mentions.
+		"MANPATH=/share/man", "TZDIR=/share/zoneinfo",
 	} {
 		if !strings.Contains(s, want) {
 			t.Errorf("images.nix missing agent tooling %q", want)
