@@ -6,6 +6,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.91.0] — 2026-08-28
+
+### Added
+
+- ship jj (Jujutsu) in the toolbox image (68923af)
+
+
 ## [0.90.0] — 2026-08-22
 
 ### Added
@@ -1383,3 +1390,4 @@ isolated, containerized dev sandbox, on a local Linux machine:
 [0.88.4]: https://github.com/irasikhin/sandboxer/compare/v0.88.3...v0.88.4
 [0.89.0]: https://github.com/irasikhin/sandboxer/compare/v0.88.4...v0.89.0
 [0.90.0]: https://github.com/irasikhin/sandboxer/compare/v0.89.0...v0.90.0
+[0.91.0]: https://github.com/irasikhin/sandboxer/compare/v0.90.0...v0.91.0
