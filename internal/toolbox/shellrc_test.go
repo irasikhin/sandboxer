@@ -114,7 +114,7 @@ func TestFlakeBakesToolingPack(t *testing.T) {
 	s := imageDefinition(t)
 	for _, want := range []string{
 		"less", "neovim", "procps", "ripgrep", "fd", "tree",
-		"gnutar", "gzip", "delta", "gnumake", "unzip",
+		"gnutar", "gzip", "delta", "jujutsu", "gnumake", "unzip",
 		"diffutils", "patch", "difftastic", "dyff",
 		`writeTextDir "etc/gitconfig"`, "gitConfig",
 	} {

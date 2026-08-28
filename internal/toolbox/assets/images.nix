@@ -528,6 +528,14 @@ in
         gnutar
         gzip
         delta
+        # jj (Jujutsu): the git-compatible VCS agents increasingly reach for
+        # (`jj status`/`jj new`/`jj squash`, git-repo-backed). Same wall as
+        # git — a managed source's history lives on the HOST, so a colocated
+        # `jj` works only once the source opts in with git = "ro"/"rw"; a
+        # standalone `jj git init` (no --colocate) keeps its store under
+        # ./.jj/, which jj itself git-ignores, so it never leaks into the
+        # host worktree.
+        jujutsu
         gnumake
         unzip
         # comparison pack. `diff` is NOT part of coreutils, so a sandbox

@@ -75,7 +75,7 @@ jsonschema, bs4 — plus `uv` for anything else), node/npm, jdk+maven, redocly,
 the full POSIX/base userland (util-linux, psmisc, findutils, nettools,
 bzip2/xz/zstd/cpio/7z, wget, bc, socat, sqlite, strace, man pages, …),
 ripgrep/fd/jq/…, code tooling (ast-grep, ctags, tokei, bat, fzf, entr, ruff),
-diff/patch plus structural diffs (difftastic for code, dyff for YAML/JSON),
+diff/patch plus structural diffs (difftastic for code, dyff for YAML/JSON), jj (Jujutsu),
 tmux (auto-attached by `enter`), and **docker/podman for nested containers** —
 they run natively against the guest's own kernel, no opt-in and no engine
 socket from the host (pulls go through the egress allowlist, whose defaults
