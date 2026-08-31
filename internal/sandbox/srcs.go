@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"github.com/irasikhin/sandboxer/internal/config"
+	"github.com/irasikhin/sandboxer/internal/style"
 	"github.com/irasikhin/sandboxer/internal/worktree"
 )
 
@@ -182,7 +183,7 @@ func (b *Base) RefreshRemotes(slug string, w io.Writer) error {
 		}
 		if err := worktree.FetchCache(cacheDir, w); err != nil {
 			if w != nil {
-				fmt.Fprintf(w, "sandboxer: refresh %s failed: %v (keeping the cached copy)\n", worktree.RepoName(spec.Src), err)
+				style.Warnf(w, "refresh %s failed: %v (keeping the cached copy)", worktree.RepoName(spec.Src), err)
 			}
 			if firstErr == nil {
 				firstErr = err
@@ -589,7 +590,7 @@ func (b *Base) SyncSrcs(slug string, w io.Writer) ([]Source, error) {
 				// leave the worktree in place rather than set aside work that
 				// may well be the wanted branch's.
 				if w != nil {
-					fmt.Fprintf(w, "sandboxer: srcs %s: worktree is not on a branch (detached HEAD?) — left in place\n",
+					style.Warnf(w, "srcs %s: worktree is not on a branch (detached HEAD?) — left in place",
 						filepath.Base(p.RepoRoot))
 				}
 				continue
@@ -610,7 +611,7 @@ func (b *Base) SyncSrcs(slug string, w io.Writer) ([]Source, error) {
 				// (crossed repo/branch names, a dedup swap): set the tree aside
 				// instead — materializeSrc re-attaches it, work intact.
 				if w != nil {
-					fmt.Fprintf(w, "sandboxer: srcs %s: move to %s failed (%v) — setting the worktree aside instead\n",
+					style.Warnf(w, "srcs %s: move to %s failed (%v) — setting the worktree aside instead",
 						filepath.Base(p.RepoRoot), to, err)
 				}
 			}
@@ -692,7 +693,7 @@ func (b *Base) linkAdoptedSrc(s Source, w io.Writer) error {
 		return err
 	}
 	if w != nil {
-		fmt.Fprintf(w, "sandboxer: srcs %s: adopted checkout %s linked into the sandbox at %s\n",
+		style.Infof(w, "srcs %s: adopted checkout %s linked into the sandbox at %s",
 			filepath.Base(s.RepoRoot), s.Path, s.Link)
 	}
 	return nil
@@ -724,8 +725,8 @@ func warnAdoptedUnreachable(srcs []Source, w io.Writer) {
 		if s.Link == "" {
 			continue
 		}
-		fmt.Fprintf(w, "sandboxer: srcs %s: adopted — this sandbox is narrowed, so the sandbox root "+
-			"is not mounted and %s cannot be followed inside; the source is reachable at %s\n",
+		style.Infof(w, "srcs %s: adopted — this sandbox is narrowed, so the sandbox root "+
+			"is not mounted and %s cannot be followed inside; the source is reachable at %s",
 			filepath.Base(s.RepoRoot), s.Link, s.Path)
 	}
 }
@@ -770,8 +771,8 @@ func (b *Base) materializeSrc(slug string, s Source, w io.Writer) error {
 			}
 			_ = worktree.Prune(s.RepoRoot)
 			if w != nil {
-				fmt.Fprintf(w, "sandboxer: srcs %s: a foreign directory occupied the managed path — "+
-					"moved to %s (content kept); checking out %s fresh\n",
+				style.Warnf(w, "srcs %s: a foreign directory occupied the managed path — "+
+					"moved to %s (content kept); checking out %s fresh",
 					filepath.Base(s.RepoRoot), target, s.Branch)
 			}
 		}
@@ -791,7 +792,7 @@ func (b *Base) reattachSrc(from string, s Source, w io.Writer) error {
 	}
 	_ = os.Remove(filepath.Dir(from)) // tidy the _detached/ dir when now empty
 	if w != nil {
-		fmt.Fprintf(w, "sandboxer: srcs %s: worktree re-attached from %s (branch %s, work intact)\n",
+		style.Infof(w, "srcs %s: worktree re-attached from %s (branch %s, work intact)",
 			filepath.Base(s.RepoRoot), from, s.Branch)
 	}
 	_, err := worktree.Unsparse(s.Path, w)
@@ -813,7 +814,7 @@ func (b *Base) relocateSrc(slug string, s Source, to string, w io.Writer) error 
 	}
 	removeEmptyParents(s.Path, b.SandboxDir(slug))
 	if w != nil {
-		fmt.Fprintf(w, "sandboxer: srcs %s: worktree moved to %s (branch %s, work intact)\n",
+		style.Infof(w, "srcs %s: worktree moved to %s (branch %s, work intact)",
 			filepath.Base(s.RepoRoot), to, s.Branch)
 	}
 	return nil
@@ -940,7 +941,7 @@ func (b *Base) detachSrc(slug string, s Source, w io.Writer) error {
 		// exactly it; best-effort, the set-aside itself succeeded.
 		_ = worktree.Prune(s.RepoRoot)
 		if w != nil {
-			fmt.Fprintf(w, "sandboxer: source %s dropped — its directory moved to %s (not a git worktree)\n",
+			style.Warnf(w, "source %s dropped — its directory moved to %s (not a git worktree)",
 				name, target)
 		}
 		return nil
@@ -950,7 +951,7 @@ func (b *Base) detachSrc(slug string, s Source, w io.Writer) error {
 			return fmt.Errorf("remove dropped source %s: %w", name, err)
 		}
 		if w != nil {
-			fmt.Fprintf(w, "sandboxer: source %s dropped — clean worktree removed (branch %s kept)\n",
+			style.Infof(w, "source %s dropped — clean worktree removed (branch %s kept)",
 				name, s.Branch)
 		}
 		return nil
@@ -963,7 +964,7 @@ func (b *Base) detachSrc(slug string, s Source, w io.Writer) error {
 		return fmt.Errorf("set dropped source %s aside: %w", name, err)
 	}
 	if w != nil {
-		fmt.Fprintf(w, "sandboxer: source %s dropped — uncommitted work moved to %s (branch %s kept)\n",
+		style.Warnf(w, "source %s dropped — uncommitted work moved to %s (branch %s kept)",
 			name, target, s.Branch)
 	}
 	return nil
@@ -1047,7 +1048,7 @@ func (b *Base) ensureIgnored(root string, w io.Writer) error {
 		return fmt.Errorf("git-ignore the worktrees dir: %w", err)
 	}
 	if w != nil {
-		fmt.Fprintf(w, "sandboxer: added %s to %s (worktrees must never be committed)\n", entry, gi)
+		style.Infof(w, "added %s to %s (worktrees must never be committed)", entry, gi)
 	}
 	return nil
 }

@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"github.com/irasikhin/sandboxer/internal/execx"
+	"github.com/irasikhin/sandboxer/internal/style"
 )
 
 // The microVM session lifecycle over the pure planSession policy. The engine
@@ -203,21 +204,21 @@ func vmExecSession(o RunOpts, name string, cmdArgs []string) (int, error) {
 func vmRun(o RunOpts) int {
 	if err := msbPreflight(o); err != nil {
 		if o.Stderr != nil {
-			fmt.Fprintf(o.Stderr, "sandboxer: %v\n", err)
+			style.Errorf(o.Stderr, "%v", err)
 		}
 		return 1
 	}
 	imageRef, err := msbEnsureImage(o)
 	if err != nil {
 		if o.Stderr != nil {
-			fmt.Fprintf(o.Stderr, "sandboxer: %v\n", err)
+			style.Errorf(o.Stderr, "%v", err)
 		}
 		return 1
 	}
 	o.Image = imageRef
 	if err := stageProfileJSON(o); err != nil {
 		if o.Stderr != nil {
-			fmt.Fprintf(o.Stderr, "sandboxer: %v\n", err)
+			style.Errorf(o.Stderr, "%v", err)
 		}
 		return 1
 	}

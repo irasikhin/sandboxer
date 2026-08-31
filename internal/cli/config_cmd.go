@@ -9,6 +9,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/irasikhin/sandboxer/internal/config"
+	"github.com/irasikhin/sandboxer/internal/style"
 )
 
 func init() { register(newConfigCmd) }
@@ -58,7 +59,7 @@ func newConfigEditCmd() *cobra.Command {
 				if err := os.WriteFile(path, []byte(starterProfile(name, config.LoadDefaults())), 0o644); err != nil {
 					return err
 				}
-				fmt.Fprintf(cmd.ErrOrStderr(), "sandboxer: scaffolded %s\n", path)
+				style.Infof(cmd.ErrOrStderr(), "scaffolded %s", path)
 			}
 			return openInEditor(cmd, path)
 		},

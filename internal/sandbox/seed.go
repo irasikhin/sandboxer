@@ -2,13 +2,13 @@ package sandbox
 
 import (
 	"errors"
-	"fmt"
 	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
 
 	"github.com/irasikhin/sandboxer/internal/registry"
+	"github.com/irasikhin/sandboxer/internal/style"
 )
 
 // SeedHome copies the host's agent configs (the registry's seed paths —
@@ -47,10 +47,10 @@ func (b *Base) SeedHome(slug string, w io.Writer) {
 			}
 			n, err := seedMerge(src, dst, sp.Skip)
 			if err != nil && w != nil {
-				fmt.Fprintf(w, "sandboxer: seed ~/%s: %v (partially skipped)\n", sp.Path, err)
+				style.Warnf(w, "seed ~/%s: %v (partially skipped)", sp.Path, err)
 			}
 			if n > 0 && w != nil {
-				fmt.Fprintf(w, "sandboxer: %s: host ~/%s seeded into the sandbox home (%d new)\n", name, sp.Path, n)
+				style.Infof(w, "%s: host ~/%s seeded into the sandbox home (%d new)", name, sp.Path, n)
 			}
 		}
 	}

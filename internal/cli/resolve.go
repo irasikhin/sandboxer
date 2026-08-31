@@ -14,6 +14,7 @@ import (
 
 	"github.com/irasikhin/sandboxer/internal/config"
 	"github.com/irasikhin/sandboxer/internal/sandbox"
+	"github.com/irasikhin/sandboxer/internal/style"
 )
 
 // commonFlags are shared across commands that operate on an existing sandbox.
@@ -177,8 +178,8 @@ func legacyConfigHint(w io.Writer, root string) {
 		filepath.Join(root, config.LegacyConfigFileName),
 	} {
 		if fileExists(legacy) {
-			fmt.Fprintf(w, "sandboxer: found legacy %s — the config is a nix file now: translate it "+
-				"by hand to %s (same camelCase keys; several profiles = { profiles = {...}; default = \"...\"; })\n",
+			style.Warnf(w, "found legacy %s — the config is a nix file now: translate it "+
+				"by hand to %s (same camelCase keys; several profiles = { profiles = {...}; default = \"...\"; })",
 				legacy, config.ConfigPathIn(root))
 			return
 		}

@@ -6,6 +6,8 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+
+	"github.com/irasikhin/sandboxer/internal/style"
 )
 
 // PiSettingsPath is pi's global settings file, relative to the agent's home.
@@ -43,14 +45,14 @@ func (b *Base) EnsurePiPackages(slug string, w io.Writer) {
 	settings, err := readPiSettings(path)
 	if err != nil {
 		if w != nil {
-			fmt.Fprintf(w, "sandboxer: pi settings ~/%s not registered: %v\n", PiSettingsPath, err)
+			style.Errorf(w, "pi settings ~/%s not registered: %v", PiSettingsPath, err)
 		}
 		return
 	}
 	added, err := addPiPackages(settings, BakedPiPackages)
 	if err != nil {
 		if w != nil {
-			fmt.Fprintf(w, "sandboxer: pi settings ~/%s not registered: %v\n", PiSettingsPath, err)
+			style.Errorf(w, "pi settings ~/%s not registered: %v", PiSettingsPath, err)
 		}
 		return
 	}
@@ -59,13 +61,13 @@ func (b *Base) EnsurePiPackages(slug string, w io.Writer) {
 	}
 	if err := writePiSettings(path, settings); err != nil {
 		if w != nil {
-			fmt.Fprintf(w, "sandboxer: pi settings ~/%s not registered: %v\n", PiSettingsPath, err)
+			style.Errorf(w, "pi settings ~/%s not registered: %v", PiSettingsPath, err)
 		}
 		return
 	}
 	if w != nil {
 		for _, p := range added {
-			fmt.Fprintf(w, "sandboxer: pi: %s registered in the sandbox's pi settings\n", filepath.Base(p))
+			style.Infof(w, "pi: %s registered in the sandbox's pi settings", filepath.Base(p))
 		}
 	}
 }

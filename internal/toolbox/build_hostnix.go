@@ -7,6 +7,8 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+
+	"github.com/irasikhin/sandboxer/internal/style"
 )
 
 // The host-nix image build: the microVM backends realize the toolbox image by
@@ -88,8 +90,8 @@ func BuildImageHostNix(o BuildHostNixOpts) error {
 		return fmt.Errorf("assemble build context: %w", err)
 	}
 
-	fmt.Fprintf(progress, "sandboxer: building toolbox image with host nix "+
-		"(several minutes on first run)…\n")
+	style.Infof(progress, "building toolbox image with host nix "+
+		"(several minutes on first run)…")
 
 	build := exec.Command("nix", hostNixArgv(ctxDir, o.Spec)...)
 	// nix's progress goes to stderr; stdout carries only the printed store path.

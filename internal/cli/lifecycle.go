@@ -16,6 +16,7 @@ import (
 	"github.com/irasikhin/sandboxer/internal/config"
 	"github.com/irasikhin/sandboxer/internal/registry"
 	"github.com/irasikhin/sandboxer/internal/sandbox"
+	"github.com/irasikhin/sandboxer/internal/style"
 )
 
 // announceFreshState prints a one-time notice when this command initialised the
@@ -23,7 +24,7 @@ import (
 // surprise. The state lives outside the repo (config.StateDir).
 func announceFreshState(w io.Writer, fresh bool, root string) {
 	if fresh {
-		fmt.Fprintf(w, "sandboxer: initialized state in %s\n", config.StateDir(root))
+		style.Infof(w, "initialized state in %s", config.StateDir(root))
 	}
 }
 
@@ -94,13 +95,13 @@ func newCreateCmd() *cobra.Command {
 			}
 			prepareHome(t, rtCreate, cmd.ErrOrStderr())
 			warnIgnoredConfig(cmd.ErrOrStderr(), t.base.Src)
-			fmt.Fprintln(cmd.ErrOrStderr(), configLine(rtCreate, t.slug, t.profile, backendLabel(rtCreate)))
+			fmt.Fprintln(cmd.ErrOrStderr(), style.Wrap(cmd.ErrOrStderr(), configLine(rtCreate, t.slug, t.profile, backendLabel(rtCreate)), style.Bold))
 			// Same one-line-per-source report enter prints. create used to say
 			// only where to review each branch, which left the one thing worth
 			// knowing at create time — that a source was ADOPTED rather than
 			// given its own worktree — off the screen entirely.
 			for _, s := range t.base.Srcs(t.slug) {
-				fmt.Fprintf(cmd.ErrOrStderr(), "sandboxer: src %s\n", srcLine(s))
+				style.Infof(cmd.ErrOrStderr(), "src %s", srcLine(s))
 			}
 			warnOpenNetwork(cmd.ErrOrStderr(), rtCreate, t.profile)
 			warnMicrovmProxy(cmd.ErrOrStderr(), rtCreate)
@@ -183,7 +184,7 @@ disable with autoResume = false in the profile, or SANDBOXER_NO_RESUME=1.`,
 			dest := t.base.SandboxDir(t.slug)
 			createdDest := !fileExists(dest)
 			if createdDest {
-				fmt.Fprintf(narrate, "sandbox %q does not exist — creating\n", t.slug)
+				style.Infof(narrate, "sandbox %q does not exist — creating", t.slug)
 				if t.json != nil {
 					if err := t.base.WriteProfileJSON(t.slug, t.json); err != nil {
 						return err
@@ -218,11 +219,11 @@ disable with autoResume = false in the profile, or SANDBOXER_NO_RESUME=1.`,
 			}
 			persistent := rt.Session == config.SessionPersistent
 			errOut := cmd.ErrOrStderr()
-			fmt.Fprintln(narrate, configLine(rt, t.slug, t.profile, backendLabel(rt)))
+			fmt.Fprintln(narrate, style.Wrap(narrate, configLine(rt, t.slug, t.profile, backendLabel(rt)), style.Bold))
 			// Show what the sandbox actually exposes — one line per source repo,
 			// with its branch and where the worktree lives.
 			for _, s := range t.base.Srcs(t.slug) {
-				fmt.Fprintf(narrate, "sandboxer: src %s\n", srcLine(s))
+				style.Infof(narrate, "src %s", srcLine(s))
 			}
 			warnOpenNetwork(errOut, rt, t.profile)
 			warnMicrovmProxy(errOut, rt)
@@ -320,7 +321,7 @@ disable with autoResume = false in the profile, or SANDBOXER_NO_RESUME=1.`,
 						// Say which paths, once; then offer the rebuild rather
 						// than deciding for the user — but only to a user who is
 						// there to answer.
-						fmt.Fprintln(errOut, driftDetail)
+						fmt.Fprintln(errOut, style.Wrap(errOut, driftDetail, style.Yellow))
 						if backendIsTerminal(o.Stdin) && confirmRecreate(o.Stdin, errOut, t.slug) {
 							staleWhy, useSession = "", true
 						}
@@ -331,11 +332,11 @@ disable with autoResume = false in the profile, or SANDBOXER_NO_RESUME=1.`,
 			}
 			switch {
 			case staleWhy != "":
-				fmt.Fprintln(narrate, staleSessionEnterBanner(t.slug, engine, dest, name, staleWhy))
+				fmt.Fprintln(narrate, style.Banner(narrate, staleSessionEnterBanner(t.slug, engine, dest, name, staleWhy)))
 			case useSession:
-				fmt.Fprintln(narrate, persistentEnterBanner(t.slug, engine, dest, name))
+				fmt.Fprintln(narrate, style.Banner(narrate, persistentEnterBanner(t.slug, engine, dest, name)))
 			default:
-				fmt.Fprintln(narrate, oneShotEnterBanner(t.slug, engine, dest, oneShotWhy))
+				fmt.Fprintln(narrate, style.Banner(narrate, oneShotEnterBanner(t.slug, engine, dest, oneShotWhy)))
 			}
 			var code int
 			var runErr error
@@ -351,7 +352,7 @@ disable with autoResume = false in the profile, or SANDBOXER_NO_RESUME=1.`,
 				if _, err := backendEnsureSession(o); err != nil {
 					// EnsureSession's message IS the diagnostic (busy session, egress
 					// failure, …) — print it here; the tail then returns silently.
-					fmt.Fprintln(errOut, "sandboxer:", err)
+					style.Errorf(errOut, "%v", err)
 					runErr = err
 				} else {
 					verifyPorts(errOut, rt, t.slug, engine, name)
@@ -371,10 +372,10 @@ disable with autoResume = false in the profile, or SANDBOXER_NO_RESUME=1.`,
 				backendSyncSessionState(engine, name, o.SessionStatePath)
 			}
 			for _, s := range t.base.Srcs(t.slug) {
-				fmt.Fprintf(narrate, "sandboxer: %s: work is in %s — commit/review on the host: git -C %s log %s\n",
+				style.Infof(narrate, "%s: work is in %s — commit/review on the host: git -C %s log %s",
 					filepath.Base(s.RepoRoot), s.Path, s.RepoRoot, s.Branch)
 			}
-			fmt.Fprintf(narrate, "sandboxer: done in %s\n", dest)
+			style.Infof(narrate, "done in %s", dest)
 			if runErr != nil {
 				return silentErr{runErr}
 			}
@@ -455,7 +456,7 @@ composes with scripts and CI.`,
 			if err := config.ValidateSession(rt); err != nil {
 				return err
 			}
-			fmt.Fprintln(narrate, configLine(rt, t.slug, t.profile, backendLabel(rt)))
+			fmt.Fprintln(narrate, style.Wrap(narrate, configLine(rt, t.slug, t.profile, backendLabel(rt)), style.Bold))
 			warnOpenNetwork(cmd.ErrOrStderr(), rt, t.profile)
 			warnMicrovmProxy(cmd.ErrOrStderr(), rt)
 			reportPorts(cmd.ErrOrStderr(), rt)
@@ -512,11 +513,11 @@ composes with scripts and CI.`,
 						// exec has no terminal contract to ask on.
 						why, detail, drift := mountDriftWhy(o, info, mp.IDs)
 						if drift {
-							fmt.Fprintln(cmd.ErrOrStderr(), detail)
+							fmt.Fprintln(cmd.ErrOrStderr(), style.Wrap(cmd.ErrOrStderr(), detail, style.Yellow))
 						}
-						fmt.Fprintln(cmd.ErrOrStderr(), staleExecNotice(name, why, t.slug))
+						staleExecNotice(cmd.ErrOrStderr(), name, why, t.slug)
 					case !backend.ImageFresh(info.ImageID, backendImageID(engine, o.Image)):
-						fmt.Fprintln(cmd.ErrOrStderr(), staleExecNotice(name, "image rebuilt", t.slug))
+						staleExecNotice(cmd.ErrOrStderr(), name, "image rebuilt", t.slug)
 					default:
 						useSession = true
 					}
@@ -617,7 +618,7 @@ func warnMicrovmProxy(w io.Writer, rt config.Runtime) {
 	if rt.Proxy == "" || !rt.Egress {
 		return
 	}
-	fmt.Fprintln(w, "sandboxer: egress.proxy is set — direct traffic is walled by the VM allowlist, and "+
+	style.Warnf(w, "egress.proxy is set — direct traffic is walled by the VM allowlist, and "+
 		"the proxy is reachable on its one port. Traffic that RIDES the proxy is constrained by the "+
 		"proxy itself, not the VM — make sure it restricts egress to what you intend.")
 }
@@ -632,11 +633,11 @@ func warnOpenNetwork(w io.Writer, rt config.Runtime, prof *config.Profile) {
 	if !networkOpen(rt) {
 		return
 	}
-	msg := "sandboxer: WARNING — egress is unrestricted (no allowlist, no proxy); the agent can reach any host"
+	msg := "WARNING — egress is unrestricted (no allowlist, no proxy); the agent can reach any host"
 	if prof != nil && prof.HostConfigs {
 		msg += " — and hostConfigs is on, so seeded credentials could be exfiltrated"
 	}
-	fmt.Fprintln(w, msg)
+	style.Warnf(w, "%s", msg)
 }
 
 // reportPorts names every published forward, so the URL to open is on screen
@@ -645,11 +646,11 @@ func warnOpenNetwork(w io.Writer, rt config.Runtime, prof *config.Profile) {
 // the sandbox's isolation stops being about this machine only.
 func reportPorts(w io.Writer, rt config.Runtime) {
 	for _, p := range rt.Ports {
-		fmt.Fprintf(w, "sandboxer: port %s (open http://%s:%d/ once something listens on %d inside)\n",
+		style.Infof(w, "port %s (open http://%s:%d/ once something listens on %d inside)",
 			p, p.Bind, p.Host, p.Guest)
 		if p.Public() {
-			fmt.Fprintf(w, "sandboxer: WARNING — %s:%d is published on a NON-loopback address; "+
-				"anyone who can reach this host can reach the sandbox's port %d\n", p.Bind, p.Host, p.Guest)
+			style.Warnf(w, "WARNING — %s:%d is published on a NON-loopback address; "+
+				"anyone who can reach this host can reach the sandbox's port %d", p.Bind, p.Host, p.Guest)
 		}
 	}
 }
@@ -680,8 +681,8 @@ func verifyPorts(w io.Writer, rt config.Runtime, slug, engine, machine string) {
 	if len(missing) == 0 {
 		return
 	}
-	fmt.Fprintf(w, "sandboxer: WARNING — this machine does NOT publish %s: a forward is part of the create argv, "+
-		"so nothing listens on the host until the session is rebuilt (sandboxer stop %s && sandboxer enter %s)\n",
+	style.Warnf(w, "WARNING — this machine does NOT publish %s: a forward is part of the create argv, "+
+		"so nothing listens on the host until the session is rebuilt (sandboxer stop %s && sandboxer enter %s)",
 		strings.Join(missing, ", "), slug, slug)
 }
 
@@ -805,8 +806,8 @@ func staleSessionEnterBanner(slug, engine, dir, machine, why string) string {
 // wording ("re-enter to refresh it") promised more than enter delivers: a
 // session still holding a tmux session is attached, not rebuilt. Name both
 // ways it actually refreshes.
-func staleExecNotice(machine, why, slug string) string {
-	return fmt.Sprintf("sandboxer: session %s is stale (%s) — running one-shot; it refreshes on the next enter"+
+func staleExecNotice(w io.Writer, machine, why, slug string) {
+	style.Warnf(w, "session %s is stale (%s) — running one-shot; it refreshes on the next enter"+
 		" once that session is empty, or now: sandboxer stop %s && sandboxer enter %s",
 		machine, why, slug, slug)
 }
@@ -882,14 +883,14 @@ func runSetup(t *target, rt config.Runtime, engine string, noSetup bool, errOut 
 		return nil
 	}
 	if noSetup {
-		fmt.Fprintf(errOut, "sandboxer: skipping setup for %q (--no-setup)\n", t.slug)
+		style.Infof(errOut, "skipping setup for %q (--no-setup)", t.slug)
 		return nil
 	}
 	image, spec, rerr := resolveImage(t.profile, errOut)
 	if rerr != nil {
 		return rerr
 	}
-	fmt.Fprintf(errOut, "sandboxer: running setup for %q…\n", t.slug)
+	style.Infof(errOut, "running setup for %q…", t.slug)
 	mp, merr := t.mounts()
 	if merr != nil {
 		return merr

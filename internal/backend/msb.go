@@ -21,6 +21,7 @@ import (
 
 	"github.com/irasikhin/sandboxer/internal/config"
 	"github.com/irasikhin/sandboxer/internal/execx"
+	"github.com/irasikhin/sandboxer/internal/style"
 )
 
 // This file is the microVM dialect: microsandbox (`msb`) on libkrun (KVM on
@@ -865,7 +866,7 @@ func msbEnsureImage(o RunOpts) (string, error) {
 		// an msb without pull-on-create booted nothing until a manual pull.
 		if !msbImageExists(o.Image) {
 			if o.Stderr != nil {
-				fmt.Fprintf(o.Stderr, "sandboxer: pulling prebuilt image %s…\n", o.Image)
+				style.Infof(o.Stderr, "pulling prebuilt image %s…", o.Image)
 			}
 			// Retry a few times: a multi-GB pull on a flaky link dies on a
 			// single stream reset, and msb resumes partially-downloaded
@@ -878,7 +879,7 @@ func msbEnsureImage(o RunOpts) (string, error) {
 					break
 				}
 				if attempt < 3 && o.Stderr != nil {
-					fmt.Fprintf(o.Stderr, "sandboxer: pull interrupted (%v) — retrying (%d/3)…\n", err, attempt)
+					style.Warnf(o.Stderr, "pull interrupted (%v) — retrying (%d/3)…", err, attempt)
 				}
 			}
 			if err != nil {
@@ -898,8 +899,8 @@ func msbEnsureImage(o RunOpts) (string, error) {
 				"and is built locally (never published) — build it with:\n  %s", o.Image, hint)
 		}
 		if o.Stderr != nil {
-			fmt.Fprintf(o.Stderr, "sandboxer: toolbox image %q not found — building it now "+
-				"(one-time, several minutes; disable with SANDBOXER_NO_AUTOBUILD=1)…\n", o.Image)
+			style.Infof(o.Stderr, "toolbox image %q not found — building it now "+
+				"(one-time, several minutes; disable with SANDBOXER_NO_AUTOBUILD=1)…", o.Image)
 		}
 		if err := vmBuildImageToStore(o); err != nil {
 			return "", fmt.Errorf("%w — build manually with: %s", err, hint)
@@ -934,7 +935,7 @@ func msbLoadStoredImage(image string, stderr io.Writer) error {
 		return fmt.Errorf("toolbox image %q is missing from the image store after the build", image)
 	}
 	if stderr != nil {
-		fmt.Fprintf(stderr, "sandboxer: importing %s into the microsandbox image store…\n", image)
+		style.Infof(stderr, "importing %s into the microsandbox image store…", image)
 	}
 	src, cleanup, err := msbLoadableTar(tar)
 	if err != nil {

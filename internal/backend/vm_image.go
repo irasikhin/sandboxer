@@ -3,12 +3,12 @@ package backend
 import (
 	"crypto/sha256"
 	"encoding/hex"
-	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 
 	"github.com/irasikhin/sandboxer/internal/config"
+	"github.com/irasikhin/sandboxer/internal/style"
 	"github.com/irasikhin/sandboxer/internal/toolbox"
 )
 
@@ -149,8 +149,8 @@ var vmBuildImageToStore = func(o RunOpts) error {
 	out := filepath.Join(tmp, "image.tar")
 
 	if o.Stderr != nil {
-		fmt.Fprintf(o.Stderr, "sandboxer: building the toolbox image with host nix, "+
-			"then storing it for the microVM backend…\n")
+		style.Infof(o.Stderr, "building the toolbox image with host nix, "+
+			"then storing it for the microVM backend…")
 	}
 	if err := toolbox.BuildImageHostNix(toolbox.BuildHostNixOpts{
 		Spec: o.Spec, DestTar: out, Stderr: o.Stderr,
