@@ -6,6 +6,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.92.0] — 2026-08-31
+
+### Added
+
+- color the narration, warnings and errors (45081ea)
+
+### Docs
+
+- record the orchestrator/deepseek-flash division of labor (05d1c99)
+
+
 ## [0.91.0] — 2026-08-28
 
 ### Added
@@ -1391,3 +1402,4 @@ isolated, containerized dev sandbox, on a local Linux machine:
 [0.89.0]: https://github.com/irasikhin/sandboxer/compare/v0.88.4...v0.89.0
 [0.90.0]: https://github.com/irasikhin/sandboxer/compare/v0.89.0...v0.90.0
 [0.91.0]: https://github.com/irasikhin/sandboxer/compare/v0.90.0...v0.91.0
+[0.92.0]: https://github.com/irasikhin/sandboxer/compare/v0.91.0...v0.92.0
