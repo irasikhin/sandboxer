@@ -9,6 +9,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/irasikhin/sandboxer/internal/config"
+	"github.com/irasikhin/sandboxer/internal/style"
 )
 
 // newConfigInitCmd is the `init` verb of the `config` group (see
@@ -82,8 +83,8 @@ func maybeAutoScaffold(cmd *cobra.Command, f *commonFlags, pos string) error {
 	if err := os.WriteFile(path, []byte(starterProfile(name, config.LoadDefaults())), 0o644); err != nil {
 		return err
 	}
-	fmt.Fprintf(cmd.ErrOrStderr(),
-		"sandboxer: no %s — scaffolded a default (name=%s; edit it, or set SANDBOXER_NO_SCAFFOLD=1 to skip)\n", config.ConfigPath(), name)
+	style.Infof(cmd.ErrOrStderr(),
+		"no %s — scaffolded a default (name=%s; edit it, or set SANDBOXER_NO_SCAFFOLD=1 to skip)", config.ConfigPath(), name)
 	f.config = path
 	return nil
 }

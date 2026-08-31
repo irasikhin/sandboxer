@@ -7,6 +7,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/irasikhin/sandboxer/internal/sandbox"
+	"github.com/irasikhin/sandboxer/internal/style"
 	"github.com/irasikhin/sandboxer/internal/worktree"
 )
 
@@ -81,7 +82,7 @@ anything is reset, so one dirty source never leaves you half-reset.`,
 			var dirty, ahead []string
 			for _, s := range targets {
 				if !s.Managed {
-					fmt.Fprintf(errOut, "sandboxer: source %s skipped — adopted worktree, sandboxer does not reset it\n", s.Name())
+					style.Warnf(errOut, "source %s skipped — adopted worktree, sandboxer does not reset it", s.Name())
 					continue
 				}
 				if !noFetch {
@@ -122,7 +123,7 @@ anything is reset, so one dirty source never leaves you half-reset.`,
 					"(the old commits stay in the reflog)", strings.Join(ahead, ", "), base)
 			}
 			if len(managed) == 0 {
-				fmt.Fprintln(errOut, "sandboxer: nothing to reset (no managed sources)")
+				style.Infof(errOut, "nothing to reset (no managed sources)")
 				return nil
 			}
 

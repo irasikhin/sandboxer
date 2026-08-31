@@ -7,6 +7,8 @@ import (
 	"io"
 
 	"github.com/spf13/cobra"
+
+	"github.com/irasikhin/sandboxer/internal/style"
 )
 
 // Version is the binary version, injected from main (set via -ldflags at
@@ -35,7 +37,7 @@ func Run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		// wrapped silentErr is still recognized and not double-printed.
 		var se silentErr
 		if !errors.As(err, &se) {
-			fmt.Fprintln(stderr, "sandboxer:", err)
+			style.Errorf(stderr, "%v", err)
 		}
 		return 1
 	}
@@ -174,4 +176,6 @@ Tips:
     (each source repo gets its own worktree, on the branch you configured).
   • Outbound traffic is restricted to an egress allowlist
     (egress.allowedDomains / --allow-domains; disable with SANDBOXER_NO_EGRESS=1).
-  • Each create/enter/exec prints the resolved backend/egress/profile it used.`
+  • Each create/enter/exec prints the resolved backend/egress/profile it used.
+  • Output is colored when it lands on a terminal (warnings yellow, errors red);
+    pipe it or set NO_COLOR=1 to keep it plain.`

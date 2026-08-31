@@ -200,6 +200,9 @@ was extracted from:
 
 ## Working in this repo
 
+- **Division of labor (repo owner's working agreement): the orchestrating agent only builds plans,
+  sets tasks and checks the results — the implementation itself is done by the deepseek flash
+  subagent.**
 - Branch off `main`; land via PR; stage explicit paths, never `git add -A` (`flow-incremental-pr`,
   `proc-branch-pr-workflow`).
 - Green gate before commit: `gofmt` + `go vet` + `golangci-lint run` + `go test ./...` (`build-go-tooling`).

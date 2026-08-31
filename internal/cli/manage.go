@@ -14,6 +14,7 @@ import (
 	"github.com/irasikhin/sandboxer/internal/config"
 	"github.com/irasikhin/sandboxer/internal/registry"
 	"github.com/irasikhin/sandboxer/internal/sandbox"
+	"github.com/irasikhin/sandboxer/internal/style"
 )
 
 // Session-teardown seams beside backendRun (lifecycle.go), so rm/rm-all are
@@ -156,12 +157,12 @@ func removeSessionBestEffort(t *target, errOut io.Writer) []string {
 	// The enumeration is consulted only to tell a runner-less host apart from
 	// a host where nothing matched — the sweep itself walks the same list.
 	if engines := backendSweepEngines(config.LoadDefaults()); len(engines) == 0 {
-		fmt.Fprintln(errOut, "sandboxer: session cleanup skipped: no microVM runner (msb) found")
+		style.Warnf(errOut, "session cleanup skipped: no microVM runner (msb) found")
 		return nil
 	}
 	removed, err := backendRemoveSessionAnywhere(t.slug, t.base.Dir, config.LoadDefaults())
 	if err != nil {
-		fmt.Fprintf(errOut, "sandboxer: session cleanup failed: %v\n", err)
+		style.Errorf(errOut, "session cleanup failed: %v", err)
 	}
 	return removed
 }

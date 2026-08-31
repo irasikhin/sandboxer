@@ -11,6 +11,8 @@ import (
 	"regexp"
 	"strings"
 	"time"
+
+	"github.com/irasikhin/sandboxer/internal/style"
 )
 
 // Pin is one stamped flake-input resolution: the remote ref a "latest" rev
@@ -147,7 +149,7 @@ func ResolveLatest(stderr io.Writer) (Pins, error) {
 		stderr = io.Discard
 	}
 	inputs := pinInputs()
-	fmt.Fprintf(stderr, "sandboxer: resolving latest flake-input revs via host git…\n")
+	style.Infof(stderr, "resolving latest flake-input revs via host git…")
 	revs, err := resolveRevsHostGit(inputs)
 	if err != nil {
 		return nil, err

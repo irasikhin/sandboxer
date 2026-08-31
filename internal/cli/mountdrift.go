@@ -7,6 +7,7 @@ import (
 
 	"github.com/irasikhin/sandboxer/internal/backend"
 	"github.com/irasikhin/sandboxer/internal/sandbox"
+	"github.com/irasikhin/sandboxer/internal/style"
 )
 
 // mountDriftWhy explains why a running session's config hash no longer matches,
@@ -65,8 +66,8 @@ func mountDriftWhy(o backend.RunOpts, info backend.SessionInfo, currentIDs strin
 // this is never asked when stdin is not a terminal — a scripted enter must
 // never block on a question nobody is there to read.
 func confirmRecreate(in io.Reader, out io.Writer, slug string) bool {
-	fmt.Fprintf(out, "sandboxer: this session's mounts point at directories the host has replaced — what runs in there sees the old ones.\n")
-	fmt.Fprintf(out, "sandboxer: rebuilding fixes that; your windows and layout are saved and restored, but the running program in each pane is interrupted (an agent resumes with --continue; work in %s is on the host).\n", slug)
+	style.Warnf(out, "this session's mounts point at directories the host has replaced — what runs in there sees the old ones.")
+	style.Warnf(out, "rebuilding fixes that; your windows and layout are saved and restored, but the running program in each pane is interrupted (an agent resumes with --continue; work in %s is on the host).", slug)
 	fmt.Fprint(out, "Rebuild the session now? [y/N] ")
 	line, err := readLine(in)
 	if err != nil {

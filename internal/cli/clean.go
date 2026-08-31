@@ -9,6 +9,7 @@ import (
 
 	"github.com/irasikhin/sandboxer/internal/config"
 	"github.com/irasikhin/sandboxer/internal/sandbox"
+	"github.com/irasikhin/sandboxer/internal/style"
 	"github.com/irasikhin/sandboxer/internal/worktree"
 )
 
@@ -59,7 +60,7 @@ to remove a single sandbox instead.`,
 					return oerr
 				}
 				if b == nil {
-					fmt.Fprintln(cmd.ErrOrStderr(), "sandboxer: nothing set aside — no sandboxer state here")
+					style.Infof(cmd.ErrOrStderr(), "nothing set aside — no sandboxer state here")
 					return nil
 				}
 				removed, cerr := b.CleanDetached()
@@ -70,7 +71,7 @@ to remove a single sandbox instead.`,
 					return cerr
 				}
 				if len(removed) == 0 {
-					fmt.Fprintln(cmd.ErrOrStderr(), "sandboxer: nothing set aside — _detached/ is empty")
+					style.Infof(cmd.ErrOrStderr(), "nothing set aside — _detached/ is empty")
 				}
 				return nil
 			}
@@ -108,12 +109,11 @@ to remove a single sandbox instead.`,
 			}
 			engines := backendSweepEngines(config.LoadDefaults())
 			if len(engines) == 0 {
-				fmt.Fprintln(cmd.ErrOrStderr(),
-					"sandboxer: session cleanup skipped: no microVM runner (msb) found")
+				style.Warnf(cmd.ErrOrStderr(), "session cleanup skipped: no microVM runner (msb) found")
 			}
 			for _, engine := range engines {
 				if err := backendRemoveAllSessions(engine, dir); err != nil {
-					fmt.Fprintf(cmd.ErrOrStderr(), "sandboxer: session cleanup failed: %v\n", err)
+					style.Errorf(cmd.ErrOrStderr(), "session cleanup failed: %v", err)
 				}
 			}
 			if err := os.RemoveAll(dir); err != nil {

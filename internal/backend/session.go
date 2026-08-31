@@ -4,12 +4,12 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
-	"fmt"
 	"io"
 	"os/exec"
 	"strings"
 
 	"github.com/irasikhin/sandboxer/internal/config"
+	"github.com/irasikhin/sandboxer/internal/style"
 )
 
 // Labels stamped on persistent sessions so they can be identified through the
@@ -245,6 +245,6 @@ func OrphanSessions(_ string) ([]string, error) {
 // notice prints a one-line lifecycle notice to the user's stderr (nil-safe).
 func notice(w io.Writer, msg string) {
 	if w != nil {
-		fmt.Fprintf(w, "sandboxer: %s\n", msg)
+		style.Infof(w, "%s", msg)
 	}
 }

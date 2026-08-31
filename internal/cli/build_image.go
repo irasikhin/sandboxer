@@ -7,6 +7,7 @@ import (
 
 	"github.com/irasikhin/sandboxer/internal/backend"
 	"github.com/irasikhin/sandboxer/internal/config"
+	"github.com/irasikhin/sandboxer/internal/style"
 	"github.com/irasikhin/sandboxer/internal/toolbox"
 )
 
@@ -94,8 +95,8 @@ stock image profile-less sandboxes use.`,
 			if !stock {
 				image = spec.Tag()
 			}
-			fmt.Fprintf(cmd.ErrOrStderr(), "sandboxer: building toolbox image %q with host nix "+
-				"(several minutes on first run)…\n", image)
+			style.Infof(cmd.ErrOrStderr(), "building toolbox image %q with host nix "+
+				"(several minutes on first run)…", image)
 			if err := backendBuildVMImage(engine, image, spec, cmd.ErrOrStderr()); err != nil {
 				return err
 			}
@@ -103,8 +104,8 @@ stock image profile-less sandboxes use.`,
 			// selects by default — say so instead of letting the user believe
 			// the stock image their sandboxes run was just updated.
 			if prof == nil && !stock {
-				fmt.Fprintf(cmd.ErrOrStderr(), "sandboxer: note: built variant %s — the stock %s was "+
-					"not rebuilt; only a profile pinning the same revs uses this image\n", image, d.Image)
+				style.Warnf(cmd.ErrOrStderr(), "note: built variant %s — the stock %s was "+
+					"not rebuilt; only a profile pinning the same revs uses this image", image, d.Image)
 			}
 			return nil
 		},

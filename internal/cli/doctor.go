@@ -18,6 +18,7 @@ import (
 	"github.com/irasikhin/sandboxer/internal/backend"
 	"github.com/irasikhin/sandboxer/internal/config"
 	"github.com/irasikhin/sandboxer/internal/registry"
+	"github.com/irasikhin/sandboxer/internal/style"
 )
 
 func init() { register(newDoctorCmd) }
@@ -42,7 +43,7 @@ func warnIgnoredConfig(w io.Writer, root string) {
 	if !fileExists(filepath.Join(root, rel)) || !gitCheckIgnore(root, rel) {
 		return
 	}
-	fmt.Fprintf(w, "sandboxer: %s is ignored by your repo's gitignore — drop that rule so the config can be committed (runtime state lives outside the repo)\n",
+	style.Warnf(w, "%s is ignored by your repo's gitignore — drop that rule so the config can be committed (runtime state lives outside the repo)",
 		rel)
 }
 
