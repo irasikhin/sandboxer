@@ -12,11 +12,12 @@ func TestLoadDefaultsFromEnv(t *testing.T) {
 	t.Setenv("SANDBOXER_IMAGE", "img:1")
 	t.Setenv("SANDBOXER_MEM", "2G")
 	t.Setenv("SANDBOXER_CPU", "50%")
+	t.Setenv("SANDBOXER_DISK", "20G")
 
 	d := LoadDefaults()
 	if d.Backend != "custom-backend" || d.Domains != "a.com" ||
 		d.Image != "img:1" ||
-		d.Mem != "2G" || d.CPU != "50%" {
+		d.Mem != "2G" || d.CPU != "50%" || d.Disk != "20G" {
 		t.Errorf("LoadDefaults from env = %+v", d)
 	}
 }
@@ -24,7 +25,7 @@ func TestLoadDefaultsFromEnv(t *testing.T) {
 func TestLoadDefaultsBare(t *testing.T) {
 	for _, k := range []string{
 		"SANDBOXER_BACKEND", "SANDBOXER_DOMAINS",
-		"SANDBOXER_IMAGE", "SANDBOXER_MEM", "SANDBOXER_CPU",
+		"SANDBOXER_IMAGE", "SANDBOXER_MEM", "SANDBOXER_CPU", "SANDBOXER_DISK",
 	} {
 		t.Setenv(k, "")
 	}

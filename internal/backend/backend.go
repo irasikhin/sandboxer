@@ -113,6 +113,7 @@ type RunOpts struct {
 	NoEgress        bool   // SANDBOXER_NO_EGRESS
 	Mem             string // memory cap (e.g. 2G); empty = the microVM default
 	CPU             string // CPU cap (accepts a float or systemd "100%")
+	Disk            string // root-disk size (e.g. 20G); empty = the microVM default
 	Args            []string
 	Stdin           io.Reader
 	Stdout          io.Writer

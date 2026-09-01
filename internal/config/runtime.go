@@ -21,11 +21,12 @@ type Runtime struct {
 	Backend string
 	Session string // SessionPersistent or SessionEphemeral (resolved; never empty)
 	Egress  bool
-	// Resource caps sizing the machine. Mem/CPU resolve profile-over-env
-	// (limits: over SANDBOXER_MEM/SANDBOXER_CPU); empty means the microVM
-	// default size.
-	Mem string
-	CPU string
+	// Resource caps sizing the machine. Mem/CPU/Disk resolve profile-over-env
+	// (limits: over SANDBOXER_MEM/SANDBOXER_CPU/SANDBOXER_DISK); empty means
+	// the microVM default size.
+	Mem  string
+	CPU  string
+	Disk string
 	// AutoResume relaunches recorded agents when a saved session layout is
 	// restored (profile autoResume, killed by SANDBOXER_NO_RESUME=1). Not part
 	// of the create argv, so it never affects the session ConfigHash.
@@ -150,9 +151,10 @@ func ResolveRuntime(p *Profile, d Defaults, baseDomains string, f Overrides) (Ru
 	rt.PiPackages = !d.NoPiPackages && p.PiPackagesEnabled()
 
 	// Resource caps: a profile's limits: overrides the SANDBOXER_MEM/SANDBOXER_CPU
-	// env defaults.
+	// /SANDBOXER_DISK env defaults.
 	rt.Mem = firstNonEmpty(p.Limits.Memory, d.Mem)
 	rt.CPU = firstNonEmpty(p.Limits.CPUs, d.CPU)
+	rt.Disk = firstNonEmpty(p.Limits.Disk, d.Disk)
 	return rt, nil
 }
 
