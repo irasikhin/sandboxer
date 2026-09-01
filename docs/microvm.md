@@ -222,16 +222,19 @@ Rejected — with the reason — under `backend = "microsandbox"`:
 - `egress.routes`, `limits.pids`, `nestedContainers` — retired config keys
   from the container era; each fails the strict decode with a migration hint
   saying what replaced it.
-- a **fractional** `limits.cpus`, or an **unparseable** `limits.memory` —
-  error: the runner takes a whole number of vCPUs and a parseable size, and a
-  silent rounding / 4 GiB fallback is worse than a clear message.
+- a **fractional** `limits.cpus`, an **unparseable** `limits.memory`, or an
+  **unparseable** `limits.disk` (whole MiB count or M/G suffix, e.g. 20G) —
+  error: the runner takes a whole number of vCPUs and parseable sizes, and a
+  silent rounding / default-size fallback is worse than a clear message.
 - an `extraMounts` whose `source` is a regular **file** — error: virtio-fs
   shares directory trees only, so a docker-style single-file bind mount has no
   share analogue; mount a directory that holds the file instead.
 - shares under `/tmp`, and a too-deep `MSB_HOME` — see Requirements.
 
-Default machine size is **2 vCPU / 4 GiB** (deliberately modest — the workload
-is several agents in parallel); raise it with `limits.memory` / `limits.cpus`.
+Default machine size is **2 vCPU / 4 GiB / 20 GiB root disk** (deliberately
+modest — the workload is several agents in parallel, and the root disk is a
+sparse image, so the larger default costs almost nothing until the guest
+writes); raise it with `limits.memory` / `limits.cpus` / `limits.disk`.
 
 ## Migration status
 

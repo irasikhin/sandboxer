@@ -59,7 +59,9 @@ was extracted from:
   The docker/podman container backend and the smolvm `microvm` runner were REMOVED (retired values get
   migration errors in `ValidateBackend`; the `vmRunner` seam went with them). Layout: `msb.go` = the argv
   dialect (pure builders, golden-tested without a hypervisor: create/exec/run, `msbNetworkArgs`,
-  `--secret`/auth-env, preflights — /tmp shares, file mounts, fractional limits) + the msb image-store handoff;
+  `--secret`/auth-env, preflights — /tmp shares, file mounts, fractional/unparseable limits — with the
+  machine size `-m`/`-c`/`--root-disk` (default 20G root disk via `limits.disk`/`SANDBOXER_DISK`) part
+  of the hashed argv) + the msb image-store handoff;
   `vm_session.go` = the lifecycle over the pure `planSession` policy + sweeps; `vm_state.go` = the host-side
   records at `<state>/machines/microsandbox/<name>.json` (SOURCE OF TRUTH; msb labels are discoverability only,
   and the subdir name is load-bearing — old machines must still be found); `vm_image.go` = the build-tar store
