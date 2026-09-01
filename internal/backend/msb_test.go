@@ -44,6 +44,7 @@ func TestMSBCreateArgv(t *testing.T) {
 		"-e", "TESTCONTAINERS_RYUK_DISABLED=true",
 		"-e", "HOME=/d/.home", "-v", "/d/.home:/d/.home",
 		"-m", "2048M", "-c", "2",
+		"--root-disk", "20G",
 		"img:1",
 	}
 	if !slices.Equal(got, want) {
@@ -51,6 +52,22 @@ func TestMSBCreateArgv(t *testing.T) {
 	}
 	if j := strings.Join(got, " "); strings.Contains(j, "CLAUDE_CODE_OAUTH_TOKEN") {
 		t.Errorf("create argv leaks a credential: %q", j)
+	}
+}
+
+// TestMSBCreateArgvDisk pins the root-disk knob: RunOpts.Disk (limits.disk /
+// SANDBOXER_DISK) feeds msb's --root-disk in place of the 20G default.
+func TestMSBCreateArgvDisk(t *testing.T) {
+	o := RunOpts{
+		MountDest: true, Image: "img:1", Dest: "/d", Slug: "s", Disk: "40G",
+		Stdin: strings.NewReader(""), Stdout: &bytes.Buffer{},
+	}
+	got := msbCreateArgv(o, "n", "h")
+	if i := slices.Index(got, "--root-disk"); i < 0 || i+1 >= len(got) || got[i+1] != "40G" {
+		t.Errorf("msbCreateArgv with Disk=40G = %q, want --root-disk 40G", got)
+	}
+	if strings.Contains(strings.Join(got, " "), "--root-disk 20G") {
+		t.Errorf("Disk=40G must not carry the default root disk: %q", got)
 	}
 }
 
@@ -328,6 +345,10 @@ func TestMSBRunArgv(t *testing.T) {
 	tail := got[len(got)-5:]
 	if !slices.Equal(tail, []string{"img:1", "--", "sh", "-c", "true"}) {
 		t.Errorf("run argv tail = %q", tail)
+	}
+	// The one-shot run shares msbCommonArgs, so it carries the root disk too.
+	if j := strings.Join(got, " "); !strings.Contains(j, "--root-disk 20G") {
+		t.Errorf("run argv missing the default root disk: %q", got)
 	}
 }
 

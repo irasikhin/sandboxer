@@ -204,8 +204,8 @@ func starterProfile(name string, d config.Defaults) string {
   # (node, python, go, rust, java, …):
   # tools = [ "node" "python" ];
 
-  # Resource caps (empty = the microVM default size): memory/cpus.
-  # limits = { memory = "4G"; cpus = "2"; };
+  # Resource caps (empty = the microVM default size): memory/cpus/disk.
+  # limits = { memory = "4G"; cpus = "2"; disk = "20G"; };
 
   # A PREBUILT image for this profile (optional) — a pinned release of the
   # stock toolbox, or your own published image; pulled and cached on first

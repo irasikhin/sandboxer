@@ -61,8 +61,9 @@ under `/tmp` — move it anywhere else.
 
 Related refusals with the reason in the message: an `extraMounts` whose
 `source` is a regular **file** (virtio-fs shares directories only — mount the
-directory that holds it), a **fractional** `limits.cpus`, and an unparseable
-`limits.memory`.
+directory that holds it), a **fractional** `limits.cpus`, an unparseable
+`limits.memory`, and an unparseable `limits.disk` (whole MiB count or M/G
+suffix, e.g. 20G).
 
 ## An agent can't reach a host
 
@@ -263,7 +264,12 @@ per source — checkouts whose object stores are shared with their repos, not
 duplicated — plus a small private `_home/<slug>`. The big cost is shared, not
 per-sandbox: the toolbox image exists once in msb's store (pulled prebuilt —
 plus, for locally built images, once as a build tar in `<state>/images/`),
-reused by every sandbox; `sandboxer image rm` reclaims both.
+reused by every sandbox; `sandboxer image rm` reclaims both. The guest's own
+root disk is 20 GiB by default (sparse — it takes host space only as the
+guest writes; msb's default is 4 GiB, which in-guest image pulls exceed);
+raise or lower it with `limits.disk` / `SANDBOXER_DISK`. Note that it is
+recreated with the machine (any config change), so keep durable data in the
+mounted sources/home, which are host disk.
 
 **How do I debug inside a sandbox?** `sandboxer exec <slug> -- <cmd>` runs a
 one-off command in it; `sandboxer enter <slug>` drops you into an interactive

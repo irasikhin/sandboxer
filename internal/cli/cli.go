@@ -165,7 +165,7 @@ Credentials never come from the host — log in or export keys inside the
 sandbox.
 
 Config: flags + SANDBOXER_* env, plus sandboxer.nix for the structured fields
-(srcs, extraMounts, env, setup, tools, image — evaluated with a restricted nix
+(srcs, extraMounts, env, setup, tools, image, limits — evaluated with a restricted nix
 eval; nix on the host is required). One profile per file, or several under a
 profiles attrset (pick a section with 'create <name>'); reuse between profiles
 is ordinary nix (let/functions).

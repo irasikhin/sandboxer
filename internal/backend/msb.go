@@ -157,9 +157,10 @@ func msbRunArgv(o RunOpts) []string {
 }
 
 // msbCommonArgs assembles the machine flags shared by create and run: workdir,
-// the identity-mapped host shares, the identity env, the machine size and the
-// network policy. Credentials are NOT here — they travel per exec/run, and in
-// --secret mode only as a reference (msbSecretArgs).
+// the identity-mapped host shares, the identity env, the machine size (memory,
+// vCPUs and the root disk) and the network policy. Credentials are NOT here —
+// they travel per exec/run, and in --secret mode only as a reference
+// (msbSecretArgs).
 func msbCommonArgs(o RunOpts) []string {
 	args := []string{"-w", o.Dest}
 	// The whole sandbox root as one share when nothing narrows it — a srcs edit
@@ -200,6 +201,7 @@ func msbCommonArgs(o RunOpts) []string {
 		args = append(args, "-v", msbVolume(m))
 	}
 	args = append(args, "-m", vmMemMiB(o.Mem)+"M", "-c", vmCPUs(o.CPU))
+	args = append(args, "--root-disk", vmRootDisk(o.Disk))
 	args = append(args, msbPortArgs(o)...)
 	args = append(args, msbNetworkArgs(o)...)
 	args = append(args, msbSecretArgs(o)...)
@@ -600,10 +602,11 @@ func vmPortsPreflight(o RunOpts) error {
 }
 
 // vmLimitsPreflight rejects a resource limit the microVM cannot honor, before
-// the silent conversions in vmMemMiB/vmCPUs paper over it: a fractional CPU
-// count (the runner accepts only a whole number of vCPUs, and rounding up
-// changes what the user asked for) and an unparseable memory cap (silently
-// becoming 4 GiB is worse than an error).
+// the silent conversions in vmMemMiB/vmCPUs/vmRootDisk paper over it: a
+// fractional CPU count (the runner accepts only a whole number of vCPUs, and
+// rounding up changes what the user asked for), an unparseable memory cap
+// (silently becoming 4 GiB is worse than an error) and an unparseable
+// root-disk size (silently becoming 20G is worse than an error).
 func vmLimitsPreflight(o RunOpts) error {
 	if cpus := cpusFromQuota(o.CPU); cpus != "" {
 		n, err := strconv.ParseFloat(cpus, 64)
@@ -621,6 +624,12 @@ func vmLimitsPreflight(o RunOpts) error {
 			return fmt.Errorf("limits.memory %q is not a valid memory size (e.g. 2G, 512M)", o.Mem)
 		}
 	}
+	if o.Disk != "" {
+		if _, ok := parseRootDisk(o.Disk); !ok {
+			return fmt.Errorf("limits.disk %q is not a valid root-disk size — the microsandbox backend "+
+				"takes a whole MiB count or an M/G-suffixed size (e.g. 20G)", o.Disk)
+		}
+	}
 	return nil
 }
 
@@ -633,6 +642,14 @@ const (
 	vmDefaultMemMiB = "4096"
 	vmDefaultCPUs   = "2"
 )
+
+// vmDefaultRootDisk is the root-disk size every machine gets when the profile
+// sets no limit. The workload — agents pulling images, building in the guest —
+// easily exceeds microsandbox's 4G default, and the root disk is a SPARSE ext4
+// image (upper.ext4), so a large default costs almost nothing until the guest
+// actually writes. A profile lowers or raises it via `limits.disk` /
+// SANDBOXER_DISK.
+const vmDefaultRootDisk = "20G"
 
 // parseMemMiB is vmMemMiB's core: the MiB value of a container-style memory cap
 // ("2G", "512M", a raw byte count), with ok=false for anything unparseable.
@@ -663,6 +680,50 @@ func parseMemMiB(s string) (int, bool) {
 		mib = 1
 	}
 	return mib, true
+}
+
+// parseRootDisk is vmRootDisk's core: msb's root-disk grammar — digits, then an
+// optional single M/G suffix (case-insensitive), a bare count being MiB —
+// normalized for the flag ("8g" → "8G"), with ok=false for anything msb would
+// reject ("1T", "8GB", "0G", "garbage", "tmpfs:2G"). Zero is invalid.
+func parseRootDisk(s string) (string, bool) {
+	if s == "" {
+		return "", false
+	}
+	num, mult := s, ""
+	switch s[len(s)-1] {
+	case 'm', 'M':
+		mult, num = "M", s[:len(s)-1]
+	case 'g', 'G':
+		mult, num = "G", s[:len(s)-1]
+	}
+	if num == "" {
+		return "", false
+	}
+	for _, c := range num {
+		if c < '0' || c > '9' {
+			return "", false
+		}
+	}
+	n, err := strconv.ParseUint(num, 10, 64)
+	if err != nil || n == 0 {
+		return "", false
+	}
+	return num + mult, true
+}
+
+// vmRootDisk converts a root-disk size ("20G", "512M", a whole MiB count,
+// "") into the value msb's --root-disk takes, applying the microVM default
+// when unset. A value that does not parse falls back to the default rather
+// than emitting a bad flag (vmLimitsPreflight rejects such a value up front).
+func vmRootDisk(s string) string {
+	if s == "" {
+		return vmDefaultRootDisk
+	}
+	if v, ok := parseRootDisk(s); ok {
+		return v
+	}
+	return vmDefaultRootDisk
 }
 
 // vmMemMiB converts a container-style memory cap ("2G", "512M", a raw byte

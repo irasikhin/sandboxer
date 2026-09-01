@@ -73,26 +73,26 @@ func TestResolveRuntimePrecedence(t *testing.T) {
 }
 
 // TestResolveRuntimeLimits pins the resource-cap resolution: a profile's
-// limits: overrides the SANDBOXER_MEM/SANDBOXER_CPU env defaults, and
-// memory/cpus fall back to those defaults when the profile is silent.
+// limits: overrides the SANDBOXER_MEM/SANDBOXER_CPU/SANDBOXER_DISK env defaults,
+// and memory/cpus/disk fall back to those defaults when the profile is silent.
 func TestResolveRuntimeLimits(t *testing.T) {
 	// Profile limits win over the env defaults.
-	p := &Profile{Limits: Limits{Memory: "4G", CPUs: "2"}}
-	rt, err := ResolveRuntime(p, Defaults{Mem: "1G", CPU: "1"}, "base.com", Overrides{})
+	p := &Profile{Limits: Limits{Memory: "4G", CPUs: "2", Disk: "20G"}}
+	rt, err := ResolveRuntime(p, Defaults{Mem: "1G", CPU: "1", Disk: "10G"}, "base.com", Overrides{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if rt.Mem != "4G" || rt.CPU != "2" {
-		t.Errorf("profile limits should win: mem=%q cpu=%q", rt.Mem, rt.CPU)
+	if rt.Mem != "4G" || rt.CPU != "2" || rt.Disk != "20G" {
+		t.Errorf("profile limits should win: mem=%q cpu=%q disk=%q", rt.Mem, rt.CPU, rt.Disk)
 	}
 
 	// No profile limits → the env defaults apply.
-	rt2, err := ResolveRuntime(&Profile{}, Defaults{Mem: "1G", CPU: "1"}, "base.com", Overrides{})
+	rt2, err := ResolveRuntime(&Profile{}, Defaults{Mem: "1G", CPU: "1", Disk: "10G"}, "base.com", Overrides{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if rt2.Mem != "1G" || rt2.CPU != "1" {
-		t.Errorf("env limits should apply: mem=%q cpu=%q", rt2.Mem, rt2.CPU)
+	if rt2.Mem != "1G" || rt2.CPU != "1" || rt2.Disk != "10G" {
+		t.Errorf("env limits should apply: mem=%q cpu=%q disk=%q", rt2.Mem, rt2.CPU, rt2.Disk)
 	}
 }
 

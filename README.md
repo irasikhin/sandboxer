@@ -300,15 +300,20 @@ Scalars come from **flags** and `SANDBOXER_*` env vars:
 | skip auto-scaffold | — | `SANDBOXER_NO_SCAFFOLD=1` (create/enter writes a default `sandboxer.nix` otherwise) |
 | msb binary | — | `SANDBOXER_MSB` (default: `msb` from `PATH`) |
 | image | — | `SANDBOXER_IMAGE` (default `ghcr.io/irasikhin/sandboxer-toolbox:latest`, prebuilt) |
-| resource caps | — | `SANDBOXER_MEM` / `SANDBOXER_CPU` (or the profile's `limits:` — see below) |
+| resource caps | — | `SANDBOXER_MEM` / `SANDBOXER_CPU` / `SANDBOXER_DISK` (or the profile's `limits:` — see below) |
 
 The sandbox machine's resource caps come from the profile's `limits:` block
-(`memory`, `cpus`), overriding the `SANDBOXER_MEM`/`SANDBOXER_CPU` env
-defaults. A microVM must be given a size, so empty means the deliberately
-modest default — **2 vCPU / 4 GiB** (several agents run in parallel); raise it
-per profile. `cpus` takes a whole vCPU count (or a systemd-style quota like
-`200%`); a fractional count or an unparseable memory size is rejected up
-front rather than silently rounded.
+(`memory`, `cpus`, `disk`), overriding the `SANDBOXER_MEM`/`SANDBOXER_CPU`/
+`SANDBOXER_DISK` env defaults. A microVM must be given a size, so empty means
+the deliberately modest default — **2 vCPU / 4 GiB / 20 GiB root disk**
+(several agents run in parallel); raise it per profile. `cpus` takes a whole
+vCPU count (or a systemd-style quota like `200%`); a fractional count or an
+unparseable memory size is rejected up front rather than silently rounded.
+The root disk defaults to 20 GiB because agents pull images and build in the
+guest, easily exceeding the backend's 4 GiB; it is a sparse image, so the
+larger default costs almost nothing until actually written; `disk` takes a
+whole MiB count or an M/G-suffixed size (e.g. 20G), anything else is rejected
+up front.
 
 Structured fields (`srcs`, `extraMounts`, `env`, `ports`, `setup`, `tools`, `image`, `limits`) live in an **optional**
 `sandboxer.nix`. With nothing given, the `sandboxer.nix` in the cwd is
