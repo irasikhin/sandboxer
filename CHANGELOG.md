@@ -6,6 +6,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.93.0] — 2026-09-01
+
+### Added
+
+- add limits.disk resource cap (SANDBOXER_DISK env) (8dd64a4)
+- size the microVM root disk via --root-disk (default 20G) (3413063)
+
+### Docs
+
+- document limits.disk / --root-disk (20G sparse default) (07b2913)
+
+
 ## [0.92.0] — 2026-08-31
 
 ### Added
@@ -1403,3 +1415,4 @@ isolated, containerized dev sandbox, on a local Linux machine:
 [0.90.0]: https://github.com/irasikhin/sandboxer/compare/v0.89.0...v0.90.0
 [0.91.0]: https://github.com/irasikhin/sandboxer/compare/v0.90.0...v0.91.0
 [0.92.0]: https://github.com/irasikhin/sandboxer/compare/v0.91.0...v0.92.0
+[0.93.0]: https://github.com/irasikhin/sandboxer/compare/v0.92.0...v0.93.0
