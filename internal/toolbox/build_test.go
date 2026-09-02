@@ -57,6 +57,19 @@ func TestWriteContext(t *testing.T) {
 	// bind overlay the script injects — so the context copies whatever the
 	// package dir holds rather than a hand-listed pair.
 	files = append(files, "dsh/dsh-launch.sh", "dsh/web-bind.patch.yml")
+	// The launcher bounds v8's heap below the machine's memory cap inside a
+	// sandbox (a bare "Killed" = the guest kernel's OOM killer; the cap turns
+	// the overrun into a loud heap error) — guard the two literals the sizing
+	// depends on, so a rewrite cannot silently drop the protection.
+	launcher, err := assets.ReadFile("assets/dsh/dsh-launch.sh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"--max-old-space-size", "/proc/meminfo", "MemTotal", "SANDBOXER_IN_CONTAINER"} {
+		if !strings.Contains(string(launcher), want) {
+			t.Errorf("dsh-launch.sh missing %q — heap cap not wired", want)
+		}
+	}
 	for _, f := range files {
 		if _, err := os.Stat(filepath.Join(dir, filepath.FromSlash(f))); err != nil {
 			t.Errorf("missing %s in context: %v", f, err)

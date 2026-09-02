@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # dsh launcher for the sandboxer toolbox image.
 #
-# Two jobs, both of which have to happen in argv:
+# Three jobs, all of which have to happen in argv:
 #
 #   1. --expose-internals. The Cordis loader reaches Node's internal module
 #      loader either through that flag or through the node-addon-require-builtin
@@ -19,12 +19,33 @@
 #      alias explicitly rejects, so the alias is rewritten to its documented
 #      long form (`--profile web`) when the overlay goes in.
 #
+#   3. The v8 heap cap, INSIDE A SANDBOX ONLY (see the in-script comment:
+#      the machine's memory cap is a hard ceiling, and exceeding it is a
+#      diagnostic-free SIGKILL — bounding the heap turns that into a loud
+#      heap error instead).
+#
 # Everything else is passed through untouched.
 set -euo pipefail
 
 args=("$@")
 
+# Inside a microVM the machine's memory cap is a HARD ceiling (no swap): a
+# run that exceeds it is SIGKILLed by the guest kernel with no diagnostics at
+# all — the shell just prints "Killed". Bound v8's heap below the ceiling
+# instead, so a spike ends in visible GC pressure, and an overrun is a loud
+# heap error rather than a silent kill. Sized from the guest's own MemTotal
+# (leave the rest of the machine headroom); machines under 1 GiB are left
+# uncapped — a cap that small would cripple the harness the user explicitly
+# asked to run there.
+heap=()
 if [[ -n "${SANDBOXER_IN_CONTAINER-}" ]]; then
+  if mem_kib=$(awk '/^MemTotal:/ {print $2}' /proc/meminfo 2>/dev/null) && [[ -n $mem_kib ]]; then
+    mib=$(( mem_kib / 1024 - 512 ))
+    if (( mib >= 512 )); then
+      heap=(--max-old-space-size=$mib)
+    fi
+  fi
+
   web=0
   if [[ ${1-} == web ]]; then
     web=1
@@ -44,4 +65,4 @@ if [[ -n "${SANDBOXER_IN_CONTAINER-}" ]]; then
   fi
 fi
 
-exec @node@ --expose-internals @bin@ "${args[@]}"
+exec @node@ --expose-internals "${heap[@]}" @bin@ "${args[@]}"

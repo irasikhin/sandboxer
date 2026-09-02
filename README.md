@@ -313,7 +313,9 @@ The root disk defaults to 20 GiB because agents pull images and build in the
 guest, easily exceeding the backend's 4 GiB; it is a sparse image, so the
 larger default costs almost nothing until actually written; `disk` takes a
 whole MiB count or an M/G-suffixed size (e.g. 20G), anything else is rejected
-up front.
+up front. Memory is a hard ceiling in a microVM (no swap): a workload that
+exceeds it is OOM-killed with a bare "Killed" — see
+[troubleshooting](./docs/troubleshooting.md#a-process-inside-the-sandbox-dies-with-killed).
 
 Structured fields (`srcs`, `extraMounts`, `env`, `ports`, `setup`, `tools`, `image`, `limits`) live in an **optional**
 `sandboxer.nix`. With nothing given, the `sandboxer.nix` in the cwd is
