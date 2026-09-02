@@ -197,8 +197,10 @@ func TestFlakeBakesSourcePack(t *testing.T) {
 // podman inside the sandbox cannot pull anything — /var/tmp (containers/image
 // stages blobs there), a storage.conf whose ignore_chown_errors absorbs the
 // single-uid FALLBACK mapping (docker engine, or no host subordinate ranges),
-// and a containers.conf (its one setting silences the compose provider
-// banner). The launcher half is backend.nestedContainerArgs.
+// a containers.conf (its one setting silences the compose provider
+// banner), and a podman.json that ships the default `podman` network with
+// DNS enabled — podman 5 auto-creates it without DNS, so container-name
+// resolution would silently fail. The launcher half is backend.nestedContainerArgs.
 func TestImageBakesNestedPodman(t *testing.T) {
 	s := imageDefinition(t)
 	for _, want := range []string{
@@ -209,6 +211,8 @@ func TestImageBakesNestedPodman(t *testing.T) {
 		"ignore_chown_errors",
 		`writeTextDir "etc/containers/containers.conf"`,
 		"compose_warning_logs = false",
+		`writeTextDir "etc/containers/networks/podman.json"`,
+		"dns_enabled\": true",
 		"/var/tmp",
 	} {
 		if !strings.Contains(s, want) {

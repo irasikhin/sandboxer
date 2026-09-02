@@ -136,6 +136,31 @@ let
     #   location = "mirror.gcr.io"
   '';
 
+  # The default bridge network's config file. Podman 5 auto-creates the
+  # default `podman` network WITHOUT DNS (createDefaultNetwork never sets
+  # DNSEnabled), so containers on it cannot resolve each other by name —
+  # `podman run -d --name db …` then `curl http://db:5432` from a peer answers
+  # "bad address", and any compose project whose services talk by name fails
+  # the same way. Only user-created networks (`podman network create`) get
+  # aardvark-dns. Shipping the config here (the rootful netavark config dir)
+  # makes loadNetworks read the default network off disk with DNS enabled,
+  # instead of synthesizing it without; name/id/subnet/interface mirror
+  # podman's own defaults, so the only observable difference is working name
+  # resolution.
+  containersNetworks = pkgs.writeTextDir "etc/containers/networks/podman.json" ''
+    {
+      "name": "podman",
+      "id": "2f259bab93aaaaa2542ba43ef33eb990d0999ee1b9924b557b7be53c0b7a1bb9",
+      "driver": "bridge",
+      "network_interface": "podman0",
+      "subnets": [{ "subnet": "10.88.0.0/16", "gateway": "10.88.0.1" }],
+      "ipv6_enabled": false,
+      "internal": false,
+      "dns_enabled": true,
+      "ipam_options": { "driver": "host-local" }
+    }
+  '';
+
   # Guest identity files (/etc/passwd, /etc/group). Container engines never
   # consult them for exec (the uid is numeric), but microsandbox >= 0.6.7
   # resolves the exec user against the GUEST's /etc/passwd, and without these
@@ -695,6 +720,7 @@ in
         containersRegistries
         containersStorage
         containersConf
+        containersNetworks
       ]
       ++ userFiles;
     config = {
