@@ -33,6 +33,26 @@ func TestFlakeImportsImages(t *testing.T) {
 	}
 }
 
+// TestFlakeEmbedsOomWatchdog guards that the toolbox image still bakes the
+// OOM watchdog: a process the guest kernel OOM-killed shows up as a bare
+// "Killed" with no diagnostics, and the watchdog (first shell after the
+// incident, reading /dev/kmsg) is what turns that into an actionable
+// warning naming the machine's memory cap.
+func TestFlakeEmbedsOomWatchdog(t *testing.T) {
+	s := imageDefinition(t)
+	for _, want := range []string{
+		"/tmp/sandboxer-oom-seen",
+		"/dev/kmsg",
+		"oom-killer",
+		"limits.memory / SANDBOXER_MEM",
+		"MemTotal",
+	} {
+		if !strings.Contains(s, want) {
+			t.Errorf("images.nix missing %q — OOM watchdog not wired", want)
+		}
+	}
+}
+
 // TestFlakeEmbedsShellRc guards that the toolbox image still bakes the
 // interactive-shell rc (the sandbox-aware prompt and the plugin/user drop-in
 // hooks), so a refactor cannot silently drop the terminal UX or the `enter`

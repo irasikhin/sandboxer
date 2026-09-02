@@ -65,6 +65,22 @@ let
     # simply skips (the `command -v` guard), never errors the shell.
     command -v podman-socket >/dev/null 2>&1 && podman-socket >/dev/null 2>&1 || true
 
+    # OOM watchdog. A microVM has no swap, so the machine's memory cap
+    # (profile limits.memory / SANDBOXER_MEM) is a hard ceiling: the guest
+    # kernel kills the biggest process when it is exceeded, and the shell
+    # reports that as a bare "Killed" with no hint of why. The kill is
+    # recorded in /dev/kmsg, so the first interactive shell after an
+    # incident names the cap and the knob that raises it. The marker is
+    # per-boot (tmpfs) on purpose: a reboot is a fresh machine and a fresh
+    # warning is wanted.
+    if [ ! -e /tmp/sandboxer-oom-seen ] && [ -r /dev/kmsg ] && \
+       timeout 0.3 cat /dev/kmsg 2>/dev/null | grep -qi "oom-killer"; then
+      cap=$(awk '/^MemTotal:/ {print int($2/1024) " MiB"}' /proc/meminfo 2>/dev/null)
+      printf '\033[1;31m⚠ sandboxer: the kernel OOM-killed a process in this machine (memory cap %s).\033[0m\n' "''${cap:-unknown}"
+      printf '  raise it in the profile (limits.memory / SANDBOXER_MEM), then restart the workload.\n'
+      : > /tmp/sandboxer-oom-seen
+    fi
+
     # extension points: plugin drop-ins (image) then the user file (home)
     for f in /etc/sandboxer/rc.d/*.sh; do [ -r "$f" ] && . "$f"; done
     [ -r "$HOME/.config/sandboxer/rc" ] && . "$HOME/.config/sandboxer/rc"

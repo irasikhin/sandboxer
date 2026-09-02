@@ -231,6 +231,31 @@ layout comes back.
   (`rm -rf` instead of `sandboxer rm`) surfaces in `sandboxer doctor` as an
   **orphan session**, with the exact `msb remove` command to reclaim it.
 
+## A process inside the sandbox dies with "Killed"
+
+A foreground command that vanishes with just `Killed` — no error, no
+stack trace — was SIGKILLed by the **guest kernel's OOM killer**: the
+machine's memory cap was exceeded. A microVM has no swap, so the cap
+(`limits.memory` / `SANDBOXER_MEM`, 4 GiB default) is a hard ceiling, and
+when the total usage crosses it the kernel kills the biggest process —
+usually the agent itself (node: claude, dsh web, …). It is not a sandbox
+crash: the rest of the machine keeps running.
+
+Confirm: the first interactive shell after the incident prints a warning
+naming the cap (the watchdog reads the kill out of `/dev/kmsg`); or check
+the kernel log yourself:
+
+```bash
+timeout 0.3 cat /dev/kmsg | grep -i oom-killer
+```
+
+Fix: give the machine a cap that fits the workload — `limits = { memory =
+"8G"; };` in the profile (or `SANDBOXER_MEM=8G` for one run), then restart
+the workload. dsh's launcher additionally bounds node's heap below the
+machine cap (`--max-old-space-size`, sized from the guest's own memory), so
+an overrun fails loudly with a v8 heap error instead of a silent kill — but
+the cap raise is the real fix when a workload genuinely needs the headroom.
+
 ## FAQ
 
 **Where did the docker/podman backend go?** Removed — every sandbox is a
