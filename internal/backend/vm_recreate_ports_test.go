@@ -86,17 +86,17 @@ func TestVMWaitPortsFree(t *testing.T) {
 
 	// released shortly after: the dying-VM case — must wait it out
 	ln := listenLocal(t, 39081)
-	go func() {
+	go func(l net.Listener) {
 		time.Sleep(400 * time.Millisecond)
-		_ = ln.Close()
-	}()
+		_ = l.Close()
+	}(ln)
 	if err := vmWaitPortsFree(o); err != nil {
 		t.Errorf("vmWaitPortsFree with a port released after 400ms: %v", err)
 	}
 
 	// held past the deadline: the actionable in-use error, not a hang
-	ln = listenLocal(t, 39081)
-	defer func() { _ = ln.Close() }()
+	heldLn := listenLocal(t, 39081)
+	defer func() { _ = heldLn.Close() }()
 	old := vmPortReleaseTimeout
 	vmPortReleaseTimeout = 50 * time.Millisecond
 	t.Cleanup(func() { vmPortReleaseTimeout = old })
