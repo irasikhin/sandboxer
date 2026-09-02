@@ -371,14 +371,19 @@ disable with autoResume = false in the profile, or SANDBOXER_NO_RESUME=1.`,
 				// "the next enter opens a fresh one" true.
 				backendSyncSessionState(engine, name, o.SessionStatePath)
 			}
+			// The srcs tail is dep-sync narration: the worktrees exist and the
+			// review pointers hold whatever happened. The "done in" success
+			// line stays OFF a failure — printing it after an error read like
+			// the session landed (the recreate port-preflight failure printed
+			// exactly that way: machine gone, output said done).
 			for _, s := range t.base.Srcs(t.slug) {
 				style.Infof(narrate, "%s: work is in %s — commit/review on the host: git -C %s log %s",
 					filepath.Base(s.RepoRoot), s.Path, s.RepoRoot, s.Branch)
 			}
-			style.Infof(narrate, "done in %s", dest)
 			if runErr != nil {
 				return silentErr{runErr}
 			}
+			style.Infof(narrate, "done in %s", dest)
 			if code != 0 {
 				return exitErr{code}
 			}

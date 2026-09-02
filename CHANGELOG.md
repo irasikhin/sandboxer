@@ -6,6 +6,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- recreate fails fast before removing the session machine when a forward is
+  held elsewhere, and rides out the old machine's own port-release lag
+  (a recreate of a port-publishing session no longer destroys itself over
+  its own forward)
+
 ## [0.93.1] — 2026-09-02
 
 ### Fixed

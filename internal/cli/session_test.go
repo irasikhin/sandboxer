@@ -307,7 +307,8 @@ func TestEnterUnknownSessionMode(t *testing.T) {
 }
 
 // TestEnterEnsureFailure: an EnsureSession error (busy session, egress down)
-// is printed, deps are still pushed, and the command exits 1.
+// is printed, the dep-sync tail (the work-is-in pointers) still lands, the
+// "done in" success line stays off a failure, and the command exits 1.
 func TestEnterEnsureFailure(t *testing.T) {
 	project := sessionProject(t)
 	c := stubSessionSeams(t, backend.SessionInfo{}, "h")
@@ -322,8 +323,11 @@ func TestEnterEnsureFailure(t *testing.T) {
 	if !strings.Contains(errs, "other clients are attached") {
 		t.Errorf("ensure error not surfaced:\n%s", errs)
 	}
-	if !strings.Contains(errs, "sandboxer: done in") {
+	if !strings.Contains(errs, "work is in") {
 		t.Errorf("post-run dep sync must still happen:\n%s", errs)
+	}
+	if strings.Contains(errs, "sandboxer: done in") {
+		t.Errorf("the success line must stay off a failed enter:\n%s", errs)
 	}
 	if len(c.exec)+len(c.run) != 0 {
 		t.Error("nothing may attach after a failed ensure")
