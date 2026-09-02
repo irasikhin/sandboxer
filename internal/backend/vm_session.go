@@ -6,11 +6,14 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/irasikhin/sandboxer/internal/execx"
 	"github.com/irasikhin/sandboxer/internal/style"
@@ -162,10 +165,30 @@ func vmCreateSession(o RunOpts, name, hash string) (string, error) {
 }
 
 // vmRecreateSession replaces a stale machine: save the tmux layout while it
-// still runs (so the next attach restores it — a config change no longer costs
-// the user their windows), delete the old machine and its record, then create
-// anew.
+// still runs (so the next attach restores it — a config change no longer
+// costs the user their windows), delete the old machine and its record, then
+// create anew.
+//
+// The removal is the point of no return, so everything that can fail runs
+// BEFORE it: the preflight (with the old machine's own forwards exempt — the
+// removal is exactly what releases them), the image resolution and the
+// profile staging. The removal itself is asynchronous about the host-side
+// forwards: msb answers "Removed" while the dying VM still holds its ports
+// (measured: ~2 s), so a create that preflights immediately loses the race
+// against the machine it just replaced — vmWaitPortsFree closes that gap
+// before the create.
 func vmRecreateSession(o RunOpts, name, hash string) (string, error) {
+	if err := vmPreflightRecreate(o, name); err != nil {
+		return "", err
+	}
+	image, err := msbEnsureImage(o)
+	if err != nil {
+		return "", err
+	}
+	o.Image = image
+	if err := stageProfileJSON(o); err != nil {
+		return "", fmt.Errorf("stage profile.json for %s: %w", name, err)
+	}
 	if SaveSessionState(o.Engine, name, o.SessionStatePath) {
 		notice(o.Stderr, "saved your session layout — restoring it on attach "+
 			"(recorded agents relaunch and resume; other running programs are interrupted)")
@@ -175,7 +198,46 @@ func vmRecreateSession(o RunOpts, name, hash string) (string, error) {
 		return "", fmt.Errorf("remove stale machine %s: %w", name, err)
 	}
 	removeVMRecord(name)
+	if err := vmWaitPortsFree(o); err != nil {
+		return "", err
+	}
 	return vmCreateSession(o, name, hash)
+}
+
+// vmPreflightRecreate runs the preflight for a RECREATE before the old
+// machine is touched: a host addr the old machine itself publishes is exempt
+// (the removal releases it), so only a forward held by someone ELSE aborts
+// here — while there is still a session to keep. An old machine that reports
+// no ports (stopped, unknown) exempts nothing.
+func vmPreflightRecreate(o RunOpts, name string) error {
+	exempt := map[string]bool{}
+	for _, p := range SessionPorts(o.Engine, name) {
+		exempt[net.JoinHostPort(p.Bind, strconv.Itoa(p.Host))] = true
+	}
+	return msbPreflightExcept(o, exempt)
+}
+
+// vmPortReleaseTimeout bounds vmWaitPortsFree: the dying VM releases its
+// forwards within a couple of seconds of the removal, so a port still held
+// after this long is held by something else — and that must fail with the
+// actionable in-use error, not hang the recreate forever. A package var so a
+// test can compress it.
+var vmPortReleaseTimeout = 10 * time.Second
+
+// vmWaitPortsFree blocks until every configured tcp forward is bindable on
+// the host. The removal that preceded it is asynchronous about releasing the
+// forwards (see vmRecreateSession), and the create that follows would lose
+// that race. Only the definite in-use answer counts: any other bind failure
+// is left to the runner, exactly like vmPortsPreflight.
+func vmWaitPortsFree(o RunOpts) error {
+	deadline := time.Now().Add(vmPortReleaseTimeout)
+	for {
+		err := vmPortsPreflight(o)
+		if err == nil || time.Now().After(deadline) {
+			return err
+		}
+		time.Sleep(150 * time.Millisecond)
+	}
 }
 
 // vmExecSession runs cmdArgs inside the running machine and returns the exit

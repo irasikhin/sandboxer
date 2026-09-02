@@ -514,6 +514,15 @@ func msbExtraMountsAndEnv(p *config.Profile) []string {
 // sandboxer's own paths are the project's ./sandboxes and the XDG state dir,
 // so this only bites a profile that deliberately points somewhere under /tmp.
 func msbPreflight(o RunOpts) error {
+	return msbPreflightExcept(o, nil)
+}
+
+// msbPreflightExcept is the recreate-form of the preflight: the only check
+// that involves shared host state is the port probe, and a port the OLD
+// machine still holds must not abort — exempt carries those host addrs.
+// Every other check (shares, limits, /tmp mounts) is configuration-only and
+// stays strict: a bad config must fail before the old machine is touched.
+func msbPreflightExcept(o RunOpts, exempt map[string]bool) error {
 	// A regular-file extraMount is unshareable on any virtio-fs runner (it
 	// shares directories only) — check it before the msb-specific trap.
 	if err := vmSharePreflight(o); err != nil {
@@ -522,7 +531,7 @@ func msbPreflight(o RunOpts) error {
 	if err := vmLimitsPreflight(o); err != nil {
 		return err
 	}
-	if err := vmPortsPreflight(o); err != nil {
+	if err := vmPortsPreflightExcept(o, exempt); err != nil {
 		return err
 	}
 	paths := append([]string{o.Dest, o.HomeDir}, o.SrcMounts...)
@@ -582,11 +591,22 @@ func vmSharePreflight(o RunOpts) error {
 // other reason (a privileged port under an unprivileged user, an address the
 // host does not hold) is left to the runner rather than guessed at.
 func vmPortsPreflight(o RunOpts) error {
+	return vmPortsPreflightExcept(o, nil)
+}
+
+// vmPortsPreflightExcept is the recreate-form of the check: a host addr in
+// exempt is skipped — the old machine's own forwards are about to be
+// released by the removal the caller runs next, so their presence must not
+// abort the recreate. Everything else is as strict as vmPortsPreflight.
+func vmPortsPreflightExcept(o RunOpts, exempt map[string]bool) error {
 	for _, p := range o.RT.Ports {
 		if p.Proto != "tcp" {
 			continue
 		}
 		addr := net.JoinHostPort(p.Bind, strconv.Itoa(p.Host))
+		if exempt[addr] {
+			continue
+		}
 		ln, err := net.Listen("tcp", addr)
 		if err == nil {
 			_ = ln.Close()
