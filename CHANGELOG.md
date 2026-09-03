@@ -6,6 +6,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.95.0] — 2026-09-03
+
+### Added
+
+- allow one repository in several srcs entries (f3169d3)
+
+
 ## [0.94.0] — 2026-09-02
 
 ### Added
@@ -1440,3 +1447,4 @@ isolated, containerized dev sandbox, on a local Linux machine:
 [0.93.0]: https://github.com/irasikhin/sandboxer/compare/v0.92.0...v0.93.0
 [0.93.1]: https://github.com/irasikhin/sandboxer/compare/v0.93.0...v0.93.1
 [0.94.0]: https://github.com/irasikhin/sandboxer/compare/v0.93.1...v0.94.0
+[0.95.0]: https://github.com/irasikhin/sandboxer/compare/v0.94.0...v0.95.0
