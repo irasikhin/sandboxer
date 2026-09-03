@@ -228,7 +228,9 @@ func (b *Base) profileWorktreesDir(slug string) string {
 
 // resolveSrcs maps the configured srcs entries onto resolved Sources for slug:
 // paths are validated (must exist, be a repo toplevel with at least one
-// commit, no repo twice), every entry names its branch EXPLICITLY (an entry
+// commit); the same repository may appear in several entries, each naming its
+// own branch — a repo listed twice on one branch is an error (git holds one
+// worktree per branch). Every entry names its branch EXPLICITLY (an entry
 // without branch: is an error — there is no default naming), and managed
 // worktrees are placed under <slug>/ grouped by their branch (see
 // assignManagedPaths). Entry order is preserved. An empty list is an error,
@@ -253,13 +255,21 @@ func (b *Base) resolveSrcs(slug string, specs []config.Src, prev []Source, w io.
 	if err := config.ValidateSrcs(specs); err != nil {
 		return nil, err
 	}
-	recorded := map[string]Source{} // repo toplevel -> the source as last synced
+	// recorded and recordedBranch both carry the last-synced source forward.
+	// recorded is keyed by repo toplevel alone: for the missing-branch hint any
+	// recorded branch of the repo is a fair hint, so one entry per repo is
+	// enough. recordedBranch is keyed by repoRoot\x00branch, because with the
+	// same repo on two branches the repo-keyed map would let the LAST entry's
+	// minted-vs-reused verdict (AutoBranch) clobber the first's on re-sync.
+	recorded := map[string]Source{}
+	recordedBranch := map[string]Source{} // repoRoot\x00branch -> the source as last synced
 	for _, p := range prev {
 		if p.Branch != "" {
 			recorded[p.RepoRoot] = p
+			recordedBranch[p.RepoRoot+"\x00"+p.Branch] = p
 		}
 	}
-	seenRepo := map[string]bool{}
+	seenBranch := map[string]bool{} // repoRoot\x00branch -> already resolved above
 	out := make([]Source, 0, len(specs))
 	for _, spec := range specs {
 		path := spec.Src
@@ -273,11 +283,6 @@ func (b *Base) resolveSrcs(slug string, specs []config.Src, prev []Source, w io.
 			if err != nil {
 				return nil, fmt.Errorf("srcs entry %q: %w", spec.Src, err)
 			}
-			if seenRepo[cacheDir] {
-				return nil, fmt.Errorf("srcs entry %q: remote %s listed twice", spec.Src, spec.Src)
-			}
-			seenRepo[cacheDir] = true
-
 			// From here the cache clone IS the repo: branch is required and the
 			// worktree path is assigned by assignManagedPaths, exactly as for a
 			// local source. A remote can never be "already checked out
@@ -286,6 +291,12 @@ func (b *Base) resolveSrcs(slug string, specs []config.Src, prev []Source, w io.
 				return nil, fmt.Errorf("srcs entry %q: branch is required — every source names its "+
 					"branch explicitly, e.g. { src = %q; branch = \"main\"; }", spec.Src, spec.Src)
 			}
+			if seenBranch[cacheDir+"\x00"+spec.Branch] {
+				return nil, fmt.Errorf("srcs entry %q: remote %s is listed twice on branch %q — git allows "+
+					"one worktree per branch; drop the duplicate, or point each entry at a different branch",
+					spec.Src, spec.Src, spec.Branch)
+			}
+			seenBranch[cacheDir+"\x00"+spec.Branch] = true
 			// Check out origin/<branch> when the remote has it, so branch: names
 			// an UPSTREAM branch instead of forking a new one off the default.
 			worktree.PrepareBranch(cacheDir, spec.Branch)
@@ -295,7 +306,7 @@ func (b *Base) resolveSrcs(slug string, specs []config.Src, prev []Source, w io.
 			if err := worktree.ValidBranch(cacheDir, src.Branch); err != nil {
 				return nil, fmt.Errorf("srcs entry %q: %w", spec.Src, err)
 			}
-			if p, ok := recorded[cacheDir]; ok && p.Branch == src.Branch {
+			if p, ok := recordedBranch[cacheDir+"\x00"+src.Branch]; ok {
 				src.AutoBranch = p.AutoBranch
 			} else {
 				src.AutoBranch = !worktree.BranchExists(cacheDir, src.Branch)
@@ -321,11 +332,6 @@ func (b *Base) resolveSrcs(slug string, specs []config.Src, prev []Source, w io.
 		if path != top {
 			return nil, fmt.Errorf("srcs entry %q: must point at the repository root (%s)", spec.Src, top)
 		}
-		if seenRepo[top] {
-			return nil, fmt.Errorf("srcs entry %q: repository %s listed twice", spec.Src, top)
-		}
-		seenRepo[top] = true
-
 		src := Source{RepoRoot: top, Include: spec.Include, Git: spec.Git, GitDir: gitDir}
 		src.Branch = spec.Branch
 		if src.Branch == "" {
@@ -337,10 +343,16 @@ func (b *Base) resolveSrcs(slug string, specs []config.Src, prev []Source, w io.
 				"branch explicitly, e.g. { src = %q; branch = \"devops/my-change\"; }%s",
 				spec.Src, spec.Src, hint)
 		}
+		if seenBranch[top+"\x00"+src.Branch] {
+			return nil, fmt.Errorf("srcs entry %q: repository %s is listed twice on branch %q — git allows "+
+				"one worktree per branch; drop the duplicate, or point each entry at a different branch",
+				spec.Src, top, src.Branch)
+		}
+		seenBranch[top+"\x00"+src.Branch] = true
 		if err := worktree.ValidBranch(top, src.Branch); err != nil {
 			return nil, fmt.Errorf("srcs entry %q: %w", spec.Src, err)
 		}
-		if p, ok := recorded[top]; ok && p.Branch == src.Branch {
+		if p, ok := recordedBranch[top+"\x00"+src.Branch]; ok {
 			// The minted-vs-reused verdict was decided at first sync and
 			// travels with the branch (it exists either way afterwards).
 			src.AutoBranch = p.AutoBranch
@@ -443,7 +455,10 @@ func sandboxOwning(path string) (slug, dir string, ok bool) {
 // with the repo as the leaf — <root>/<branch>/<repo>, branch slashes becoming
 // directories — so one branch spanning several repos reads as a unit
 // (…/mybox/feat/BDP-5291/miko-java). Repos sharing a basename are deduped with
-// a short path hash, which is also what keeps Source.Name unique.
+// a short path hash, which is also what keeps Source.Name unique. A same-repo
+// repeat under a SECOND branch is one such dedup: its branch dir differs, but
+// Name() is the leaf alone, so the first-listed entry keeps the plain name and
+// the repeat takes the hash-suffixed one.
 //
 // A managed source's slot is its worktree (Path). An ADOPTED source's is a
 // symlink to the checkout git holds elsewhere (Link, made by linkAdoptedSrc):

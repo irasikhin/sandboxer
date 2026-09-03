@@ -119,6 +119,68 @@ func TestMakeSandboxDotSrcFull(t *testing.T) {
 	}
 }
 
+// TestMakeSandboxSameRepoTwoBranches: the SAME repository may appear in
+// several srcs entries when each names its own branch — git allows one
+// worktree per branch, so two branches of one repo are two worktrees, each
+// minted and managed under <slug>/. The repeat gets the hash-suffixed slot
+// name (assignSandboxPaths), so Source.Name stays unique.
+func TestMakeSandboxSameRepoTwoBranches(t *testing.T) {
+	repo := gitRepoWithCommit(t)
+	b, err := ResolveBase(repo)
+	if err != nil {
+		t.Fatalf("ResolveBase: %v", err)
+	}
+
+	// when: the same repo is listed twice, on two different branches
+	pj := fmt.Sprintf(`{"srcs":[{"src":".","branch":"feat/a"},{"src":%q,"branch":"feat/b"}]}`, repo)
+	if err := b.WriteProfileJSON("dup", []byte(pj)); err != nil {
+		t.Fatal(err)
+	}
+	if err := b.MakeSandbox("dup", io.Discard); err != nil {
+		t.Fatalf("MakeSandbox: %v", err)
+	}
+	srcs := b.Srcs("dup")
+	if len(srcs) != 2 {
+		t.Fatalf("srcs = %+v, want two sources", srcs)
+	}
+	// then: both are managed worktrees minted by sandboxer, one per branch, at
+	// distinct paths outside the repo — with distinct Name()s (the first-listed
+	// entry keeps the plain repo leaf, the repeat the hash-suffixed one).
+	for _, s := range srcs {
+		if !s.Managed || !s.AutoBranch {
+			t.Errorf("source not managed-and-minted: %+v", s)
+		}
+		if s.Branch != "feat/a" && s.Branch != "feat/b" {
+			t.Errorf("branch = %q, want feat/a or feat/b", s.Branch)
+		}
+		if s.Path == s.RepoRoot {
+			t.Errorf("worktree path must live outside the repo: %+v", s)
+		}
+		if !worktree.IsWorktree(s.Path) {
+			t.Errorf("%s is not a worktree", s.Path)
+		}
+	}
+	if srcs[0].Branch == srcs[1].Branch {
+		t.Errorf("both entries on branch %q, want one per branch", srcs[0].Branch)
+	}
+	if srcs[0].Path == srcs[1].Path {
+		t.Errorf("paths must differ: %q", srcs[0].Path)
+	}
+	if srcs[0].Name() == srcs[1].Name() {
+		t.Errorf("Name() must stay unique across the two branches, both %q", srcs[0].Name())
+	}
+	// and: a re-sync keeps BOTH entries' minted verdicts — with the old
+	// repo-keyed carry-forward map, the second branch's verdict clobbered the
+	// first's and one AutoBranch silently flipped to false.
+	again, err := b.SyncSrcs("dup", io.Discard)
+	if err != nil {
+		t.Fatalf("SyncSrcs: %v", err)
+	}
+	if len(again) != 2 || !again[0].AutoBranch || !again[1].AutoBranch {
+		t.Errorf("re-sync lost a minted verdict: %+v", again)
+	}
+}
+
 // TestMakeSandboxIncludeKeepsHostTreeWhole is the whole point of view mounts:
 // `include` narrows what the CONTAINER sees, and nothing else. The host keeps a
 // complete checkout — that is what lets an IDE open the branch, which a sparse
@@ -442,7 +504,7 @@ func TestResolveSrcsErrors(t *testing.T) {
 		{"non-git", fmt.Sprintf(`{"srcs":[{"src":%q,"branch":"feat/bad"}]}`, nonGit), "not a git repository"},
 		{"missing", `{"srcs":[{"src":"./no-such-dir","branch":"feat/bad"}]}`, "no such directory"},
 		{"subdir", `{"srcs":[{"src":"./serviceA","branch":"feat/bad"}]}`, "repository root"},
-		{"dup", fmt.Sprintf(`{"srcs":[{"src":".","branch":"feat/bad"},{"src":%q,"branch":"feat/bad2"}]}`, repo), "listed twice"},
+		{"dup", fmt.Sprintf(`{"srcs":[{"src":".","branch":"feat/bad"},{"src":%q,"branch":"feat/bad"}]}`, repo), "listed twice"},
 		{"empty", `{"srcs":[{"src":""}]}`, "empty src"},
 		{"no-srcs", `{}`, "srcs is empty"},
 		{"no-branch", `{"srcs":[{"src":"."}]}`, "branch is required"},

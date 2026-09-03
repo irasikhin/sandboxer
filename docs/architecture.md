@@ -57,7 +57,9 @@ Key invariants (`internal/sandbox`, `internal/worktree`):
 - **`<slug>/` holds one git worktree per source** (`srcs` entry): each source
   repo checked out **complete** at `<slug>/<branch>/<repo>/` — every entry names
   its branch explicitly (no default naming; a missing `branch:` is an error) and
-  the branch names the dirs the worktree sits under. Editing `branch:` is the one way
+  the branch names the dirs the worktree sits under. The same repository may
+  appear in several `srcs` entries, each on its own branch (one worktree per
+  branch — the same repo listed twice on one branch is an error). Editing `branch:` is the one way
   to move a sandbox's worktree. What the SANDBOX sees is decided by the mount
   set, not by the tree (`sandbox.Mounts`): with no `include`, `<slug>/` is
   shared whole; with `include`, `<slug>/` is **not shared at all** and each
