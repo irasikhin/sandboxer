@@ -48,15 +48,25 @@ func TestWriteContext(t *testing.T) {
 	}
 	files := []string{"flake.nix", "images.nix", "agents.nix", "tools.nix", "overlay.nix", "files.json", "env.json"}
 	// The vendored packages the embedded flake's overlay grafts in (none of
-	// them is in nixpkgs): each contributes its expression AND its lockfile,
-	// and a missing one fails the build inside the builder, far from here.
+	// them is in nixpkgs): each contributes its expression AND its lockfile
+	// (except the zero-dependency plugin packages, which need no npm install
+	// and so carry no lock), and a missing one fails the build inside the
+	// builder, far from here.
 	for _, dir := range vendored {
+		if dir == "dsh-plugins" {
+			continue // a tree of plugin dirs, asserted below
+		}
 		files = append(files, dir+"/package.nix", dir+"/package-lock.json")
 	}
-	// dsh contributes more than the pair — its launcher script and the web
-	// bind overlay the script injects — so the context copies whatever the
-	// package dir holds rather than a hand-listed pair.
-	files = append(files, "dsh/dsh-launch.sh", "dsh/web-bind.patch.yml")
+	// dsh-plugins nests one dir per baked plugin, not flat package files.
+	for _, p := range []string{"dshmarket", "dsh-find-plugin", "archify-dsh"} {
+		files = append(files, "dsh-plugins/"+p+"/package.nix")
+	}
+	// dsh contributes more than the pair — its launcher script, the web bind
+	// overlay the script injects, and the baked-profile data the plugin
+	// bootstrap reads — so the context copies whatever the package dir holds
+	// rather than a hand-listed pair.
+	files = append(files, "dsh/dsh-launch.sh", "dsh/web-bind.patch.yml", "dsh/dsh-profiles.json")
 	// The launcher bounds v8's heap below the machine's memory cap inside a
 	// sandbox (a bare "Killed" = the guest kernel's OOM killer; the cap turns
 	// the overrun into a loud heap error) — guard the two literals the sizing
@@ -65,9 +75,9 @@ func TestWriteContext(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"--max-old-space-size", "/proc/meminfo", "MemTotal", "SANDBOXER_IN_CONTAINER"} {
+	for _, want := range []string{"--max-old-space-size", "/proc/meminfo", "MemTotal", "SANDBOXER_IN_CONTAINER", "SANDBOXER_NO_DSH_PLUGINS", "dsh.profile.bundles", "ensure_dsh_profile"} {
 		if !strings.Contains(string(launcher), want) {
-			t.Errorf("dsh-launch.sh missing %q — heap cap not wired", want)
+			t.Errorf("dsh-launch.sh missing %q — heap cap or plugin bootstrap not wired", want)
 		}
 	}
 	for _, f := range files {

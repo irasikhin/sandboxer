@@ -22,8 +22,17 @@
         # The image agents nixpkgs does not carry — vendored beside the
         # embedded flake, which grafts them the same way (single source).
         pi = final.callPackage ./internal/toolbox/assets/pi/package.nix { };
-        # DeepSeek Harness (`dsh`), likewise built from its npm tarball.
-        dsh = final.callPackage ./internal/toolbox/assets/dsh/package.nix { };
+        # DeepSeek Harness (`dsh`), likewise built from its npm tarball, with
+        # the baked community plugins (dshmarket, dsh-find-plugin, archify)
+        # grafted INTO its tree by the plugins argument.
+        dshmarket = final.callPackage ./internal/toolbox/assets/dsh-plugins/dshmarket/package.nix { };
+        dsh-find-plugin = final.callPackage ./internal/toolbox/assets/dsh-plugins/dsh-find-plugin/package.nix { };
+        archify-dsh = final.callPackage ./internal/toolbox/assets/dsh-plugins/archify-dsh/package.nix { };
+        dsh = final.callPackage ./internal/toolbox/assets/dsh/package.nix {
+          plugins = {
+            inherit (final) dshmarket dsh-find-plugin archify-dsh;
+          };
+        };
         # pi's multi-agent orchestration package, baked in and registered in
         # every sandbox's pi settings by default (sandbox.EnsurePiPackages).
         pi-agent-orchestrator = final.callPackage ./internal/toolbox/assets/pi-orchestrator/package.nix { };

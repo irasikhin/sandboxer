@@ -4,7 +4,8 @@
 // The embedded flake (assets/flake.nix) references one public input (nixpkgs)
 // and is written into the build context together with the generated
 // agents.nix/tools.nix/overlay.nix, the files/env JSON and the vendored
-// packages (pi, its orchestration package, and dsh), so the build never needs
+// packages (pi, its orchestration package, dsh, and dsh's baked plugins),
+// so the build never needs
 // the sandboxer repo or a local checkout.
 // The sandboxer binary is NOT part of the image — it is a host tool (see
 // writeContext).
@@ -15,6 +16,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
@@ -29,13 +31,14 @@ import (
 // root flake imports the same images.nix, so the image a user gets and the
 // image CI builds cannot drift apart again.
 //
-//go:embed assets/flake.nix assets/images.nix assets/pi assets/pi-orchestrator assets/dsh
+//go:embed assets/flake.nix assets/images.nix assets/pi assets/pi-orchestrator assets/dsh assets/dsh-plugins
 var assets embed.FS
 
 // vendored are the package dirs copied verbatim into the build context: the
 // nixpkgs attrs the embedded flake's overlay grafts in (pi, pi's orchestration
-// package, and dsh — none of them is in nixpkgs).
-var vendored = []string{"pi", "pi-orchestrator", "dsh"}
+// package, dsh, and dsh's baked community plugins — none of them is in
+// nixpkgs).
+var vendored = []string{"pi", "pi-orchestrator", "dsh", "dsh-plugins"}
 
 // stubOverlay is the overlay.nix written when the profile has none: the
 // flake's import is unconditional, and a no-op overlay keeps a stock build
@@ -56,17 +59,12 @@ func writeContext(ctxDir string, spec Spec) error {
 		}
 		// EVERY embedded file of the package dir, not a hand-listed pair: a
 		// vendored package is whatever its directory holds (an expression, a
-		// lockfile, and for dsh a launcher script and a config overlay), and a
-		// file left out here would only fail deep inside the builder, as a nix
-		// path that does not exist.
-		entries, err := assets.ReadDir("assets/" + dir)
-		if err != nil {
-			return err
-		}
-		for _, e := range entries {
-			if !e.IsDir() {
-				names = append(names, dir+"/"+e.Name())
-			}
+		// lockfile, and for dsh a launcher script, a config overlay and the
+		// profile data), and a file left out here would only fail deep inside
+		// the builder, as a nix path that does not exist. Subdirectories are
+		// copied recursively (dsh-plugins nests one dir per plugin).
+		if err := copyEmbeddedDir(assets, "assets/"+dir, filepath.Join(ctxDir, dir)); err != nil {
+			return fmt.Errorf("copy vendored %s: %w", dir, err)
 		}
 	}
 	for _, name := range names {
@@ -136,6 +134,34 @@ func renderNixList(names []string) string {
 	}
 	b.WriteString("]\n")
 	return b.String()
+}
+
+// copyEmbeddedDir copies an embedded directory tree to dst, recursing into
+// subdirectories. Used for the vendored package dirs (see writeContext).
+func copyEmbeddedDir(fsys fs.FS, src, dst string) error {
+	entries, err := fs.ReadDir(fsys, src)
+	if err != nil {
+		return err
+	}
+	for _, e := range entries {
+		if e.IsDir() {
+			if err := os.Mkdir(filepath.Join(dst, e.Name()), 0o755); err != nil {
+				return err
+			}
+			if err := copyEmbeddedDir(fsys, src+"/"+e.Name(), filepath.Join(dst, e.Name())); err != nil {
+				return err
+			}
+			continue
+		}
+		data, err := fs.ReadFile(fsys, src+"/"+e.Name())
+		if err != nil {
+			return err
+		}
+		if err := os.WriteFile(filepath.Join(dst, e.Name()), data, 0o644); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // imageAgentPackages returns the nixpkgs package attrs for agents baked into

@@ -163,6 +163,20 @@ was extracted from:
   string check in dsh-web-app/startup.js; the webserver row's schema is an enum of 127.0.0.1|0.0.0.0, so `::`
   fails validation too). The overlay changes only the row's FALLBACK (`ctx.webStartup.host ?? '0.0.0.0'`), so
   an explicit `--host` still wins and a host-side dsh is untouched.
+- **Baked dsh plugins** (`internal/toolbox/assets/dsh-plugins/`, wired in `assets/dsh/package.nix`): the image
+  ships a curated set of community plugins INSIDE dsh's own node_modules (copied, never symlinked — a
+  symlink realpaths out of dsh's tree and the plugins' stripped peer imports would resolve to nothing;
+  `dshmarket`'s peers cordis/schemastery/dsh-settings resolve from dsh's own closure at runtime), and
+  `dsh-launch.sh` bootstraps them into profiles inside a sandbox: a missing web/headless profile is
+  initialized with dsh's own shipped template (bundles/patchReload replicated from the same dsh release;
+  `assets/dsh/dsh-profiles.json` carries them) plus the baked bundle names; an existing manifest is USER
+  state — only the missing baked names are appended, never reordered or removed, and an unparsable
+  manifest is left alone. The baked packages are also linked into the profile's node_modules where pnpm
+  would have installed them (archify resolves its Skill root via `require(baseUrl)`, which only a
+  profile-local copy satisfies). web = dshmarket (the plugin market UI) + dsh-find-plugin +
+  @tt-a1i/archify-dsh; headless = the latter two. Opt out: `SANDBOXER_NO_DSH_PLUGINS=1`; custom profiles
+  are never touched. Bumping dsh re-checks the launcher, the web-bind overlay and dsh-profiles.json
+  against the new release.
 - **Agent registry** (`internal/registry/registry.json`): the single-source catalog of agents — embedded in the
   binary AND consumed by both flakes (each agent's `nixPackage` is a plain nixpkgs attr — prebuilt from
   cache.nixos.org; pi alone is vendored at `internal/toolbox/assets/pi/`, grafted into pkgs by an overlay in

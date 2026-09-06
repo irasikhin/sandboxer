@@ -11,9 +11,14 @@
 # 127.0.0.1 default is for on a normal machine.
 #
 # The row's own expression is kept verbatim except for the FALLBACK, so an
-# explicit `--host 127.0.0.1` still wins. dsh-launch injects this overlay only
-# for a `web` invocation and only when SANDBOXER_IN_CONTAINER is set.
+# explicit `--host 127.0.0.1` still wins; the compression keys restate the
+# bundle's own values because a patch replaces the whole `config`. dsh-launch
+# injects this overlay only for a `web` invocation and only when
+# SANDBOXER_IN_CONTAINER is set.
 - id: webserver
   config:
     host: !!js ctx.webStartup.host ?? '0.0.0.0'
     port: !!js ctx.webStartup.port ?? 3080
+    compression: gzip
+    compressionLevel: 1
+    compressionThresholdBytes: 1024

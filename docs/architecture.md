@@ -311,6 +311,14 @@ would always look broken from the host's browser. The overlay
 — the FALLBACK becomes `0.0.0.0` — so an explicit `--host 127.0.0.1` still
 wins, and outside a sandbox the wrapper does nothing at all.
 
+The same launcher also bootstraps the image's **baked dsh plugins** (a curated
+set vendored under `internal/toolbox/assets/dsh-plugins/` and copied into
+dsh's own package tree): it initializes the `web`/`headless` profiles with
+dsh's shipped template plus the baked bundle names and merges the missing
+names into an existing manifest, so the plugins are present from the first
+boot and survive image bumps without ever reordering the user's own bundles.
+`SANDBOXER_NO_DSH_PLUGINS=1` opts out; custom profiles are never touched.
+
 ## Agent registry (single source)
 
 The agent catalog is one JSON file, `internal/registry/registry.json`, that is

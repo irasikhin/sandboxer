@@ -45,6 +45,13 @@ buildNpmPackage {
   npmDepsFetcherVersion = 2;
   inherit npmDepsHash;
   makeCacheWritable = true;
+  # npm >= 11.5 defaults to the allow-scripts policy, and nixpkgs' npm
+  # config hook hardcodes `npm ci --ignore-scripts` (scripts run only in its
+  # later `npm rebuild`, gated by the same policy) — together they would skip
+  # every dependency install script (@google/genai, protobufjs, fsevents
+  # here). The flag restores the old npm behavior for the vendored, hashed
+  # lock; see dsh/package.nix for the details.
+  npmRebuildFlags = [ "--dangerously-allow-all-scripts" ];
   # The npm tarball ships dist/ prebuilt — nothing to compile.
   dontNpmBuild = true;
 

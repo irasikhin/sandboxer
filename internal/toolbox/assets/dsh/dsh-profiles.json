@@ -1,0 +1,12 @@
+{
+  "web": {
+    "bundles": ["@deepseek-ai/dsh-base", "@deepseek-ai/dsh-web-app"],
+    "patchReload": "live",
+    "plugins": ["dshmarket", "dsh-find-plugin", "@tt-a1i/archify-dsh"]
+  },
+  "headless": {
+    "bundles": ["@deepseek-ai/dsh-base", "@deepseek-ai/dsh-headless"],
+    "patchReload": "startup",
+    "plugins": ["dsh-find-plugin", "@tt-a1i/archify-dsh"]
+  }
+}
