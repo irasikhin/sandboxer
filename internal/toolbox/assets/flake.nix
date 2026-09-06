@@ -53,7 +53,16 @@
               (final: prev: {
                 pi = final.callPackage ./pi/package.nix { };
                 pi-agent-orchestrator = final.callPackage ./pi-orchestrator/package.nix { };
-                dsh = final.callPackage ./dsh/package.nix { };
+                # dsh rides with the same baked community plugins the root
+                # flake grafts in (dshmarket, dsh-find-plugin, archify).
+                dshmarket = final.callPackage ./dsh-plugins/dshmarket/package.nix { };
+                dsh-find-plugin = final.callPackage ./dsh-plugins/dsh-find-plugin/package.nix { };
+                archify-dsh = final.callPackage ./dsh-plugins/archify-dsh/package.nix { };
+                dsh = final.callPackage ./dsh/package.nix {
+                  plugins = {
+                    inherit (final) dshmarket dsh-find-plugin archify-dsh;
+                  };
+                };
               })
               (import ./overlay.nix)
             ];
