@@ -6,6 +6,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.96.0] — 2026-09-07
+
+### Added
+
+- dsh 0.1.2-rc.1 with baked community plugins (#22) (223e385)
+- bake dsh-model-router into dsh profiles (862c4c6)
+
+
 ## [0.95.0] — 2026-09-03
 
 ### Added
@@ -1448,3 +1456,4 @@ isolated, containerized dev sandbox, on a local Linux machine:
 [0.93.1]: https://github.com/irasikhin/sandboxer/compare/v0.93.0...v0.93.1
 [0.94.0]: https://github.com/irasikhin/sandboxer/compare/v0.93.1...v0.94.0
 [0.95.0]: https://github.com/irasikhin/sandboxer/compare/v0.94.0...v0.95.0
+[0.96.0]: https://github.com/irasikhin/sandboxer/compare/v0.95.0...v0.96.0
