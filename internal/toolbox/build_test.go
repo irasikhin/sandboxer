@@ -59,7 +59,7 @@ func TestWriteContext(t *testing.T) {
 		files = append(files, dir+"/package.nix", dir+"/package-lock.json")
 	}
 	// dsh-plugins nests one dir per baked plugin, not flat package files.
-	for _, p := range []string{"dshmarket", "dsh-find-plugin", "archify-dsh"} {
+	for _, p := range []string{"dshmarket", "dsh-find-plugin", "archify-dsh", "dsh-model-router"} {
 		files = append(files, "dsh-plugins/"+p+"/package.nix")
 	}
 	// dsh contributes more than the pair — its launcher script, the web bind

@@ -174,7 +174,14 @@ was extracted from:
   manifest is left alone. The baked packages are also linked into the profile's node_modules where pnpm
   would have installed them (archify resolves its Skill root via `require(baseUrl)`, which only a
   profile-local copy satisfies). web = dshmarket (the plugin market UI) + dsh-find-plugin +
-  @tt-a1i/archify-dsh; headless = the latter two. Opt out: `SANDBOXER_NO_DSH_PLUGINS=1`; custom profiles
+  @tt-a1i/archify-dsh + dsh-model-router (role-based model routing: planner → deepseek-v4-pro, delegated
+  executor subagents → deepseek-v4-flash); headless = the same minus dshmarket. dsh-model-router ships
+  routing ON by default (its bundle patch) and its rewrite wins over the session's selected model — the
+  profile's own cordis.patch.yml layer applies after the plugin layer and can disable the row. NOTE:
+  the plugin targets the pre-0.1.2 harness API; its package.nix bridges the three symbols the 0.1.2
+  rewrite removed (strict routing works, mode:"plan" degrades to strict, no browser settings card) —
+  a `--replace-fail` guard fails the build when upstream fixes the API so the patch gets dropped.
+  Opt out: `SANDBOXER_NO_DSH_PLUGINS=1`; custom profiles
   are never touched. Bumping dsh re-checks the launcher, the web-bind overlay and dsh-profiles.json
   against the new release.
 - **Agent registry** (`internal/registry/registry.json`): the single-source catalog of agents — embedded in the

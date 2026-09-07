@@ -23,14 +23,15 @@
         # embedded flake, which grafts them the same way (single source).
         pi = final.callPackage ./internal/toolbox/assets/pi/package.nix { };
         # DeepSeek Harness (`dsh`), likewise built from its npm tarball, with
-        # the baked community plugins (dshmarket, dsh-find-plugin, archify)
-        # grafted INTO its tree by the plugins argument.
+        # the baked community plugins (dshmarket, dsh-find-plugin, archify,
+        # model-router) grafted INTO its tree by the plugins argument.
         dshmarket = final.callPackage ./internal/toolbox/assets/dsh-plugins/dshmarket/package.nix { };
         dsh-find-plugin = final.callPackage ./internal/toolbox/assets/dsh-plugins/dsh-find-plugin/package.nix { };
         archify-dsh = final.callPackage ./internal/toolbox/assets/dsh-plugins/archify-dsh/package.nix { };
+        dsh-model-router = final.callPackage ./internal/toolbox/assets/dsh-plugins/dsh-model-router/package.nix { };
         dsh = final.callPackage ./internal/toolbox/assets/dsh/package.nix {
           plugins = {
-            inherit (final) dshmarket dsh-find-plugin archify-dsh;
+            inherit (final) dshmarket dsh-find-plugin archify-dsh dsh-model-router;
           };
         };
         # pi's multi-agent orchestration package, baked in and registered in
