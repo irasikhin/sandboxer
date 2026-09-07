@@ -57,6 +57,7 @@ let
   dshmarket = plugins.dshmarket or null;
   dsh-find-plugin = plugins."dsh-find-plugin" or null;
   archify-dsh = plugins.archify-dsh or null;
+  dsh-model-router = plugins.dsh-model-router or null;
 
   # The published tarball, with dev deps stripped and the vendored lock placed
   # beside it (see the header for why both are needed).
@@ -119,6 +120,9 @@ buildNpmPackage {
     ''}
     ${lib.optionalString (archify-dsh != null) ''
       cp -r ${archify-dsh}/lib/node_modules/@tt-a1i/archify-dsh "$out/lib/node_modules/@deepseek-ai/dsh/node_modules/@tt-a1i/"
+    ''}
+    ${lib.optionalString (dsh-model-router != null) ''
+      cp -r ${dsh-model-router}/lib/node_modules/dsh-model-router "$out/lib/node_modules/@deepseek-ai/dsh/node_modules/"
     ''}
 
     ${lib.optionalString stdenv.hostPlatform.isLinux ''
