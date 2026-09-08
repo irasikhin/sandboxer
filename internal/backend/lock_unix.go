@@ -12,8 +12,8 @@ import (
 // if needed, and returns a release func. It BLOCKS until the lock is available,
 // so concurrent holders serialize. Used to serialize a sandbox's session
 // create/converge across processes (see EnsureSession): two first-enters racing
-// to create the same session would otherwise each bring up — and the loser tear
-// down — the egress sidecar. Best-effort: on any error it returns a no-op
+// to create the same session machine would otherwise each build one — and the
+// loser tear down — what the winner built. Best-effort: on any error it returns a no-op
 // release together with the error, and the caller proceeds unlocked (the
 // pre-lock behavior) rather than failing the run.
 func lockFile(path string) (release func(), err error) {

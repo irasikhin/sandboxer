@@ -224,7 +224,7 @@ func TestConfigLine(t *testing.T) {
 }
 
 // TestWarnOpenNetwork: the open-network warning fires only when there is no
-// allowlist sidecar and no proxy, and calls out hostConfigs when it is on.
+// allowlist wall and no proxy, and calls out hostConfigs when it is on.
 func TestWarnOpenNetwork(t *testing.T) {
 	t.Setenv("SANDBOXER_NO_EGRESS", "")
 	var b strings.Builder
