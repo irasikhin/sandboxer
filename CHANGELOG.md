@@ -6,6 +6,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.96.1] — 2026-09-08
+
+### Fixed
+
+- allow Docker Hub's cloudfront blob CDN in default egress (13794ef)
+
+
 ## [0.96.0] — 2026-09-07
 
 ### Added
@@ -1457,3 +1464,4 @@ isolated, containerized dev sandbox, on a local Linux machine:
 [0.94.0]: https://github.com/irasikhin/sandboxer/compare/v0.93.1...v0.94.0
 [0.95.0]: https://github.com/irasikhin/sandboxer/compare/v0.94.0...v0.95.0
 [0.96.0]: https://github.com/irasikhin/sandboxer/compare/v0.95.0...v0.96.0
+[0.96.1]: https://github.com/irasikhin/sandboxer/compare/v0.96.0...v0.96.1
