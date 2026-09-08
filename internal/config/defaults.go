@@ -61,11 +61,15 @@ const DefaultImage = "ghcr.io/irasikhin/sandboxer-toolbox:latest"
 // the CLI unable to connect even though api.anthropic.com is allowed.
 //
 // cloudfront.net is where registry BLOBS actually come from: public.ecr.aws
-// redirects every blob there unconditionally and docker.io does so for some
-// regions/accounts, so without it a pull 403s halfway through the manifest.
-// The entry admits any CloudFront distribution — a real allowlist widening,
-// called out in SECURITY.md; drop it in egress.allowedDomains if the ECR/Hub
-// blob path is not worth that.
+// redirects every blob there unconditionally, and docker.io does so for some
+// regions/accounts as well. Docker Hub ALSO serves blobs from its own CDN
+// hostnames — production.cloudflare.docker.com (historical) and
+// production.cloudfront.docker.com (the live one since 2026; observed — the
+// name-bound deny of the new CDN host failed every pull at the blob stage).
+// Without the CDN names in the list a pull dies halfway through the manifest.
+// The cloudfront.net entry admits any CloudFront distribution — a real
+// allowlist widening, called out in SECURITY.md; drop it in
+// egress.allowedDomains if the ECR/Hub blob path is not worth that.
 const DefaultDomains = "api.anthropic.com,platform.claude.com,console.anthropic.com," +
 	"api.openai.com,api.deepseek.com," +
 	"generativelanguage.googleapis.com,openrouter.ai,registry.npmjs.org,pypi.org," +
@@ -74,7 +78,7 @@ const DefaultDomains = "api.anthropic.com,platform.claude.com,console.anthropic.
 	"proxy.golang.org,sum.golang.org,rubygems.org,github.com,codeload.github.com," +
 	"raw.githubusercontent.com,objects.githubusercontent.com,api.github.com," +
 	"docker.io,registry-1.docker.io,auth.docker.io,index.docker.io," +
-	"production.cloudflare.docker.com,mirror.gcr.io,ghcr.io," +
+	"production.cloudflare.docker.com,production.cloudfront.docker.com,mirror.gcr.io,ghcr.io," +
 	"pkg-containers.githubusercontent.com,quay.io,cdn01.quay.io,cdn02.quay.io,cdn03.quay.io," +
 	"public.ecr.aws,cloudfront.net"
 

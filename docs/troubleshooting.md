@@ -82,14 +82,16 @@ layer (there is no proxy returning 403 anymore).
   CDN/mirror (e.g. `registry.npmjs.org` plus its CDN).
 - Container pulls inside the sandbox are the classic case: the registry
   answers but the **blobs redirect to a CDN** — docker.io sends some
-  regions/accounts to `*.cloudfront.net`, and `public.ecr.aws` sends *every*
-  blob there, so a pull that dies halfway with `Forbidden` usually means
-  `cloudfront.net` is missing. Current defaults include it (plus
-  `public.ecr.aws`) — but a `sandboxer config init` from an older release
+  regions/accounts to `*.cloudfront.net` or to its own CDN hostnames
+  (`production.cloudflare.docker.com`, `production.cloudfront.docker.com`),
+  and `public.ecr.aws` sends *every* blob to `*.cloudfront.net`. The policy
+  is name-bound, so a pull that dies at the blob fetch (`lookup …: no such
+  host` / exit 125) usually means one of those CDN names is missing. Current
+  defaults include them — but a `sandboxer config init` from an older release
   **froze the then-defaults into your `sandboxer.nix`**, and
-  `egress.allowedDomains` replaces the default set wholesale: add
-  `"public.ecr.aws" "cloudfront.net"` to the list (or delete the attr to fall
-  back to the current built-in defaults).
+  `egress.allowedDomains` replaces the default set wholesale: add the missing
+  names to the list (or delete the attr to fall back to the current built-in
+  defaults).
 - `allowedDomains = [ ]` means what it says: a **fully offline** machine, DNS
   included. Delete the attr (not empty it) to get the built-in defaults.
 - The one-time `setup:` hook runs under the **same** allowlist — a network step
