@@ -212,7 +212,10 @@ Windows/WSL2 are **cross-platform in code but not live-verified** — see
   blobs (docker.io for some regions, all of `public.ecr.aws`) redirect there,
   but the entry admits *any* CloudFront distribution, i.e. an exfiltration
   channel anyone can stand up; set `egress.allowedDomains` without it if that
-  outweighs registry pulls for you.
+  outweighs registry pulls for you. Docker Hub's own blob-CDN hostnames
+  (`production.cloudflare.docker.com`, `production.cloudfront.docker.com`)
+  are also default-listed; those rules are name-bound to Docker's own
+  domains, so they widen nothing.
 
   > **`egress.proxy` opens exactly one door in the wall.** With egress on and
   > a proxy set, the machine still boots **default-deny with the allowlist
