@@ -77,7 +77,7 @@ layer (there is no proxy returning 403 anymore).
   `--allow-domains a.com,b.com` for the run. A rule covers the domain **and
   its subdomains**.
 - Rules are matched by **name**: dialing a raw IP fails even for an allowed
-  domain's own address — that is the point, not a bug.
+  domain's own address. This is intentional, not a bug.
 - Remember transitive hosts: a package install often needs the registry **and** a
   CDN/mirror (e.g. `registry.npmjs.org` plus its CDN).
 - Container pulls inside the sandbox are the classic case: the registry
@@ -211,7 +211,7 @@ http://127.0.0.1:<port>/` answering while a plain `curl` does not is the tell.
 ## Persistent session won't reattach
 
 `enter` shells into a persistent session machine; a later `enter`
-reattaches (full semantics: README "Persistent sessions"). A session survives
+reattaches (full semantics: README "Sessions"). A session survives
 client disconnects; across a host restart the machine dies but the saved tmux
 layout comes back.
 

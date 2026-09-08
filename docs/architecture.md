@@ -125,7 +125,7 @@ Notes:
   system /etc/tmux.conf: mouse on, rc.sh panes) inside a **persistent session
   machine**; `exec` reuses a running session; `stop` parks it; `rm` removes
   it. Full semantics
-  and escape hatches: README "Persistent sessions"; decisions:
+  and escape hatches: README "Sessions"; decisions:
   [sessions-design.md](./sessions-design.md).
 - The agent's work is a git branch in your repo's shared object store; you review
   and merge it with plain git. There is no `pull`/`push`/`diff`.
