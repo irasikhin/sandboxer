@@ -5,6 +5,14 @@ sidecar, tmux in the toolbox image, the lifecycle state machine, persistent
 `enter`/`exec`, `stop`, session-aware `rm`/`list`/`show`/`doctor`/`compose`, and
 tmux-layout capture/restore across a container replacement (D6).
 
+> **Container-era record.** This design was written for the removed docker/podman
+> backend; sessions now run in microVMs (msb). The mechanics that carried over
+> (session hash/staleness, tmux capture/restore, agent auto-resume) still apply;
+> the parts that did not — the engine's container store as the only session
+> state (D2) and the egress proxy sidecar (D5) — are gone: egress is enforced
+> by microsandbox's in-VMM name-bound policy engine, with no sidecar process
+> anywhere in the network path (see [microvm.md](./microvm.md#egress)).
+
 This is a decisions-and-why record (an RFC), not a mirror of code
 (`proc-doc-as-code`): it captures the mechanism choices and the alternatives
 rejected, so the implementation PRs stay small and link back here.

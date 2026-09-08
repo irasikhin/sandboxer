@@ -375,15 +375,15 @@ func imageLabel(prof *config.Profile) string {
 }
 
 // egressLabel renders the resolved egress posture for the configLine. It names
-// the one state with no outbound wall at all — no allowlist sidecar AND no
+// the one state with no outbound wall at all — no allowlist wall AND no
 // proxy — distinctly as OPEN, so an unrestricted network can never hide behind
 // the same "off" the trusted-proxy (direct) case uses. See networkOpen.
 func egressLabel(rt config.Runtime) string {
-	sidecar := rt.Egress && !noEgress()
+	walled := rt.Egress && !noEgress()
 	switch {
-	case sidecar && rt.Proxy != "":
+	case walled && rt.Proxy != "":
 		return fmt.Sprintf("on→proxy (%d domains)", len(rt.Domains))
-	case sidecar:
+	case walled:
 		return fmt.Sprintf("on (%d domains)", len(rt.Domains))
 	case rt.Proxy != "":
 		if noEgress() {
@@ -399,7 +399,7 @@ func egressLabel(rt config.Runtime) string {
 }
 
 // networkOpen reports whether the resolved settings leave the container on an
-// unrestricted network: no allowlist sidecar (egress off, or the NO_EGRESS
+// unrestricted network: no allowlist wall (egress off, or the NO_EGRESS
 // kill-switch) AND no proxy to route through — the one egress state with no
 // outbound wall. Kept in lockstep with egressLabel's OPEN branch.
 func networkOpen(rt config.Runtime) bool {

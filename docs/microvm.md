@@ -3,7 +3,7 @@
 Every sandbox is a real **microVM**. Where a container shares the host kernel
 and leans on `--cap-drop`, user namespaces and seccomp for its boundary, a
 microVM gives each sandbox its **own kernel** behind a hardware virtualization
-boundary — the isolation an LLM agent running untrusted code deserves.
+boundary: the strongest isolation boundary available on the machine.
 
 The runner is [microsandbox](https://microsandbox.dev) (`msb`), a thin CLI over
 **libkrun** (KVM on Linux, Hypervisor.framework on macOS/Apple Silicon),
@@ -143,8 +143,8 @@ and offline/air-gapped hosts. It runs with **host nix** — the same
 `path:<ctx>#image` derivation the CI workflow realizes, built directly (nix
 and git are both already hard requirements of the CLI). The "latest"
 input-rev pins resolve on the **host via `git ls-remote`**, so a cold pins
-cache resolves the same way everywhere — the first-ever build on a fresh
-machine just works. The realized tar is stored at `<state>/images/<tag>.tar`
+cache resolves the same way everywhere: the first-ever build on a fresh
+machine needs no special setup. The realized tar is stored at `<state>/images/<tag>.tar`
 and imported (`msb load`) into msb's own image store, which is what its
 `create` boots — a locally built stock image sits there under the prebuilt
 ref, so a create boots it without pulling. A rebuilt tar (or a re-pulled ref)
@@ -172,22 +172,22 @@ policy engine — no side process on the host. The config states map onto
    `--no-net` (default deny), the allowlist rules, exactly one extra door —
    the proxy's own port — and the guest's HTTP(S) clients pointed at the proxy
    (`HTTP_PROXY`/`HTTPS_PROXY`, `egress.noProxy` → `NO_PROXY`). Direct
-   traffic, including anything that ignores proxy env, is enforced by the VM;
-   traffic that RIDES the proxy is constrained by the **proxy**, which is the
-   trade a CONNECT proxy forces — the VM sees only the dial to the proxy,
-   never the target names (sandboxer prints exactly this warning). An empty
+   traffic, including anything that ignores proxy env, is enforced by the VM.
+   Traffic that rides the proxy is constrained by the **proxy**. That is the
+   trade a CONNECT proxy forces: the VM sees only the dial to the proxy,
+   never the target names (sandboxer prints this warning). An empty
    allowlist leaves only the door: all egress rides the proxy. One
-   translation: microsandbox's guest has a **real network stack**, so
-   `127.0.0.1` in the guest is the guest itself — a loopback proxy URL is
-   rewritten to `host.microsandbox.internal` (msb's DNS resolves it to the
-   gateway, and a gateway dial lands on the host's loopback) with an
-   `allow@host:tcp:<port>` door; a remote proxy keeps its URL and gets a
-   name-bound door on its own host and port.
+   consequence of the guest's **real network stack**: `127.0.0.1` in the
+   guest is the guest itself. A loopback proxy URL is therefore rewritten to
+   `host.microsandbox.internal` (msb's DNS resolves it to the gateway, and a
+   gateway dial lands on the host's loopback) with an `allow@host:tcp:<port>`
+   door; a remote proxy keeps its URL and gets a name-bound door on its own
+   host and port.
 2. **egress on + an allowlist (no proxy)** → `--no-net` plus, per domain, an
    allow rule for HTTP and HTTPS: `allow@*.domain:tcp:80,allow@*.domain:tcp:443`
    — the domain and its subdomains, those two ports, DNS via the gateway, and
-   nothing else. Rules are matched by NAME, so a raw IP — even the allowed
-   domain's own — is refused.
+   nothing else. Rules are matched by name, so a raw IP dial is refused even
+   for an allowed domain's own address.
 3. **egress on + an empty allowlist (no proxy)** → `--no-net` alone: fully
    offline.
 4. **egress off** (`egress.enabled = false` / `SANDBOXER_NO_EGRESS=1`) → open
@@ -232,9 +232,9 @@ Rejected — with the reason — under `backend = "microsandbox"`:
 - shares under `/tmp`, and a too-deep `MSB_HOME` — see Requirements.
 
 Default machine size is **2 vCPU / 4 GiB / 20 GiB root disk** (deliberately
-modest — the workload is several agents in parallel, and the root disk is a
-sparse image, so the larger default costs almost nothing until the guest
-writes); raise it with `limits.memory` / `limits.cpus` / `limits.disk`.
+modest: the workload is several agents in parallel. The root disk is a sparse
+image, so the larger default costs almost nothing until the guest writes);
+raise it with `limits.memory` / `limits.cpus` / `limits.disk`.
 
 ## Migration status
 

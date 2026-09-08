@@ -629,7 +629,7 @@ func warnMicrovmProxy(w io.Writer, rt config.Runtime) {
 }
 
 // warnOpenNetwork warns when the resolved network is fully open — no allowlist
-// sidecar and no proxy (networkOpen) — so the agent has unrestricted outbound.
+// wall and no proxy (networkOpen) — so the agent has unrestricted outbound.
 // The configLine already labels this "OPEN", but it is the one egress state
 // with no wall at all, and a run that also seeds host credentials (hostConfigs)
 // deserves an explicit line: the allowlist is the wall between those creds and

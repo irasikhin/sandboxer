@@ -525,9 +525,9 @@ func (p *Profile) JSON() ([]byte, error) {
 	return json.MarshalIndent(p, "", "  ")
 }
 
-// EgressEnabled reports whether the container egress allowlist sidecar should
-// run. Default true; an explicit `egress.enabled = false` disables it (the agent
-// talks to egress.proxy directly and that proxy polices egress).
+// EgressEnabled reports whether the egress allowlist wall should be in force.
+// Default true; an explicit `egress.enabled = false` opens the network (with
+// `egress.proxy` set, that proxy polices egress).
 func (p *Profile) EgressEnabled() bool {
 	return p.Egress.Enabled == nil || *p.Egress.Enabled
 }

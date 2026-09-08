@@ -22,7 +22,8 @@ expect sharp edges; reports are welcome.
    no `/dev/kvm` on macOS, Hypervisor.framework is used implicitly.
 
 Then use it exactly as on Linux (`sandboxer create`, `enter`, `exec`). The
-first `enter` builds the toolbox image with host nix (minutes, network-bound).
+first `enter` pulls the prebuilt toolbox image (network-bound, minutes on a
+slow link; `sandboxer image build` builds locally instead).
 
 ## Known unknowns
 

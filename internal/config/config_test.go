@@ -213,7 +213,7 @@ func TestResolveRuntimeProxy(t *testing.T) {
 	}
 
 	// An https proxy is fine in every egress state — the guest talks to the
-	// proxy directly, there is no chaining sidecar.
+	// proxy directly; no proxy process is started in between.
 	hp := &Profile{Egress: Egress{Proxy: "https://p:3128"}}
 	if _, err := ResolveRuntime(hp, Defaults{}, "base.com", Overrides{}); err != nil {
 		t.Errorf("ResolveRuntime must accept an https proxy: %v", err)
