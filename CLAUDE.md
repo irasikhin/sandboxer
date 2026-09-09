@@ -174,10 +174,17 @@ was extracted from:
   manifest is left alone. The baked packages are also linked into the profile's node_modules where pnpm
   would have installed them (archify resolves its Skill root via `require(baseUrl)`, which only a
   profile-local copy satisfies). web = dshmarket (the plugin market UI) + dsh-find-plugin +
-  @tt-a1i/archify-dsh + dsh-model-router (role-based model routing: planner → deepseek-v4-pro, delegated
-  executor subagents → deepseek-v4-flash); headless = the same minus dshmarket. dsh-model-router ships
+  @tt-a1i/archify-dsh + dsh-model-router (role-based model routing: planner AND delegated executor
+  subagents → DeepSeek V4.1 Flash); headless = the same minus dshmarket. dsh-model-router ships
   routing ON by default (its bundle patch) and its rewrite wins over the session's selected model — the
-  profile's own cordis.patch.yml layer applies after the plugin layer and can disable the row. NOTE:
+  profile's own cordis.patch.yml layer applies after the plugin layer and can disable the row. The
+  published plugin defaults still target v4-pro/v4-flash, so package.nix patches them at build time —
+  both routes, `llm-deepseek` catalog (the model picker) and the routing skill's prose — with
+  `--replace-fail` guards: upstream adopting V4.1 breaks the build, which is the signal to drop the
+  patch. THE PATCHED ID IS THE BETA ONE AND IT EXPIRES: api.deepseek.com serves
+  deepseek-v4.1-flash-expires-on-0910 (verified 2026-09-09) but not the permanent deepseek-v4.1-flash
+  yet; V4.1 Flash launches ~2026-09-10 (Beijing time), and a release built with the beta id must be
+  superseded by an id swap then (package.nix + sandbox.PiModels are the only two places). NOTE:
   the plugin targets the pre-0.1.2 harness API; its package.nix bridges the three symbols the 0.1.2
   rewrite removed (strict routing works, mode:"plan" degrades to strict, no browser settings card) —
   a `--replace-fail` guard fails the build when upstream fixes the API so the patch gets dropped.
@@ -209,7 +216,14 @@ was extracted from:
   never name a store path; the literal is duplicated in `sandbox.BakedPiPackages` — keep them in sync).
   `EnsurePiPackages` MERGES the entry on create/enter/exec (`prepareHome`, AFTER SeedHome so a seeded
   host settings.json is the file we merge into), dedupes both spellings pi accepts (string and
-  `{source}`), and leaves an unparsable settings.json alone. Opt out: `piPackages = false` /
+  `{source}`), and leaves an unparsable settings.json alone. `EnsurePiModels` (same gate, same
+  semantics) merges the deepseek-v4.1-flash-expires-on-0910 entry into `~/.pi/agent/models.json` — the
+  baked pi release predates the model, and its pi.dev catalog overlay is unreachable under the default
+  egress allowlist, so models.json is the only way in; the entry restates the deepseek compat block (pi
+  does not inherit a built-in model's compat for a new id) and its context/cost figures mirror
+  deepseek-v4-flash — provisional until the pi.dev catalog or a newer pi release carries the model
+  officially. The beta id expires 2026-09-10 — swap it together with the dsh patch above. Opt out:
+  `piPackages = false` /
   `SANDBOXER_NO_PI_PACKAGES=1`.
 - **Toolbox image** (`internal/toolbox` + flake `dockerTools.buildLayeredImage`): the OCI image with the agents
   baked in; the stock default is PREBUILT — `ghcr.io/irasikhin/sandboxer-toolbox:latest`, pushed by

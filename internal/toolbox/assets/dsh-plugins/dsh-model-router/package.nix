@@ -1,6 +1,6 @@
 # dsh-model-router — role-based model routing for dsh: the planner (root)
-# agent runs on deepseek-v4-pro, every delegated executor subagent on
-# deepseek-v4-flash. Vendored like dshmarket: copied as a REAL dir into
+# agent and every delegated executor subagent run on DeepSeek V4.1 Flash.
+# Vendored like dshmarket: copied as a REAL dir into
 # dsh's node_modules, peers stripped (cordis, schemastery — resolve at
 # runtime from the dsh installation).
 #
@@ -8,16 +8,26 @@
 # exactly what the published tarball ships (lib/, the bundle patch, the
 # pro-flash-routing skill).
 #
-# NOTE (2026-09-09): an earlier revision of this file patched the published
-# defaults to route executors to deepseek-v4.1-flash, on the day the model was
-# announced. The live DeepSeek API does NOT serve that id (verified: /models
-# lists only v4-pro/v4-flash/v4-flash-vision-exp, and a chat completion with
-# deepseek-v4.1-flash is rejected with HTTP 400). Routing to a model the API
-# rejects breaks EVERY delegated request, so the patch was reverted and the
-# plugin ships upstream's v4 defaults. When the API actually lists a new flash
-# model, patch the executor route + llm-deepseek catalog here (with
-# --replace-fail guards) or wait for upstream to adopt it — the build will not
-# fail on our side either way unless we patch.
+# DEEPSEEK V4.1 FLASH PATCH (see installPhase): the published 0.6.3 routes the
+# planner to deepseek-v4-pro and executors to deepseek-v4-flash, and lists only
+# the v4 models in the deepseek catalog. The image patches three things:
+#   - the bundle patch's `model-router` row — BOTH routes (planner and
+#     executor) -> DeepSeek V4.1 Flash (the row config in the bundle patch is
+#     what actually configures the router; the plugin code default only
+#     covers rows inserted bare);
+#   - the bundle patch's `llm-deepseek` row — the model added to the catalog,
+#     which IS the model picker;
+#   - the advisory prose (the registered pro-flash-routing skill, both the
+#     embedded copy and skills/ SKILL.md), which names the models per role.
+# THE ID IS THE BETA ONE, AND IT EXPIRES: api.deepseek.com serves
+# `deepseek-v4.1-flash-expires-on-0910` (verified HTTP 200 on 2026-09-09) but
+# NOT the permanent `deepseek-v4.1-flash` (HTTP 400) — V4.1 Flash launches
+# around 2026-09-10 (Beijing time). When the permanent id goes live, swap it
+# here (and in sandbox.PiModels) with a follow-up patch release; the beta id
+# stops working on 09-10, so a release built with it MUST be superseded then.
+# Every substitution is --replace-fail: when upstream adopts V4.1, the strings
+# change and the build FAILS here instead of silently double-patching — that
+# failure is the signal to drop the patch.
 #
 # COMPATIBILITY BRIDGE onto dsh >= 0.1.2 (see installPhase): the published
 # plugin targets the pre-0.1.2 harness API. The harness 0.1.2 rewrite removed
@@ -81,13 +91,76 @@ stdenv.mkDerivation {
       --replace-fail \
         'import { installSettingsSection, settingsNamespace } from "@deepseek-ai/dsh-settings";' \
         'const settingsNamespace = (ns) => ns; const installSettingsSection = () => () => {}; // dsh >= 0.1.2: settings sections live in SettingsProvider'
+    # DeepSeek V4.1 Flash patch — see the file header. The WORKING id today is
+    # the beta `deepseek-v4.1-flash-expires-on-0910` (HTTP 200 against
+    # api.deepseek.com, 2026-09-09); the permanent `deepseek-v4.1-flash` is not
+    # served yet. Both router roles and the catalog move onto it; the beta id
+    # expires 2026-09-10, so the id is the ONE thing to swap then.
+    substituteInPlace package/cordis.patch.yml \
+      --replace-fail \
+        '          model: deepseek-v4-pro' \
+        '          model: deepseek-v4.1-flash-expires-on-0910' \
+      --replace-fail \
+        '          model: deepseek-v4-flash' \
+        '          model: deepseek-v4.1-flash-expires-on-0910' \
+      --replace-fail \
+        '      - id: deepseek-v4-flash
+            name: DeepSeek-V4-Flash
+            contextWindow: 1000000
+            maxTokens: 256000' \
+        '      - id: deepseek-v4-flash
+            name: DeepSeek-V4-Flash
+            contextWindow: 1000000
+            maxTokens: 256000
+          - id: deepseek-v4.1-flash-expires-on-0910
+            name: DeepSeek-V4.1-Flash (beta, expires 09-10)
+            contextWindow: 1000000
+            maxTokens: 256000'
+    substituteInPlace package/lib/index.js \
+      --replace-fail \
+        'model: "deepseek-v4-pro"' \
+        'model: "deepseek-v4.1-flash-expires-on-0910"' \
+      --replace-fail \
+        'model: "deepseek-v4-flash"' \
+        'model: "deepseek-v4.1-flash-expires-on-0910"' \
+      --replace-fail \
+        '\`deepseek-v4-pro\`. Planning' \
+        '\`deepseek-v4.1-flash-expires-on-0910\`. Planning' \
+      --replace-fail \
+        'planner output by \`deepseek-v4-pro\`' \
+        'planner output by \`deepseek-v4.1-flash-expires-on-0910\`' \
+      --replace-fail \
+        'deepseek-v4-flash\`. Implementation work' \
+        'deepseek-v4.1-flash-expires-on-0910\`. Implementation work' \
+      --replace-fail \
+        'automatically routed to \`deepseek-v4-flash\`' \
+        'automatically routed to \`deepseek-v4.1-flash-expires-on-0910\`' \
+      --replace-fail \
+        'produced by \`deepseek-v4-flash\`;' \
+        'produced by \`deepseek-v4.1-flash-expires-on-0910\`;'
+    substituteInPlace package/skills/pro-flash-routing/SKILL.md \
+      --replace-fail \
+        '`deepseek-v4-pro`. Planning' \
+        '`deepseek-v4.1-flash-expires-on-0910`. Planning' \
+      --replace-fail \
+        'planner output by `deepseek-v4-pro`' \
+        'planner output by `deepseek-v4.1-flash-expires-on-0910`' \
+      --replace-fail \
+        '`deepseek-v4-flash`. Implementation work' \
+        '`deepseek-v4.1-flash-expires-on-0910`. Implementation work' \
+      --replace-fail \
+        'automatically routed to `deepseek-v4-flash`' \
+        'automatically routed to `deepseek-v4.1-flash-expires-on-0910`' \
+      --replace-fail \
+        'produced by `deepseek-v4-flash`;' \
+        'produced by `deepseek-v4.1-flash-expires-on-0910`;'
     mkdir -p "$out/lib/node_modules"
     mv package "$out/lib/node_modules/dsh-model-router"
     runHook postInstall
   '';
 
   meta = {
-    description = "dsh plugin: role-based model routing — planner on deepseek-v4-pro, executor subagents on deepseek-v4-flash";
+    description = "dsh plugin: role-based model routing — planner and executor subagents on deepseek-v4.1-flash-expires-on-0910 (beta, expires 09-10)";
     homepage = "https://github.com/thedeveloper256/dsh-model-router";
     license = lib.licenses.mit;
   };
