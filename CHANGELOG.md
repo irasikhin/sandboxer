@@ -6,6 +6,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.97.2] — 2026-09-09
+
+### Chores
+
+- bump dsh to 0.1.5-alpha.1 (73a4ffa)
+
+
 ## [0.97.1] — 2026-09-09
 
 ### Fixed
@@ -1494,3 +1501,4 @@ isolated, containerized dev sandbox, on a local Linux machine:
 [0.96.2]: https://github.com/irasikhin/sandboxer/compare/v0.96.1...v0.96.2
 [0.97.0]: https://github.com/irasikhin/sandboxer/compare/v0.96.2...v0.97.0
 [0.97.1]: https://github.com/irasikhin/sandboxer/compare/v0.97.0...v0.97.1
+[0.97.2]: https://github.com/irasikhin/sandboxer/compare/v0.97.1...v0.97.2
