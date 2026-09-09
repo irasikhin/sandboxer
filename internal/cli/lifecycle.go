@@ -559,17 +559,16 @@ composes with scripts and CI.`,
 //  1. the host's agent configs are seeded when the profile opts in
 //     (hostConfigs = true) — copy-only, never-overwrite semantics live in
 //     sandbox.SeedHome; this is just the profile gate;
-//  2. the image's baked-in pi augmentation (sandbox.EnsurePiPackages, then
-//     sandbox.EnsurePiModels), which MERGES into the files step 1 may just
-//     have seeded — hence second: registering first would leave the seed's
-//     never-overwrite rule to skip the host's own pi configuration.
+//  2. the image's baked-in pi packages are registered in pi's settings
+//     (sandbox.EnsurePiPackages), which MERGES into the settings.json step 1
+//     may just have seeded — hence second: registering first would leave the
+//     seed's never-overwrite rule to skip the host's own pi settings.
 func prepareHome(t *target, rt config.Runtime, w io.Writer) {
 	if t.profile != nil && t.profile.HostConfigs {
 		t.base.SeedHome(t.slug, w)
 	}
 	if rt.PiPackages {
 		t.base.EnsurePiPackages(t.slug, w)
-		t.base.EnsurePiModels(t.slug, w)
 	}
 }
 
