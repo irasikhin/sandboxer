@@ -6,6 +6,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.98.0] — 2026-09-09
+
+### Added
+
+- working DeepSeek V4.1 Flash in dsh and pi (0fc5f68)
+
+
 ## [0.97.2] — 2026-09-09
 
 ### Chores
@@ -1502,3 +1509,4 @@ isolated, containerized dev sandbox, on a local Linux machine:
 [0.97.0]: https://github.com/irasikhin/sandboxer/compare/v0.96.2...v0.97.0
 [0.97.1]: https://github.com/irasikhin/sandboxer/compare/v0.97.0...v0.97.1
 [0.97.2]: https://github.com/irasikhin/sandboxer/compare/v0.97.1...v0.97.2
+[0.98.0]: https://github.com/irasikhin/sandboxer/compare/v0.97.2...v0.98.0
