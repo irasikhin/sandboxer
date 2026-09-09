@@ -6,11 +6,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.97.0] — 2026-09-09
+
 ### Added
 
-- deepseek-v4.1-flash in the sandbox: dsh routes delegated executors to it (the baked
-  dsh-model-router is patched at build time, catalog included) and pi gets the model in its
-  catalog via a models.json merge (`EnsurePiModels`)
+- support deepseek-v4.1-flash in dsh and pi (b864d49)
+
+### CI
+
+- pin govulncheck to v1.7.0 (a7a3519)
+
 
 ## [0.96.2] — 2026-09-08
 
@@ -1480,3 +1485,4 @@ isolated, containerized dev sandbox, on a local Linux machine:
 [0.96.0]: https://github.com/irasikhin/sandboxer/compare/v0.95.0...v0.96.0
 [0.96.1]: https://github.com/irasikhin/sandboxer/compare/v0.96.0...v0.96.1
 [0.96.2]: https://github.com/irasikhin/sandboxer/compare/v0.96.1...v0.96.2
+[0.97.0]: https://github.com/irasikhin/sandboxer/compare/v0.96.2...v0.97.0
