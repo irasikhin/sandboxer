@@ -139,10 +139,16 @@ was extracted from:
   (`egress.allowedDomains` / `--allow-domains`) by msb's NAME-BOUND policy engine — the machine boots
   `--no-net` (default deny) + `--net-rule allow@*.domain:tcp:80,allow@*.domain:tcp:443` per domain (domain +
   subdomains, raw IPs refused; empty list = fully offline, a valid state). No sidecar — the
-  `sandboxer-proxy` image no longer exists and the binary is never in the network path. `egress.proxy` =
-  proxy-delegated mode: open network + guest HTTP(S)_PROXY env, loopback rewritten to
-  `host.microsandbox.internal` + `allow@public,allow@host:tcp:<port>` (proxy alongside an allowlist = the
-  proxy enforces it — warning, not error). The policy is in the create argv → session hash. The config block
+  `sandboxer-proxy` image no longer exists and the binary is never in the network path; the BYO proxy
+  (`egress.proxy` / `SANDBOXER_PROXY`) remains, and with egress ON it is the COMBINED WALL, not an open
+  network: `--no-net` + the allowlist rules + exactly ONE extra door — the proxy's port
+  (`allow@host:tcp:<port>` for a loopback proxy, name-bound for a remote one) — plus the guest's
+  HTTP(S)_PROXY env, with a loopback proxy URL rewritten to `host.microsandbox.internal` (the guest's own
+  127.0.0.1 is its smoltcp stack, not the host). An empty allowlist leaves only the door: all egress rides
+  the proxy. Direct traffic is still walled by the VM; traffic that RIDES the proxy is constrained by the
+  PROXY, not the VM (the VM sees only the dial to the proxy, never the target names) — enter warns about
+  that. Egress OFF + a proxy is the open-network convenience case (no wall). `egress.noProxy` /
+  `SANDBOXER_NO_PROXY` applies alongside. The policy is in the create argv → session hash. The config block
   is `egress` (`egress.enabled` = false = open network; default on). Disable with `SANDBOXER_NO_EGRESS=1`.
 - **Ingress** (`config.ParsePorts` → `RT.Ports` → `backend.msbPortArgs`/`msbIngressRules`): profile
   `ports = ["3080" "8080:3080" "0.0.0.0:8080:3080" "5353:53/udp"]` / repeatable `-p` (the flag REPLACES the
