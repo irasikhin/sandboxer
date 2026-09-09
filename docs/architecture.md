@@ -248,13 +248,18 @@ the rules):
   explicitly **empty** allowlist is `--no-net` alone — a fully offline
   machine, a valid state. Disable deliberately with `egress.enabled = false`
   / `SANDBOXER_NO_EGRESS=1` (an open network; every run labels it).
-- **`egress.proxy`** — proxy-delegated egress: the network stays open and the
-  guest's HTTP(S) clients are pointed at the proxy (`HTTP_PROXY`/`HTTPS_PROXY`
-  env; `egress.noProxy` → `NO_PROXY`) — the proxy IS the control point, and an
-  `allowedDomains` set alongside is enforced by the proxy, not the VM
-  (sandboxer warns). A loopback proxy URL is rewritten to
-  `host.microsandbox.internal` (the guest's loopback is its own stack) and the
-  policy set to `allow@public` plus the host on exactly the proxy's port.
+- **`egress.proxy`** — BYO forward proxy, and with the allowlist on it is the
+  **combined wall**, not an open network: the machine still boots `--no-net` +
+  the allowlist rules, plus exactly ONE extra door — the proxy's port
+  (`allow@host:tcp:<port>` for a loopback proxy, name-bound for a remote one)
+  — and the guest's HTTP(S) clients are pointed at the proxy
+  (`HTTP_PROXY`/`HTTPS_PROXY` env; `egress.noProxy` → `NO_PROXY`). A loopback
+  proxy URL is rewritten to `host.microsandbox.internal` (the guest's loopback
+  is its own stack). An explicitly **empty** allowlist leaves only the door:
+  all egress rides the proxy. Direct traffic is still walled by the VM;
+  traffic that rides the proxy is constrained by the **proxy**, not the VM (the
+  VM sees only the dial to the proxy, never the target names) — enter warns.
+  Egress OFF + a proxy is the open-network convenience case.
 - The policy lives in the **create argv**, so it folds into the session hash:
   editing domains/proxy/egress recreates the machine — enforcement can never
   drift from the config on a live session.
