@@ -6,6 +6,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- deepseek-v4.1-flash in the sandbox: dsh routes delegated executors to it (the baked
+  dsh-model-router is patched at build time, catalog included) and pi gets the model in its
+  catalog via a models.json merge (`EnsurePiModels`)
+
 ## [0.96.2] — 2026-09-08
 
 ### Docs
