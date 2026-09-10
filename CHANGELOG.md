@@ -6,6 +6,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.98.1] — 2026-09-10
+
+### Docs
+
+- egress.proxy is the combined wall, not an open network (510d27f)
+
+### Chores
+
+- bump dsh to 0.1.5-rc.1 (ce83ce9)
+
+
 ## [0.98.0] — 2026-09-09
 
 ### Added
@@ -1510,3 +1521,4 @@ isolated, containerized dev sandbox, on a local Linux machine:
 [0.97.1]: https://github.com/irasikhin/sandboxer/compare/v0.97.0...v0.97.1
 [0.97.2]: https://github.com/irasikhin/sandboxer/compare/v0.97.1...v0.97.2
 [0.98.0]: https://github.com/irasikhin/sandboxer/compare/v0.97.2...v0.98.0
+[0.98.1]: https://github.com/irasikhin/sandboxer/compare/v0.98.0...v0.98.1
