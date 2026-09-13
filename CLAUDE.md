@@ -236,6 +236,17 @@ was extracted from:
   `.github/workflows/image.yml` (nightly + per v* tag; msb pulls it on first create, `image pull` refreshes) —
   while `var-` variants and offline hosts build with HOST nix (`toolbox.BuildImageHostNix` — no builder
   container) into the tar store, then `msb load`-ed; `nix run .#build-image` is the maintainer equivalent.
+  The image also bakes a local-kubernetes pack (`kubectl`, helm, kustomize, kind, k3d, k9s, kubectx, stern,
+  kubeconform). Two facts drive its wiring: the guest's root IS an overlayfs, so containerd's default
+  overlayfs snapshotter cannot nest on it (kind → `KIND_EXPERIMENTAL_CONTAINERD_SNAPSHOTTER=fuse-overlayfs`
+  in the image env; k3d → `k3dShim` pins `--snapshotter=native` on `cluster create`), and kind needs
+  `/lib/modules` to exist (it bind-mounts it read-only into every node and podman, unlike docker, refuses a
+  missing bind source — the empty dir is created in `fakeRootCommands`). `registry.k8s.io` joined
+  `config.DefaultDomains` so the usual cluster addons (metrics-server, ingress-nginx) install under the
+  allowlist — NOT for the cluster boot, which uses the images the kind node image ships. Verified end to end
+  inside a sandbox on msb 0.6.7 at the default 4 GiB under the default allowlist: kind reaches control-plane
+  Ready with every kube-system pod Running, k3d with traefik/metrics-server Running, and `helm install`
+  served.
 - **Integration tests** (`internal/itest`, `//go:build integration`): drive a real msb on KVM/HVF and skip
   cleanly when prerequisites are missing (no msb, no /dev/kvm); run via `scripts/itest.sh`. Excluded from the
   coverage gate; ci.yml runs the msb slice on KVM-capable runners. (The general test conventions are

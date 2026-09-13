@@ -280,6 +280,40 @@ own engine serves a docker-compatible socket at `/var/run/docker.sock` with
 Pulls go through the egress allowlist: the defaults cover docker.io,
 ghcr.io, quay.io and their blob CDNs.
 
+## Local Kubernetes
+
+The image ships a full local-cluster toolchain — `kubectl`, `helm`,
+`kustomize`, `kind`, `k3d`, `k9s`, `kubectx`/`kubens`, `stern` and
+`kubeconform` — so a sandbox can boot its own cluster instead of reaching for
+the host's:
+
+```bash
+kind create cluster          # single-node k8s (kind's podman provider is preset)
+k3d cluster create dev       # k3s, through the docker-compatible socket
+helm install ...             # then drive it with the usual clients
+```
+
+Both runners drive the **guest's own podman**: kind through its podman
+provider (its default provider is the docker CLI/daemon, so the image exports
+`KIND_EXPERIMENTAL_PROVIDER=podman`), k3d through the docker-compatible API
+socket at `/var/run/docker.sock`. A node is a privileged container on the
+guest kernel, so the cluster and its images live and die with the sandbox —
+`kubectl` inside finds it via the kubeconfig in the persistent sandbox home,
+`sandboxer rm` removes it, and the host's docker or Kubernetes is never in
+reach. The sandbox root is itself an overlayfs, which the kernel will not let
+another overlayfs use as an upperdir, so both runners are pointed away from
+containerd's default overlayfs snapshotter (kind via
+`KIND_EXPERIMENTAL_CONTAINERD_SNAPSHOTTER=fuse-overlayfs`, k3d's k3s via a
+thin `k3d` wrapper that pins `--snapshotter=native` on `cluster create`);
+overriding either from the outside still works. The default egress allowlist
+already carries `registry.k8s.io`, the Kubernetes project's registry, so the
+usual addons (metrics-server, ingress-nginx) install without touching the
+config. Give the machine room (`limits.memory`): the default 4 GiB fits a
+single-node kind cluster and its first workload, but a multi-node or
+workload-heavy one wants more. To reach a service from the host, keep using
+the sandbox's `ports:` forward — the cluster's own NodePorts stay inside the
+sandbox.
+
 ## Agents
 
 `sandboxer agents` prints the catalog. The single source of truth is

@@ -57,7 +57,10 @@ it too — not just the interactive rc, which also ensures it, idempotently and
 detached), with `DOCKER_HOST` and `TESTCONTAINERS_RYUK_DISABLED` baked into
 the image env — so **testcontainers** suites (Java/Go/Python) work with zero
 configuration; Ryuk is off because the disposable sandbox machine is the
-cleanup boundary. Anything that expects the *host's* Docker API socket still
+cleanup boundary. The same layer carries a **local Kubernetes** toolchain
+(kubectl/helm/kind/k3d/k9s/…) with the two pins the guest's overlayfs root
+requires — see README §Local Kubernetes. Anything that expects the *host's*
+Docker API socket still
 won't find one: the mount set is the wall, and the only engine socket in the
 sandbox is the guest's own.
 
