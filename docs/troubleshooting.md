@@ -133,6 +133,22 @@ its network behavior is your host's nix behavior:
   store — a failure naming `msb load` is an import problem, not a build one
   (check `msb --version` and disk space under `MSB_HOME`).
 
+## Image pull shows only the first N layers
+
+`msb` renders the pull as one progress bar per image layer, and its progress
+renderer stops drawing bars once they would exceed the terminal height — a
+50-row terminal shows layers 1–49 while the rest keep downloading (the window
+slides as earlier layers finish). **Nothing is truncated**: every layer in the
+manifest is fetched and verified, and the final `✓ Pulled` line is the
+authority. `msb pull -q` suppresses the bars entirely.
+
+The toolbox image genuinely has ~120 layers, and that is deliberate:
+`maxLayers = 120` (internal/toolbox/assets/images.nix) keeps each large
+package in its own layer, so an image rebuild that bumps one agent pulls that
+agent's layer only. Measured on GHCR: v0.98.0 → v0.98.1 changed 2 of 119
+layers. A smaller cap merges the same agents into a ~1.2 GB shared layer and
+would re-download all of it for the same bump.
+
 ## Setup hook failed
 
 `setup:` is a one-time `bash -lc` script run inside the sandbox before you take
