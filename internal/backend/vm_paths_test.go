@@ -53,7 +53,7 @@ func TestMSBExtraMountsAndEnv(t *testing.T) {
 		Env: map[string]string{"ZZ": "last", "AA": "first"},
 	}
 	want := []string{
-		"-v", "/data:/data:ro", "-v", "/cache:/cache",
+		"-v", "/data:/data:ro", "-v", "/cache:/cache:quota=4294967295",
 		"-e", "AA=first", "-e", "ZZ=last",
 	}
 	if got := msbExtraMountsAndEnv(p); !slices.Equal(got, want) {
