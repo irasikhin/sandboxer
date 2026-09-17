@@ -6,6 +6,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.98.2] — 2026-09-17
+
+### Fixed
+
+- lift msb's 4 GiB per-share guest-write quota (2418ff8)
+- point pi's model catalog at the served deepseek-flash id (42b72d7)
+
+### Docs
+
+- the /tmp tmpfs is an msb 0.6.x behavior (80c8cba)
+
+### Chores
+
+- bump microsandbox to 0.7.1 (602e48b)
+- go 1.26.7, current nixpkgs pin, module and vuln bumps (8322a54)
+- bump pi to 0.85.1 and pi-agent-orchestrator to 0.19.1 (0737d9b)
+- dsh 0.1.5-rc.2, dshmarket 1.47.0, model-router 0.7.0 (a31dcc2)
+- current CI and tooling pins (7c792bb)
+
+
 ## [0.98.1] — 2026-09-10
 
 ### Docs
@@ -1522,3 +1542,4 @@ isolated, containerized dev sandbox, on a local Linux machine:
 [0.97.2]: https://github.com/irasikhin/sandboxer/compare/v0.97.1...v0.97.2
 [0.98.0]: https://github.com/irasikhin/sandboxer/compare/v0.97.2...v0.98.0
 [0.98.1]: https://github.com/irasikhin/sandboxer/compare/v0.98.0...v0.98.1
+[0.98.2]: https://github.com/irasikhin/sandboxer/compare/v0.98.1...v0.98.2
