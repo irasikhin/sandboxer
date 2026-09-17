@@ -305,7 +305,7 @@ func TestMSBSecretsMode(t *testing.T) {
 	}
 	want := []string{
 		"--secret", "ANTHROPIC_API_KEY@api.anthropic.com,github.com",
-		"--on-secret-violation", "block-and-log",
+		"--secret-violation-action", "block-and-log",
 	}
 	if got := msbSecretArgs(o); !slices.Equal(got, want) {
 		t.Errorf("msbSecretArgs = %q, want %q", got, want)
