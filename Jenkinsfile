@@ -78,7 +78,7 @@ spec:
     # (go) and gotestsum installed below. Privileged for /dev/kvm — the agent
     # namespace is PSA:privileged precisely to allow this.
     - name: nix
-      image: nixos/nix:2.28.3
+      image: nixos/nix:2.35.2
       command: ["sleep"]
       args: ["infinity"]
       securityContext: {privileged: true}
@@ -112,7 +112,7 @@ spec:
         container('nix') {
           sh '''
             set -eu
-            NIXPKGS=https://channels.nixos.org/nixos-25.05/nixexprs.tar.xz
+            NIXPKGS=https://channels.nixos.org/nixos-26.05/nixexprs.tar.xz
             # More patient/resilient nix downloads — a throttled or proxied
             # egress makes binary-cache transfers slow and occasionally truncated.
             # max-jobs 2: the from-source agent builds (Go/npm) are memory-hogs
