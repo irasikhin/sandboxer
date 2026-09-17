@@ -19,7 +19,7 @@ on:
 # upstream may change CLI semantics the argv builders depend on) — and keep
 # MSB_VERSION in step with nix/microsandbox.nix.
 env:
-  MSB_VERSION: "0.6.7"
+  MSB_VERSION: "0.7.1"
 
 jobs:
   microsandbox:
