@@ -47,6 +47,15 @@ the guest's uid 0 never mints host-root files), and a narrowed sandbox
 host filesystem is unreachable inside the guest, the same wall the container
 backend enforced.
 
+Those shares are **not** subject to msb's protective 4 GiB guest-write quota.
+msb bounds guest-attributable growth on a bind mount to 4 GiB by default (it
+stops a third-party sandbox filling the host disk) and exposes no "unlimited"
+form through the CLI, so every writable share sandboxer creates — the sandbox
+root or its individual sources, `$HOME`, rw `extraMounts` and git dirs —
+carries an explicit `quota=` at the grammar's ceiling. The host filesystem,
+not a byte budget, is the bound; a read-only share needs none and carries
+none. The value is part of the create argv, so it folds into the session hash.
+
 **Nested containers** now run natively: the toolbox image's docker/podman/
 compose work against the guest's own kernel with a full uid range — no opt-in
 (`nestedContainers` is a retired key), no seccomp widening, no subuid grants.
