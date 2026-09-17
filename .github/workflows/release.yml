@@ -66,7 +66,7 @@ jobs:
             fi
             rm -rf "dist/${out}"
           done
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: release-tarballs
           path: dist/*.tar.gz*
@@ -97,7 +97,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: release-tarballs
           path: dist
@@ -116,7 +116,7 @@ jobs:
           if [ ! -s release-notes.md ]; then
             echo "_(no changelog section authored for this release)_" > release-notes.md
           fi
-      - uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@v3
         with:
           body_path: release-notes.md
           files: dist/*.tar.gz*

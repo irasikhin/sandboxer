@@ -126,16 +126,16 @@ jobs:
       - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
-      # .golangci.yml is golangci-lint v2 config; golangci-lint-action v8
+      # .golangci.yml is golangci-lint v2 config; golangci-lint-action v9
       # supports golangci-lint >= v2.1.0 and accepts a full patch version.
       #
       # The pin must be built with a Go at least as new as go.mod's floor:
       # golangci-lint refuses to run when "the Go language version used to
       # build golangci-lint is lower than the targeted Go version", so raising
       # the floor past 1.24 broke the old v2.1.6 pin (built with go1.24.2).
-      # v2.12.2 is built with go1.26 — ahead of the current 1.25.10 floor, with
-      # room for the next bump — and is what the nix devShell provides, so a
-      # local run and this job agree.
+      # v2.13.2 is built with a Go ahead of the current 1.26.7 floor and is
+      # what the nix devShell provides, so a local run and this job agree —
+      # the same version is pinned in .pre-commit-config.yaml.
       #
       # skip-cache: the action's restored lint cache makes results
       # NON-DETERMINISTIC. staticcheck's SA5011 needs whole-package facts to
@@ -145,9 +145,9 @@ jobs:
       # neither commit touched. A cold run of the same version and toolchain
       # reports nothing. Green-because-cached is worse than slow, and the
       # analysis costs seconds here.
-      - uses: golangci/golangci-lint-action@v8
+      - uses: golangci/golangci-lint-action@v9
         with:
-          version: v2.12.2
+          version: v2.13.2
           skip-cache: true
 
   nix:
