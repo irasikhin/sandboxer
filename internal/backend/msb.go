@@ -433,7 +433,7 @@ func msbSecretArgs(o RunOpts) []string {
 		k, _, _ := strings.Cut(kv, "=")
 		args = append(args, "--secret", k+"@"+hosts)
 	}
-	return append(args, "--on-secret-violation", "block-and-log")
+	return append(args, "--secret-violation-action", "block-and-log")
 }
 
 // msbSecretsMode reports whether this run uses --secret for the auth env: opted
