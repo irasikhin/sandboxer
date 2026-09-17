@@ -61,10 +61,10 @@ func TestEnsurePiModelsWritesFreshModels(t *testing.T) {
 	b.EnsurePiModels("s", &progress)
 
 	got := deepseekModelIDs(t, piModels(t, b, "s"))
-	if len(got) != 1 || got[0] != "deepseek-v4.1-flash-expires-on-0910" {
-		t.Errorf("deepseek models = %v, want [deepseek-v4.1-flash-expires-on-0910]", got)
+	if len(got) != 1 || got[0] != "deepseek-flash" {
+		t.Errorf("deepseek models = %v, want [deepseek-flash]", got)
 	}
-	if !strings.Contains(progress.String(), "deepseek-v4.1-flash-expires-on-0910") {
+	if !strings.Contains(progress.String(), "deepseek-flash") {
 		t.Errorf("registration not narrated: %q", progress.String())
 	}
 	// The home may hold provider configuration — it is not world-readable.
@@ -85,8 +85,8 @@ func TestEnsurePiModelsMergesExisting(t *testing.T) {
 	b.EnsurePiModels("s", nil)
 
 	models := piModels(t, b, "s")
-	if got := deepseekModelIDs(t, models); len(got) != 2 || got[0] != "deepseek-chat" || got[1] != "deepseek-v4.1-flash-expires-on-0910" {
-		t.Errorf("deepseek models = %v, want the existing entry kept and deepseek-v4.1-flash-expires-on-0910 appended", got)
+	if got := deepseekModelIDs(t, models); len(got) != 2 || got[0] != "deepseek-chat" || got[1] != "deepseek-flash" {
+		t.Errorf("deepseek models = %v, want the existing entry kept and deepseek-flash appended", got)
 	}
 	providers := models["providers"].(map[string]any)
 	ollama, ok := providers["ollama"].(map[string]any)
@@ -100,7 +100,7 @@ func TestEnsurePiModelsMergesExisting(t *testing.T) {
 // append a copy. An existing entry wins: the user's definition is never
 // overwritten, and a no-op run never rewrites the file.
 func TestEnsurePiModelsNeverDuplicates(t *testing.T) {
-	existing := `{"providers":{"deepseek":{"models":[{"id":"deepseek-v4.1-flash-expires-on-0910","name":"my v4.1"}]}}}`
+	existing := `{"providers":{"deepseek":{"models":[{"id":"deepseek-flash","name":"my v4.1"}]}}}`
 	b := newPiBase(t)
 	path := filepath.Join(b.HomeDir("s"), filepath.FromSlash(PiModelsPath))
 	writeFile(t, path, existing)
