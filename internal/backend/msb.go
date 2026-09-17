@@ -507,12 +507,15 @@ func msbExtraMountsAndEnv(p *config.Profile) []string {
 
 // msbPreflight rejects — with the reason — a configuration the guest cannot
 // honor, before msb fails on it with a symptom. There is exactly one
-// msb-specific trap: microsandbox mounts a tmpfs over /tmp AFTER the host
+// msb-specific trap: msb 0.6.x mounts a tmpfs over /tmp AFTER the host
 // shares, so any share whose GUEST path is under /tmp is shadowed and simply
-// is not there. The sandbox root then "does not exist in guest" and every
-// create fails; a source mount would silently be empty, which is worse.
-// sandboxer's own paths are the project's ./sandboxes and the XDG state dir,
-// so this only bites a profile that deliberately points somewhere under /tmp.
+// is not there (0.7.x no longer mounts it — measured — but the runner is
+// resolved from PATH, so an older host msb is a supported configuration and
+// the check keeps its conservative stance). The sandbox root then "does not
+// exist in guest" and every create fails; a source mount would silently be
+// empty, which is worse. sandboxer's own paths are the project's ./sandboxes
+// and the XDG state dir, so this only bites a profile that deliberately
+// points somewhere under /tmp.
 func msbPreflight(o RunOpts) error {
 	return msbPreflightExcept(o, nil)
 }

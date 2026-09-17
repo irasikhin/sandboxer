@@ -94,11 +94,13 @@ rejected up front rather than surfacing as a mysterious failure:
   derives from it and must fit in the kernel's 108-byte `sun_path`. The default
   (`~/.msb`) is fine; a deep override makes every `create` fail. sandboxer never
   points `MSB_HOME` at its own (long) per-project state dir.
-- **Nothing under `/tmp` can be shared.** The guest mounts a tmpfs over `/tmp`
-  *after* the host shares, so a share below it is invisible inside. sandboxer's
-  own paths are the project's `./sandboxes` and the XDG state dir; a profile that
-  deliberately points `worktreesDir` (or an `extraMounts` target) under `/tmp` is
-  refused with that explanation.
+- **Nothing under `/tmp` can be shared.** msb 0.6.x mounts a tmpfs over `/tmp`
+  *after* the host shares, so a share below it is invisible inside (0.7.x
+  dropped that mount — measured — but the runner comes from `PATH`, so the
+  refusal stays: it must be right for the oldest supported msb too).
+  sandboxer's own paths are the project's `./sandboxes` and the XDG state dir;
+  a profile that deliberately points `worktreesDir` (or an `extraMounts`
+  target) under `/tmp` is refused with that explanation.
 
 Check everything at once:
 
