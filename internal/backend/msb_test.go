@@ -36,13 +36,13 @@ func TestMSBCreateArgv(t *testing.T) {
 		"--label", "sandboxer.base=/b",
 		"--label", "sandboxer.hash=h1",
 		"--label", "sandboxer.mounts=mid",
-		"-w", "/d", "-v", "/d:/d",
+		"-w", "/d", "-v", "/d:/d:quota=4294967295",
 		"-e", "SANDBOXER_IN_CONTAINER=1",
 		"-e", "SANDBOXER_SLUG=s", "-e", "SANDBOXER_SANDBOX_DIR=/d",
 		"-e", "LANG=C.UTF-8",
 		"-e", "DOCKER_HOST=unix:///var/run/docker.sock",
 		"-e", "TESTCONTAINERS_RYUK_DISABLED=true",
-		"-e", "HOME=/d/.home", "-v", "/d/.home:/d/.home",
+		"-e", "HOME=/d/.home", "-v", "/d/.home:/d/.home:quota=4294967295",
 		"-m", "2048M", "-c", "2",
 		"--root-disk", "20G",
 		"img:1",
@@ -84,8 +84,8 @@ func TestMSBCreateArgvNarrowed(t *testing.T) {
 		t.Errorf("narrowed sandbox must NOT share the root: %q", joined)
 	}
 	for _, m := range o.SrcMounts {
-		if !strings.Contains(joined, "-v "+m+":"+m) {
-			t.Errorf("missing source share %q in %q", m, joined)
+		if !strings.Contains(joined, "-v "+m+":"+m+":quota=4294967295") {
+			t.Errorf("missing quota'd source share %q in %q", m, joined)
 		}
 	}
 	for _, e := range []string{"-e SANDBOXER_MOUNT_GEN=mg1", "-e SANDBOXER_SANDBOX_GEN=g2"} {
@@ -117,7 +117,7 @@ func TestMSBCreateArgvGitMounts(t *testing.T) {
 	rw := base
 	rw.GitMounts = []config.Mount{{Source: "/repo/.git", Target: "/repo/.git", Mode: "rw"}}
 	j := strings.Join(msbCreateArgv(rw, "n", "h"), " ")
-	if !strings.Contains(j, "-v /repo/.git:/repo/.git") || strings.Contains(j, "/repo/.git:ro") {
+	if !strings.Contains(j, "-v /repo/.git:/repo/.git:quota=4294967295") || strings.Contains(j, "/repo/.git:ro") {
 		t.Errorf("read-write git share wrong in %q", j)
 	}
 
@@ -305,7 +305,7 @@ func TestMSBSecretsMode(t *testing.T) {
 	}
 	want := []string{
 		"--secret", "ANTHROPIC_API_KEY@api.anthropic.com,github.com",
-		"--on-secret-violation", "block-and-log",
+		"--secret-violation-action", "block-and-log",
 	}
 	if got := msbSecretArgs(o); !slices.Equal(got, want) {
 		t.Errorf("msbSecretArgs = %q, want %q", got, want)
