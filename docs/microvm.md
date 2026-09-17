@@ -47,6 +47,15 @@ the guest's uid 0 never mints host-root files), and a narrowed sandbox
 host filesystem is unreachable inside the guest, the same wall the container
 backend enforced.
 
+Those shares are **not** subject to msb's protective 4 GiB guest-write quota.
+msb bounds guest-attributable growth on a bind mount to 4 GiB by default (it
+stops a third-party sandbox filling the host disk) and exposes no "unlimited"
+form through the CLI, so every writable share sandboxer creates — the sandbox
+root or its individual sources, `$HOME`, rw `extraMounts` and git dirs —
+carries an explicit `quota=` at the grammar's ceiling. The host filesystem,
+not a byte budget, is the bound; a read-only share needs none and carries
+none. The value is part of the create argv, so it folds into the session hash.
+
 **Nested containers** now run natively: the toolbox image's docker/podman/
 compose work against the guest's own kernel with a full uid range — no opt-in
 (`nestedContainers` is a retired key), no seccomp widening, no subuid grants.
@@ -94,17 +103,19 @@ rejected up front rather than surfacing as a mysterious failure:
   derives from it and must fit in the kernel's 108-byte `sun_path`. The default
   (`~/.msb`) is fine; a deep override makes every `create` fail. sandboxer never
   points `MSB_HOME` at its own (long) per-project state dir.
-- **Nothing under `/tmp` can be shared.** The guest mounts a tmpfs over `/tmp`
-  *after* the host shares, so a share below it is invisible inside. sandboxer's
-  own paths are the project's `./sandboxes` and the XDG state dir; a profile that
-  deliberately points `worktreesDir` (or an `extraMounts` target) under `/tmp` is
-  refused with that explanation.
+- **Nothing under `/tmp` can be shared.** msb 0.6.x mounts a tmpfs over `/tmp`
+  *after* the host shares, so a share below it is invisible inside (0.7.x
+  dropped that mount — measured — but the runner comes from `PATH`, so the
+  refusal stays: it must be right for the oldest supported msb too).
+  sandboxer's own paths are the project's `./sandboxes` and the XDG state dir;
+  a profile that deliberately points `worktreesDir` (or an `extraMounts`
+  target) under `/tmp` is refused with that explanation.
 
 Check everything at once:
 
 ```console
 $ sandboxer doctor
-microsandbox (msb)   ✓  msb 0.6.7 available
+microsandbox (msb)   ✓  msb 0.7.1 available
 ```
 
 ## How it maps to the container backend it replaced

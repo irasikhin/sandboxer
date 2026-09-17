@@ -167,7 +167,7 @@ func msbCommonArgs(o RunOpts) []string {
 	// then shows up in a running machine live. A narrowed sandbox omits it, and
 	// that absence is the containment boundary (see RunOpts.MountDest).
 	if o.MountDest {
-		args = append(args, "-v", o.Dest+":"+o.Dest)
+		args = append(args, "-v", msbShare(o.Dest))
 	}
 	args = append(args,
 		"-e", "SANDBOXER_IN_CONTAINER=1",
@@ -188,10 +188,10 @@ func msbCommonArgs(o RunOpts) []string {
 		args = append(args, "-e", "SANDBOXER_MOUNT_GEN="+o.MountGen)
 	}
 	if o.HomeDir != "" {
-		args = append(args, "-e", "HOME="+o.HomeDir, "-v", o.HomeDir+":"+o.HomeDir)
+		args = append(args, "-e", "HOME="+o.HomeDir, "-v", msbShare(o.HomeDir))
 	}
 	for _, m := range o.SrcMounts {
-		args = append(args, "-v", m+":"+m)
+		args = append(args, "-v", msbShare(m))
 	}
 	// The opt-in git-dir shares, right after the sources they belong to: a
 	// worktree's .git names its git dir by ABSOLUTE HOST PATH, so identity
@@ -433,7 +433,7 @@ func msbSecretArgs(o RunOpts) []string {
 		k, _, _ := strings.Cut(kv, "=")
 		args = append(args, "--secret", k+"@"+hosts)
 	}
-	return append(args, "--on-secret-violation", "block-and-log")
+	return append(args, "--secret-violation-action", "block-and-log")
 }
 
 // msbSecretsMode reports whether this run uses --secret for the auth env: opted
@@ -477,15 +477,36 @@ func msbAuthEnvArgs(o RunOpts) []string {
 	return args
 }
 
-// msbVolume renders one share in the msb dialect: src:target, with :ro
-// appended for a read-only one. Shared by the profile's extraMounts and the
-// git-dir shares so a mode never means two different things.
+// msbMountQuotaMiB is the guest-write budget every WRITABLE share carries, in
+// msb's unit (MiB). microsandbox bounds guest-attributable growth on a
+// virtio-fs bind mount at 4 GiB by default, and its "no quota" state is not
+// reachable through the CLI (the SDK's None is), so an explicit per-mount
+// value is the only override and the grammar's ceiling is the opt-out.
+//
+// Lifting it is deliberate: a share is the user's OWN host directory — the
+// sandbox worktree, $HOME, a cache — and the host filesystem, not a byte
+// budget, is the disk bound there. msb's default guards a host from a
+// third-party sandbox; sandboxer runs the user's own code, and the VM boundary
+// (plus the mount set) is the isolation, not a quota.
+const msbMountQuotaMiB = "4294967295" // u32 max — msb takes quota=<u32 MiB>
+
+// msbShare renders an identity-mapped WRITABLE share (host path == guest path)
+// with the guest-write quota attached. Used for the sandbox root, the sources
+// and $HOME.
+func msbShare(path string) string {
+	return path + ":" + path + ":quota=" + msbMountQuotaMiB
+}
+
+// msbVolume renders one share in the msb dialect: src:target, with the
+// guest-write quota appended for a writable one and :ro for a read-only one.
+// Shared by the profile's extraMounts and the git-dir shares so a mode never
+// means two different things.
 func msbVolume(m config.Mount) string {
 	vol := m.Source + ":" + m.Target
 	if m.Mode == "ro" {
-		vol += ":ro"
+		return vol + ":ro"
 	}
-	return vol
+	return vol + ":quota=" + msbMountQuotaMiB
 }
 
 // msbExtraMountsAndEnv adds the profile's extraMounts and env injections in the
@@ -507,12 +528,15 @@ func msbExtraMountsAndEnv(p *config.Profile) []string {
 
 // msbPreflight rejects — with the reason — a configuration the guest cannot
 // honor, before msb fails on it with a symptom. There is exactly one
-// msb-specific trap: microsandbox mounts a tmpfs over /tmp AFTER the host
+// msb-specific trap: msb 0.6.x mounts a tmpfs over /tmp AFTER the host
 // shares, so any share whose GUEST path is under /tmp is shadowed and simply
-// is not there. The sandbox root then "does not exist in guest" and every
-// create fails; a source mount would silently be empty, which is worse.
-// sandboxer's own paths are the project's ./sandboxes and the XDG state dir,
-// so this only bites a profile that deliberately points somewhere under /tmp.
+// is not there (0.7.x no longer mounts it — measured — but the runner is
+// resolved from PATH, so an older host msb is a supported configuration and
+// the check keeps its conservative stance). The sandbox root then "does not
+// exist in guest" and every create fails; a source mount would silently be
+// empty, which is worse. sandboxer's own paths are the project's ./sandboxes
+// and the XDG state dir, so this only bites a profile that deliberately
+// points somewhere under /tmp.
 func msbPreflight(o RunOpts) error {
 	return msbPreflightExcept(o, nil)
 }
