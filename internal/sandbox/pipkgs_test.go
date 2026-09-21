@@ -166,6 +166,9 @@ func TestEnsurePiPackagesLeavesUnparsableSettings(t *testing.T) {
 // move on — pi's package registration is a convenience, never a reason to fail
 // the enter that was actually asked for.
 func TestEnsurePiPackagesSurvivesUnwritableHome(t *testing.T) {
+	if os.Getuid() == 0 {
+		t.Skip("root writes anywhere — the permission trap needs an unprivileged user")
+	}
 	b := newPiBase(t)
 	home := b.HomeDir("s")
 	if err := os.Chmod(home, 0o500); err != nil {
