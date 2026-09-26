@@ -47,7 +47,7 @@ jobs:
       - name: install microsandbox
         run: |
           set -euo pipefail
-          base="https://github.com/microsandbox/microsandbox/releases/download/v${MSB_VERSION}"
+          base="https://github.com/superradcompany/microsandbox/releases/download/v${MSB_VERSION}"
           curl -fsSLO "$base/microsandbox-linux-x86_64.tar.gz"
           curl -fsSLO "$base/checksums.sha256"
           grep "microsandbox-linux-x86_64.tar.gz" checksums.sha256 | sha256sum -c -
@@ -94,7 +94,7 @@ jobs:
           MSB_HOME: /tmp/msb
         run: |
           set -euo pipefail
-          base="https://github.com/microsandbox/microsandbox/releases/download/v${MSB_VERSION}"
+          base="https://github.com/superradcompany/microsandbox/releases/download/v${MSB_VERSION}"
           curl -fsSLO "$base/microsandbox-linux-x86_64.tar.gz"
           curl -fsSLO "$base/checksums.sha256"
           grep "microsandbox-linux-x86_64.tar.gz" checksums.sha256 | sha256sum -c -
