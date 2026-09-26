@@ -6,6 +6,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.98.3] — 2026-09-26
+
+### Fixed
+
+- give crush's slow-path test room under CI load (58cdeab)
+
+### Tests
+
+- skip the unwritable-home traps as root (4ff40c4)
+
+### Chores
+
+- update nixpkgs to latest nixos-unstable (9259066)
+- microsandbox 0.7.3 (pin + CI MSB_VERSION) (ca296e3)
+- pi 0.87.1 (48fffb1)
+- dsh 0.1.5-rc.3 (a44313f)
+- dshmarket 1.66.0, dsh-find-plugin 0.4.0, dsh-model-router 0.7.1 (ecc1929)
+
+
 ## [0.98.2] — 2026-09-17
 
 ### Fixed
@@ -1543,3 +1562,4 @@ isolated, containerized dev sandbox, on a local Linux machine:
 [0.98.0]: https://github.com/irasikhin/sandboxer/compare/v0.97.2...v0.98.0
 [0.98.1]: https://github.com/irasikhin/sandboxer/compare/v0.98.0...v0.98.1
 [0.98.2]: https://github.com/irasikhin/sandboxer/compare/v0.98.1...v0.98.2
+[0.98.3]: https://github.com/irasikhin/sandboxer/compare/v0.98.2...v0.98.3
