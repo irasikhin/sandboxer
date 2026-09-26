@@ -82,7 +82,7 @@ func newConfigValidateCmd() *cobra.Command {
 Unknown attr names are rejected (not silently ignored), so a typo like
 'allowedDomain' surfaces here rather than quietly doing nothing at run time.
 Each profile then gets the same static semantic checks create/enter run —
-backend and session names, domains, proxy, routes, include-pattern shapes,
+backend and session names, domains, host ports, include-pattern shapes,
 srcs with their required branches — so a config that validates can only
 still fail on what needs the repo on disk (a branch that does not exist, a
 pattern matching nothing).

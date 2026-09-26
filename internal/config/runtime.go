@@ -3,7 +3,7 @@ package config
 import (
 	"errors"
 	"fmt"
-	"net/url"
+	"os"
 	"regexp"
 	"strings"
 )
@@ -11,12 +11,6 @@ import (
 // Runtime is the fully-resolved set of effective settings for one sandbox
 // invocation (the bash load_runtime result). It carries no filesystem state.
 type Runtime struct {
-	// Proxy is the resolved proxy URL (empty = none). With a proxy set the
-	// guest's HTTP(S) clients are pointed at it over an open VM network — the
-	// proxy is the egress control point. A loopback host is adapted for the
-	// guest at launch (see backend.msbGuestProxyURL).
-	Proxy   string
-	NoProxy string   // NO_PROXY, applied alongside Proxy
 	Domains []string // resolved egress allowlist
 	Backend string
 	Session string // SessionPersistent or SessionEphemeral (resolved; never empty)
@@ -42,6 +36,13 @@ type Runtime struct {
 	// they need — so publishing, moving or dropping a port recreates the
 	// machine, exactly as an egress change does.
 	Ports []Port
+	// HostPorts are the resolved guest→host doors (profile hostPorts /
+	// --host-port, killed by SANDBOXER_NO_HOST_PORTS=1) — the counterpart of
+	// Ports, pointing the other way: each opens exactly one
+	// `allow@host:<proto>:<port>` policy rule, so the guest can dial that port
+	// on the HOST at host.microsandbox.internal:<port>. Like Ports they enter
+	// the create argv, so adding, moving or dropping one recreates the machine.
+	HostPorts []HostPort
 }
 
 // Session modes for Runtime.Session: a persistent detached container reused
@@ -60,6 +61,9 @@ type Overrides struct {
 	// profile's ports (the flag is the whole forward set for this run, like
 	// --allow-domains for the allowlist).
 	Ports []string
+	// HostPorts are the repeatable --host-port specs; a non-nil slice REPLACES
+	// the profile's hostPorts, exactly as --port does for the forwards.
+	HostPorts []string
 }
 
 // ResolveRuntime applies the precedence flags > profile > base(run.env)/defaults.
@@ -70,13 +74,11 @@ func ResolveRuntime(p *Profile, d Defaults, baseDomains string, f Overrides) (Ru
 	if p == nil {
 		p = &Profile{}
 	}
-	rt := Runtime{
-		Proxy:   firstNonEmpty(p.Egress.Proxy, d.Proxy),
-		NoProxy: firstNonEmpty(p.Egress.NoProxy, d.NoProxy),
-		Egress:  p.EgressEnabled(),
-	}
-	if err := ValidateProxy(rt.Proxy); err != nil {
+	if err := retiredProxyEnv(); err != nil {
 		return Runtime{}, err
+	}
+	rt := Runtime{
+		Egress: p.EgressEnabled(),
 	}
 	if err := ValidateImageSpec(p.Image); err != nil {
 		return Runtime{}, err
@@ -137,6 +139,25 @@ func ResolveRuntime(p *Profile, d Defaults, baseDomains string, f Overrides) (Ru
 			return Runtime{}, err
 		}
 		rt.Ports = ports
+	}
+
+	// Host ports: the same chain as the forwards, pointing the other way — the
+	// flag replaces the profile's list wholesale, the kill-switch drops both.
+	var hostSpecs []string
+	switch {
+	case f.HostPorts != nil:
+		hostSpecs = f.HostPorts
+	case p.HostPorts != nil:
+		hostSpecs = p.HostPorts
+	default:
+		hostSpecs = splitCSV(d.HostPorts)
+	}
+	if !d.NoHostPorts {
+		hostPorts, err := ParseHostPorts(hostSpecs)
+		if err != nil {
+			return Runtime{}, err
+		}
+		rt.HostPorts = hostPorts
 	}
 
 	rt.Backend = firstNonEmpty(f.Backend, p.Backend, d.Backend)
@@ -252,27 +273,22 @@ func ValidateSession(rt Runtime) error {
 	}
 }
 
-// ValidateProxy rejects a malformed proxy URL. The proxy must parse to an
-// http:// or https:// URL with a host — both schemes are fine in every egress
-// state, since the guest talks to the proxy directly (there is no chaining
-// sidecar). An empty proxy is valid (no proxy).
-func ValidateProxy(proxyURL string) error {
-	if proxyURL == "" {
-		return nil
+// retiredProxyEnv fails when a retired proxy environment variable is set. The
+// removal is a hard error, never a silent ignore: a user who exported
+// SANDBOXER_PROXY expects egress to ride a proxy, and quietly booting without
+// it would send the guest's traffic DIRECTLY to the network — the exact
+// opposite of what they asked for. The fix is spelled out: open the proxy's
+// port on the HOST with hostPorts and point the guest's proxy env at it
+// yourself.
+func retiredProxyEnv() error {
+	if os.Getenv("SANDBOXER_PROXY") != "" {
+		return errors.New("SANDBOXER_PROXY is retired — sandboxer no longer wires a proxy: set hostPorts = [ \"<port>\" ] " +
+			"and point the guest's HTTP(S)_PROXY at http://host.microsandbox.internal:<port> yourself")
 	}
-	u, err := url.Parse(proxyURL)
-	if err != nil {
-		return fmt.Errorf("invalid proxy %q: %w", proxyURL, err)
+	if os.Getenv("SANDBOXER_NO_PROXY") != "" {
+		return errors.New("SANDBOXER_NO_PROXY is retired — sandboxer no longer wires a proxy: set NO_PROXY in env yourself")
 	}
-	if u.Host == "" {
-		return fmt.Errorf("invalid proxy %q — expected an http://host:port URL", proxyURL)
-	}
-	switch u.Scheme {
-	case "http", "https":
-		return nil
-	default:
-		return fmt.Errorf("invalid proxy %q — expected an http://host:port URL", proxyURL)
-	}
+	return nil
 }
 
 func splitCSV(s string) []string {

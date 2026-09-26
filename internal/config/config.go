@@ -91,31 +91,23 @@ const (
 // into the sandbox at all ("" and "off" do not).
 func GitShared(mode string) bool { return mode == GitRO || mode == GitRW }
 
-// Egress holds the sandbox's outbound-traffic policy: whether sandboxer enforces
-// a domain allowlist (Enabled), the allowlist itself, and the proxy settings.
-// It is the whole "egress" attrset in the config.
+// Egress holds the sandbox's outbound-traffic policy: whether sandboxer
+// enforces a domain allowlist (Enabled) and the allowlist itself. It is the
+// whole "egress" attrset in the config.
 type Egress struct {
 	// Enabled toggles sandboxer's own egress control — the machine-level
 	// allowlist. Default true (nil == on): sandboxer enforces AllowedDomains.
-	// false is the escape hatch: an open VM network, where a Proxy (if set) is
-	// trusted to police egress — AllowedDomains is then IGNORED (NoProxy
-	// applies instead). Because the allowlist is inert when disabled, the safe
-	// default is on; see EgressEnabled. SANDBOXER_NO_EGRESS=1 is the operator
+	// false is the escape hatch: an open VM network, with AllowedDomains
+	// IGNORED. Because the allowlist is inert when disabled, the safe default
+	// is on; see EgressEnabled. SANDBOXER_NO_EGRESS=1 is the operator
 	// kill-switch that forces it off regardless.
 	Enabled *bool `json:"enabled,omitempty"`
 	// AllowedDomains is the allowlist — the ONLY domains the sandbox may reach.
-	// Enforced when Enabled and no Proxy is set; with a Proxy the proxy is the
-	// egress control point (see backend.vmNetworkArgs / msbNetworkArgs).
+	// Enforced when Enabled; an empty list means the machine reaches nothing (a
+	// fully offline VM, a valid state). The match is name-bound, so a raw
+	// address is refused: reaching a service on the HOST (a proxy on the
+	// host's loopback, a database) goes through the profile's HostPorts.
 	AllowedDomains []string `json:"allowedDomains,omitempty"`
-	// Proxy is the single proxy URL the sandbox routes through (http:// or
-	// https://host:port). Empty means no proxy. With a proxy set the guest's
-	// HTTP(S) clients are pointed at it over an open VM network — the proxy IS
-	// the egress control point. A localhost/127.0.0.1 host is adapted for the
-	// guest at launch (msb rewrites a loopback host to
-	// host.microsandbox.internal).
-	Proxy string `json:"proxy,omitempty"`
-	// NoProxy is the NO_PROXY list applied alongside Proxy.
-	NoProxy string `json:"noProxy,omitempty"`
 }
 
 // Limits caps a sandbox machine's resources. Every field is optional; an empty
@@ -384,6 +376,17 @@ type Profile struct {
 	// into the sandbox at all, which is the default.
 	// SANDBOXER_NO_PORTS=1 is the operator kill-switch.
 	Ports []string `json:"ports,omitempty"`
+	// HostPorts are the ports ON THE HOST the sandbox may reach — the
+	// counterpart of Ports, which publishes GUEST ports on the host. The guest
+	// dials one at host.microsandbox.internal:<port> (its own 127.0.0.1 is the
+	// VM): a proxy running on the host is wired explicitly with
+	// hostPorts = [ "7890" ] plus env.HTTP_PROXY =
+	// "http://host.microsandbox.internal:7890". Each entry opens exactly the
+	// one `allow@host:<proto>:<port>` policy rule its dial needs, in every
+	// egress state; specs are PORT[/tcp|udp] or LO-HI[/tcp|udp] (see
+	// ParseHostPorts). Empty = no host door, the default.
+	// SANDBOXER_NO_HOST_PORTS=1 is the operator kill-switch.
+	HostPorts []string `json:"hostPorts,omitempty"`
 	// Setup is a one-time shell script run inside the sandbox (bash -lc) before
 	// the user/agent takes over — e.g. `npm ci`, a build, a DB seed. It runs
 	// once per sandbox (re-run only when the script changes) under the same
@@ -458,15 +461,15 @@ func decodeProfileJSON(data []byte) (*Profile, error) {
 // hint. The table grows as knobs are retired.
 var removedKeys = map[string]string{
 	"model":      "removed — set the agent's own env var instead, e.g. env: { ANTHROPIC_MODEL: opus }",
-	"proxy":      "moved under egress: — use egress.proxy",
-	"noProxy":    "moved under egress: — use egress.noProxy",
-	"network":    "renamed to egress — use egress.allowedDomains / egress.proxy / egress.noProxy (and egress.enabled = false to disable the allowlist)",
+	"proxy":      "was removed — sandboxer no longer wires a proxy automatically: open the proxy's host port with `hostPorts = [ \"<port>\" ]` and set `env.HTTP_PROXY = \"http://host.microsandbox.internal:<port>\"` (and HTTPS_PROXY) yourself",
+	"noProxy":    "was removed — set `env.NO_PROXY` yourself",
+	"network":    "renamed to egress — use egress.allowedDomains (and egress.enabled = false to disable the allowlist)",
 	"agent":      "removed — a sandbox is not bound to one agent (choose per exec); use hostConfigs for credential passthrough",
-	"agentProxy": "removed — use egress.proxy (the proxy is the egress control point)",
+	"agentProxy": "removed — run one proxy on the host instead, open its port with hostPorts, and point the guest's HTTP(S)_PROXY at http://host.microsandbox.internal:<port> yourself",
 	"nestedContainers": "removed with the container backend — a microVM runs container engines natively, " +
 		"so docker/podman work inside every sandbox with no opt-in",
 	"routes": "removed with the container backend — per-domain upstream proxies were a proxy-chaining " +
-		"feature; use a single egress.proxy that routes by destination itself",
+		"feature; run one proxy on the host and reach it with hostPorts + env.HTTP_PROXY instead",
 	"pids": "removed with the container backend — the microVM backends have no PID-count cap " +
 		"(limits.memory / limits.cpus bound the machine instead)",
 	"roots":        "removed — sandboxes are git worktrees now (no copy mode); mount other trees with extraMounts",
@@ -526,8 +529,8 @@ func (p *Profile) JSON() ([]byte, error) {
 }
 
 // EgressEnabled reports whether the egress allowlist wall should be in force.
-// Default true; an explicit `egress.enabled = false` opens the network (with
-// `egress.proxy` set, that proxy polices egress).
+// Default true; an explicit `egress.enabled = false` opens the network with no
+// wall at all.
 func (p *Profile) EgressEnabled() bool {
 	return p.Egress.Enabled == nil || *p.Egress.Enabled
 }

@@ -171,9 +171,21 @@ func TestMSBHashArgv(t *testing.T) {
 	if vmSessionWantHash(resized) == base {
 		t.Error("a memory change did not flip the session hash")
 	}
+
+	// The host doors are network policy too: opening one must rebuild the
+	// machine, not leave a live session with a policy the config no longer
+	// describes.
+	hostDoored := o
+	hostDoored.RT.HostPorts = []config.HostPort{{Lo: 7890, Hi: 7890, Proto: "tcp"}}
+	if vmSessionWantHash(hostDoored) == base {
+		t.Error("opening a host port did not flip the session hash")
+	}
 }
 
-// TestMSBNetworkArgs pins the four egress postures.
+// TestMSBNetworkArgs pins the egress postures and the explicit doors that ride
+// with each of them: the wall + allowlist, the open network, and the host
+// doors that are emitted in every state — restating allow@public on an open
+// network, because any explicit rule replaces msb's implicit open default.
 func TestMSBNetworkArgs(t *testing.T) {
 	tests := []struct {
 		name string
@@ -200,57 +212,86 @@ func TestMSBNetworkArgs(t *testing.T) {
 			want: nil,
 		},
 		{
-			// The COMBINED WALL: default-deny + the allowlist + one door on the
-			// proxy's own host:port. Direct traffic is enforced by the VM; only
-			// what rides the proxy is the proxy's to constrain.
-			name: "proxy plus allowlist is the combined wall",
-			o: RunOpts{RT: config.Runtime{Egress: true, Proxy: "http://p.corp.example:8080",
-				NoProxy: "localhost", Domains: []string{"github.com"}}},
+			// The wall keeps its posture and gains exactly the doors the config
+			// names: the allowlist rules first, then one rule per host port.
+			name: "walled with host doors and an allowlist",
+			o: RunOpts{RT: config.Runtime{Egress: true, Domains: []string{"github.com"},
+				HostPorts: []config.HostPort{
+					{Lo: 7890, Hi: 7890, Proto: "tcp"},
+					{Lo: 5353, Hi: 5353, Proto: "udp"},
+				}}},
 			want: []string{
-				"-e", "HTTP_PROXY=http://p.corp.example:8080", "-e", "http_proxy=http://p.corp.example:8080",
-				"-e", "HTTPS_PROXY=http://p.corp.example:8080", "-e", "https_proxy=http://p.corp.example:8080",
-				"-e", "NO_PROXY=localhost", "-e", "no_proxy=localhost",
 				"--no-net",
 				"--net-rule", "allow@*.github.com:tcp:80,allow@*.github.com:tcp:443",
-				"--net-rule", "allow@p.corp.example:tcp:8080",
+				"--net-rule", "allow@host:tcp:7890",
+				"--net-rule", "allow@host:udp:5353",
 			},
 		},
 		{
-			// The guest's 127.0.0.1 is its own stack, so a loopback proxy is
-			// rewritten to msb's host alias and its door is the host group on
-			// the proxy port. No allowlist = only the door: all egress rides
-			// the proxy.
-			name: "loopback proxy without domains is proxy-only egress",
-			o:    RunOpts{RT: config.Runtime{Egress: true, Proxy: "http://127.0.0.1:8888"}},
+			// A walled machine with an empty allowlist and a host door is
+			// exactly that: no egress except the named host ports.
+			name: "walled with host doors and no allowlist",
+			o:    RunOpts{RT: config.Runtime{Egress: true, HostPorts: []config.HostPort{{Lo: 7890, Hi: 7890, Proto: "tcp"}}}},
+			want: []string{"--no-net", "--net-rule", "allow@host:tcp:7890"},
+		},
+		{
+			// The open-network convenience case: the host door is opened and
+			// public egress restated ONCE — any explicit rule replaces msb's
+			// implicit allow@public, so without the restatement the open network
+			// would silently narrow to the door.
+			name: "egress off with host doors restates public",
+			o: RunOpts{RT: config.Runtime{Egress: false, HostPorts: []config.HostPort{
+				{Lo: 7890, Hi: 7899, Proto: "tcp"},
+			}}},
 			want: []string{
-				"-e", "HTTP_PROXY=http://host.microsandbox.internal:8888",
-				"-e", "http_proxy=http://host.microsandbox.internal:8888",
-				"-e", "HTTPS_PROXY=http://host.microsandbox.internal:8888",
-				"-e", "https_proxy=http://host.microsandbox.internal:8888",
+				"--net-rule", "allow@public",
+				"--net-rule", "allow@host:tcp:7890-7899",
+			},
+		},
+		{
+			// No host door on an open network: no explicit rule at all, so msb's
+			// implicit allow@public stands in BOTH directions.
+			name: "egress off without host doors emits nothing",
+			o:    RunOpts{RT: config.Runtime{Egress: false, Domains: []string{"github.com"}}},
+			want: nil,
+		},
+		{
+			name: "walled with host doors and published ports keeps ingress last",
+			o: RunOpts{RT: config.Runtime{
+				Egress:    true,
+				HostPorts: []config.HostPort{{Lo: 7890, Hi: 7890, Proto: "tcp"}},
+				Ports:     []config.Port{{Bind: "127.0.0.1", Host: 3080, Guest: 3080, Proto: "tcp"}},
+			}},
+			want: []string{
 				"--no-net",
-				"--net-rule", "allow@host:tcp:8888",
+				"--net-rule", "allow@host:tcp:7890",
+				"--net-rule", "allow:ingress@0.0.0.0/0:tcp:3080",
 			},
 		},
 		{
-			// Egress disabled but a proxy configured: open network + env — a
-			// routing convenience with no wall. The loopback door still needs
-			// opening, and any explicit rule replaces the implicit open
-			// default, so public is restated in the same token.
-			name: "egress off keeps the proxy on an open network",
-			o:    RunOpts{RT: config.Runtime{Egress: false, Proxy: "http://127.0.0.1:8888"}},
+			name: "egress off with host doors and published ports keeps ingress last",
+			o: RunOpts{RT: config.Runtime{
+				Egress:    false,
+				HostPorts: []config.HostPort{{Lo: 7890, Hi: 7890, Proto: "tcp"}},
+				Ports:     []config.Port{{Bind: "127.0.0.1", Host: 3080, Guest: 3080, Proto: "tcp"}},
+			}},
 			want: []string{
-				"-e", "HTTP_PROXY=http://host.microsandbox.internal:8888",
-				"-e", "http_proxy=http://host.microsandbox.internal:8888",
-				"-e", "HTTPS_PROXY=http://host.microsandbox.internal:8888",
-				"-e", "https_proxy=http://host.microsandbox.internal:8888",
-				"--net-rule", "allow@public,allow@host:tcp:8888",
+				"--net-rule", "allow@public",
+				"--net-rule", "allow@host:tcp:7890",
+				"--net-rule", "allow:ingress@0.0.0.0/0:tcp:3080",
 			},
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := msbNetworkArgs(tt.o); !slices.Equal(got, tt.want) {
+			got := msbNetworkArgs(tt.o)
+			if !slices.Equal(got, tt.want) {
 				t.Errorf("msbNetworkArgs =\n%q\nwant\n%q", got, tt.want)
+			}
+			// No proxy wiring survives in ANY state: the guest's HTTP(S)_PROXY
+			// env is the user's to set, and no door is derived from it.
+			if j := strings.Join(got, " "); strings.Contains(strings.ToUpper(j), "PROXY") {
+				t.Errorf("msbNetworkArgs must not wire a proxy: %q", j)
 			}
 		})
 	}
@@ -1045,34 +1086,6 @@ esac
 	}
 }
 
-// TestMSBGuestProxyURL pins the guest URL and the wall's door rule: a
-// host-loopback proxy becomes the host.microsandbox.internal alias (msb's
-// guest loopback is guest-local) with an allow@host door; a remote proxy
-// passes through with a name-bound door on its own host and port (domain= for
-// a single-label name); a v6 literal or garbage yields no door.
-func TestMSBGuestProxyURL(t *testing.T) {
-	tests := []struct {
-		raw, url, rule string
-	}{
-		{"http://127.0.0.1:8888", "http://host.microsandbox.internal:8888", "allow@host:tcp:8888"},
-		{"http://localhost:3128", "http://host.microsandbox.internal:3128", "allow@host:tcp:3128"},
-		{"http://[::1]:3128", "http://host.microsandbox.internal:3128", "allow@host:tcp:3128"},
-		{"http://127.1.2.3:80", "http://host.microsandbox.internal:80", "allow@host:tcp:80"},
-		{"http://localhost", "http://host.microsandbox.internal", "allow@host:tcp"},
-		{"http://proxy.corp.example:3128", "http://proxy.corp.example:3128", "allow@proxy.corp.example:tcp:3128"},
-		{"http://proxybox:3128", "http://proxybox:3128", "allow@domain=proxybox:tcp:3128"},
-		{"http://10.0.0.5:3128", "http://10.0.0.5:3128", "allow@10.0.0.5:tcp:3128"},
-		{"http://[2001:db8::1]:3128", "http://[2001:db8::1]:3128", ""},
-		{"not a url", "not a url", ""},
-	}
-	for _, tt := range tests {
-		gotURL, gotRule := msbGuestProxyURL(tt.raw)
-		if gotURL != tt.url || gotRule != tt.rule {
-			t.Errorf("msbGuestProxyURL(%q) = %q, %q; want %q, %q", tt.raw, gotURL, gotRule, tt.url, tt.rule)
-		}
-	}
-}
-
 // TestMSBLoadStoredImageGzip pins the store-tar handoff format: the stored
 // artifact is nix's buildLayeredImage output — a GZIPPED docker tarball — and
 // msb's load reads the outer archive raw, so the import must hand msb an
@@ -1296,22 +1309,23 @@ func TestMSBPortArgsOpenNetwork(t *testing.T) {
 	}
 }
 
-// TestMSBPortArgsProxyWall: the combined wall gets its ingress doors too, after
-// the allowlist and the proxy's own door.
-func TestMSBPortArgsProxyWall(t *testing.T) {
+// TestMSBPortArgsHostDoors: the wall gets its ingress doors too, after the
+// allowlist and the host doors.
+func TestMSBPortArgsHostDoors(t *testing.T) {
 	o := RunOpts{
 		RT: config.Runtime{
-			Egress: true, Proxy: "http://127.0.0.1:8888",
-			Ports: []config.Port{{Bind: "127.0.0.1", Host: 3080, Guest: 3080, Proto: "tcp"}},
+			Egress: true, Domains: []string{"github.com"},
+			HostPorts: []config.HostPort{{Lo: 7890, Hi: 7890, Proto: "tcp"}},
+			Ports:     []config.Port{{Bind: "127.0.0.1", Host: 3080, Guest: 3080, Proto: "tcp"}},
 		},
 		Stdin: strings.NewReader(""), Stdout: &bytes.Buffer{},
 	}
 	got := msbNetworkArgs(o)
 	if len(got) < 2 || !slices.Equal(got[len(got)-2:], []string{"--net-rule", "allow:ingress@0.0.0.0/0:tcp:3080"}) {
-		t.Errorf("msbNetworkArgs (proxy wall) = %q, want the ingress door last", got)
+		t.Errorf("msbNetworkArgs (walled) = %q, want the ingress door last", got)
 	}
-	if !slices.Contains(got, "allow@host:tcp:8888") {
-		t.Errorf("msbNetworkArgs (proxy wall) lost the proxy door: %q", got)
+	if !slices.Contains(got, "allow@host:tcp:7890") {
+		t.Errorf("msbNetworkArgs (walled) lost the host door: %q", got)
 	}
 }
 

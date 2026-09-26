@@ -89,8 +89,6 @@ type Defaults struct {
 	Session string
 	Domains string
 	Image   string
-	Proxy   string // SANDBOXER_PROXY — global proxy URL, lowest precedence
-	NoProxy string // SANDBOXER_NO_PROXY — NO_PROXY for direct mode
 	Mem     string
 	CPU     string
 	Disk    string
@@ -100,6 +98,12 @@ type Defaults struct {
 	// it, and an explicitly empty `ports = [ ]` means no forwards rather than
 	// "fall back to the env".
 	Ports string
+	// HostPorts is the SANDBOXER_HOST_PORTS default — a csv of the same specs
+	// the profile's `hostPorts` takes, for a host door you want in EVERY
+	// sandbox. Lowest precedence: a profile's own `hostPorts` replaces it, and
+	// an explicitly empty `hostPorts = [ ]` means no doors rather than "fall
+	// back to the env".
+	HostPorts string
 	// NoResume (SANDBOXER_NO_RESUME=1) is the operator kill-switch for the
 	// session restore's agent auto-resume — it wins over a profile's
 	// autoResume, like SANDBOXER_NO_EGRESS over egress.enabled.
@@ -112,6 +116,10 @@ type Defaults struct {
 	// kill-switch for the one inbound path into a sandbox, alongside
 	// SANDBOXER_NO_EGRESS for the outbound one.
 	NoPorts bool
+	// NoHostPorts (SANDBOXER_NO_HOST_PORTS=1) drops every host door — the
+	// operator kill-switch for reaching services on the HOST, alongside
+	// SANDBOXER_NO_PORTS for the inbound path.
+	NoHostPorts bool
 }
 
 // LoadDefaults reads the SANDBOXER_* environment.
@@ -121,15 +129,15 @@ func LoadDefaults() Defaults {
 		Session:      os.Getenv("SANDBOXER_SESSION"),
 		Domains:      envOr("SANDBOXER_DOMAINS", DefaultDomains),
 		Image:        envOr("SANDBOXER_IMAGE", DefaultImage),
-		Proxy:        os.Getenv("SANDBOXER_PROXY"),
-		NoProxy:      os.Getenv("SANDBOXER_NO_PROXY"),
 		Mem:          os.Getenv("SANDBOXER_MEM"),
 		CPU:          os.Getenv("SANDBOXER_CPU"),
 		Disk:         os.Getenv("SANDBOXER_DISK"),
 		Ports:        os.Getenv("SANDBOXER_PORTS"),
+		HostPorts:    os.Getenv("SANDBOXER_HOST_PORTS"),
 		NoResume:     os.Getenv("SANDBOXER_NO_RESUME") == "1",
 		NoPiPackages: os.Getenv("SANDBOXER_NO_PI_PACKAGES") == "1",
 		NoPorts:      os.Getenv("SANDBOXER_NO_PORTS") == "1",
+		NoHostPorts:  os.Getenv("SANDBOXER_NO_HOST_PORTS") == "1",
 	}
 }
 

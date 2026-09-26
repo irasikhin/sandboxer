@@ -25,6 +25,7 @@ type commonFlags struct {
 	backend   string
 	domains   string
 	ports     []string // --port, repeatable: replaces the profile's ports
+	hostPorts []string // --host-port, repeatable: replaces the profile's hostPorts
 	noSetup   bool
 	ephemeral bool // --ephemeral: one-shot machine instead of the persistent session
 	recreate  bool // --recreate: force session rebuild even if running (enter only)
@@ -50,6 +51,7 @@ func bindExisting(cmd *cobra.Command, f *commonFlags) {
 	fl.StringVar(&f.backend, "backend", "", "backend: microsandbox")
 	fl.StringVar(&f.domains, "allow-domains", "", "egress allowlist, csv (e.g. api.anthropic.com,github.com)")
 	bindPorts(cmd, f)
+	bindHostPorts(cmd, f)
 }
 
 // bindPorts registers the repeatable --port flag. Separate from bindExisting so
@@ -58,6 +60,15 @@ func bindExisting(cmd *cobra.Command, f *commonFlags) {
 func bindPorts(cmd *cobra.Command, f *commonFlags) {
 	cmd.Flags().StringArrayVarP(&f.ports, "port", "p", nil,
 		"publish a guest port on the host, repeatable (3080, 8080:3080, 0.0.0.0:8080:3080, 5353:53/udp); replaces the profile's ports")
+}
+
+// bindHostPorts registers the repeatable --host-port flag, the inbound
+// mirror-image of --port: a port on the HOST the guest may dial — the explicit
+// way to reach a proxy or service running on this machine.
+func bindHostPorts(cmd *cobra.Command, f *commonFlags) {
+	cmd.Flags().StringArrayVar(&f.hostPorts, "host-port", nil,
+		"let the sandbox reach a port on this host, repeatable (PORT[/tcp|udp] or LO-HI[/tcp|udp]; "+
+			"reach it in-guest at host.microsandbox.internal:PORT); replaces the profile's hostPorts")
 }
 
 // target is a resolved (base, slug, profile) tuple.
@@ -321,7 +332,7 @@ func (t *target) runtime(f commonFlags) (config.Runtime, error) {
 		session = config.SessionEphemeral
 	}
 	return config.ResolveRuntime(t.profile, config.LoadDefaults(), t.base.Domains,
-		config.Overrides{Backend: f.backend, Session: session, Domains: f.domains, Ports: f.ports})
+		config.Overrides{Backend: f.backend, Session: session, Domains: f.domains, Ports: f.ports, HostPorts: f.hostPorts})
 }
 
 // backendLabel reports the backend to show in the banner, naming the runner
@@ -375,35 +386,26 @@ func imageLabel(prof *config.Profile) string {
 }
 
 // egressLabel renders the resolved egress posture for the configLine. It names
-// the one state with no outbound wall at all — no allowlist wall AND no
-// proxy — distinctly as OPEN, so an unrestricted network can never hide behind
-// the same "off" the trusted-proxy (direct) case uses. See networkOpen.
+// the one state with no outbound wall at all — no allowlist wall — distinctly
+// as OPEN, so an unrestricted network can never hide behind the same "off" a
+// name-bound wall uses. See networkOpen.
 func egressLabel(rt config.Runtime) string {
-	walled := rt.Egress && !noEgress()
 	switch {
-	case walled && rt.Proxy != "":
-		return fmt.Sprintf("on→proxy (%d domains)", len(rt.Domains))
-	case walled:
+	case rt.Egress && !noEgress():
 		return fmt.Sprintf("on (%d domains)", len(rt.Domains))
-	case rt.Proxy != "":
-		if noEgress() {
-			return "off (SANDBOXER_NO_EGRESS) → proxy (direct)"
-		}
-		return "off → proxy (direct)"
+	case noEgress():
+		return "OPEN — unrestricted outbound (SANDBOXER_NO_EGRESS)"
 	default:
-		if noEgress() {
-			return "OPEN — unrestricted outbound (SANDBOXER_NO_EGRESS)"
-		}
 		return "OPEN — unrestricted outbound"
 	}
 }
 
 // networkOpen reports whether the resolved settings leave the container on an
 // unrestricted network: no allowlist wall (egress off, or the NO_EGRESS
-// kill-switch) AND no proxy to route through — the one egress state with no
-// outbound wall. Kept in lockstep with egressLabel's OPEN branch.
+// kill-switch) — the one egress state with no outbound wall. Kept in lockstep
+// with egressLabel's OPEN branch.
 func networkOpen(rt config.Runtime) bool {
-	return (!rt.Egress || noEgress()) && rt.Proxy == ""
+	return !rt.Egress || noEgress()
 }
 
 // srcLine renders one resolved source the way create's and enter's banners and

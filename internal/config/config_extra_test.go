@@ -65,12 +65,12 @@ func TestLoadMissingFile(t *testing.T) {
 
 func TestValidateBackend(t *testing.T) {
 	// given/when/then: microsandbox is accepted, in every egress shape
-	// (allowlist, proxy alone, proxy + noProxy, proxy + allowlist).
+	// (allowlist on, allowlist off, host doors configured).
 	for _, rt := range []Runtime{
 		{Backend: "microsandbox", Egress: true, Domains: []string{"a.com"}},
-		{Backend: "microsandbox", Proxy: "http://p:3128"},
-		{Backend: "microsandbox", Proxy: "http://p:3128", NoProxy: "localhost"},
-		{Backend: "microsandbox", Proxy: "http://p:3128", Egress: true, Domains: []string{"a.com"}},
+		{Backend: "microsandbox"},
+		{Backend: "microsandbox", HostPorts: []HostPort{{Lo: 7890, Hi: 7890, Proto: "tcp"}}},
+		{Backend: "microsandbox", Egress: true, Domains: []string{"a.com"}, HostPorts: []HostPort{{Lo: 7890, Hi: 7899, Proto: "tcp"}}},
 	} {
 		if err := ValidateBackend(rt); err != nil {
 			t.Errorf("backend %q should be allowed: %v", rt.Backend, err)

@@ -39,9 +39,9 @@ func TestResolveRuntimeValidation(t *testing.T) {
 		t.Error("ResolveRuntime(invalid domain) = nil error, want error")
 	}
 
-	// a malformed proxy URL is rejected at resolve time
-	p := &Profile{Egress: Egress{Proxy: "corp:8080"}}
+	// a malformed host port spec is rejected at resolve time
+	p := &Profile{HostPorts: []string{"70000"}}
 	if _, err := ResolveRuntime(p, Defaults{}, "", Overrides{}); err == nil {
-		t.Error("ResolveRuntime(scheme-less proxy) = nil error, want error")
+		t.Error("ResolveRuntime(out-of-range host port) = nil error, want error")
 	}
 }

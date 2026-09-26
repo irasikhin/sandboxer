@@ -59,7 +59,7 @@ func TestResolveImage(t *testing.T) {
 	}
 
 	// A profile's prebuilt ref wins over the configured default (profile >
-	// SANDBOXER_IMAGE > compiled default — the egress.proxy precedence rung).
+	// SANDBOXER_IMAGE > compiled default — the standard profile-over-env rung).
 	img3, spec3, err := resolveImage(&config.Profile{
 		Image: config.ImageSpec{Ref: "ghcr.io/me/custom:2"},
 	}, io.Discard)

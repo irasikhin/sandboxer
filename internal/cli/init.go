@@ -147,14 +147,10 @@ func starterProfile(name string, d config.Defaults) string {
   # fully offline machine).
   egress = {
     # enabled = true (default) enforces allowedDomains at the VM network layer.
-    # enabled = false is the escape hatch: an open network — a proxy, if set,
-    # is then trusted to police egress. Off entirely at runtime:
-    # SANDBOXER_NO_EGRESS=1.
+    # enabled = false is the escape hatch: an open network with no wall at all.
+    # Off entirely at runtime: SANDBOXER_NO_EGRESS=1.
     # enabled = false;
     allowedDomains = [ %[3]s ];
-    # proxy = "http://localhost:9999";       # ONE proxy URL; a localhost proxy
-    #                                        # is reachable from the guest
-    # noProxy = "localhost,127.0.0.1,.corp"; # applied alongside proxy
   };
 
   # Ports: the sandbox's ONLY inbound path — publish a guest port so a dev
@@ -163,6 +159,13 @@ func starterProfile(name string, d config.Defaults) string {
   # Off entirely at runtime: SANDBOXER_NO_PORTS=1.
   # ports = [ "3080" "8080:3080" ];  # host:guest; "0.0.0.0:8080:3080" exposes it
   #                                  # to the network, "5353:53/udp" for UDP
+
+  # Host ports the sandbox may reach: the guest dials them at
+  # host.microsandbox.internal:PORT (the guest's own 127.0.0.1 is the VM).
+  # This is how a proxy running on your host is wired in:
+  #   hostPorts = [ "7890" ];               # tcp; "53/udp", "7890-7899" too
+  #   env = { HTTP_PROXY = "http://host.microsandbox.internal:7890"; };
+  # hostPorts = [ ];
 
   # Wire YOUR host agent identity into the sandbox: (1) seed its private
   # $HOME from your agent configs — ~/.claude (settings, skills, memory) +
