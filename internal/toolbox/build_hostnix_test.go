@@ -64,8 +64,8 @@ func TestBuildImageHostNix(t *testing.T) {
 
 // TestHostNixArgv pins the nix argv: the exact reviewer-approved invocation
 // (experimental features, accept-flake-config, build, no-link, print-out-paths)
-// for path:<ctx>#image — image only, no proxyImage. Tracking revs add no
-// override (nothing concrete to point at).
+// for path:<ctx>#image. Tracking revs add no override (nothing concrete to
+// point at).
 func TestHostNixArgv(t *testing.T) {
 	got := hostNixArgv("/ctx", Spec{})
 	want := []string{

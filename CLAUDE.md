@@ -139,17 +139,13 @@ was extracted from:
   (`egress.allowedDomains` / `--allow-domains`) by msb's NAME-BOUND policy engine — the machine boots
   `--no-net` (default deny) + `--net-rule allow@*.domain:tcp:80,allow@*.domain:tcp:443` per domain (domain +
   subdomains, raw IPs refused; empty list = fully offline, a valid state). No sidecar — the
-  `sandboxer-proxy` image no longer exists and the binary is never in the network path; the BYO proxy
-  (`egress.proxy` / `SANDBOXER_PROXY`) remains, and with egress ON it is the COMBINED WALL, not an open
-  network: `--no-net` + the allowlist rules + exactly ONE extra door — the proxy's port
-  (`allow@host:tcp:<port>` for a loopback proxy, name-bound for a remote one) — plus the guest's
-  HTTP(S)_PROXY env, with a loopback proxy URL rewritten to `host.microsandbox.internal` (the guest's own
-  127.0.0.1 is its smoltcp stack, not the host). An empty allowlist leaves only the door: all egress rides
-  the proxy. Direct traffic is still walled by the VM; traffic that RIDES the proxy is constrained by the
-  PROXY, not the VM (the VM sees only the dial to the proxy, never the target names) — enter warns about
-  that. Egress OFF + a proxy is the open-network convenience case (no wall). `egress.noProxy` /
-  `SANDBOXER_NO_PROXY` applies alongside. The policy is in the create argv → session hash. The config block
-  is `egress` (`egress.enabled` = false = open network; default on). Disable with `SANDBOXER_NO_EGRESS=1`.
+  `sandboxer-proxy` image no longer exists and nothing of sandboxer's is in the network path. Three states:
+  walled + allowlist; walled + empty allowlist (`--no-net` alone — with host doors that is the "all egress
+  rides the one host proxy" pattern); egress OFF (`egress.enabled = false` / `SANDBOXER_NO_EGRESS=1`) = OPEN
+  network, labeled and warned on every run. sandboxer never injects `HTTP(S)_PROXY`, never rewrites a loopback
+  proxy URL, never opens a proxy door: `egress.proxy`/`egress.noProxy` are RETIRED keys (fail the strict
+  decode with a migration hint = hostPorts + env.HTTP_PROXY) and `SANDBOXER_PROXY`/`SANDBOXER_NO_PROXY` fail
+  at resolve time. The policy is in the create argv → session hash.
 - **Ingress** (`config.ParsePorts` → `RT.Ports` → `backend.msbPortArgs`/`msbIngressRules`): profile
   `ports = ["3080" "8080:3080" "0.0.0.0:8080:3080" "5353:53/udp"]` / repeatable `-p` (the flag REPLACES the
   profile list) — the sandbox's ONLY inbound path, empty by default, bind defaults to 127.0.0.1 (non-loopback
@@ -169,6 +165,21 @@ was extracted from:
   string check in dsh-web-app/startup.js; the webserver row's schema is an enum of 127.0.0.1|0.0.0.0, so `::`
   fails validation too). The overlay changes only the row's FALLBACK (`ctx.webStartup.host ?? '0.0.0.0'`), so
   an explicit `--host` still wins and a host-side dsh is untouched.
+- **Host doors** (`config.ParseHostPorts` → `RT.HostPorts` → `backend.msbHostPortRules`): profile
+  `hostPorts = ["7890" "5353/udp" "7100-7110"]` / repeatable `--host-port` (the flag REPLACES the profile
+  list; `SANDBOXER_HOST_PORTS` csv is the lowest-precedence layer, `SANDBOXER_NO_HOST_PORTS=1` the kill
+  switch that drops every door) — ports ON THE HOST the guest may dial, the mirror image of `ports`. The
+  guest's own 127.0.0.1 is the VM, so a host service is reached at `host.microsandbox.internal:<port>`
+  (`config.HostAlias`; msb's DNS synthesizes the gateway IP and the connect is rewritten to the host
+  loopback) — the ONE way to a proxy/service on the host, and the canonical recipe is `hostPorts = [ "7890" ]`
+  + `env.HTTP_PROXY`/`HTTPS_PROXY` = `http://host.microsandbox.internal:7890`, which is what the
+  `egress.proxy`/`SANDBOXER_PROXY` migration errors point to. Each entry renders exactly one
+  `--net-rule allow@host:<proto>:<port>` in EVERY egress state; on an OPEN network that explicit rule would
+  replace msb's implicit `allow@public`, so with doors present sandboxer restates `--net-rule allow@public`
+  once AND emits the ingress rules (or the restatement would deny the published forwards). Specs parsed
+  strictly (`PORT[/tcp|udp]` or `LO-HI[/tcp|udp]`, 1-65535), deduped, SORTED — a stable session hash; the
+  rules are in the create argv → session hash. Create/enter/exec print each door
+  + its dial address (`reportHostPorts`), `show` has a `== host ports ==` block.
 - **Baked dsh plugins** (`internal/toolbox/assets/dsh-plugins/`, wired in `assets/dsh/package.nix`): the image
   ships a curated set of community plugins INSIDE dsh's own node_modules (copied, never symlinked — a
   symlink realpaths out of dsh's tree and the plugins' stripped peer imports would resolve to nothing;

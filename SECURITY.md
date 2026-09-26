@@ -217,18 +217,22 @@ Windows/WSL2 are **cross-platform in code but not live-verified** — see
   are also default-listed; those rules are name-bound to Docker's own
   domains, so they widen nothing.
 
-  > **`egress.proxy` opens exactly one door in the wall.** With egress on and
-  > a proxy set, the machine still boots **default-deny with the allowlist
-  > rules** — plus a single extra rule admitting the proxy's own host and
-  > port, and the guest's HTTP(S) clients pointed at it (a loopback proxy URL
-  > is rewritten to `host.microsandbox.internal`). Direct traffic — including
-  > anything that ignores `HTTP(S)_PROXY` — is enforced by the VM. The
-  > remaining trade is inherent to a CONNECT proxy: the VM sees only the dial
-  > *to the proxy*, never the target names, so traffic that rides the proxy is
-  > constrained by the **proxy** — a dumb tunnel imposes nothing. sandboxer
-  > prints exactly this warning on every proxied run; pick a proxy you trust
-  > to be that half of the boundary. With an empty allowlist the door is the
-  > only rule: all egress rides the proxy.
+  > **`hostPorts` opens exactly one door per entry.** Each configured host
+  > port adds a single `allow@host:<proto>:<port>` rule admitting a dial to the
+  > HOST at `host.microsandbox.internal:<port>` — in every egress state. The
+  > doors sit alongside the wall, so on a walled machine nothing else becomes
+  > reachable; they only add the one host port you named. `--host-port` opens
+  > one per run and `SANDBOXER_HOST_PORTS` per environment;
+  > `SANDBOXER_NO_HOST_PORTS=1` closes every door regardless of the config, the
+  > mirror of `SANDBOXER_NO_PORTS=1` for forwards. Pointing the guest's
+  > `HTTP(S)_PROXY` at a proxy running on the host is now explicit:
+  > `hostPorts = [ "7890" ]` plus
+  > `env.HTTP_PROXY = "http://host.microsandbox.internal:7890"` (and
+  > `HTTPS_PROXY`). The trade is inherent to a CONNECT proxy, and it is yours to
+  > own: the VM sees only the dial *to the proxy*, never the target names, so
+  > traffic that rides that proxy is constrained by the **proxy** — a dumb
+  > tunnel imposes nothing. Pick one you trust to be that half of the
+  > boundary.
   >
   > **A published port is a door in the OTHER direction.** `ports` is the
   > sandbox's only inbound path and is empty unless you ask for it. Each entry
@@ -252,9 +256,11 @@ Windows/WSL2 are **cross-platform in code but not live-verified** — see
   > host-side bind address, `127.0.0.1` unless you widened it. `--host
   > 127.0.0.1` inside the sandbox restores upstream's behaviour.
   >
-  > **`egress.enabled = false` with NO proxy is a fully open network** — no
-  > allowlist and no proxy, so the agent has unrestricted outbound. sandboxer
-  > does not silently accept this as "off": every run labels it
+  > **`egress.enabled = false` is a fully open network** — no allowlist and no
+  > wall, so the agent has unrestricted outbound. `hostPorts` doors and
+  > published ports do not change that: they only ADD reachability (to the
+  > host, or into the guest), never a wall. sandboxer does not silently accept
+  > this as "off": every run labels it
   > `egress=OPEN — unrestricted outbound` on the config line, and prints an
   > explicit `WARNING` when `hostConfigs` is also on (seeded host credentials
   > with an open exit is the worst-case pairing). It is never the safe default;
