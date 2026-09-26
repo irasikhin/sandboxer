@@ -57,7 +57,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       # Keep in step with nix/microsandbox.nix and e2e.yml.
-      MSB_VERSION: "0.7.1"
+      MSB_VERSION: "0.7.3"
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7

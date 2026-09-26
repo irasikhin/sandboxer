@@ -48,9 +48,9 @@
 }:
 
 let
-  version = "0.1.5-rc.2";
-  sourceHash = "sha256-9MVIOdaegr8cOlpBqRDDzhQFzZ6dl9dTwMBPQGx9dIA=";
-  npmDepsHash = "sha256-Vt1ncWzjks62WxnYAoA//Zx+rdYINCOjWO5yZI+Rj34=";
+  version = "0.1.5-rc.3";
+  sourceHash = "sha256-SXfSkjOlkopO8cFuRL3BnXe7848Wgj1U7IfFsBmIML8=";
+  npmDepsHash = "sha256-+rIbQPogejhQHOOJDZi4gnPveq7oQO3xMgFLcBmqMSI=";
 
   # Baked plugins by npm identity: the src dir under each derivation's
   # lib/node_modules that lands in this package's node_modules verbatim.

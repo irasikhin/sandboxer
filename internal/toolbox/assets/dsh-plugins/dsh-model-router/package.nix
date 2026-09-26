@@ -49,8 +49,8 @@
 }:
 
 let
-  version = "0.7.0";
-  sourceHash = "sha256-kVhb1FUqm8aDskJIf0WbqXIvQbxqD+M4nqRD2uoq8eo=";
+  version = "0.7.1";
+  sourceHash = "sha256-aHn0x2t61/nBmbO6bUEnrKSUQIlrrQQcZqzk3c8GMs4=";
 in
 stdenv.mkDerivation {
   pname = "dsh-model-router";
