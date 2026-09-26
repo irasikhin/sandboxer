@@ -174,39 +174,50 @@ ref-only profile (its refresh story is the pull).
 
 ## Egress
 
-Egress is a create-time policy folded into the session hash (changing it
-recreates the machine). Enforcement lives in the microVM runner's own network
-policy engine — no side process on the host. The config states map onto
+Egress is a create-time policy folded into the session hash (changing it — or
+a host port — recreates the machine). Enforcement lives in the microVM
+runner's own network policy engine — no side process on the host, nothing of
+sandboxer's in the network path. The config states map onto
 `backend.msbNetworkArgs`:
 
-1. **egress on + `egress.proxy` → the combined wall.** The machine gets
-   `--no-net` (default deny), the allowlist rules, exactly one extra door —
-   the proxy's own port — and the guest's HTTP(S) clients pointed at the proxy
-   (`HTTP_PROXY`/`HTTPS_PROXY`, `egress.noProxy` → `NO_PROXY`). Direct
-   traffic, including anything that ignores proxy env, is enforced by the VM.
-   Traffic that rides the proxy is constrained by the **proxy**. That is the
-   trade a CONNECT proxy forces: the VM sees only the dial to the proxy,
-   never the target names (sandboxer prints this warning). An empty
-   allowlist leaves only the door: all egress rides the proxy. One
-   consequence of the guest's **real network stack**: `127.0.0.1` in the
-   guest is the guest itself. A loopback proxy URL is therefore rewritten to
-   `host.microsandbox.internal` (msb's DNS resolves it to the gateway, and a
-   gateway dial lands on the host's loopback) with an `allow@host:tcp:<port>`
-   door; a remote proxy keeps its URL and gets a name-bound door on its own
-   host and port.
-2. **egress on + an allowlist (no proxy)** → `--no-net` plus, per domain, an
-   allow rule for HTTP and HTTPS: `allow@*.domain:tcp:80,allow@*.domain:tcp:443`
-   — the domain and its subdomains, those two ports, DNS via the gateway, and
-   nothing else. Rules are matched by name, so a raw IP dial is refused even
-   for an allowed domain's own address.
-3. **egress on + an empty allowlist (no proxy)** → `--no-net` alone: fully
-   offline.
-4. **egress off** (`egress.enabled = false` / `SANDBOXER_NO_EGRESS=1`) → open
-   network; with a proxy configured the env is still set (routing convenience,
-   no wall).
+1. **egress on + an allowlist (the default).** The machine boots `--no-net`
+   (default deny) plus, per domain, an allow rule for HTTP and HTTPS:
+   `allow@*.domain:tcp:80,allow@*.domain:tcp:443` — the domain and its
+   subdomains, those two ports, DNS via the gateway, and nothing else. Rules
+   are matched by name, so a raw IP dial is refused even for an allowed
+   domain's own address. While the wall is up, each published port also needs
+   its ingress rule (see
+   [architecture.md](architecture.md#ingress-published-ports)), and every
+   `hostPorts` entry adds its own `allow@host:<proto>:<port>` door.
+2. **egress on + an empty allowlist → fully offline.** `--no-net` alone: DNS
+   included, nothing reaches the network. Host doors are still emitted, so
+   `hostPorts = [ "7890" ]` plus `HTTP(S)_PROXY` at
+   `http://host.microsandbox.internal:7890` leaves exactly one way out — the
+   one proxy on the host. What it lets through is then the proxy's policy,
+   not the VM's: the VM sees only the dial to the proxy, never the target
+   names.
+3. **egress off** (`egress.enabled = false` / `SANDBOXER_NO_EGRESS=1`) → an
+   open network, and every run labels it OPEN. With no host door configured
+   sandboxer emits no rule at all — msb's implicit `allow@public` already
+   covers both directions. With one, that explicit rule would replace the
+   implicit default, so sandboxer restates `--net-rule allow@public` once and
+   emits the ingress rules alongside: the doors ADD reachability, they never
+   narrow the open network.
 
-`egress.routes` (per-domain upstream proxies) was a container-era feature; the
-key is retired and errors with a migration hint.
+Host doors are configured with `hostPorts` — specs `PORT[/tcp|udp]` or
+`LO-HI[/tcp|udp]` — or per run with the repeatable `--host-port` (which
+replaces the profile's list); `SANDBOXER_HOST_PORTS` (csv) is the
+lowest-precedence layer and `SANDBOXER_NO_HOST_PORTS=1` drops every door
+regardless of the config.
+
+The `egress.proxy` / `egress.noProxy` keys are retired with the automatic
+wiring: they fail the strict decode with a migration hint spelling out the
+recipe above (`hostPorts` plus `env.HTTP_PROXY`/`HTTPS_PROXY` at
+`http://host.microsandbox.internal:<port>`), and `SANDBOXER_PROXY` /
+`SANDBOXER_NO_PROXY` fail at resolve time — quietly booting without the proxy
+the user asked for would send the guest's traffic straight to the network.
+`egress.routes` (per-domain upstream proxies) was the container-era form of the
+same idea; it is retired with a migration hint too.
 
 ## Credentials
 

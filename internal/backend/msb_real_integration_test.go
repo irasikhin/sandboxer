@@ -4,10 +4,14 @@ package backend
 
 import (
 	"bytes"
+	"fmt"
 	"net"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"testing"
@@ -324,6 +328,105 @@ func TestMSB_SecretsMode_RealEngine(t *testing.T) {
 	}
 	if scanProcCmdlines(t, token) {
 		t.Error("SECURITY: the secret VALUE appeared in a host process command line")
+	}
+}
+
+// TestMSB_HostDoor_RealEngine pins the `hostPorts` door on a live sandbox: the
+// guest reaches ONE port on the HOST's loopback (the proxy/db-on-the-host case)
+// through host.microsandbox.internal, a SECOND live host service with no door
+// stays unreachable (the negative control — refused by policy, not by a dead
+// socket), and on an OPEN network the door's explicit rule keeps public egress
+// alive (the allow@public restatement: any explicit rule replaces msb's
+// implicit allow@public).
+func TestMSB_HostDoor_RealEngine(t *testing.T) {
+	engine := itest.Microsandbox(t)
+
+	// The host service the guest must reach — httptest binds the host's
+	// loopback by default (127.0.0.1), which is exactly the case a guest can
+	// only ever get to through the alias + a door.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		fmt.Fprint(w, "PONG")
+	}))
+	defer srv.Close()
+	port := srv.Listener.Addr().(*net.TCPAddr).Port
+
+	// The NEGATIVE CONTROL: a SECOND live host service on its own loopback
+	// port, deliberately absent from HostPorts. It stays up for the whole run,
+	// so a dial from the guest can only fail for a POLICY reason — if the
+	// backend emitted no door rules at all, or the wall were not enforced, the
+	// guest would get this server's body. A dead-port probe could not tell
+	// that apart from a deny: it fails to connect even with no policy at all.
+	noDoor := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		fmt.Fprint(w, "NO-DOOR-PONG")
+	}))
+	defer noDoor.Close()
+	noDoorPort := noDoor.Listener.Addr().(*net.TCPAddr).Port
+
+	dest := itest.MSBTempDir(t)
+
+	// Sandbox A: the wall is UP with an EMPTY allowlist — fully offline except
+	// the one door.
+	walled := msbITOpts(t, engine, "itmsbdoor", dest)
+	walled.RT = config.Runtime{Egress: true, HostPorts: []config.HostPort{{Lo: port, Hi: port, Proto: "tcp"}}}
+	walledName := SessionName(walled.Slug, walled.BaseDir)
+	itest.CleanupSandbox(t, walledName)
+	if _, err := EnsureSession(walled); err != nil {
+		t.Fatalf("EnsureSession (walled): %v", err)
+	}
+
+	// The alias resolves under --no-net: it is the door rule that admits it.
+	if code, _ := ExecSession(walled, walledName, []string{"sh", "-c",
+		"getent hosts " + config.HostAlias + " >/dev/null 2>&1"}); code != 0 {
+		t.Errorf("SECURITY: %s did not resolve under --no-net + a door rule (code %d)", config.HostAlias, code)
+	}
+	// The door admits the dial and carries the service's body.
+	var body bytes.Buffer
+	dialed := walled
+	dialed.Stdout = &body
+	if code, _ := ExecSession(dialed, walledName, []string{"sh", "-c",
+		"wget -q -T 5 -O - http://" + config.HostAlias + ":" + strconv.Itoa(port) + "/"}); code != 0 {
+		t.Errorf("the door did not admit the guest to host port %d (code %d)", port, code)
+	} else if !strings.Contains(body.String(), "PONG") {
+		t.Errorf("the door reached the service but the body was %q, want PONG", body.String())
+	}
+	// A LIVE host service with NO door stays unreachable while the wall is up —
+	// the listener is served on the host's loopback the entire time, and only
+	// the missing --net-rule keeps the guest out. The doored service just above
+	// proves this very alias can carry a live loopback service in this very
+	// sandbox, so the refusal cannot be blamed on an unreachable host.
+	if code, _ := ExecSession(walled, walledName, []string{"sh", "-c",
+		"wget -q -T 3 -O /dev/null http://" + config.HostAlias + ":" + strconv.Itoa(noDoorPort) + "/ 2>/dev/null"}); code == 0 {
+		t.Errorf("SECURITY: a LIVE host service on port %d was reachable WITHOUT a door configured", noDoorPort)
+	}
+
+	// Sandbox B: the same door on an OPEN network — the door still works, and
+	// public egress must survive the explicit rule that replaced msb's
+	// implicit allow@public (otherwise the restatement is missing).
+	open := msbITOpts(t, engine, "itmsbdooropen", dest)
+	open.RT = config.Runtime{Egress: false, HostPorts: []config.HostPort{{Lo: port, Hi: port, Proto: "tcp"}}}
+	openName := SessionName(open.Slug, open.BaseDir)
+	itest.CleanupSandbox(t, openName)
+	if _, err := EnsureSession(open); err != nil {
+		t.Fatalf("EnsureSession (open): %v", err)
+	}
+	var openBody bytes.Buffer
+	odial := open
+	odial.Stdout = &openBody
+	if code, _ := ExecSession(odial, openName, []string{"sh", "-c",
+		"wget -q -T 5 -O - http://" + config.HostAlias + ":" + strconv.Itoa(port) + "/"}); code != 0 {
+		t.Errorf("the door did not admit the guest on an open network (code %d)", code)
+	} else if !strings.Contains(openBody.String(), "PONG") {
+		t.Errorf("open-network door body = %q, want PONG", openBody.String())
+	}
+	// The allow@public restatement is only observable with a real outbound
+	// path; without one, say so instead of skipping the whole test.
+	if hostResolves("example.com") {
+		if code, _ := ExecSession(open, openName, []string{"sh", "-c",
+			"wget -q -T 5 -O /dev/null http://example.com/ 2>/dev/null"}); code != 0 {
+			t.Errorf("public egress was denied after the door's rule replaced allow@public (code %d)", code)
+		}
+	} else {
+		t.Log("no outbound DNS on this host — skipped the allow@public restatement sub-check")
 	}
 }
 

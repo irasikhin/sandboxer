@@ -135,6 +135,7 @@ eval: no network, no reads outside its directory.
 | `extraMounts` | non-git trees mounted read-only |
 | `env` | extra environment variables |
 | `ports` | published ports (see [Network](#network)) |
+| `hostPorts` | ports ON THE HOST the guest may dial (see [Network](#network)) |
 | `setup` | one-time `bash -lc` script, run before you take over. Re-runs when its content changes; runs under the same egress as the sandbox; `--no-setup` skips it |
 | `tools` | language packs (`node`, `python`, `go`, …) baked into a per-profile image variant |
 | `image` | a prebuilt image ref or customization (`packages`, `files`, `env`, `overlay`); see [Toolbox image](#toolbox-image) |
@@ -183,8 +184,10 @@ Scalars come from flags and `SANDBOXER_*` env vars:
 | egress domains | `--allow-domains a,b` | `SANDBOXER_DOMAINS` |
 | session mode | `--ephemeral` | `SANDBOXER_SESSION` (default `persistent`) |
 | published ports | `-p/--port 8080:3080` | `SANDBOXER_PORTS` (csv) |
+| host ports | `--host-port 7890` | `SANDBOXER_HOST_PORTS` (csv) |
 | disable egress | — | `SANDBOXER_NO_EGRESS=1` |
 | disable port forwards | — | `SANDBOXER_NO_PORTS=1` |
+| disable host doors | — | `SANDBOXER_NO_HOST_PORTS=1` |
 | disable agent auto-resume | — | `SANDBOXER_NO_RESUME=1` |
 | disable baked-in pi packages | — | `SANDBOXER_NO_PI_PACKAGES=1` |
 | skip auto-scaffold | — | `SANDBOXER_NO_SCAFFOLD=1` |
@@ -207,13 +210,10 @@ IP dial is refused even for an allowed domain's own address.
   the attr to get the built-in defaults (AI APIs, package registries,
   container registries and their CDNs).
 - `egress.enabled = false` (or `SANDBOXER_NO_EGRESS=1`) opens the network.
-- `egress.proxy` points the guest's HTTP(S) clients at one proxy. A loopback
-  proxy URL is rewritten to `host.microsandbox.internal`. Setting a proxy
-  next to an allowlist prints a warning: the proxy enforces the allowlist.
 
-The policy is part of the machine's create argv, so editing egress recreates
-the session on the next enter. Full detail:
-[docs/microvm.md](./docs/microvm.md#egress).
+The policy — and every host door — is part of the machine's create argv, so
+editing egress or host ports recreates the session on the next enter. Full
+detail: [docs/microvm.md](./docs/microvm.md#egress).
 
 ### Published ports
 
@@ -231,6 +231,35 @@ guest's own loopback: the forward lands on the guest's `eth0`. dsh's web UI
 is pre-adapted to bind correctly. See
 [docs/architecture.md](./docs/architecture.md#ingress-published-ports).
 
+### Host ports
+
+`hostPorts` is the mirror image of `ports`: the services on your machine the
+guest may dial. The guest's own `127.0.0.1` is the VM itself, so a host service
+is reachable only through msb's host alias plus an explicit door — which makes
+the host-proxy recipe two explicit lines:
+
+```nix
+hostPorts = [ "7890" ];                # PORT[/tcp|udp] or LO-HI[/tcp|udp]
+env = {
+  HTTP_PROXY  = "http://host.microsandbox.internal:7890";
+  HTTPS_PROXY = "http://host.microsandbox.internal:7890";
+};
+```
+
+Each entry opens exactly one `allow@host:<proto>:<port>` rule in the machine's
+policy engine, in every egress state; on an open network sandboxer restates
+`allow@public` once, so the doors add reachability instead of silently
+narrowing the network. Reach a host service directly (a database, a dev
+server) by dialing `host.microsandbox.internal:<port>` from inside.
+Create, enter and exec print every door and its dial address; `sandboxer show`
+lists them too.
+
+`--host-port 7890` (repeatable) does it per run and replaces the profile's
+list; `SANDBOXER_HOST_PORTS` (csv) is the lowest-precedence layer.
+sandboxer no longer wires a proxy itself: `egress.proxy` is a retired key (its
+error names this recipe) and `SANDBOXER_PROXY` fails at resolve time.
+`SANDBOXER_NO_HOST_PORTS=1` drops every door regardless of the config.
+
 ## Sessions
 
 `enter` attaches tmux inside a persistent machine (`tmux -L sandboxer`, mouse
@@ -247,8 +276,8 @@ host, current project first; the `ID` column is a host-wide handle, so any
 command that takes a slug also takes an id or an unambiguous prefix.
 
 When the profile changes in a way that shapes the machine (egress, ports,
-limits, image), the next `enter` recreates the session, unless it still
-holds a tmux session, in which case `enter` attaches as-is and says so.
+host ports, limits, image), the next `enter` recreates the session, unless it
+still holds a tmux session, in which case `enter` attaches as-is and says so.
 `stop <slug> && enter <slug>` applies the change right away. Across a
 rebuild, the saved tmux layout is restored and panes that ran an agent
 relaunch it with its resume command. Opt out with `autoResume = false` or

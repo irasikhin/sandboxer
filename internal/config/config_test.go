@@ -37,7 +37,7 @@ func TestSanitize(t *testing.T) {
 func TestResolveRuntimePrecedence(t *testing.T) {
 	p := &Profile{
 		Backend: "podman",
-		Egress:  Egress{AllowedDomains: []string{"x.com", "y.com"}, Proxy: "http://p"},
+		Egress:  Egress{AllowedDomains: []string{"x.com", "y.com"}},
 	}
 	d := Defaults{Backend: "docker"}
 
@@ -51,9 +51,6 @@ func TestResolveRuntimePrecedence(t *testing.T) {
 	}
 	if !slices.Equal(rt.Domains, []string{"x.com", "y.com"}) {
 		t.Errorf("domains: profile should win, got %v", rt.Domains)
-	}
-	if rt.Proxy != "http://p" {
-		t.Errorf("proxy not carried: %q", rt.Proxy)
 	}
 	if !rt.Egress {
 		t.Error("egress should default true")
@@ -159,67 +156,6 @@ func TestGitBoolHint(t *testing.T) {
 	}
 }
 
-func TestValidateProxy(t *testing.T) {
-	cases := []struct {
-		name string
-		url  string
-		ok   bool
-	}{
-		{"empty", "", true},
-		{"valid http", "http://proxy.corp:3128", true},
-		{"valid https", "https://p:3128", true},
-		{"scheme-less rejected", "p:3128", false},
-		{"hostless rejected", "http://", false},
-		{"unparseable rejected", "http://%zz", false},
-		{"socks rejected", "socks5://p:1080", false},
-	}
-	for _, c := range cases {
-		err := ValidateProxy(c.url)
-		if (err == nil) != c.ok {
-			t.Errorf("%s: ValidateProxy err=%v, want ok=%v", c.name, err, c.ok)
-		}
-	}
-}
-
-func TestResolveRuntimeProxy(t *testing.T) {
-	// A single proxy URL is carried into Runtime and keeps egress on (chained).
-	p := &Profile{Egress: Egress{Proxy: "http://proxy.corp:3128"}}
-	rt, err := ResolveRuntime(p, Defaults{}, "base.com", Overrides{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if rt.Proxy != "http://proxy.corp:3128" {
-		t.Errorf("proxy not carried into Runtime: %q", rt.Proxy)
-	}
-	if !rt.Egress {
-		t.Error("a proxy must not silently disable egress (the resolved flag still reports on)")
-	}
-
-	// SANDBOXER_PROXY (Defaults.Proxy) is the lowest-precedence fallback.
-	rt2, err := ResolveRuntime(&Profile{}, Defaults{Proxy: "http://env:9999"}, "base.com", Overrides{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if rt2.Proxy != "http://env:9999" {
-		t.Errorf("env proxy default not applied: %q", rt2.Proxy)
-	}
-	// A profile proxy beats the env default.
-	rt3, err := ResolveRuntime(&Profile{Egress: Egress{Proxy: "http://prof:1"}}, Defaults{Proxy: "http://env:9999"}, "base.com", Overrides{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if rt3.Proxy != "http://prof:1" {
-		t.Errorf("profile proxy should beat env default: %q", rt3.Proxy)
-	}
-
-	// An https proxy is fine in every egress state — the guest talks to the
-	// proxy directly; no proxy process is started in between.
-	hp := &Profile{Egress: Egress{Proxy: "https://p:3128"}}
-	if _, err := ResolveRuntime(hp, Defaults{}, "base.com", Overrides{}); err != nil {
-		t.Errorf("ResolveRuntime must accept an https proxy: %v", err)
-	}
-}
-
 func TestEgressDisabled(t *testing.T) {
 	off, on := false, true
 	if (&Profile{Egress: Egress{Enabled: &off}}).EgressEnabled() {
@@ -235,16 +171,15 @@ func TestEgressDisabled(t *testing.T) {
 
 func TestEgressDisabledResolution(t *testing.T) {
 	off := false
-	// egress.enabled = false: an https proxy is legal and the resolved Egress
-	// flag reports off.
+	// egress.enabled = false: the resolved Egress flag reports off, and the
+	// allowlist (still present in the profile) is simply inert.
 	p := &Profile{Egress: Egress{
 		Enabled:        &off,
-		Proxy:          "https://corp:8080",
 		AllowedDomains: []string{"github.com"},
 	}}
 	rt, err := ResolveRuntime(p, Defaults{}, "base.com", Overrides{})
 	if err != nil {
-		t.Fatalf("direct mode should accept an https proxy: %v", err)
+		t.Fatalf("open-network mode should resolve: %v", err)
 	}
 	if rt.Egress {
 		t.Error("egress.enabled = false must resolve to Egress off")

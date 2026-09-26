@@ -178,8 +178,8 @@ func TestConfigLine(t *testing.T) {
 		}
 	}
 
-	// With a named profile and srcs; egress off AND no proxy is an OPEN network,
-	// labelled distinctly (never the same "off" the trusted-proxy case uses).
+	// With a named profile and srcs; egress off is an OPEN network, labelled
+	// distinctly from the name-bound wall "on".
 	prof := &config.Profile{Name: "web", Srcs: []config.Src{{Src: "x"}, {Src: "y"}}}
 	line2 := configLine(config.Runtime{Backend: "podman"}, "web", prof, "podman")
 	for _, want := range []string{"profile=web", "srcs=2", "egress=OPEN"} {
@@ -204,16 +204,12 @@ func TestConfigLine(t *testing.T) {
 		t.Errorf("imageLabel long-ref truncation = %q, want …-prefixed tail", lbl)
 	}
 
-	// Chained mode: allowlist stays on, traffic routed through the proxy.
-	up := config.Runtime{Backend: "docker", Egress: true, Proxy: "http://p:3128", Domains: []string{"a.com"}}
-	if l := configLine(up, "feat", nil, "docker"); !strings.Contains(l, "egress=on→proxy (1 domains)") {
-		t.Errorf("configLine chained-proxy branch: %q", l)
-	}
-
-	// Direct mode: egress off, the agent talks to the proxy directly.
-	byp := config.Runtime{Backend: "docker", Proxy: "http://p:3128"}
-	if l := configLine(byp, "feat", nil, "docker"); !strings.Contains(l, "egress=off → proxy (direct)") {
-		t.Errorf("configLine direct-proxy branch: %q", l)
+	// Host doors do not change the posture label: the wall is still the
+	// name-bound allowlist.
+	hostDoored := config.Runtime{Backend: "docker", Egress: true, Domains: []string{"a.com"},
+		HostPorts: []config.HostPort{{Lo: 7890, Hi: 7890, Proto: "tcp"}}}
+	if l := configLine(hostDoored, "feat", nil, "docker"); !strings.Contains(l, "egress=on (1 domains)") {
+		t.Errorf("configLine (walled, host doors) = %q", l)
 	}
 
 	// Disabled via env is called out explicitly (and is an OPEN network).
@@ -224,20 +220,20 @@ func TestConfigLine(t *testing.T) {
 }
 
 // TestWarnOpenNetwork: the open-network warning fires only when there is no
-// allowlist wall and no proxy, and calls out hostConfigs when it is on.
+// allowlist wall, and calls out hostConfigs when it is on.
 func TestWarnOpenNetwork(t *testing.T) {
 	t.Setenv("SANDBOXER_NO_EGRESS", "")
 	var b strings.Builder
-	// egress off, no proxy → OPEN; hostConfigs on → credential caveat.
+	// egress off → OPEN; hostConfigs on → credential caveat.
 	warnOpenNetwork(&b, config.Runtime{Backend: "docker"}, &config.Profile{HostConfigs: true})
 	if !strings.Contains(b.String(), "WARNING") || !strings.Contains(b.String(), "hostConfigs") {
 		t.Errorf("open network + hostConfigs should warn about creds: %q", b.String())
 	}
-	// A proxy is a boundary — no warning.
+	// A host door is not a wall around egress — still no allowlist, still open.
 	b.Reset()
-	warnOpenNetwork(&b, config.Runtime{Proxy: "http://p:3128"}, nil)
-	if b.String() != "" {
-		t.Errorf("proxy set should not warn: %q", b.String())
+	warnOpenNetwork(&b, config.Runtime{HostPorts: []config.HostPort{{Lo: 7890, Hi: 7890, Proto: "tcp"}}}, nil)
+	if !strings.Contains(b.String(), "WARNING") {
+		t.Errorf("host doors do not constrain egress; the open warning must stay: %q", b.String())
 	}
 	// Allowlist on — no warning.
 	b.Reset()

@@ -160,7 +160,7 @@ via extraMounts.
 
 The agent runs inside a real microVM (libkrun — microsandbox) booted
 from the toolbox image (the agents baked in — see 'sandboxer agents'); each
-sandbox has its own isolated home, and network/proxy are wired per-config.
+sandbox has its own isolated home, and the network policy is wired per-config.
 Credentials never come from the host — log in or export keys inside the
 sandbox.
 

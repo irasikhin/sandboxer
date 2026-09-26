@@ -101,6 +101,7 @@ jobs:
             TestMSB_NarrowingWall_RealEngine \
             TestMSB_GuestWriteUID_RealEngine \
             TestMSB_EgressAllowlist_RealEngine \
+            TestMSB_HostDoor_RealEngine \
             TestMSB_SecretsMode_RealEngine
 
   # Reachability-based vulnerability scan. govulncheck reports only what the

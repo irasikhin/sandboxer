@@ -2,6 +2,8 @@ package cli
 
 import (
 	"bytes"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -191,6 +193,132 @@ func TestLivePorts(t *testing.T) {
 	}
 }
 
+// TestCreateHostPortFlag: --host-port opens a door to a port on the HOST and
+// the banner names the in-sandbox address, so the one thing a user needs to
+// point a client at it is on screen.
+func TestCreateHostPortFlag(t *testing.T) {
+	project := newProject(t)
+	fakeMsb(t)
+	code, _, errs := run("create", "feat", "--src", project, "--host-port", "7890")
+	if code != 0 {
+		t.Fatalf("create --host-port = %d, %s", code, errs)
+	}
+	if !strings.Contains(errs, "host port 7890/tcp") || !strings.Contains(errs, "host.microsandbox.internal:7890") {
+		t.Errorf("create --host-port should report the door: %q", errs)
+	}
+}
+
+// TestCreateHostPortFlagInvalid: a malformed spec fails the command outright —
+// create must not reach the state-writing half with a door it cannot open.
+func TestCreateHostPortFlagInvalid(t *testing.T) {
+	project := newProject(t)
+	fakeMsb(t)
+	code, _, errs := run("create", "feat", "--src", project, "--host-port", "70000")
+	if code != 1 || !strings.Contains(errs, "invalid host port") {
+		t.Errorf("create --host-port 70000 = (%d, %q), want the parse error", code, errs)
+	}
+}
+
+// TestHostPortFlagReplacesProfile: like --port for the forwards, --host-port is
+// the WHOLE host-door set for the run — the profile's list does not linger
+// beside it.
+func TestHostPortFlagReplacesProfile(t *testing.T) {
+	project := newProject(t)
+	fakeMsb(t)
+	cfg := `{
+  name = "feat";
+  srcs = [ { src = "."; branch = "sbx/feat"; } ];
+  hostConfigs = false;
+  hostPorts = [ "9229" ];
+}
+`
+	if err := os.WriteFile(filepath.Join(project, "sandboxer.nix"), []byte(cfg), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	code, _, errs := run("create", "feat", "--src", project, "--host-port", "7890")
+	if code != 0 {
+		t.Fatalf("create --host-port = %d, %s", code, errs)
+	}
+	if !strings.Contains(errs, "host port 7890/tcp") {
+		t.Errorf("the flag's host door should be reported: %q", errs)
+	}
+	if strings.Contains(errs, "9229") {
+		t.Errorf("--host-port must REPLACE the profile's list: %q", errs)
+	}
+}
+
+// TestReportHostPorts pins the banner: every door is named with the address
+// the guest dials — the alias is the whole point, since the guest's own
+// 127.0.0.1 is the VM.
+func TestReportHostPorts(t *testing.T) {
+	var b bytes.Buffer
+	reportHostPorts(&b, config.Runtime{})
+	if b.Len() != 0 {
+		t.Errorf("no host ports should print nothing, got %q", b.String())
+	}
+
+	b.Reset()
+	reportHostPorts(&b, config.Runtime{HostPorts: []config.HostPort{
+		{Lo: 7890, Hi: 7890, Proto: "tcp"},
+		{Lo: 7890, Hi: 7899, Proto: "tcp"},
+		{Lo: 5353, Hi: 5353, Proto: "udp"},
+	}})
+	out := b.String()
+	for _, want := range []string{
+		"host port 7890/tcp — reachable in-sandbox at host.microsandbox.internal:7890",
+		"host port 7890-7899/tcp — reachable in-sandbox at host.microsandbox.internal:7890-7899",
+		"host port 5353/udp — reachable in-sandbox at host.microsandbox.internal:5353",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("reportHostPorts = %q, missing %q", out, want)
+		}
+	}
+}
+
+// TestHostPortsShowBlock: show names the host doors in its own block (only
+// when there are any) and projects them into `show --json`.
+func TestHostPortsShowBlock(t *testing.T) {
+	var b bytes.Buffer
+	printHostPortsBlock(&b, config.Runtime{})
+	if b.Len() != 0 {
+		t.Errorf("no host ports should omit the block, got %q", b.String())
+	}
+
+	rt := config.Runtime{HostPorts: []config.HostPort{
+		{Lo: 7890, Hi: 7890, Proto: "tcp"},
+		{Lo: 7890, Hi: 7899, Proto: "udp"},
+	}}
+	b.Reset()
+	printHostPortsBlock(&b, rt)
+	out := b.String()
+	for _, want := range []string{
+		"== host ports ==",
+		"7890/tcp — reachable in-sandbox at host.microsandbox.internal:7890",
+		"7890-7899/udp — reachable in-sandbox at host.microsandbox.internal:7890-7899",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("printHostPortsBlock = %q, missing %q", out, want)
+		}
+	}
+
+	got := showHostPorts(rt)
+	want := []showHostPort{
+		{Proto: "tcp", Lo: 7890, Hi: 7890, Dial: "host.microsandbox.internal:7890"},
+		{Proto: "udp", Lo: 7890, Hi: 7899, Dial: "host.microsandbox.internal:7890-7899"},
+	}
+	if len(got) != len(want) {
+		t.Fatalf("showHostPorts = %+v, want %+v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("showHostPorts[%d] = %+v, want %+v", i, got[i], want[i])
+		}
+	}
+	if showHostPorts(config.Runtime{}) == nil {
+		t.Error("showHostPorts must return a non-nil empty slice for the JSON doc")
+	}
+}
+
 // TestValidateProfileUsesEnvDefaults: `config validate` judges a profile the
 // way the commands that RUN it do. An omitted `backend` is normal — it resolves
 // to the SANDBOXER_BACKEND default — so validate must not report it as the
@@ -209,5 +337,10 @@ func TestValidateProfileUsesEnvDefaults(t *testing.T) {
 	bad := config.Profile{Srcs: []config.Src{{Src: ".", Branch: "feat/x"}}, Ports: []string{"3080:nope"}}
 	if err := validateProfile(bad); err == nil {
 		t.Error("validateProfile(bad port) = nil, want the parse error")
+	}
+	// The same for a malformed host port.
+	badHost := config.Profile{Srcs: []config.Src{{Src: ".", Branch: "feat/x"}}, HostPorts: []string{"70000"}}
+	if err := validateProfile(badHost); err == nil {
+		t.Error("validateProfile(bad host port) = nil, want the parse error")
 	}
 }

@@ -248,24 +248,27 @@ the rules):
   explicitly **empty** allowlist is `--no-net` alone — a fully offline
   machine, a valid state. Disable deliberately with `egress.enabled = false`
   / `SANDBOXER_NO_EGRESS=1` (an open network; every run labels it).
-- **`egress.proxy`** — BYO forward proxy, and with the allowlist on it is the
-  **combined wall**, not an open network: the machine still boots `--no-net` +
-  the allowlist rules, plus exactly ONE extra door — the proxy's port
-  (`allow@host:tcp:<port>` for a loopback proxy, name-bound for a remote one)
-  — and the guest's HTTP(S) clients are pointed at the proxy
-  (`HTTP_PROXY`/`HTTPS_PROXY` env; `egress.noProxy` → `NO_PROXY`). A loopback
-  proxy URL is rewritten to `host.microsandbox.internal` (the guest's loopback
-  is its own stack). An explicitly **empty** allowlist leaves only the door:
-  all egress rides the proxy. Direct traffic is still walled by the VM;
-  traffic that rides the proxy is constrained by the **proxy**, not the VM (the
-  VM sees only the dial to the proxy, never the target names) — enter warns.
-  Egress OFF + a proxy is the open-network convenience case.
+- **`hostPorts`** — the guest's doors to the HOST, resolved by
+  `config.ParseHostPorts` into `RT.HostPorts` and rendered by
+  `backend.msbHostPortRules` as exactly one
+  `--net-rule allow@host:<proto>:<port>` per entry, in EVERY egress state. The
+  guest dials the port at `host.microsandbox.internal:<port>`: its own
+  `127.0.0.1` is the guest's stack, so the alias — which msb resolves to the
+  gateway and rewrites to the host's loopback at connect time — is the only way
+  to a service running on the host, a proxy included. On an OPEN network any
+  explicit rule replaces msb's implicit `allow@public`, so when doors are
+  present sandboxer restates `--net-rule allow@public` once: the doors ADD
+  reachability, they never narrow the open state. Wiring a host proxy is the
+  user's job now — point `HTTP(S)_PROXY` at the door: the old
+  `egress.proxy`/`noProxy` keys are retired (they error with a hint naming this
+  recipe) and `SANDBOXER_PROXY`/`SANDBOXER_NO_PROXY` fail at resolve time.
 - The policy lives in the **create argv**, so it folds into the session hash:
-  editing domains/proxy/egress recreates the machine — enforcement can never
-  drift from the config on a live session.
+  editing domains/host ports/egress recreates the machine — enforcement can
+  never drift from the config on a live session.
 - **`egress.routes`** (per-domain upstream proxies) was a container-era `cache_peer`-style
-  feature and is retired with the container backend; the config key errors
-  with a migration hint.
+  feature and is retired with the container backend; the config key errors with
+  a migration hint — run one proxy on the host and reach it with `hostPorts` +
+  `env.HTTP_PROXY`.
 
 ## Ingress (published ports)
 

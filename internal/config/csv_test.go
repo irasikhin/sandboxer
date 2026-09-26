@@ -21,14 +21,10 @@ func TestSplitCSVAndFirstNonEmpty(t *testing.T) {
 	}
 }
 
-// TestValidateSkipAndParseErrors pins two branches the other validator tests
-// miss: ValidateDomains skipping blank entries (still valid overall) and
-// ValidateProxy reporting an unparseable proxy URL.
+// TestValidateSkipAndParseErrors pins the branch the other validator tests
+// miss: ValidateDomains skipping blank entries (still valid overall).
 func TestValidateSkipAndParseErrors(t *testing.T) {
 	if err := ValidateDomains([]string{"", "  ", "ok.com"}); err != nil {
 		t.Errorf("ValidateDomains(blanks + ok) = %v, want nil", err)
-	}
-	if err := ValidateProxy("http://%zz"); err == nil {
-		t.Error("ValidateProxy(unparseable) = nil, want parse error")
 	}
 }

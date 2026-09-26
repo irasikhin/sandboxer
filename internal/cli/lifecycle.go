@@ -70,7 +70,7 @@ func newCreateCmd() *cobra.Command {
 				return fmt.Errorf("no profile for %q — scaffold one with 'sandboxer config init', then re-create", t.slug)
 			}
 			// Resolve and validate the WHOLE runtime before any state is
-			// written: an invalid profile (a retired key, a bad proxy,
+			// written: an invalid profile (a retired key, a bad host port,
 			// image.ref plus customization, an unknown backend, a bad session
 			// mode) must fail while create has made NOTHING — running it after
 			// the snapshot and worktrees left a half-created sandbox behind
@@ -104,8 +104,8 @@ func newCreateCmd() *cobra.Command {
 				style.Infof(cmd.ErrOrStderr(), "src %s", srcLine(s))
 			}
 			warnOpenNetwork(cmd.ErrOrStderr(), rtCreate, t.profile)
-			warnMicrovmProxy(cmd.ErrOrStderr(), rtCreate)
 			reportPorts(cmd.ErrOrStderr(), rtCreate)
+			reportHostPorts(cmd.ErrOrStderr(), rtCreate)
 			out := cmd.OutOrStdout()
 			fmt.Fprintf(out, "sandbox %q created: %s\n", t.slug, t.base.SandboxDir(t.slug))
 			fmt.Fprintf(out, "enter:  sandboxer enter %s\n", t.slug)
@@ -124,6 +124,7 @@ func newCreateCmd() *cobra.Command {
 	fl.StringVar(&f.backend, "backend", "", "backend: microsandbox")
 	fl.StringVar(&f.domains, "allow-domains", "", "egress allowlist (csv)")
 	bindPorts(cmd, &f)
+	bindHostPorts(cmd, &f)
 	return cmd
 }
 
@@ -226,8 +227,8 @@ disable with autoResume = false in the profile, or SANDBOXER_NO_RESUME=1.`,
 				style.Infof(narrate, "src %s", srcLine(s))
 			}
 			warnOpenNetwork(errOut, rt, t.profile)
-			warnMicrovmProxy(errOut, rt)
 			reportPorts(errOut, rt)
+			reportHostPorts(errOut, rt)
 			engine, err := backend.ResolveEngine(rt.Backend, config.LoadDefaults())
 			if err != nil {
 				return err
@@ -463,8 +464,8 @@ composes with scripts and CI.`,
 			}
 			fmt.Fprintln(narrate, style.Wrap(narrate, configLine(rt, t.slug, t.profile, backendLabel(rt)), style.Bold))
 			warnOpenNetwork(cmd.ErrOrStderr(), rt, t.profile)
-			warnMicrovmProxy(cmd.ErrOrStderr(), rt)
 			reportPorts(cmd.ErrOrStderr(), rt)
+			reportHostPorts(cmd.ErrOrStderr(), rt)
 			engine, err := backend.ResolveEngine(rt.Backend, config.LoadDefaults())
 			if err != nil {
 				return err
@@ -613,33 +614,17 @@ func noEgress() bool { return os.Getenv("SANDBOXER_NO_EGRESS") == "1" }
 // the default (no git inside), whatever the profile says.
 func noGit() bool { return os.Getenv("SANDBOXER_NO_GIT") == "1" }
 
-// warnMicrovmProxy notes the egress posture when a sandbox has BOTH a proxy
-// and an allowlist: the proxy is the egress path (open network at the VM
-// layer), and the allowlist is then enforced by the proxy rather than by the
-// runner's network rules — reaching the proxy needs the open network, which
-// cannot also filter at the network layer. The user should ensure their proxy
-// enforces the intended allowlist. Not an error: a proxy + a default allowlist
-// is the common case.
-func warnMicrovmProxy(w io.Writer, rt config.Runtime) {
-	if rt.Proxy == "" || !rt.Egress {
-		return
-	}
-	style.Warnf(w, "egress.proxy is set — direct traffic is walled by the VM allowlist, and "+
-		"the proxy is reachable on its one port. Traffic that RIDES the proxy is constrained by the "+
-		"proxy itself, not the VM — make sure it restricts egress to what you intend.")
-}
-
 // warnOpenNetwork warns when the resolved network is fully open — no allowlist
-// wall and no proxy (networkOpen) — so the agent has unrestricted outbound.
-// The configLine already labels this "OPEN", but it is the one egress state
-// with no wall at all, and a run that also seeds host credentials (hostConfigs)
-// deserves an explicit line: the allowlist is the wall between those creds and
-// an exfiltration attempt, and here there is none. See SECURITY.md.
+// wall (networkOpen) — so the agent has unrestricted outbound. The configLine
+// already labels this "OPEN", but it is the one egress state with no wall at
+// all, and a run that also seeds host credentials (hostConfigs) deserves an
+// explicit line: the allowlist is the wall between those creds and an
+// exfiltration attempt, and here there is none. See SECURITY.md.
 func warnOpenNetwork(w io.Writer, rt config.Runtime, prof *config.Profile) {
 	if !networkOpen(rt) {
 		return
 	}
-	msg := "WARNING — egress is unrestricted (no allowlist, no proxy); the agent can reach any host"
+	msg := "WARNING — egress is unrestricted (no allowlist); the agent can reach any host"
 	if prof != nil && prof.HostConfigs {
 		msg += " — and hostConfigs is on, so seeded credentials could be exfiltrated"
 	}
@@ -658,6 +643,15 @@ func reportPorts(w io.Writer, rt config.Runtime) {
 			style.Warnf(w, "WARNING — %s:%d is published on a NON-loopback address; "+
 				"anyone who can reach this host can reach the sandbox's port %d", p.Bind, p.Host, p.Guest)
 		}
+	}
+}
+
+// reportHostPorts names every host door and the address the guest dials, so a
+// proxy (or any other service) running on the host is reachable in-sandbox
+// without re-deriving the alias from the docs.
+func reportHostPorts(w io.Writer, rt config.Runtime) {
+	for _, h := range rt.HostPorts {
+		style.Infof(w, "host port %s — reachable in-sandbox at %s", h, h.Dial())
 	}
 }
 

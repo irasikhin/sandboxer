@@ -9,7 +9,6 @@ import (
 	"maps"
 	"math"
 	"net"
-	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -257,71 +256,60 @@ func msbIngressRules(o RunOpts) []string {
 	return args
 }
 
-// msbNetworkArgs renders the machine's outbound policy. microsandbox defaults to
-// an OPEN network (an implicit allow@public when no rule is given), so the
-// states are:
+// msbNetworkArgs renders the machine's outbound policy plus the explicit doors
+// it needs. microsandbox defaults to an OPEN network (an implicit allow@public
+// when no rule is given), so the states are:
 //
-//   - egress on + proxy → the COMBINED WALL: --no-net (default deny), the
-//     allowlist rules, exactly one extra door — the proxy's port — and the
-//     guest's HTTP(S) clients pointed at the proxy. A loopback proxy is
-//     REWRITTEN to msbHostAlias (msb's guest has a real network stack where
-//     127.0.0.1 is guest-local); a remote proxy gets a name-bound door rule
-//     of its own (msbGuestProxyURL). An empty allowlist leaves only the door:
-//     all egress rides the proxy.
-//   - egress on, no proxy → --no-net plus one allow rule per domain: the
-//     domain AND its subdomains over HTTP and HTTPS, matched by NAME — a raw
-//     IP, even an allowed domain's own, is refused. An EMPTY allowlist is
-//     --no-net alone: a fully offline machine, a valid state (a default-deny
-//     VM with no rules simply reaches nothing).
-//   - egress disabled + proxy → an open network with the proxy env set:
-//     routing convenience, no wall.
+//   - egress on (egress.enabled = true, the default) → the WALL: --no-net
+//     (default deny) plus one allow rule per domain: the domain AND its
+//     subdomains over HTTP and HTTPS, matched by NAME — a raw IP, even an
+//     allowed domain's own, is refused. An EMPTY allowlist is --no-net alone:
+//     a fully offline machine, a valid state.
 //   - egress disabled (egress.enabled = false / SANDBOXER_NO_EGRESS) → open,
-//     no flags at all.
+//     no flags (msb's implicit allow@public), unless a host port needs a door.
+//
+// In EVERY state the configured host ports get their own door rule
+// (msbHostPortRules), so the guest can dial that port on the HOST at
+// host.microsandbox.internal; and while the wall is up, every published port
+// gets its ingress door (msbIngressRules). On an OPEN network any explicit
+// rule replaces msb's implicit allow@public in BOTH directions — so when host
+// doors are present, public egress is restated once (dropping it would
+// silently narrow the open network to the door ports) and the ingress rules
+// must be emitted alongside. Spelled as --net-rule tokens, NOT `--net public`
+// profiles: the --net flag only exists since msb 0.6.7, while this vocabulary
+// parses on every 0.6.x.
 //
 // These flags live in the create argv, so they fold into the session hash: a
-// domain added, a proxy set or egress toggled recreates the machine.
+// domain added, a host port opened or egress toggled recreates the machine.
 func msbNetworkArgs(o RunOpts) []string {
-	if p := o.RT.Proxy; p != "" {
-		guestURL, doorRule := msbGuestProxyURL(p)
-		args := []string{
-			"-e", "HTTP_PROXY=" + guestURL, "-e", "http_proxy=" + guestURL,
-			"-e", "HTTPS_PROXY=" + guestURL, "-e", "https_proxy=" + guestURL,
+	host := msbHostPortRules(o)
+	if !egressRequired(o) {
+		if len(host) == 0 {
+			// Open network, no doors: the implicit allow@public covers both
+			// directions, and ANY explicit rule would replace it — emitting
+			// one here would silently deny what the open state means.
+			return nil
 		}
-		if o.RT.NoProxy != "" {
-			args = append(args, "-e", "NO_PROXY="+o.RT.NoProxy, "-e", "no_proxy="+o.RT.NoProxy)
-		}
-		if !egressRequired(o) {
-			// Egress disabled but a proxy configured: an open network with the
-			// env set — routing convenience, no wall. A loopback proxy still
-			// needs its host door opened, and any explicit rule replaces the
-			// implicit open default, so public is restated beside it. Spelled
-			// as --net-rule tokens, NOT `--net public` profiles: the --net
-			// flag only exists since msb 0.6.7, while this vocabulary parses
-			// on every 0.6.x.
-			if strings.HasPrefix(doorRule, "allow@host") {
-				args = append(args, "--net-rule", "allow@public,"+doorRule)
-			}
-			return args
-		}
-		// The COMBINED WALL: default-deny, the allowlist rules, and exactly
-		// one extra door — the proxy's own port. Direct traffic (including
-		// anything that ignores proxy env) is enforced by the VM; traffic that
-		// rides the proxy is constrained by the PROXY, the trade a CONNECT
-		// proxy forces (the VM sees only the dial to the proxy, never the
-		// target names). An empty allowlist leaves only the door: all egress
-		// rides the proxy.
-		args = append(args, "--no-net")
-		args = append(args, msbAllowlistRules(o.RT.Domains)...)
-		if doorRule != "" {
-			args = append(args, "--net-rule", doorRule)
-		}
+		args := append([]string{"--net-rule", "allow@public"}, host...)
 		return append(args, msbIngressRules(o)...)
 	}
-	if !egressRequired(o) {
-		return nil
-	}
 	args := append([]string{"--no-net"}, msbAllowlistRules(o.RT.Domains)...)
+	args = append(args, host...)
 	return append(args, msbIngressRules(o)...)
+}
+
+// msbHostPortRules renders one `--net-rule` per configured host port: the ONE
+// door that lets the guest dial that port on the HOST (via
+// host.microsandbox.internal) while everything else keeps its posture. It is
+// emitted in every egress state — the door is independent of the wall — and
+// what the connection then carries is the user's business (point a client at
+// it with env.HTTP_PROXY, or dial it directly).
+func msbHostPortRules(o RunOpts) []string {
+	var args []string
+	for _, h := range o.RT.HostPorts {
+		args = append(args, "--net-rule", h.Rule())
+	}
+	return args
 }
 
 // msbAllowlistRules renders one --net-rule flag per allowlisted domain: the
@@ -335,60 +323,6 @@ func msbAllowlistRules(domains []string) []string {
 			"allow@"+t+":tcp:80,allow@"+t+":tcp:443")
 	}
 	return args
-}
-
-// msbHostAlias is microsandbox's magic hostname: its DNS forwarder synthesizes
-// the sandbox's gateway IP for it, and a gateway-bound dial is rewritten to the
-// HOST loopback at connect time (msb crates/network: HOST_ALIAS +
-// resolve_host_dst) — msb's host.docker.internal. It is the only way a guest
-// reaches a proxy bound to the host's 127.0.0.1: the guest's loopback is its
-// own smoltcp stack, so dialing 127.0.0.1 in-guest is refused immediately.
-const msbHostAlias = "host.microsandbox.internal"
-
-// msbGuestProxyURL adapts egress.proxy for the msb guest and derives the ONE
-// --net-rule that reaching it needs (the wall's "door"):
-//
-//   - a loopback proxy host (the common tunnel-client case) becomes
-//     msbHostAlias — a guest cannot dial the HOST's loopback — and the door is
-//     allow@host on the proxy port (gateway dials classify as the `host`
-//     destination group, which every default-deny policy refuses);
-//   - a remote proxy passes through untouched with a name-bound door on its
-//     own host and port (domain= for a single-label name, which would
-//     otherwise parse as a rule-group keyword);
-//   - an IPv6-literal or unparseable proxy yields no door ("") — the wall
-//     stands, the caller decides what that means.
-func msbGuestProxyURL(raw string) (guestURL, doorRule string) {
-	u, err := url.Parse(raw)
-	if err != nil || u.Host == "" {
-		return raw, ""
-	}
-	h := u.Hostname()
-	tail := ":tcp"
-	if port := u.Port(); port != "" {
-		tail += ":" + port
-	}
-	if h == "localhost" || h == "::1" || strings.HasPrefix(h, "127.") {
-		newHost := msbHostAlias
-		if port := u.Port(); port != "" {
-			newHost += ":" + port
-		}
-		u.Host = newHost
-		return u.String(), "allow@host" + tail
-	}
-	if ip := net.ParseIP(h); ip != nil {
-		if ip.To4() == nil {
-			// A v6 literal cannot be spelled in the colon-separated rule
-			// grammar; leave the wall doorless rather than emit a token msb
-			// would reject.
-			return raw, ""
-		}
-		return raw, "allow@" + h + tail
-	}
-	target := h
-	if !strings.Contains(h, ".") {
-		target = "domain=" + h
-	}
-	return raw, "allow@" + target + tail
 }
 
 // msbNetTargets maps the allowlist onto microsandbox rule targets. Every entry

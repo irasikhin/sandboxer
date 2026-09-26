@@ -421,6 +421,7 @@ func newShowCmd() *cobra.Command {
 			printSourcesBlock(out, t)
 			sess := sessionStatus(t, rtShow)
 			printPortsBlock(out, rtShow, sess, livePorts(rtShow, sess))
+			printHostPortsBlock(out, rtShow)
 			printSessionBlock(out, t, rtShow)
 			return nil
 		},
@@ -480,15 +481,16 @@ func writeShowJSON(out io.Writer, t *target, rt config.Runtime) error {
 	session := sessionStatus(t, rt)
 	live := livePorts(rt, session)
 	doc := struct {
-		Slug    string          `json:"slug"`
-		Backend string          `json:"backend"`
-		Profile json.RawMessage `json:"profile"`
-		Sources []showSource    `json:"sources"`
-		Ports   []showPort      `json:"ports,omitempty"`
-		Session showSession     `json:"session"`
+		Slug      string          `json:"slug"`
+		Backend   string          `json:"backend"`
+		Profile   json.RawMessage `json:"profile"`
+		Sources   []showSource    `json:"sources"`
+		Ports     []showPort      `json:"ports,omitempty"`
+		HostPorts []showHostPort  `json:"hostPorts,omitempty"`
+		Session   showSession     `json:"session"`
 	}{
 		Slug: t.slug, Backend: rt.Backend, Profile: profile,
-		Sources: sources, Ports: showPorts(rt, live), Session: session,
+		Sources: sources, Ports: showPorts(rt, live), HostPorts: showHostPorts(rt), Session: session,
 	}
 	enc := json.NewEncoder(out)
 	enc.SetIndent("", "  ")
@@ -538,6 +540,39 @@ func showPorts(rt config.Runtime, live []config.Port) []showPort {
 		})
 	}
 	return out
+}
+
+// showHostPort is one guest→host door in `show --json`: the policy rule's
+// protocol and port range, plus the address the guest dials.
+type showHostPort struct {
+	Proto string `json:"proto"`
+	Lo    int    `json:"lo"`
+	Hi    int    `json:"hi"`
+	Dial  string `json:"dial"`
+}
+
+// showHostPorts projects the resolved host doors for `show --json`.
+func showHostPorts(rt config.Runtime) []showHostPort {
+	out := make([]showHostPort, 0, len(rt.HostPorts))
+	for _, h := range rt.HostPorts {
+		out = append(out, showHostPort{Proto: h.Proto, Lo: h.Lo, Hi: h.Hi, Dial: h.Dial()})
+	}
+	return out
+}
+
+// printHostPortsBlock renders show's "== host ports ==" lines — the doors the
+// guest has to the HOST. Unlike the forwarding block this is not a live fact to
+// verify (the rule is in the create argv, so a config change is what moves it);
+// it exists because the address is the one thing the guest needs and the config
+// never spells it. Omitted entirely when no host port is configured.
+func printHostPortsBlock(out io.Writer, rt config.Runtime) {
+	if len(rt.HostPorts) == 0 {
+		return
+	}
+	fmt.Fprintln(out, "== host ports ==")
+	for _, h := range rt.HostPorts {
+		fmt.Fprintf(out, "%s — reachable in-sandbox at %s\n", h, h.Dial())
+	}
 }
 
 // printPortsBlock renders show's "== ports ==" lines: every forward the config

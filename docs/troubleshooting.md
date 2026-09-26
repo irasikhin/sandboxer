@@ -98,17 +98,18 @@ layer (there is no proxy returning 403 anymore).
 - The one-time `setup:` hook runs under the **same** allowlist — a network step
   in `setup:` needs its domains allowed too.
 - To rule egress out while debugging, disable it deliberately:
-  `SANDBOXER_NO_EGRESS=1` or `egress.enabled = false` in the profile. (With an
-  `egress.proxy` set, the machine has an open network and the *proxy* is the
-  control point — its policy decides what's reachable, and an `allowedDomains`
-  set alongside is enforced by the proxy, not the VM; sandboxer warns about
-  that pairing.)
+  `SANDBOXER_NO_EGRESS=1` or `egress.enabled = false` in the profile — an open
+  network, labeled as such on every run.
 - Egress not taking effect after editing the config? The policy is baked into
   the machine at create (part of the session's config hash), so an edit marks
   a **persistent** session stale and the next `enter` recreates it
   automatically — except while another client is attached, when it refuses
   (detach or `sandboxer stop <slug>` first). The banner's `egress:` line shows
   what's actually in effect.
+- A proxy running on the **host** is not used automatically: the guest reaches
+  it only through `hostPorts` AND a matching `env.HTTP_PROXY` / `HTTPS_PROXY`
+  of `"http://host.microsandbox.internal:<port>"`. `sandboxer show` lists the
+  doors (`== host ports ==`) with the address to dial.
 
 ## `sandboxer image build` fails or crawls
 
