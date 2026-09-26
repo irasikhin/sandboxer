@@ -185,6 +185,7 @@ require-sigs = false"
               TestMSB_NarrowingWall_RealEngine \\
               TestMSB_GuestWriteUID_RealEngine \\
               TestMSB_EgressAllowlist_RealEngine \\
+              TestMSB_HostDoor_RealEngine \\
               TestMSB_SecretsMode_RealEngine \\
               TestMSB_NestedContainer_RealEngine
             [ "$rc" -eq 0 ]
