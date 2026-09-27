@@ -283,6 +283,41 @@ func TestImageBakesDockerShim(t *testing.T) {
 	}
 }
 
+// TestImageBakesLocalKubernetes guards the local-cluster toolchain. The two
+// runners need the image to be set up for THIS sandbox's engine and root fs,
+// not for a docker daemon on a normal filesystem: kind is pointed at its
+// podman provider and its fuse-overlayfs snapshotter (the guest's only engine
+// is podman, the `docker` on PATH is a shim, and the kernel refuses
+// overlay-on-overlay as an upperdir — without both pins a node boots and every
+// pod stays ContainerCreating), and it needs /lib/modules to EXIST (it
+// bind-mounts the dir read-only into every node; podman refuses a missing
+// bind source unlike docker, so provisioning dies with "statfs /lib/modules:
+// no such file or directory"). k3d rides the docker-compatible socket the
+// image already serves and gets its k3s snapshotter pinned by k3dShim (k3s
+// refuses to start otherwise). All of it was reproduced and fixed in a real
+// sandbox. The clients are what an agent drives the cluster with.
+func TestImageBakesLocalKubernetes(t *testing.T) {
+	s := imageDefinition(t)
+	for _, want := range []string{
+		"kubectl", "kubernetes-helm", "kustomize", "kubeconform", "stern",
+		`"KIND_EXPERIMENTAL_PROVIDER=podman"`,
+		`"KIND_EXPERIMENTAL_CONTAINERD_SNAPSHOTTER=fuse-overlayfs"`,
+		"k3dShim", `${pkgs.k3d}/bin/k3d`, "--snapshotter=native",
+		"/lib/modules",
+	} {
+		if !strings.Contains(s, want) {
+			t.Errorf("images.nix missing local-kubernetes piece %q", want)
+		}
+	}
+	for _, re := range []string{
+		`(?m)^\s{8}kind$`, `(?m)^\s{8}k9s$`, `(?m)^\s{8}kubectx$`,
+	} {
+		if !regexp.MustCompile(re).MatchString(s) {
+			t.Errorf("images.nix missing local-kubernetes package %q", re)
+		}
+	}
+}
+
 // TestImageBakesPythonBatteries guards that the base python3 carries the glue
 // libraries baked into the image (click CLIs, YAML/TOML config, templating,
 // HTTP, HTML, schema validation, a test runner), via python3.withPackages — a

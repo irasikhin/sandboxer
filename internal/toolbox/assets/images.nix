@@ -283,6 +283,30 @@ let
     exec ${pkgs.podman-compose}/bin/podman-compose "$@"
   '';
 
+  # `k3d` with the guest's storage reality baked in. k3s's containerd
+  # defaults to the "overlayfs" snapshotter, and the microVM root is itself
+  # an overlayfs — the kernel refuses overlay-on-overlay as an upperdir
+  # ("failed to mount overlay: invalid argument"), so k3s never becomes
+  # ready (its own message suggests fuse-overlayfs or native; the
+  # fuse-overlayfs path additionally needs mount.fuse3, which the k3s image
+  # does not carry — both measured). `native` (copy-up, no kernel overlay)
+  # always works, so `cluster create` gets the pin unless the user passed a
+  # snapshotter of their own (--k3s-arg or --config). Everything else — the
+  # other subcommands, an explicit snapshotter — passes straight through.
+  # This script IS the image's /bin/k3d: the bare k3d package is deliberately
+  # absent from contents, because symlinkJoin keeps the first of two colliding
+  # bin/k3d entries and shipping both silently produced the unwrapped binary
+  # (measured). Its store path stays in the closure through the exec below.
+  k3dShim = pkgs.writeShellScriptBin "k3d" ''
+    if [ "''${1:-}" = "cluster" ] && [ "''${2:-}" = "create" ]; then
+      case " $* " in
+        *snapshotter*) ;;
+        *) set -- "$@" --k3s-arg "--snapshotter=native@server:*;agent:*" ;;
+      esac
+    fi
+    exec ${pkgs.k3d}/bin/k3d "$@"
+  '';
+
   # `java` and friends ON PATH. The JDK's own $out/bin is a SYMLINK to
   # lib/openjdk/bin, and the layered-image merge resolves it into
   # ./lib/openjdk/bin/… without ever creating ./bin/java — so with PATH=/bin
@@ -712,6 +736,48 @@ in
         # `podman compose` / `docker compose` need an external provider;
         # podman finds this one on PATH.
         podman-compose
+        # local-kubernetes pack: boot a real cluster INSIDE the sandbox and
+        # drive it. The clients — kubectl (the API), helm (charts), kustomize
+        # (overlays), kubectx/kubens (context and namespace switching), stern
+        # (multi-pod log tailing), kubeconform (schema-validate rendered
+        # manifests with no cluster at all) and k9s (the TUI) — plus the two
+        # runners:
+        #
+        # kind — nodes as privileged containers on the guest's podman. Two
+        #     env pins (set in the image env below) make it work here:
+        #     KIND_EXPERIMENTAL_PROVIDER=podman points kind at the guest's
+        #     only engine (the `docker` on PATH is a shim), and
+        #     KIND_EXPERIMENTAL_CONTAINERD_SNAPSHOTTER=fuse-overlayfs
+        #     sidesteps the overlay-on-overlay refusal above: containerd's
+        #     default overlayfs snapshotter cannot nest on the microVM's
+        #     overlay root ("filesystem on … not supported as upperdir",
+        #     measured in the guest dmesg) — without it a node boots systemd
+        #     and then every pod stays ContainerCreating forever. kind also
+        #     bind-mounts /lib/modules read-only into every node, and podman
+        #     REFUSES a missing bind source (docker would create it) — the
+        #     empty dir is created in fakeRootCommands below; the guest ships
+        #     no module tree and needs none (the netfilter pieces kube-proxy
+        #     programs are built into its kernel — measured).
+        #   k3d — k3s containers through the docker-compatible API socket
+        #     (DOCKER_HOST, brought up by podman-socket), with the overlay
+        #     problem solved by the k3dShim above.
+        #
+        # Verified end to end inside a sandbox on msb 0.6.7, under the default
+        # egress allowlist and at the default 4 GiB: `kind create cluster`
+        # reached control-plane Ready with every kube-system pod Running
+        # (etcd, coredns, kindnet, an iptables-programmed kube-proxy), `k3d
+        # cluster create` in ~30s with traefik/metrics-server Running, and
+        # `helm install` served. The host's docker or Kubernetes is never in
+        # reach: a node is a container in the GUEST, on the guest's own
+        # kernel, and dies with the machine.
+        kubectl
+        kubernetes-helm
+        kustomize
+        kind
+        kubectx
+        stern
+        kubeconform
+        k9s
         # the multiplexer `enter` attaches (detach/reattach, wheel
         # scrolling, panes) — plus the terminfo it needs
         tmux
@@ -725,6 +791,7 @@ in
         tmuxConf
         dockerShim
         composeShim
+        k3dShim
         jdkBin
         pipHint
         detachCmd
@@ -774,14 +841,27 @@ in
         # sandbox machine itself is the cleanup boundary — sandboxer rm/clean
         # wipes everything a test run leaves behind.
         "TESTCONTAINERS_RYUK_DISABLED=true"
+        # kind's DEFAULT provider is docker (CLI + daemon); the sandbox's only
+        # engine is the guest's own podman (the `docker` on PATH is a shim, not
+        # a daemon), so kind is pointed at its supported podman provider, and
+        # its containerd is pointed at the fuse-overlayfs snapshotter (the
+        # kernel refuses overlay-on-overlay as an upperdir on the microVM's
+        # overlay root — see the local-kubernetes pack above).
+        "KIND_EXPERIMENTAL_PROVIDER=podman"
+        "KIND_EXPERIMENTAL_CONTAINERD_SNAPSHOTTER=fuse-overlayfs"
       ]
       ++ userEnv;
     };
     # /var/tmp is not decoration: containers/image stages every pulled
     # blob there, so the nested podman's first pull dies with
     # "stat /var/tmp: no such file or directory" without it.
+    # /lib/modules is the same kind of requirement for kind: every node
+    # bind-mounts it read-only, and podman refuses a missing bind source
+    # ("statfs /lib/modules: no such file or directory" — measured; docker
+    # would create the dir instead). The guest ships no module tree and needs
+    # none, so an empty dir is the whole content.
     fakeRootCommands = ''
-      mkdir -p /work /tmp /var/tmp /root /var/empty
+      mkdir -p /work /tmp /var/tmp /root /var/empty /lib/modules
       chmod 1777 /tmp /var/tmp
       chmod 700 /root
     '';

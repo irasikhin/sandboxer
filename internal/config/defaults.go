@@ -70,6 +70,14 @@ const DefaultImage = "ghcr.io/irasikhin/sandboxer-toolbox:latest"
 // The cloudfront.net entry admits any CloudFront distribution — a real
 // allowlist widening, called out in SECURITY.md; drop it in
 // egress.allowedDomains if the ECR/Hub blob path is not worth that.
+//
+// registry.k8s.io is the Kubernetes project's own image registry — the
+// canonical source for the core addons a cluster gets next (metrics-server,
+// ingress-nginx, coredns upgrades), so the local-cluster tooling the image
+// bakes can install them without touching the config. It is NOT needed to
+// BOOT a kind cluster: the kind node image ships the control-plane images
+// itself. k8s.gcr.io is the same registry's legacy name, still referenced by
+// older manifests and tutorials.
 const DefaultDomains = "api.anthropic.com,platform.claude.com,console.anthropic.com," +
 	"api.openai.com,api.deepseek.com," +
 	"generativelanguage.googleapis.com,openrouter.ai,registry.npmjs.org,pypi.org," +
@@ -79,6 +87,7 @@ const DefaultDomains = "api.anthropic.com,platform.claude.com,console.anthropic.
 	"raw.githubusercontent.com,objects.githubusercontent.com,api.github.com," +
 	"docker.io,registry-1.docker.io,auth.docker.io,index.docker.io," +
 	"production.cloudflare.docker.com,production.cloudfront.docker.com,mirror.gcr.io,ghcr.io," +
+	"registry.k8s.io,k8s.gcr.io," +
 	"pkg-containers.githubusercontent.com,quay.io,cdn01.quay.io,cdn02.quay.io,cdn03.quay.io," +
 	"public.ecr.aws,cloudfront.net"
 
