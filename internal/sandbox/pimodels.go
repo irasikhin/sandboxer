@@ -20,10 +20,11 @@ const PiModelsPath = ".pi/agent/models.json"
 // catalog. The DeepSeek V4.1 Flash entry is the day-one one: the baked pi
 // release predates the model, and it runs on the deepseek provider the image
 // already wires (DEEPSEEK_API_KEY auth, api.deepseek.com in the default
-// allowlist). THE ID IS THE BETA ONE AND IT EXPIRES: api.deepseek.com serves
-// deepseek-v4.1-flash-expires-on-0910 (verified 2026-09-09) but not the
-// permanent deepseek-v4.1-flash yet (V4.1 Flash launches ~2026-09-10 Beijing
-// time) — swap the id here when the permanent one goes live.
+// allowlist). THE ID IS `deepseek-flash` — the name api.deepseek.com actually
+// serves (measured 2026-09-17: `deepseek-flash` HTTP 200;
+// `deepseek-v4.1-flash` HTTP 400 "supported API model names are
+// deepseek-flash, deepseek-v4-pro"). The beta id the entry used to carry
+// (`deepseek-v4.1-flash-expires-on-0910`) has expired.
 //
 // The compat block restates the provider's own: pi does not inherit a
 // built-in model's compat when a models.json entry defines a NEW id, and
@@ -36,8 +37,8 @@ var PiModels = map[string]any{
 		"deepseek": map[string]any{
 			"models": []any{
 				map[string]any{
-					"id":        "deepseek-v4.1-flash-expires-on-0910",
-					"name":      "DeepSeek V4.1 Flash (beta, expires 09-10)",
+					"id":        "deepseek-flash",
+					"name":      "DeepSeek V4.1 Flash",
 					"reasoning": true,
 					"input":     []any{"text"},
 					"cost": map[string]any{
@@ -69,7 +70,7 @@ var PiModels = map[string]any{
 }
 
 // EnsurePiModels registers the models the toolbox image knows about in slug's
-// pi model catalog, so the sandbox's pi offers deepseek-v4.1-flash from the
+// pi model catalog, so the sandbox's pi offers deepseek-flash from the
 // first run instead of after a manual models.json edit.
 //
 // It is a MERGE into whatever models.json the home already has (host-seeded

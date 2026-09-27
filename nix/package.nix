@@ -13,14 +13,14 @@
 
 let
   pname = "sandboxer";
-  version = "0.98.1";
+  version = "0.98.3";
 in
 buildGoModule {
   inherit pname version;
 
   src = lib.cleanSource ./..;
 
-  vendorHash = "sha256-faYKtXCfCn08HEPTw5trZs+eCeDyzvhy7UeHhSJGRUo=";
+  vendorHash = "sha256-OxICp/yKVkBeEYnvfQG1sU30i6eI/FO0fnfWKSZn7WA=";
 
   subPackages = [ "cmd/sandboxer" ];
 

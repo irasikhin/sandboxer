@@ -13,7 +13,7 @@
   description = "sandboxer toolbox image (self-contained)";
 
   inputs = {
-    nixpkgs.url = "github:NixOS/nixpkgs/f13ff45afd1bb73e640eaa08a7066dbed07e3238";
+    nixpkgs.url = "github:NixOS/nixpkgs/e94cb152ed51bd6e24eb4a41f1460252beb52cd2";
   };
 
   outputs =
@@ -53,6 +53,23 @@
               (final: prev: {
                 pi = final.callPackage ./pi/package.nix { };
                 pi-agent-orchestrator = final.callPackage ./pi-orchestrator/package.nix { };
+                # crush is FSL-licensed (unfree) → never on cache.nixos.org, so
+                # every image build compiles it from source AND runs its Go
+                # tests. TestRetireClient_DuringPendingCreate polls a 30 s
+                # Eventually for a create goroutine to reach its slow path;
+                # with gotestsum running the packages in parallel on a loaded
+                # runner that window expires and the whole image build fails
+                # (Jenkins PR-43 build 1, 2026-09-21). Give the wait room
+                # instead of dropping the suite — upstream's own CI runs these
+                # tests, and the substitution below fails loudly if upstream
+                # moves the literal, which is the re-check point.
+                crush = prev.crush.overrideAttrs (o: {
+                  postPatch = (o.postPatch or "") + ''
+                    substituteInPlace internal/backend/backend_test.go \
+                      --replace-fail '}}, 30*time.Second, time.Millisecond, "create must reach its slow path")' \
+                      '}}, 2*time.Minute, time.Millisecond, "create must reach its slow path")'
+                  '';
+                });
                 # dsh rides with the same baked community plugins the root
                 # flake grafts in (dshmarket, dsh-find-plugin, archify,
                 # model-router).

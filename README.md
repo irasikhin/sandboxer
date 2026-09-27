@@ -169,6 +169,11 @@ microVM has no swap, so the memory cap is a hard ceiling: a workload that
 exceeds it is OOM-killed with a bare `Killed`. See
 [docs/troubleshooting.md](./docs/troubleshooting.md#a-process-inside-the-sandbox-dies-with-killed).
 
+Host shares (sources, `$HOME`, rw `extraMounts`) are **not** capped by
+microsandbox's 4 GiB protective per-mount guest-write quota: sandboxer raises
+every writable share to the quota grammar's ceiling, so the host filesystem
+is the bound — see [docs/microvm.md](./docs/microvm.md).
+
 ### Environment variables
 
 Scalars come from flags and `SANDBOXER_*` env vars:

@@ -53,11 +53,12 @@ that happens.
 
 ## A share under `/tmp` is refused
 
-The guest mounts a tmpfs over `/tmp` *after* the host shares, so anything
-shared below `/tmp` is invisible inside the sandbox. sandboxer refuses such a
-configuration up front (a silent empty mount would be worse). This only bites
-a profile that deliberately points `worktreesDir` or an `extraMounts` target
-under `/tmp` — move it anywhere else.
+The guest (msb 0.6.x) mounts a tmpfs over `/tmp` *after* the host shares, so
+anything shared below `/tmp` is invisible inside the sandbox (0.7.x no longer
+mounts it, but the runner comes from `PATH`, so the refusal stays). sandboxer
+refuses such a configuration up front (a silent empty mount would be worse).
+This only bites a profile that deliberately points `worktreesDir` or an
+`extraMounts` target under `/tmp` — move it anywhere else.
 
 Related refusals with the reason in the message: an `extraMounts` whose
 `source` is a regular **file** (virtio-fs shares directories only — mount the

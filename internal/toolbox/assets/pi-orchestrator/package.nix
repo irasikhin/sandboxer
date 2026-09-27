@@ -32,9 +32,9 @@
 }:
 
 let
-  version = "0.18.0";
-  sourceHash = "sha256-AI21CwdpEtZ7mhw0WKx3Ym2GbwLFYm7CrTOF+qRRcbg=";
-  npmDepsHash = "sha256-yTfiU6fSbof/Dz7Ye6+rgEwETdMzmmCuOEosRYjOTjw=";
+  version = "0.19.1";
+  sourceHash = "sha256-wc2XA91WAZYeSoh/rHEapmqHFY/91nfNCS6v3hOWYb0=";
+  npmDepsHash = "sha256-Elp+ijBdLYseI/kgiyEhgWl3w3KAQdPikMGc+j+eVa4=";
 
   # The published tarball, with dev/peer deps stripped and the vendored lock
   # placed beside it (see the header for why both are needed).

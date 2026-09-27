@@ -15,8 +15,8 @@
 }:
 
 let
-  version = "0.3.7";
-  sourceHash = "sha256-RsQI/J9km5DsJbMPoC3MDx54PEomnoJGi3CVzhz/qZI=";
+  version = "0.4.0";
+  sourceHash = "sha256-Ofwt/VGbU7xxydT7jLf6pnjSwU/7d8bfONrw7t8LVqA=";
 in
 stdenv.mkDerivation {
   pname = "dsh-find-plugin";

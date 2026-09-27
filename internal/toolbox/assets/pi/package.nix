@@ -19,9 +19,9 @@
 }:
 
 let
-  version = "0.84.1";
-  sourceHash = "sha256-ppoYWWAX6RlV/Q/Wd75p+rW26gHVsGIHvO407hUivCA=";
-  npmDepsHash = "sha256-vx53B2ZhZ4/KuPU44r4vuepyGP6gpm9f1JOyHLBDdzE=";
+  version = "0.87.1";
+  sourceHash = "sha256-FCPuPGHnyWRk4cvzyNwk0wVss0EJlcNnGpjD7MUnVA8=";
+  npmDepsHash = "sha256-PW3bcNi/fP77jmsxWMUbWaJ/6hNG5Z0jYtym+yLWops=";
 
   # The published tarball with the vendored lockfile placed beside it; the
   # shipped npm-shrinkwrap.json is dropped (it would shadow the lock).
