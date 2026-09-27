@@ -6,6 +6,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.99.0] — 2026-09-27
+
+### ⚠ Breaking changes
+
+- the sandbox's engine is the real Docker (podman removed) (ce11656)
+
+### Added
+
+- local Kubernetes tooling in the toolbox image (be7af42)
+- limits.dockerDisk — an owned ext4 data volume for the guest Docker engine (9ebf26a)
+- the sandbox's engine is the real Docker (podman removed) (ce11656)
+
+### Fixed
+
+- pin microsandbox 0.7.1 — 0.7.3 resets TLS under the egress allowlist (7577c78)
+- drop the obsolete crush test postPatch — upstream removed the test (d16fa8f)
+
+### Docs
+
+- the sandbox runs Docker — engine, data volume, mirror workaround (fbefb7f)
+- the doctor example shows the pinned msb 0.7.1 (was 0.7.3) (8c6f002)
+
+
 ## [0.98.3] — 2026-09-26
 
 ### Fixed
@@ -1563,3 +1586,4 @@ isolated, containerized dev sandbox, on a local Linux machine:
 [0.98.1]: https://github.com/irasikhin/sandboxer/compare/v0.98.0...v0.98.1
 [0.98.2]: https://github.com/irasikhin/sandboxer/compare/v0.98.1...v0.98.2
 [0.98.3]: https://github.com/irasikhin/sandboxer/compare/v0.98.2...v0.98.3
+[0.99.0]: https://github.com/irasikhin/sandboxer/compare/v0.98.3...v0.99.0
