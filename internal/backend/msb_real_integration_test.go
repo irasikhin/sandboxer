@@ -175,6 +175,19 @@ func TestMSB_EgressAllowlist_RealEngine(t *testing.T) {
 	if code, _ := ExecSession(o, name, []string{"sh", "-c", "getent hosts example.com >/dev/null 2>&1"}); code != 0 {
 		t.Errorf("the allowed domain did not resolve inside the guest (code %d)", code)
 	}
+	// …and is REACHABLE, over plain HTTP and over TLS. The TLS half is a
+	// regression guard for the runtime bump: msb 0.7.3 (pinned 2026-09-26,
+	// reverted to 0.7.1) resolved allowlisted names and let plain HTTP
+	// through while RESETTING every TLS handshake under a policy — so
+	// HTTPS-only tooling (agent APIs, package and image registries) failed
+	// as if the network were down, and this test's HTTP-only probe stayed
+	// green. Keep both probes.
+	for _, url := range []string{"http://example.com/", "https://example.com/"} {
+		if code, _ := ExecSession(o, name, []string{"sh", "-c",
+			"wget -q -T 8 -O /dev/null " + url + " 2>/dev/null"}); code != 0 {
+			t.Errorf("the allowed domain was not reachable (%s) inside the guest (code %d)", url, code)
+		}
+	}
 	// …and a domain that is not on the list is refused.
 	if code, _ := ExecSession(o, name, []string{"sh", "-c",
 		"wget -q -T 5 -O /dev/null http://api.github.com/ 2>/dev/null"}); code == 0 {
