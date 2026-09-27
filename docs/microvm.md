@@ -124,7 +124,7 @@ Check everything at once:
 
 ```console
 $ sandboxer doctor
-microsandbox (msb)   ✓  msb 0.7.3 available
+microsandbox (msb)   ✓  msb 0.7.1 available
 ```
 
 ## How it maps to the container backend it replaced
