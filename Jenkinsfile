@@ -4,8 +4,8 @@
 // runners, and cuts releases. This job runs the FULL `-tags integration` suite
 // against the REAL toolbox image — the part GitHub deliberately skips (the
 // image is a multi-minute nix build, and the 90% coverage gate stays
-// engine-free). That includes TestMSB_NestedContainer_RealEngine: docker and
-// podman running INSIDE the msb guest, postgres switching uids against the
+// engine-free). That includes TestMSB_NestedContainer_RealEngine: the Docker
+// engine running INSIDE the msb guest, postgres switching uids against the
 // guest kernel — the property that let the host container backend be removed.
 //
 // It builds the toolbox image and the pinned microsandbox runtime with nix in

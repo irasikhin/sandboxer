@@ -144,10 +144,10 @@ func TestVMSharePreflightFileMount(t *testing.T) {
 }
 
 // TestVMLimitsPreflight pins the limit validation: the microVM takes a WHOLE
-// number of vCPUs, a PARSEABLE memory cap and a PARSEABLE root-disk size, so a
-// fractional limits.cpus, an unparseable limits.memory or an unparseable
-// limits.disk is a clear error, never the silent rounding / 4 GiB fallback the
-// conversions used to apply.
+// number of vCPUs, a PARSEABLE memory cap and a PARSEABLE root-disk/docker-disk
+// size, so a fractional limits.cpus, an unparseable limits.memory or an
+// unparseable limits.disk / limits.dockerDisk is a clear error, never the
+// silent rounding / 4 GiB fallback the conversions used to apply.
 func TestVMLimitsPreflight(t *testing.T) {
 	if err := vmLimitsPreflight(RunOpts{CPU: "2", Mem: "2G"}); err != nil {
 		t.Errorf("valid limits rejected: %v", err)
@@ -177,6 +177,16 @@ func TestVMLimitsPreflight(t *testing.T) {
 			t.Errorf("limits.disk %q = %v, want a limits.disk error", bad, err)
 		}
 	}
+	for _, good := range []string{"20G", "512M", "8g", "4096"} {
+		if err := vmLimitsPreflight(RunOpts{DockerDisk: good}); err != nil {
+			t.Errorf("limits.dockerDisk %q rejected: %v", good, err)
+		}
+	}
+	for _, bad := range []string{"1T", "20GiB", "0G", "garbage"} {
+		if err := vmLimitsPreflight(RunOpts{DockerDisk: bad}); err == nil || !strings.Contains(err.Error(), "limits.dockerDisk") {
+			t.Errorf("limits.dockerDisk %q = %v, want a limits.dockerDisk error", bad, err)
+		}
+	}
 	// It surfaces through the full preflight.
 	if err := msbPreflight(RunOpts{CPU: "1.5"}); err == nil {
 		t.Error("msbPreflight accepted a fractional limits.cpus")
@@ -186,6 +196,9 @@ func TestVMLimitsPreflight(t *testing.T) {
 	}
 	if err := msbPreflight(RunOpts{Disk: "nope"}); err == nil {
 		t.Error("msbPreflight accepted an unparseable limits.disk")
+	}
+	if err := msbPreflight(RunOpts{DockerDisk: "nope"}); err == nil {
+		t.Error("msbPreflight accepted an unparseable limits.dockerDisk")
 	}
 }
 

@@ -9,8 +9,8 @@
 #     container e2e suite. It passes only the agent set; there is no profile.
 #
 # They were separate copies until they drifted: every image improvement landed
-# in the embedded flake, so `.#image` quietly lost podman, the language runtimes
-# and the shell rc, and the e2e suite tested an image no user ever gets. Keep
+# in the embedded flake, so `.#image` quietly lost the language runtimes and the
+# shell rc, and the e2e suite tested an image no user ever gets. Keep
 # the definition HERE — a flake should only supply pkgs and the package lists.
 #
 # The two callers still differ in one honest way: the embedded flake pins its
@@ -59,11 +59,11 @@ let
     export PAGER="''${PAGER:-less}"
     export LESS="''${LESS:--R}"
 
-    # testcontainers (and any docker client) needs the nested podman's
-    # docker-compatible API socket; ensure it — idempotent, quiet, detached.
-    # The image carries podman-socket; an older cached image without it
-    # simply skips (the `command -v` guard), never errors the shell.
-    command -v podman-socket >/dev/null 2>&1 && podman-socket >/dev/null 2>&1 || true
+    # testcontainers (and any docker client) needs the guest's Docker
+    # daemon; ensure it — idempotent, quiet, detached. The image carries
+    # docker-daemon; an older cached image without it simply skips (the
+    # `command -v` guard), never errors the shell.
+    command -v docker-daemon >/dev/null 2>&1 && docker-daemon >/dev/null 2>&1 || true
 
     # OOM watchdog. A microVM has no swap, so the machine's memory cap
     # (profile limits.memory / SANDBOXER_MEM) is a hard ceiling: the guest
@@ -99,91 +99,10 @@ let
         navigate = true
   '';
 
-  # Nested-podman plumbing: podman refuses to run without a signature
-  # policy, and pulls need a registry search list. Mirrors are a
-  # per-user concern: add them in the sandbox at
-  # ~/.config/containers/registries.conf (rootless podman lets the
-  # $HOME config override this system one, and the sandbox $HOME
-  # persists).
-  containersPolicy = pkgs.writeTextDir "etc/containers/policy.json" ''
-    { "default": [ { "type": "insecureAcceptAnything" } ] }
-  '';
-
-  # Storage for the nested podman. On a podman engine the launcher
-  # mounts generated /etc/subuid+/etc/subgid and grants ambient
-  # SETUID/SETGID, so the shipped newuidmap builds a MULTI-uid
-  # namespace and normal images unpack (and run their own users)
-  # natively. `ignore_chown_errors` stays as the FALLBACK for where
-  # that grant does not exist — a docker engine (no ambient caps for a
-  # non-root user) or a host user without subordinate ranges — where
-  # podman maps a SINGLE uid and unpacking a normal image would
-  # otherwise abort on its foreign owners (alpine's /etc/shadow is
-  # 0:42); the chown is skipped instead. fuse-overlayfs (not vfs)
-  # keeps layers shared; it needs /dev/fuse, which the launcher passes
-  # only for a profile that opted in (see backend.nestedContainerArgs).
-  containersStorage = pkgs.writeTextDir "etc/containers/storage.conf" ''
-    [storage]
-    driver = "overlay"
-    [storage.options]
-    mount_program = "${pkgs.fuse-overlayfs}/bin/fuse-overlayfs"
-    ignore_chown_errors = "true"
-  '';
-  # Engine settings for the nested podman. Deliberately ONE setting: with a
-  # compose provider on PATH, `podman compose` prints a four-line banner
-  # about executing an external provider before every single command, which
-  # is pure noise for an agent parsing output. Everything else podman
-  # resolves correctly on its own here — measured inside the sandbox, its
-  # defaults already come out k8s-file / file / cgroupfs / netavark, so
-  # pinning them would only be a copy of the default that goes stale.
-  containersConf = pkgs.writeTextDir "etc/containers/containers.conf" ''
-    [engine]
-    compose_warning_logs = false
-  '';
-
-  containersRegistries = pkgs.writeTextDir "etc/containers/registries.conf" ''
-    unqualified-search-registries = ["docker.io"]
-    # Mirrors (e.g. when docker.io is throttled where you are): copy
-    # this file to ~/.config/containers/registries.conf inside the
-    # sandbox and add
-    #   [[registry]]
-    #   prefix = "docker.io"
-    #   location = "registry-1.docker.io"
-    #   [[registry.mirror]]
-    #   location = "mirror.gcr.io"
-  '';
-
-  # The default bridge network's config file. Podman 5 auto-creates the
-  # default `podman` network WITHOUT DNS (createDefaultNetwork never sets
-  # DNSEnabled), so containers on it cannot resolve each other by name —
-  # `podman run -d --name db …` then `curl http://db:5432` from a peer answers
-  # "bad address", and any compose project whose services talk by name fails
-  # the same way. Only user-created networks (`podman network create`) get
-  # aardvark-dns. Shipping the config here (the rootful netavark config dir)
-  # makes loadNetworks read the default network off disk with DNS enabled,
-  # instead of synthesizing it without; name/id/subnet/interface mirror
-  # podman's own defaults, so the only observable difference is working name
-  # resolution.
-  containersNetworks = pkgs.writeTextDir "etc/containers/networks/podman.json" ''
-    {
-      "name": "podman",
-      "id": "2f259bab93aaaaa2542ba43ef33eb990d0999ee1b9924b557b7be53c0b7a1bb9",
-      "driver": "bridge",
-      "network_interface": "podman0",
-      "subnets": [{ "subnet": "10.88.0.0/16", "gateway": "10.88.0.1" }],
-      "ipv6_enabled": false,
-      "internal": false,
-      "dns_enabled": true,
-      "ipam_options": { "driver": "host-local" }
-    }
-  '';
-
   # Guest identity files (/etc/passwd, /etc/group). Container engines never
   # consult them for exec (the uid is numeric), but microsandbox >= 0.6.7
   # resolves the exec user against the GUEST's /etc/passwd, and without these
   # every exec into the machine dies with "failed to resolve guest uid 0".
-  # Entries mirror the generated files the nestedContainers container path
-  # bind-mounts (internal/sandbox/subid.go) — and those mounts land OVER
-  # these, so on that path this pair only ever back-fills.
   guestNss = pkgs.runCommand "guest-nss" { } ''
     mkdir -p $out/etc
     printf 'root:x:0:0:root:/root:/bin/bash\nnobody:x:65534:65534:nobody:/var/empty:/bin/sh\n' > $out/etc/passwd
@@ -263,50 +182,6 @@ let
     exec ${pkgs.tmux}/bin/tmux detach-client
   '';
 
-  # `docker` inside the sandbox — a shim, not the real client. The docker
-  # CLI speaks to a daemon over a socket, and no engine socket is ever
-  # mounted into a sandbox (that is the whole point: not docker-in-docker),
-  # so shipping it would only produce "cannot connect to the daemon".
-  # podman's CLI is docker-compatible, so `docker run|build|ps|logs|compose`
-  # all land where the user expects — an agent that types docker out of
-  # habit just works. A profile that installs a real docker client through
-  # image.packages collides with this name; that is the profile's call.
-  dockerShim = pkgs.writeShellScriptBin "docker" ''
-    exec ${pkgs.podman}/bin/podman "$@"
-  '';
-
-  # `docker-compose` (the hyphenated v1 spelling) alongside `docker compose`:
-  # the same muscle memory the docker shim above serves, and every second
-  # README still says the hyphen. Routed to podman-compose, which is what
-  # `podman compose` uses too.
-  composeShim = pkgs.writeShellScriptBin "docker-compose" ''
-    exec ${pkgs.podman-compose}/bin/podman-compose "$@"
-  '';
-
-  # `k3d` with the guest's storage reality baked in. k3s's containerd
-  # defaults to the "overlayfs" snapshotter, and the microVM root is itself
-  # an overlayfs — the kernel refuses overlay-on-overlay as an upperdir
-  # ("failed to mount overlay: invalid argument"), so k3s never becomes
-  # ready (its own message suggests fuse-overlayfs or native; the
-  # fuse-overlayfs path additionally needs mount.fuse3, which the k3s image
-  # does not carry — both measured). `native` (copy-up, no kernel overlay)
-  # always works, so `cluster create` gets the pin unless the user passed a
-  # snapshotter of their own (--k3s-arg or --config). Everything else — the
-  # other subcommands, an explicit snapshotter — passes straight through.
-  # This script IS the image's /bin/k3d: the bare k3d package is deliberately
-  # absent from contents, because symlinkJoin keeps the first of two colliding
-  # bin/k3d entries and shipping both silently produced the unwrapped binary
-  # (measured). Its store path stays in the closure through the exec below.
-  k3dShim = pkgs.writeShellScriptBin "k3d" ''
-    if [ "''${1:-}" = "cluster" ] && [ "''${2:-}" = "create" ]; then
-      case " $* " in
-        *snapshotter*) ;;
-        *) set -- "$@" --k3s-arg "--snapshotter=native@server:*;agent:*" ;;
-      esac
-    fi
-    exec ${pkgs.k3d}/bin/k3d "$@"
-  '';
-
   # `java` and friends ON PATH. The JDK's own $out/bin is a SYMLINK to
   # lib/openjdk/bin, and the layered-image merge resolves it into
   # ./lib/openjdk/bin/… without ever creating ./bin/java — so with PATH=/bin
@@ -334,45 +209,89 @@ let
     exit 1
   '';
 
+  # `docker compose` and `docker buildx` as CLI plugins. nixpkgs patches the
+  # docker client so its SYSTEM plugin dirs come only from the
+  # DOCKER_CLI_PLUGIN_DIRS env var (the nix wrapper exports the dirs of the
+  # plugins it was built with), which means the client's own documented
+  # system dir is searched only when that variable names it too. The plugins
+  # are placed at that path and the image env below points the variable at
+  # it: `docker compose`/`docker buildx` then resolve no matter how the
+  # client is reached (a script that drops the wrapper's env, a future
+  # client build), and the hyphenated `docker-compose` stays a bare command
+  # on PATH (its package ships bin/docker-compose).
+  dockerPlugins = pkgs.runCommand "docker-cli-plugins" { } ''
+    mkdir -p $out/usr/libexec/docker/cli-plugins
+    ln -s ${pkgs.docker-compose}/bin/docker-compose $out/usr/libexec/docker/cli-plugins/docker-compose
+    ln -s ${pkgs.docker-buildx}/bin/docker-buildx $out/usr/libexec/docker/cli-plugins/docker-buildx
+  '';
+
   # testcontainers & friends talk to a docker-compatible API SOCKET, never a
   # CLI: without one every testcontainers suite fails with "Could not find a
-  # valid Docker environment", and the docker compose shim needs it too. This
-  # helper lazily starts the nested podman's API service on the standard
-  # docker socket path. Idempotent (the socket check is the fast path),
-  # detached (nohup + </dev/null: it must outlive the shell that started it
-  # and keep serving the persistent machine between enter/exec calls), and
-  # raced safely — a stale pidfile from a previous machine boot is ignored
-  # when its pid no longer names a podman process (kill -0 + the comm name),
-  # so a reused pid can never read as "already running" with no socket up.
-  # Wired into the interactive rc (below) and prefixed onto every exec/run
-  # command by the CLI; a sandbox with no podman simply never gets a socket
-  # and tools that need one fail on their own, loudly.
-  podmanSocket = pkgs.writeShellScriptBin "podman-socket" ''
-    # already up — the fast path every shell after the first takes
-    [ -S /var/run/docker.sock ] && exit 0
-    pid=/var/run/sandboxer-podman.pid
+  # valid Docker environment", and the compose plugin needs it too. This
+  # helper starts the guest's OWN Docker daemon on the standard socket path —
+  # no host daemon socket is ever shared into a sandbox. Idempotent (the
+  # socket check is the fast path), detached (nohup + </dev/null: it must
+  # outlive the shell that started it and keep serving the persistent machine
+  # between enter/exec calls), and raced safely — a stale pidfile from a
+  # previous machine boot is ignored when its pid no longer names a dockerd
+  # process (kill -0 + the comm name), so a reused pid can never read as
+  # "already running" with no socket up. Wired into the interactive rc (above)
+  # and prefixed onto every exec/run command by the CLI.
+  #
+  # The daemon's data-root is /var/lib/docker: the ext4 volume the backend
+  # mounts there (--mount-owned … kind=disk, limits.dockerDisk), because
+  # Docker's overlay storage cannot live on the guest's overlayfs root
+  # (measured: the containerd snapshotter's mount fails with EINVAL there).
+  # A machine without the volume is unusable, so the fs-type check below names
+  # that instead of letting the user meet the opaque mount error later.
+  dockerDaemon = pkgs.writeShellScriptBin "docker-daemon" ''
+    # already up — the fast path every shell after the first takes. A socket
+    # FILE alone proves nothing: a SIGKILLed daemon leaves the file behind and
+    # every later ensure would then lie. One `docker info` (~100 ms against a
+    # live daemon) is the cheap liveness proof.
+    if [ -S /var/run/docker.sock ] && { ! command -v docker >/dev/null 2>&1 || docker info >/dev/null 2>&1; }; then
+      exit 0
+    fi
+    # no data volume: /var/lib/docker would land on the guest's overlayfs root
+    mkdir -p /var/lib/docker 2>/dev/null || true
+    case "$(stat -f -c %T /var/lib/docker 2>/dev/null)" in
+      overlay|overlayfs)
+        echo "sandboxer: /var/lib/docker is on the guest's overlayfs root — this machine has no Docker data volume." >&2
+        echo "sandboxer: recreate the sandbox (sandboxer rm <slug>, then create/enter again) so it gets its dockerDisk volume." >&2
+        exit 1
+        ;;
+    esac
+    pid=/var/run/sandboxer-dockerd.pid
     if [ -f "$pid" ]; then
       p=$(cat "$pid" 2>/dev/null)
-      # alive AND a podman process: comm is the executable name, so a reused
+      # alive AND a dockerd process: comm is the executable name, so a reused
       # pid from before a machine restart never reads as "already running"
-      if kill -0 "$p" 2>/dev/null && [ "$(cat "/proc/$p/comm" 2>/dev/null)" = podman ]; then
+      if kill -0 "$p" 2>/dev/null && [ "$(cat "/proc/$p/comm" 2>/dev/null)" = dockerd ]; then
         exit 0
       fi
     fi
     rm -f "$pid"
     mkdir -p /run /var/run /var/log/sandboxer
-    nohup podman system service --time=0 unix:///var/run/docker.sock \
-      </dev/null >>/var/log/sandboxer/podman-socket.log 2>&1 &
+    # a dead daemon also leaves its socket file behind — clear it so the new
+    # listener binds on a clean path
+    rm -f /var/run/docker.sock
+    nohup dockerd </dev/null >>/var/log/sandboxer/dockerd.log 2>&1 &
     echo $! > "$pid"
-    # wait for the socket to accept connections (podman binds in well under
-    # a second; 3s is the worst-case stall when the engine is broken)
+    # wait for the daemon to SERVE: the socket file appears when the API
+    # listener binds, `docker info` only answers once it is up (dockerd boots
+    # containerd and the runtime first, so this takes seconds). 15s is the
+    # worst-case stall before we stop waiting and say what failed.
     i=0
-    while [ $i -lt 30 ]; do
-      [ -S /var/run/docker.sock ] && exit 0
+    while [ $i -lt 150 ]; do
+      if [ -S /var/run/docker.sock ] && \
+         { ! command -v docker >/dev/null 2>&1 || docker info >/dev/null 2>&1; }; then
+        exit 0
+      fi
+      kill -0 "$(cat "$pid" 2>/dev/null)" 2>/dev/null || break
       i=$((i+1))
       sleep 0.1
     done
-    echo "sandboxer: podman API socket did not come up — see /var/log/sandboxer/podman-socket.log" >&2
+    echo "sandboxer: the Docker daemon did not come up — see /var/log/sandboxer/dockerd.log" >&2
     exit 1
   '';
 
@@ -510,7 +429,7 @@ in
         # coreutils nor the packs below carry. Placed EARLY on purpose: the
         # image layer is assembled by copying each entry over the previous one
         # (dockerTools rsyncs them in list order), so a name that already comes
-        # from a later entry — procps' kill, shadow's login/su — keeps winning.
+        # from a later entry — procps' kill, for one — keeps winning.
         # This pack only fills gaps.
         #
         #   util-linux — the single biggest one: column, rev, hexdump/hd,
@@ -717,25 +636,28 @@ in
         jdk25
         (maven.override { jdk_headless = jdk25; })
         redocly
-        # nested containers: ROOTLESS podman-in-podman (never dind —
-        # no engine socket is ever mounted) + its runtime pieces;
-        # pulls ride the sandbox's HTTP(S)_PROXY through the egress
-        # allowlist like any other traffic
-        podman
-        crun
-        conmon
-        netavark
-        aardvark-dns
-        passt
-        fuse-overlayfs
-        # newuidmap/newgidmap for the nested podman's MULTI-uid namespace.
-        # No setuid bit and none needed: on a podman engine the launcher
-        # grants SETUID/SETGID as AMBIENT caps (survive execve under
-        # no-new-privileges), which is all the maps take to write.
-        shadow
-        # `podman compose` / `docker compose` need an external provider;
-        # podman finds this one on PATH.
-        podman-compose
+        # The container engine: the REAL Docker — the guest's own daemon
+        # (dockerd from moby, with containerd, runc, the shim, docker-proxy
+        # and docker-init) plus the docker client. No host engine socket is
+        # ever mounted into a sandbox and no dind machinery exists: the VM is
+        # the boundary, and the engine runs on the microVM's own kernel.
+        # nixpkgs' moby wrapper puts its libexec/docker, iptables and
+        # iproute2 on dockerd's PATH, so the daemon is self-sufficient; the
+        # iptables/nftables packages ride along for the guest shell (Docker
+        # 29 programs the bridge with nftables). The daemon's data-root is
+        # /var/lib/docker — the ext4 volume the CLI mounts (see dockerDaemon
+        # above), never the guest's overlayfs root, which cannot host
+        # Docker's overlay storage.
+        docker
+        # The daemon package behind pkgs.docker (nixpkgs exposes it as
+        # docker.moby): pkgs.docker's bin/dockerd is already a symlink to this
+        # wrapper, and naming the package keeps the engine's own pieces
+        # (dockerd, docker-proxy, the systemd units) explicit in the closure.
+        pkgs.docker.moby
+        docker-compose
+        docker-buildx
+        iptables
+        nftables
         # local-kubernetes pack: boot a real cluster INSIDE the sandbox and
         # drive it. The clients — kubectl (the API), helm (charts), kustomize
         # (overlays), kubectx/kubens (context and namespace switching), stern
@@ -743,37 +665,41 @@ in
         # manifests with no cluster at all) and k9s (the TUI) — plus the two
         # runners:
         #
-        # kind — nodes as privileged containers on the guest's podman. Two
-        #     env pins (set in the image env below) make it work here:
-        #     KIND_EXPERIMENTAL_PROVIDER=podman points kind at the guest's
-        #     only engine (the `docker` on PATH is a shim), and
-        #     KIND_EXPERIMENTAL_CONTAINERD_SNAPSHOTTER=fuse-overlayfs
-        #     sidesteps the overlay-on-overlay refusal above: containerd's
-        #     default overlayfs snapshotter cannot nest on the microVM's
-        #     overlay root ("filesystem on … not supported as upperdir",
-        #     measured in the guest dmesg) — without it a node boots systemd
-        #     and then every pod stays ContainerCreating forever. kind also
-        #     bind-mounts /lib/modules read-only into every node, and podman
-        #     REFUSES a missing bind source (docker would create it) — the
-        #     empty dir is created in fakeRootCommands below; the guest ships
-        #     no module tree and needs none (the netfilter pieces kube-proxy
-        #     programs are built into its kernel — measured).
-        #   k3d — k3s containers through the docker-compatible API socket
-        #     (DOCKER_HOST, brought up by podman-socket), with the overlay
-        #     problem solved by the k3dShim above.
+        # kind — nodes as privileged containers on the guest's own Docker
+        #     daemon, which is kind's default provider (no env pins): the node
+        #     runs its containerd against Docker's ext4-backed storage, and
+        #     the DEFAULT overlayfs snapshotter works there — measured on the
+        #     Docker engine: `kind create cluster` reached control-plane Ready
+        #     with all 9 kube-system pods Running, with no KIND_EXPERIMENTAL_*
+        #     env at all (the podman-era provider and fuse-overlayfs pins are
+        #     gone). kind bind-mounts /lib/modules read-only into every node;
+        #     the empty dir in fakeRootCommands is belt-and-braces (Docker
+        #     creates a missing bind source itself) and the guest ships no
+        #     module tree and needs none (the netfilter pieces kube-proxy
+        #     programs are built into its kernel).
+        #   k3d — k3s containers through the same Docker socket (DOCKER_HOST,
+        #     brought up by docker-daemon). NOT verified on the Docker engine
+        #     yet: a first attempt came up with the node Ready but kubelet
+        #     never finished pod setup ("failed to sync configmap cache"
+        #     timeouts, no overlay/mount errors — and the podman-era k3s
+        #     snapshotter pin changed nothing), so its real blocker is still
+        #     open.
         #
-        # Verified end to end inside a sandbox on msb 0.6.7, under the default
-        # egress allowlist and at the default 4 GiB: `kind create cluster`
-        # reached control-plane Ready with every kube-system pod Running
-        # (etcd, coredns, kindnet, an iptables-programmed kube-proxy), `k3d
-        # cluster create` in ~30s with traefik/metrics-server Running, and
-        # `helm install` served. The host's docker or Kubernetes is never in
-        # reach: a node is a container in the GUEST, on the guest's own
-        # kernel, and dies with the machine.
+        # Image pulls ride the default egress allowlist. Large Docker Hub
+        # layers can STALL in the guest on some networks (measured for
+        # kindest/node and rancher/k3s: the layer download goes silent; the
+        # same tags pull fine from mirror.gcr.io, which the defaults already
+        # allow) — `docker pull mirror.gcr.io/kindest/node:<tag>` together
+        # with `kind create --image …` is the workaround.
+        #
+        # The host's docker or Kubernetes is never in reach: a node is a
+        # container in the GUEST, on the guest's own kernel, and dies with the
+        # machine.
         kubectl
         kubernetes-helm
         kustomize
         kind
+        k3d
         kubectx
         stern
         kubeconform
@@ -789,21 +715,14 @@ in
         shellRc
         gitConfig
         tmuxConf
-        dockerShim
-        composeShim
-        k3dShim
+        dockerPlugins
         jdkBin
         pipHint
         detachCmd
-        podmanSocket
+        dockerDaemon
         gitGuarded
         guestNss
         piPackages
-        containersPolicy
-        containersRegistries
-        containersStorage
-        containersConf
-        containersNetworks
       ]
       ++ userFiles;
     config = {
@@ -833,33 +752,31 @@ in
         "TZDIR=/share/zoneinfo"
         # Point maven and the JVM tooling at the baked JDK.
         "JAVA_HOME=${pkgs.jdk25.home}"
-        # testcontainers reads DOCKER_HOST for the engine endpoint; the socket
-        # itself is started lazily by podman-socket (see above).
+        # testcontainers reads DOCKER_HOST for the engine endpoint; the daemon
+        # itself is started by docker-daemon (see above).
         "DOCKER_HOST=unix:///var/run/docker.sock"
-        # Ryuk, testcontainers' reaper sidecar, is the #1 podman failure mode
-        # (privileged container + docker-socket mount assumptions); the
-        # sandbox machine itself is the cleanup boundary — sandboxer rm/clean
-        # wipes everything a test run leaves behind.
+        # The system plugin dir the nixpkgs docker client was patched to read
+        # (see dockerPlugins above): the wrapper already exports the store
+        # dirs of the plugins it was built with, and this adds the image's own
+        # dir, so `docker compose`/`docker buildx` resolve however the client
+        # is reached.
+        "DOCKER_CLI_PLUGIN_DIRS=/usr/libexec/docker/cli-plugins"
+        # Ryuk, testcontainers' reaper sidecar, wants a privileged container
+        # plus docker-socket mount assumptions that do not hold inside a
+        # sandbox; the sandbox machine itself is the cleanup boundary —
+        # sandboxer rm/clean wipes everything a test run leaves behind.
         "TESTCONTAINERS_RYUK_DISABLED=true"
-        # kind's DEFAULT provider is docker (CLI + daemon); the sandbox's only
-        # engine is the guest's own podman (the `docker` on PATH is a shim, not
-        # a daemon), so kind is pointed at its supported podman provider, and
-        # its containerd is pointed at the fuse-overlayfs snapshotter (the
-        # kernel refuses overlay-on-overlay as an upperdir on the microVM's
-        # overlay root — see the local-kubernetes pack above).
-        "KIND_EXPERIMENTAL_PROVIDER=podman"
-        "KIND_EXPERIMENTAL_CONTAINERD_SNAPSHOTTER=fuse-overlayfs"
       ]
       ++ userEnv;
     };
-    # /var/tmp is not decoration: containers/image stages every pulled
-    # blob there, so the nested podman's first pull dies with
-    # "stat /var/tmp: no such file or directory" without it.
-    # /lib/modules is the same kind of requirement for kind: every node
-    # bind-mounts it read-only, and podman refuses a missing bind source
-    # ("statfs /lib/modules: no such file or directory" — measured; docker
-    # would create the dir instead). The guest ships no module tree and needs
-    # none, so an empty dir is the whole content.
+    # /var/tmp is not decoration: the engine and BuildKit stage pulled blobs
+    # and build context somewhere, and a missing /var/tmp breaks a pull or a
+    # build with "stat /var/tmp: no such file or directory".
+    # /lib/modules: every kind node bind-mounts it read-only, and the empty
+    # dir keeps that bind source present as belt-and-braces (Docker creates a
+    # missing bind source itself). The guest ships no module
+    # tree and needs none — the netfilter pieces kube-proxy programs are built
+    # into its kernel (measured), so an empty dir is the whole content.
     fakeRootCommands = ''
       mkdir -p /work /tmp /var/tmp /root /var/empty /lib/modules
       chmod 1777 /tmp /var/tmp

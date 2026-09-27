@@ -76,7 +76,7 @@
         # internal/toolbox/assets/images.nix, and shared with the flake embedded
         # in the binary — the one `sandboxer image build` runs. Keeping a second
         # copy here is exactly how `.#image` silently rotted into a userland that
-        # no user ever gets (no podman, no runtimes, no shell rc) while the e2e
+        # no user ever gets (no engine, no runtimes, no shell rc) while the e2e
         # suite kept testing it. This build has no profile, so it passes only the
         # agents; the sandboxer binary is deliberately NOT baked in (a HOST tool,
         # never reachable from inside), and credentials are bind-mounted at run
@@ -184,7 +184,7 @@
             rsync
             bubblewrap
             jq
-            podman
+            docker
             microsandbox # microsandbox backend runtime (SANDBOXER_MSB picks it up)
           ];
           shellHook = ''

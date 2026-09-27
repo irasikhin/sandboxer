@@ -26,7 +26,7 @@ result with ordinary git.
   `./sandboxes/` in your project. The sandbox sees only the directories you
   select; git itself stays out unless a source opts in.
 - **A ready environment.** The prebuilt toolbox image carries the agents,
-  python/node/jdk, podman with a `docker` shim and compose, tmux, and the
+  python/node/jdk, the real Docker engine with Compose, tmux, and the
   everyday CLI tools. No per-sandbox provisioning.
 - **A fence around the network.** Outbound traffic is default-deny behind a
   name-bound domain allowlist; inbound only through ports you publish.
@@ -276,14 +276,20 @@ a live session sees the new base immediately.
 
 ## Nested containers
 
-The image ships **podman** with a `docker` shim and `podman-compose`, so
-`docker run/build/compose` work inside the sandbox. The engine runs natively
-against the guest's own kernel: full uid range, no opt-in, no seccomp/subuid
-machinery. No engine socket ever comes from the host; inside, the guest's
-own engine serves a docker-compatible socket at `/var/run/docker.sock` with
-`DOCKER_HOST` set, so testcontainers suites run with zero configuration.
-Pulls go through the egress allowlist: the defaults cover docker.io,
-ghcr.io, quay.io and their blob CDNs.
+The image ships the **real Docker engine** (dockerd + client), so
+`docker run/build/ps/compose` work inside the sandbox. The engine runs
+natively against the guest's own kernel: full uid range, no opt-in, no
+seccomp/subuid machinery, no engine socket from the host. Its data-root is a
+dedicated ext4 volume at `/var/lib/docker` (`limits.dockerDisk` /
+`SANDBOXER_DOCKER_DISK`, default 20G) because the sandbox root is itself an
+overlayfs — Docker's overlay storage needs a real filesystem. The daemon
+starts automatically on create/enter/exec and serves
+`/var/run/docker.sock` with `DOCKER_HOST` set, so testcontainers suites run
+with zero configuration; `docker compose` is real Compose v2 (and the
+hyphenated `docker-compose` is there too). Pulls go through the egress
+allowlist: the defaults cover docker.io, ghcr.io, quay.io and their blob
+CDNs. If a large Docker Hub layer stalls (observed for some networks), pull
+it from the `mirror.gcr.io` mirror the defaults already allow instead.
 
 ## Local Kubernetes
 
@@ -293,24 +299,32 @@ The image ships a full local-cluster toolchain — `kubectl`, `helm`,
 the host's:
 
 ```bash
-kind create cluster          # single-node k8s (kind's podman provider is preset)
-k3d cluster create dev       # k3s, through the docker-compatible socket
+kind create cluster          # single-node k8s on the guest's Docker (kind's default provider)
+k3d cluster create dev       # k3s, through the same Docker socket
 helm install ...             # then drive it with the usual clients
 ```
 
-Both runners drive the **guest's own podman**: kind through its podman
-provider (its default provider is the docker CLI/daemon, so the image exports
-`KIND_EXPERIMENTAL_PROVIDER=podman`), k3d through the docker-compatible API
+Both runners drive the **guest's own Docker daemon**: kind through its
+default docker provider (no env pins), k3d through the docker-compatible API
 socket at `/var/run/docker.sock`. A node is a privileged container on the
 guest kernel, so the cluster and its images live and die with the sandbox —
 `kubectl` inside finds it via the kubeconfig in the persistent sandbox home,
 `sandboxer rm` removes it, and the host's docker or Kubernetes is never in
-reach. The sandbox root is itself an overlayfs, which the kernel will not let
-another overlayfs use as an upperdir, so both runners are pointed away from
-containerd's default overlayfs snapshotter (kind via
-`KIND_EXPERIMENTAL_CONTAINERD_SNAPSHOTTER=fuse-overlayfs`, k3d's k3s via a
-thin `k3d` wrapper that pins `--snapshotter=native` on `cluster create`);
-overriding either from the outside still works. The default egress allowlist
+reach. The Docker data volume fixed the old overlayfs limitation: with the
+data-root on a real ext4 volume, containerd's default overlayfs snapshotter
+works, so **kind needs no `--snapshotter` pin or `KIND_EXPERIMENTAL_*` env at
+all** (measured: control-plane Ready, all nine kube-system pods Running).
+**k3d is not re-verified on the Docker engine yet**: the node comes up Ready
+but pod setup stalls in volume sync, unchanged by the old
+`--snapshotter=native` workaround — treat it as experimental until measured
+again. A Docker Hub node image that stalls can be pulled from the
+`mirror.gcr.io` mirror instead:
+
+```bash
+kind create cluster --image mirror.gcr.io/kindest/node:<tag>
+```
+
+The default egress allowlist
 already carries `registry.k8s.io`, the Kubernetes project's registry, so the
 usual addons (metrics-server, ingress-nginx) install without touching the
 config. Give the machine room (`limits.memory`): the default 4 GiB fits a

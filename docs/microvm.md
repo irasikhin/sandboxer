@@ -56,19 +56,25 @@ carries an explicit `quota=` at the grammar's ceiling. The host filesystem,
 not a byte budget, is the bound; a read-only share needs none and carries
 none. The value is part of the create argv, so it folds into the session hash.
 
-**Nested containers** now run natively: the toolbox image's docker/podman/
-compose work against the guest's own kernel with a full uid range — no opt-in
+**Nested containers** now run natively: the toolbox image ships the **real
+Docker engine** (dockerd + client; the old podman/`docker`-shim pair is gone)
+working against the guest's own kernel with a full uid range — no opt-in
 (`nestedContainers` is a retired key), no seccomp widening, no subuid grants.
-The nested podman also serves a **docker-compatible API socket at
-`/var/run/docker.sock`**, brought up by the image's `podman-socket` helper
-when the machine BOOTS (backend.startPodmanService, so a headless `exec` finds
-it too — not just the interactive rc, which also ensures it, idempotently and
-detached), with `DOCKER_HOST` and `TESTCONTAINERS_RYUK_DISABLED` baked into
-the image env — so **testcontainers** suites (Java/Go/Python) work with zero
-configuration; Ryuk is off because the disposable sandbox machine is the
-cleanup boundary. The same layer carries a **local Kubernetes** toolchain
-(kubectl/helm/kind/k3d/k9s/…) with the two pins the guest's overlayfs root
-requires — see README §Local Kubernetes. Anything that expects the *host's*
+The daemon's data-root is a dedicated ext4 volume at `/var/lib/docker` the
+backend mounts (`--mount-owned … kind=disk`, sized by `limits.dockerDisk` /
+`SANDBOXER_DOCKER_DISK`, default 20G), because the guest root is itself an
+overlayfs and Docker's overlay storage needs a real filesystem. The image's
+`docker-daemon` helper starts the daemon when the machine BOOTS
+(backend.startDockerService, so a headless `exec` finds it too — not just the
+interactive rc, which also ensures it, idempotently and detached), serving
+`/var/run/docker.sock` with `DOCKER_HOST` and `TESTCONTAINERS_RYUK_DISABLED`
+baked into the image env — so **testcontainers** suites (Java/Go/Python) work
+with zero configuration; Ryuk is off because the disposable sandbox machine is
+the cleanup boundary. `docker compose` is the real Compose v2 (plus the
+hyphenated `docker-compose`). The same layer carries a **local Kubernetes**
+toolchain (kubectl/helm/kind/k3d/k9s/…) — kind runs on the default Docker
+provider with containerd's default snapshotter (no env pins; k3d is not
+re-verified yet) — see README §Local Kubernetes. Anything that expects the *host's*
 Docker API socket still
 won't find one: the mount set is the wall, and the only engine socket in the
 sandbox is the guest's own.
@@ -118,7 +124,7 @@ Check everything at once:
 
 ```console
 $ sandboxer doctor
-microsandbox (msb)   ✓  msb 0.7.3 available
+microsandbox (msb)   ✓  msb 0.7.1 available
 ```
 
 ## How it maps to the container backend it replaced

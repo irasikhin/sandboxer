@@ -170,8 +170,10 @@ func TestFlakeBakesAgentBatteries(t *testing.T) {
 		// `java` on PATH: the JDK's own bin is a symlink the image merge
 		// resolves away, so the per-tool symlinks are what PATH sees.
 		"jdkBin",
-		// the hyphenated compose spelling, and a pip that says use uv.
-		"composeShim", "pipHint",
+		// the hyphenated compose spelling now comes from the real docker-compose
+		// package (guarded in TestImageBakesDockerEngine), and a pip that says
+		// use uv.
+		"pipHint",
 		// vi/vim, not just nvim.
 		"viAlias",
 		// the two env vars that make baked data findable: man pages live at
@@ -211,98 +213,89 @@ func TestFlakeBakesSourcePack(t *testing.T) {
 	}
 }
 
-// TestImageBakesNestedPodman guards the nested-podman layer end to end: the
-// runtime pieces (shadow carries newuidmap/newgidmap, what a MULTI-uid nested
-// namespace is built with), and the image-side bits without which a rootless
-// podman inside the sandbox cannot pull anything — /var/tmp (containers/image
-// stages blobs there), a storage.conf whose ignore_chown_errors absorbs the
-// single-uid FALLBACK mapping (docker engine, or no host subordinate ranges),
-// a containers.conf (its one setting silences the compose provider
-// banner), and a podman.json that ships the default `podman` network with
-// DNS enabled — podman 5 auto-creates it without DNS, so container-name
-// resolution would silently fail. The launcher half is backend.nestedContainerArgs.
-func TestImageBakesNestedPodman(t *testing.T) {
+// TestImageBakesDockerEngine guards the container engine the sandbox ships:
+// the REAL Docker — the client plus moby's dockerd, whose nixpkgs wrapper
+// carries its own libexec/docker (containerd, runc, the shim, docker-proxy,
+// docker-init), so the daemon is self-sufficient in the guest. The engine is
+// the guest's own, running on the microVM kernel; no host socket is ever
+// mounted. podman is GONE — the migration removed it, and a stray package or
+// shim would silently hand an agent a second, incompatible engine.
+func TestImageBakesDockerEngine(t *testing.T) {
 	s := imageDefinition(t)
 	for _, want := range []string{
-		"podman", "crun", "conmon", "netavark", "aardvark-dns", "passt", "fuse-overlayfs",
-		"shadow",
-		`writeTextDir "etc/containers/policy.json"`,
-		`writeTextDir "etc/containers/storage.conf"`,
-		"ignore_chown_errors",
-		`writeTextDir "etc/containers/containers.conf"`,
-		"compose_warning_logs = false",
-		`writeTextDir "etc/containers/networks/podman.json"`,
-		"dns_enabled\": true",
-		"/var/tmp",
+		"docker", "moby", "docker-compose", "docker-buildx", "iptables", "nftables",
+		// The plugins are exposed in the system dir the image points the
+		// client's DOCKER_CLI_PLUGIN_DIRS at (nixpkgs patches the client so the
+		// wrapper's env is the ONLY system search path), so `docker compose`
+		// and `docker buildx` resolve however the client is reached.
+		"dockerPlugins",
+		"/usr/libexec/docker/cli-plugins",
+		`"DOCKER_CLI_PLUGIN_DIRS=/usr/libexec/docker/cli-plugins"`,
 	} {
 		if !strings.Contains(s, want) {
-			t.Errorf("images.nix missing nested-podman piece %q", want)
+			t.Errorf("images.nix missing docker-engine piece %q", want)
+		}
+	}
+	// podman and its runtime pieces are gone: a package line, a shim/helper
+	// or a containers/* config file would all be a leftover of the old engine.
+	for _, re := range []string{
+		`(?m)^\s{8}podman$`, `(?m)^\s{8}crun$`, `(?m)^\s{8}fuse-overlayfs$`,
+		`(?m)^\s{8}podman-compose$`, `(?m)^\s{8}shadow$`,
+	} {
+		if regexp.MustCompile(re).MatchString(s) {
+			t.Errorf("images.nix still ships the podman-era package %q", re)
+		}
+	}
+	for _, gone := range []string{"podman-socket", "dockerShim", "composeShim", "etc/containers/"} {
+		if strings.Contains(s, gone) {
+			t.Errorf("images.nix still references the podman-era %q", gone)
 		}
 	}
 }
 
-// TestImageBakesPodmanSocket guards the testcontainers layer: the nested
-// podman's docker-compatible API socket — the docker.sock testcontainers and
-// docker clients connect to — is started lazily by a podman-socket helper,
-// wired into BOTH entry paths (the interactive rc for enter/tmux panes, the
-// CLI's exec/run wrap) and into the image env (DOCKER_HOST points clients at
-// the socket; TESTCONTAINERS_RYUK_DISABLED skips the reaper sidecar that is
-// podman's #1 failure mode — the disposable sandbox machine is the cleanup
-// boundary instead), so a testcontainers suite works with zero configuration.
-func TestImageBakesPodmanSocket(t *testing.T) {
+// TestImageBakesDockerDaemon guards the testcontainers layer: the guest's
+// Docker daemon — the docker.sock testcontainers and docker clients connect
+// to — is started by a docker-daemon helper, wired into BOTH entry paths (the
+// interactive rc for enter/tmux panes, the CLI's exec/run wrap and machine
+// boot). The helper is idempotent, detached, pid-guarded against a stale pid
+// from a previous boot, and it waits for the daemon to actually SERVE (not
+// just for the socket file), naming the log on failure. It also refuses a
+// machine whose /var/lib/docker fell back to the guest's overlayfs root — a
+// sandbox created without the data volume — with a hint to recreate it,
+// instead of letting the user meet the opaque overlay-mount error later.
+func TestImageBakesDockerDaemon(t *testing.T) {
 	s := imageDefinition(t)
 	for _, want := range []string{
-		`writeShellScriptBin "podman-socket"`,
-		"podman system service",
-		"unix:///var/run/docker.sock",
+		`writeShellScriptBin "docker-daemon"`,
+		"nohup dockerd ",
+		"/var/run/sandboxer-dockerd.pid",
+		"/var/log/sandboxer/dockerd.log",
 		`"DOCKER_HOST=unix:///var/run/docker.sock"`,
 		"TESTCONTAINERS_RYUK_DISABLED=true",
-		"podmanSocket",
-		"command -v podman-socket", // the rc.sh wiring
+		"dockerDaemon",
+		"command -v docker-daemon", // the rc.sh wiring
+		"overlayfs",                // the no-data-volume guard
+		"dockerDisk",               // …and the knob it points the user at
 	} {
 		if !strings.Contains(s, want) {
-			t.Errorf("images.nix missing podman-socket piece %q", want)
+			t.Errorf("images.nix missing docker-daemon piece %q", want)
 		}
 	}
 }
 
-// TestImageBakesDockerShim guards the docker-compatibility layer: a `docker`
-// on PATH that execs podman (never a real client — no daemon socket is ever
-// mounted into a sandbox), and the compose provider `docker compose` needs.
-func TestImageBakesDockerShim(t *testing.T) {
-	s := imageDefinition(t)
-	for _, want := range []string{
-		`writeShellScriptBin "docker"`,
-		`exec ${pkgs.podman}/bin/podman "$@"`,
-		"dockerShim",
-		"podman-compose",
-	} {
-		if !strings.Contains(s, want) {
-			t.Errorf("images.nix missing docker-shim piece %q", want)
-		}
-	}
-}
-
-// TestImageBakesLocalKubernetes guards the local-cluster toolchain. The two
-// runners need the image to be set up for THIS sandbox's engine and root fs,
-// not for a docker daemon on a normal filesystem: kind is pointed at its
-// podman provider and its fuse-overlayfs snapshotter (the guest's only engine
-// is podman, the `docker` on PATH is a shim, and the kernel refuses
-// overlay-on-overlay as an upperdir — without both pins a node boots and every
-// pod stays ContainerCreating), and it needs /lib/modules to EXIST (it
-// bind-mounts the dir read-only into every node; podman refuses a missing
-// bind source unlike docker, so provisioning dies with "statfs /lib/modules:
-// no such file or directory"). k3d rides the docker-compatible socket the
-// image already serves and gets its k3s snapshotter pinned by k3dShim (k3s
-// refuses to start otherwise). All of it was reproduced and fixed in a real
-// sandbox. The clients are what an agent drives the cluster with.
+// TestImageBakesLocalKubernetes guards the local-cluster toolchain. kind's
+// DEFAULT provider is Docker, so the podman provider pin is gone; the node
+// containers run on the guest's own dockerd, whose storage is the ext4-backed
+// /var/lib/docker rather than the guest's overlayfs root — which is why the
+// snapshotter question is re-measured on Docker instead of inheriting the
+// podman-era fuse-overlayfs pin. kind bind-mounts /lib/modules read-only into
+// every node; the empty dir is created in fakeRootCommands as belt-and-braces.
+// k3d rides the same docker socket (DOCKER_HOST, brought up by docker-daemon).
+// The clients are what an agent drives the cluster with.
 func TestImageBakesLocalKubernetes(t *testing.T) {
 	s := imageDefinition(t)
 	for _, want := range []string{
 		"kubectl", "kubernetes-helm", "kustomize", "kubeconform", "stern",
-		`"KIND_EXPERIMENTAL_PROVIDER=podman"`,
-		`"KIND_EXPERIMENTAL_CONTAINERD_SNAPSHOTTER=fuse-overlayfs"`,
-		"k3dShim", `${pkgs.k3d}/bin/k3d`, "--snapshotter=native",
 		"/lib/modules",
 	} {
 		if !strings.Contains(s, want) {
@@ -310,10 +303,28 @@ func TestImageBakesLocalKubernetes(t *testing.T) {
 		}
 	}
 	for _, re := range []string{
-		`(?m)^\s{8}kind$`, `(?m)^\s{8}k9s$`, `(?m)^\s{8}kubectx$`,
+		`(?m)^\s{8}kind$`, `(?m)^\s{8}k3d$`, `(?m)^\s{8}k9s$`, `(?m)^\s{8}kubectx$`,
 	} {
 		if !regexp.MustCompile(re).MatchString(s) {
 			t.Errorf("images.nix missing local-kubernetes package %q", re)
+		}
+	}
+}
+
+// TestImageDropsPodmanEraKindPins guards the negative half of the k8s wiring:
+// the old image pointed kind at podman's provider AND forced the fuse-overlayfs
+// snapshotter, and wrapped k3d to pin --snapshotter=native, because the guest's
+// only engine was podman on the overlayfs root. Docker's data-root is the ext4
+// volume instead, so none of those pins may come back by accident.
+func TestImageDropsPodmanEraKindPins(t *testing.T) {
+	s := imageDefinition(t)
+	for _, gone := range []string{
+		"KIND_EXPERIMENTAL_PROVIDER",
+		"k3dShim",
+		"--snapshotter=native",
+	} {
+		if strings.Contains(s, gone) {
+			t.Errorf("images.nix still carries the podman-era kind/k3d wiring %q", gone)
 		}
 	}
 }

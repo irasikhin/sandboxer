@@ -52,11 +52,11 @@ const msbEngine = "microsandbox"
 // auth env instead of a plain --env. See msbSecretArgs for the trade.
 const msbSecretsEnv = "SANDBOXER_MSB_SECRETS"
 
-// podmanSocketBin is the in-image script that brings the guest's
-// docker-compatible API socket up at /var/run/docker.sock (idempotent, pid-
-// guarded; see images.nix podmanSocket). It is the GUEST's own podman — no
-// host engine socket is ever shared into a sandbox.
-const podmanSocketBin = "podman-socket"
+// dockerDaemonBin is the in-image helper that starts the guest's Docker daemon
+// and waits for /var/run/docker.sock (idempotent, pid-guarded; see images.nix
+// dockerDaemon). It is the GUEST's own engine — no host daemon socket is ever
+// shared into a sandbox.
+const dockerDaemonBin = "docker-daemon"
 
 // msbCreateArgv assembles the msb argv that creates the named sandbox for o:
 // `msb create --name N <labels> <common> IMAGE`. `msb create` also BOOTS the
@@ -158,9 +158,9 @@ func msbRunArgv(o RunOpts) []string {
 
 // msbCommonArgs assembles the machine flags shared by create and run: workdir,
 // the identity-mapped host shares, the identity env, the machine size (memory,
-// vCPUs and the root disk) and the network policy. Credentials are NOT here —
-// they travel per exec/run, and in --secret mode only as a reference
-// (msbSecretArgs).
+// vCPUs, the root disk and the Docker data volume) and the network policy.
+// Credentials are NOT here — they travel per exec/run, and in --secret mode
+// only as a reference (msbSecretArgs).
 func msbCommonArgs(o RunOpts) []string {
 	args := []string{"-w", o.Dest}
 	// The whole sandbox root as one share when nothing narrows it — a srcs edit
@@ -202,6 +202,10 @@ func msbCommonArgs(o RunOpts) []string {
 	}
 	args = append(args, "-m", vmMemMiB(o.Mem)+"M", "-c", vmCPUs(o.CPU))
 	args = append(args, "--root-disk", vmRootDisk(o.Disk))
+	// The Docker data volume: an OWNED ext4 disk, not a share — Docker's
+	// overlay storage cannot live on the guest's overlayfs root, and msb
+	// creates, formats and mounts this one (removed with the machine).
+	args = append(args, "--mount-owned", "/var/lib/docker:kind=disk,size="+vmDockerDisk(o.DockerDisk))
 	args = append(args, msbPortArgs(o)...)
 	args = append(args, msbNetworkArgs(o)...)
 	args = append(args, msbSecretArgs(o)...)
@@ -646,11 +650,11 @@ func vmPortsPreflightExcept(o RunOpts, exempt map[string]bool) error {
 }
 
 // vmLimitsPreflight rejects a resource limit the microVM cannot honor, before
-// the silent conversions in vmMemMiB/vmCPUs/vmRootDisk paper over it: a
-// fractional CPU count (the runner accepts only a whole number of vCPUs, and
-// rounding up changes what the user asked for), an unparseable memory cap
+// the silent conversions in vmMemMiB/vmCPUs/vmRootDisk/vmDockerDisk paper over
+// it: a fractional CPU count (the runner accepts only a whole number of vCPUs,
+// and rounding up changes what the user asked for), an unparseable memory cap
 // (silently becoming 4 GiB is worse than an error) and an unparseable
-// root-disk size (silently becoming 20G is worse than an error).
+// root-disk or docker-disk size (silently becoming 20G is worse than an error).
 func vmLimitsPreflight(o RunOpts) error {
 	if cpus := cpusFromQuota(o.CPU); cpus != "" {
 		n, err := strconv.ParseFloat(cpus, 64)
@@ -669,9 +673,15 @@ func vmLimitsPreflight(o RunOpts) error {
 		}
 	}
 	if o.Disk != "" {
-		if _, ok := parseRootDisk(o.Disk); !ok {
+		if _, ok := parseDiskSize(o.Disk); !ok {
 			return fmt.Errorf("limits.disk %q is not a valid root-disk size — the microsandbox backend "+
 				"takes a whole MiB count or an M/G-suffixed size (e.g. 20G)", o.Disk)
+		}
+	}
+	if o.DockerDisk != "" {
+		if _, ok := parseDiskSize(o.DockerDisk); !ok {
+			return fmt.Errorf("limits.dockerDisk %q is not a valid disk size — the microsandbox backend "+
+				"takes a whole MiB count or an M/G-suffixed size (e.g. 20G)", o.DockerDisk)
 		}
 	}
 	return nil
@@ -694,6 +704,16 @@ const (
 // actually writes. A profile lowers or raises it via `limits.disk` /
 // SANDBOXER_DISK.
 const vmDefaultRootDisk = "20G"
+
+// vmDefaultDockerDisk is the size of the ext4 volume every machine gets
+// mounted at /var/lib/docker when the profile sets no limit — the nested
+// Docker engine's data-root. Docker's overlay storage cannot live on the
+// guest's overlayfs root (measured: containerd's snapshotter mount fails with
+// EINVAL there), so the data-root is a dedicated volume msb owns. Like the
+// root disk it is SPARSE on the host until the guest actually writes, and it
+// dies with the machine. A profile resizes it via `limits.dockerDisk` /
+// SANDBOXER_DOCKER_DISK.
+const vmDefaultDockerDisk = "20G"
 
 // parseMemMiB is vmMemMiB's core: the MiB value of a container-style memory cap
 // ("2G", "512M", a raw byte count), with ok=false for anything unparseable.
@@ -726,11 +746,12 @@ func parseMemMiB(s string) (int, bool) {
 	return mib, true
 }
 
-// parseRootDisk is vmRootDisk's core: msb's root-disk grammar — digits, then an
-// optional single M/G suffix (case-insensitive), a bare count being MiB —
-// normalized for the flag ("8g" → "8G"), with ok=false for anything msb would
-// reject ("1T", "8GB", "0G", "garbage", "tmpfs:2G"). Zero is invalid.
-func parseRootDisk(s string) (string, bool) {
+// parseDiskSize is vmRootDisk/vmDockerDisk's core: msb's disk-size grammar —
+// digits, then an optional single M/G suffix (case-insensitive), a bare count
+// being MiB — normalized for the flag ("8g" → "8G"), with ok=false for
+// anything msb would reject ("1T", "8GB", "0G", "garbage", "tmpfs:2G").
+// Zero is invalid.
+func parseDiskSize(s string) (string, bool) {
 	if s == "" {
 		return "", false
 	}
@@ -764,10 +785,25 @@ func vmRootDisk(s string) string {
 	if s == "" {
 		return vmDefaultRootDisk
 	}
-	if v, ok := parseRootDisk(s); ok {
+	if v, ok := parseDiskSize(s); ok {
 		return v
 	}
 	return vmDefaultRootDisk
+}
+
+// vmDockerDisk converts a Docker-data-volume size ("20G", "512M", a whole MiB
+// count, "") into the size msb's --mount-owned takes, applying the microVM
+// default when unset. The grammar is identical to the root disk's; a value
+// that does not parse falls back to the default rather than emitting a bad
+// flag (vmLimitsPreflight rejects such a value up front).
+func vmDockerDisk(s string) string {
+	if s == "" {
+		return vmDefaultDockerDisk
+	}
+	if v, ok := parseDiskSize(s); ok {
+		return v
+	}
+	return vmDefaultDockerDisk
 }
 
 // vmMemMiB converts a container-style memory cap ("2G", "512M", a raw byte

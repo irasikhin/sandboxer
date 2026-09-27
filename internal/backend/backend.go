@@ -114,10 +114,15 @@ type RunOpts struct {
 	Mem             string // memory cap (e.g. 2G); empty = the microVM default
 	CPU             string // CPU cap (accepts a float or systemd "100%")
 	Disk            string // root-disk size (e.g. 20G); empty = the microVM default
-	Args            []string
-	Stdin           io.Reader
-	Stdout          io.Writer
-	Stderr          io.Writer
+	// DockerDisk sizes the owned ext4 volume mounted at /var/lib/docker, the
+	// nested Docker engine's data-root; empty = the microVM default. It is
+	// always passed: the guest root is an overlayfs, so Docker's overlay
+	// storage needs a real filesystem underneath (see msb.go vmDockerDisk).
+	DockerDisk string
+	Args       []string
+	Stdin      io.Reader
+	Stdout     io.Writer
+	Stderr     io.Writer
 }
 
 // Run executes the sandbox's one-shot machine and returns its exit code.

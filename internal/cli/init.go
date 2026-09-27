@@ -106,8 +106,8 @@ func starterProfile(name string, d config.Defaults) string {
   name = %[1]q;
 
   # Isolation backend: microsandbox — a real VM per sandbox, on libkrun
-  # (see docs/microvm.md). Container engines (docker/podman) run natively
-  # INSIDE the sandbox; they are no longer host backends.
+  # (see docs/microvm.md). The Docker engine runs natively INSIDE the
+  # sandbox; it is no longer a host backend.
   backend = %[2]q;
 
   # The sources the sandbox sees — ALWAYS explicit, there is no implicit
@@ -204,8 +204,10 @@ func starterProfile(name string, d config.Defaults) string {
   # (node, python, go, rust, java, …):
   # tools = [ "node" "python" ];
 
-  # Resource caps (empty = the microVM default size): memory/cpus/disk.
-  # limits = { memory = "4G"; cpus = "2"; disk = "20G"; };
+  # Resource caps (empty = the microVM default size): memory/cpus/disk, plus
+  # dockerDisk — the ext4 volume at /var/lib/docker the nested Docker engine
+  # stores images and containers in.
+  # limits = { memory = "4G"; cpus = "2"; disk = "20G"; dockerDisk = "20G"; };
 
   # A PREBUILT image for this profile (optional) — a pinned release of the
   # stock toolbox, or your own published image; pulled and cached on first

@@ -36,7 +36,7 @@ buildGoModule {
   nativeBuildInputs = [ makeWrapper ];
 
   # Runtime deps kept on PATH via --prefix (host PATH is preserved too, so a
-  # host-installed `claude` and podman/docker stay reachable). No node/gost: the
+  # host-installed `claude` and docker stay reachable). No node/gost: the
   # egress proxy is a squid sidecar image, never the binary itself.
   postInstall = ''
     wrapProgram $out/bin/sandboxer \

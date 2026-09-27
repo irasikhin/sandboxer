@@ -45,6 +45,7 @@ func TestMSBCreateArgv(t *testing.T) {
 		"-e", "HOME=/d/.home", "-v", "/d/.home:/d/.home:quota=4294967295",
 		"-m", "2048M", "-c", "2",
 		"--root-disk", "20G",
+		"--mount-owned", "/var/lib/docker:kind=disk,size=20G",
 		"img:1",
 	}
 	if !slices.Equal(got, want) {
@@ -68,6 +69,24 @@ func TestMSBCreateArgvDisk(t *testing.T) {
 	}
 	if strings.Contains(strings.Join(got, " "), "--root-disk 20G") {
 		t.Errorf("Disk=40G must not carry the default root disk: %q", got)
+	}
+}
+
+// TestMSBCreateArgvDockerDisk pins the Docker data-volume knob:
+// RunOpts.DockerDisk (limits.dockerDisk / SANDBOXER_DOCKER_DISK) sizes the owned
+// ext4 volume msb mounts at /var/lib/docker in place of the 20G default.
+func TestMSBCreateArgvDockerDisk(t *testing.T) {
+	o := RunOpts{
+		MountDest: true, Image: "img:1", Dest: "/d", Slug: "s", DockerDisk: "40G",
+		Stdin: strings.NewReader(""), Stdout: &bytes.Buffer{},
+	}
+	got := msbCreateArgv(o, "n", "h")
+	want := "--mount-owned /var/lib/docker:kind=disk,size=40G"
+	if !strings.Contains(strings.Join(got, " "), want) {
+		t.Errorf("msbCreateArgv with DockerDisk=40G = %q, want %q", got, want)
+	}
+	if strings.Contains(strings.Join(got, " "), "size=20G") {
+		t.Errorf("DockerDisk=40G must not carry the default docker disk: %q", got)
 	}
 }
 
@@ -170,6 +189,12 @@ func TestMSBHashArgv(t *testing.T) {
 	resized.Mem = "8G"
 	if vmSessionWantHash(resized) == base {
 		t.Error("a memory change did not flip the session hash")
+	}
+
+	dockerDisk := o
+	dockerDisk.DockerDisk = "40G"
+	if vmSessionWantHash(dockerDisk) == base {
+		t.Error("a docker-disk change did not flip the session hash")
 	}
 }
 
@@ -571,11 +596,11 @@ func TestMSBSessionLifecycle(t *testing.T) {
 	if strings.Contains(readFile(t, log), "\nstart ") {
 		t.Error("a start followed a create that already boots the machine")
 	}
-	// A booted machine gets its docker-compatible API socket brought up, so a
-	// HEADLESS workload (exec, an agent) finds one — the rc.sh path only ever
+	// A booted machine gets its Docker daemon brought up, so a HEADLESS
+	// workload (exec, an agent) finds a socket — the rc.sh path only ever
 	// covers interactive shells.
-	if !strings.Contains(readFile(t, log), "exec "+name+" -- "+podmanSocketBin) {
-		t.Errorf("create did not start the guest podman socket:\n%s", readFile(t, log))
+	if !strings.Contains(readFile(t, log), "exec "+name+" -- "+dockerDaemonBin) {
+		t.Errorf("create did not start the guest Docker daemon:\n%s", readFile(t, log))
 	}
 
 	logBefore := readFile(t, log)

@@ -103,6 +103,9 @@ type Defaults struct {
 	Mem     string
 	CPU     string
 	Disk    string
+	// DockerDisk is SANDBOXER_DOCKER_DISK — the size of the ext4 volume mounted
+	// at /var/lib/docker, the nested Docker engine's data-root.
+	DockerDisk string
 	// Ports is the SANDBOXER_PORTS default — a csv of the same specs the
 	// profile's `ports` takes, for the forward you want in EVERY sandbox
 	// (export it once). Lowest precedence: a profile's own `ports` replaces
@@ -135,6 +138,7 @@ func LoadDefaults() Defaults {
 		Mem:          os.Getenv("SANDBOXER_MEM"),
 		CPU:          os.Getenv("SANDBOXER_CPU"),
 		Disk:         os.Getenv("SANDBOXER_DISK"),
+		DockerDisk:   os.Getenv("SANDBOXER_DOCKER_DISK"),
 		Ports:        os.Getenv("SANDBOXER_PORTS"),
 		NoResume:     os.Getenv("SANDBOXER_NO_RESUME") == "1",
 		NoPiPackages: os.Getenv("SANDBOXER_NO_PI_PACKAGES") == "1",
