@@ -261,7 +261,7 @@ disable with autoResume = false in the profile, or SANDBOXER_NO_RESUME=1.`,
 				AuthEnv:          hostAuthEnv(t.profile),
 				RT:               rt, Profile: t.profile,
 				ProfileJSONPath: t.base.ProfileJSONPath(t.slug),
-				Mem:             rt.Mem, CPU: rt.CPU, Disk: rt.Disk,
+				Mem:             rt.Mem, CPU: rt.CPU, Disk: rt.Disk, DockerDisk: rt.DockerDisk,
 				Interactive: true, Args: tmuxEnterArgs(sessionName),
 				NoEgress: noEgress(),
 				Stdin:    cmd.InOrStdin(), Stdout: cmd.OutOrStdout(), Stderr: errOut,
@@ -443,12 +443,12 @@ composes with scripts and CI.`,
 			if _, err := t.base.SyncSrcs(t.slug, narrate); err != nil {
 				return err
 			}
-			// The nested podman's docker-compatible API socket is the one thing
-			// an exec (unlike an interactive shell, whose rc ensures it) would
-			// otherwise start without — testcontainers and docker clients would
-			// fail with "cannot connect to the daemon". Ensure it lazily in the
-			// same wrap both the session and the one-shot path run.
-			rest = podmanSocketPrefix(rest)
+			// The guest's Docker daemon is the one thing an exec (unlike an
+			// interactive shell, whose rc ensures it) would otherwise start
+			// without — testcontainers and docker clients would fail with
+			// "cannot connect to the daemon". Ensure it lazily in the same wrap
+			// both the session and the one-shot path run.
+			rest = dockerDaemonPrefix(rest)
 			// Re-resolve after the snapshot landed (worktreesDir may have changed).
 			dest = t.base.SandboxDir(t.slug)
 			rt, rtErr := t.runtime(f)
@@ -496,7 +496,7 @@ composes with scripts and CI.`,
 				AuthEnv:   hostAuthEnv(t.profile),
 				RT:        rt, Profile: t.profile,
 				ProfileJSONPath: t.base.ProfileJSONPath(t.slug),
-				Mem:             rt.Mem, CPU: rt.CPU, Disk: rt.Disk,
+				Mem:             rt.Mem, CPU: rt.CPU, Disk: rt.Disk, DockerDisk: rt.DockerDisk,
 				Interactive: true, Args: rest,
 				NoEgress: noEgress(),
 				Stdin:    cmd.InOrStdin(), Stdout: cmd.OutOrStdout(), Stderr: cmd.ErrOrStderr(),
@@ -692,21 +692,21 @@ func verifyPorts(w io.Writer, rt config.Runtime, slug, engine, machine string) {
 		strings.Join(missing, ", "), slug, slug)
 }
 
-// podmanSocketPrefix wraps an in-guest user command so the nested podman's
-// docker-compatible API socket — the docker.sock testcontainers and docker
-// clients connect to — is ensured before the command runs (the interactive
-// shell path gets the same via rc.sh). The ensure is idempotent and
-// NON-fatal (`|| true`): a sandbox whose socket cannot come up still runs
-// the command, and the failure surfaces where it belongs, in the tool that
-// needs the socket. The wrap re-execs the original command with its argv
-// intact: $0 carries the original argv0 through bash -c, and exec replaces
-// the wrapper process, so exit codes and signals propagate unchanged.
-func podmanSocketPrefix(cmd []string) []string {
+// dockerDaemonPrefix wraps an in-guest user command so the guest's Docker
+// daemon — the docker.sock testcontainers and docker clients connect to — is
+// ensured before the command runs (the interactive shell path gets the same
+// via rc.sh). The ensure is idempotent and NON-fatal (`|| true`): a sandbox
+// whose daemon cannot come up still runs the command, and the failure surfaces
+// where it belongs, in the tool that needs the socket. The wrap re-execs the
+// original command with its argv intact: $0 carries the original argv0 through
+// bash -c, and exec replaces the wrapper process, so exit codes and signals
+// propagate unchanged.
+func dockerDaemonPrefix(cmd []string) []string {
 	if len(cmd) == 0 {
 		return nil
 	}
 	return append([]string{"bash", "-c",
-		"command -v podman-socket >/dev/null 2>&1 && podman-socket >/dev/null 2>&1 || true; exec \"$0\" \"$@\"",
+		"command -v docker-daemon >/dev/null 2>&1 && docker-daemon >/dev/null 2>&1 || true; exec \"$0\" \"$@\"",
 		cmd[0]}, cmd[1:]...)
 }
 
@@ -928,8 +928,9 @@ func runSetup(t *target, rt config.Runtime, engine string, noSetup bool, errOut 
 		Mem:             rt.Mem,
 		CPU:             rt.CPU,
 		Disk:            rt.Disk,
+		DockerDisk:      rt.DockerDisk,
 		Interactive:     false,
-		Args:            podmanSocketPrefix([]string{"bash", "-lc", t.profile.Setup}),
+		Args:            dockerDaemonPrefix([]string{"bash", "-lc", t.profile.Setup}),
 		NoEgress:        noEgress(),
 		Stdout:          setupOut,
 		Stderr:          setupOut,

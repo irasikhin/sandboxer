@@ -690,7 +690,7 @@ func sessionHashOpts(t *target, rt config.Runtime, engine string) (backend.RunOp
 		AuthEnv:   hostAuthEnv(t.profile),
 		RT:        rt, Profile: t.profile,
 		ProfileJSONPath: t.base.ProfileJSONPath(t.slug),
-		Mem:             rt.Mem, CPU: rt.CPU, Disk: rt.Disk,
+		Mem:             rt.Mem, CPU: rt.CPU, Disk: rt.Disk, DockerDisk: rt.DockerDisk,
 		NoEgress: noEgress(),
 	}, true
 }

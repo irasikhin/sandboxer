@@ -73,26 +73,27 @@ func TestResolveRuntimePrecedence(t *testing.T) {
 }
 
 // TestResolveRuntimeLimits pins the resource-cap resolution: a profile's
-// limits: overrides the SANDBOXER_MEM/SANDBOXER_CPU/SANDBOXER_DISK env defaults,
-// and memory/cpus/disk fall back to those defaults when the profile is silent.
+// limits: overrides the SANDBOXER_MEM/SANDBOXER_CPU/SANDBOXER_DISK
+// /SANDBOXER_DOCKER_DISK env defaults, and memory/cpus/disk/dockerDisk fall
+// back to those defaults when the profile is silent.
 func TestResolveRuntimeLimits(t *testing.T) {
 	// Profile limits win over the env defaults.
-	p := &Profile{Limits: Limits{Memory: "4G", CPUs: "2", Disk: "20G"}}
-	rt, err := ResolveRuntime(p, Defaults{Mem: "1G", CPU: "1", Disk: "10G"}, "base.com", Overrides{})
+	p := &Profile{Limits: Limits{Memory: "4G", CPUs: "2", Disk: "20G", DockerDisk: "40G"}}
+	rt, err := ResolveRuntime(p, Defaults{Mem: "1G", CPU: "1", Disk: "10G", DockerDisk: "30G"}, "base.com", Overrides{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if rt.Mem != "4G" || rt.CPU != "2" || rt.Disk != "20G" {
-		t.Errorf("profile limits should win: mem=%q cpu=%q disk=%q", rt.Mem, rt.CPU, rt.Disk)
+	if rt.Mem != "4G" || rt.CPU != "2" || rt.Disk != "20G" || rt.DockerDisk != "40G" {
+		t.Errorf("profile limits should win: mem=%q cpu=%q disk=%q dockerDisk=%q", rt.Mem, rt.CPU, rt.Disk, rt.DockerDisk)
 	}
 
 	// No profile limits → the env defaults apply.
-	rt2, err := ResolveRuntime(&Profile{}, Defaults{Mem: "1G", CPU: "1", Disk: "10G"}, "base.com", Overrides{})
+	rt2, err := ResolveRuntime(&Profile{}, Defaults{Mem: "1G", CPU: "1", Disk: "10G", DockerDisk: "30G"}, "base.com", Overrides{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if rt2.Mem != "1G" || rt2.CPU != "1" || rt2.Disk != "10G" {
-		t.Errorf("env limits should apply: mem=%q cpu=%q disk=%q", rt2.Mem, rt2.CPU, rt2.Disk)
+	if rt2.Mem != "1G" || rt2.CPU != "1" || rt2.Disk != "10G" || rt2.DockerDisk != "30G" {
+		t.Errorf("env limits should apply: mem=%q cpu=%q disk=%q dockerDisk=%q", rt2.Mem, rt2.CPU, rt2.Disk, rt2.DockerDisk)
 	}
 }
 

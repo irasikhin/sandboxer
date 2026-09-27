@@ -21,12 +21,15 @@ type Runtime struct {
 	Backend string
 	Session string // SessionPersistent or SessionEphemeral (resolved; never empty)
 	Egress  bool
-	// Resource caps sizing the machine. Mem/CPU/Disk resolve profile-over-env
-	// (limits: over SANDBOXER_MEM/SANDBOXER_CPU/SANDBOXER_DISK); empty means
-	// the microVM default size.
+	// Resource caps sizing the machine. Mem/CPU/Disk/DockerDisk resolve
+	// profile-over-env (limits: over SANDBOXER_MEM/SANDBOXER_CPU/SANDBOXER_DISK
+	// /SANDBOXER_DOCKER_DISK); empty means the microVM default size.
 	Mem  string
 	CPU  string
 	Disk string
+	// DockerDisk sizes the ext4 volume mounted at /var/lib/docker, the nested
+	// Docker engine's data-root.
+	DockerDisk string
 	// AutoResume relaunches recorded agents when a saved session layout is
 	// restored (profile autoResume, killed by SANDBOXER_NO_RESUME=1). Not part
 	// of the create argv, so it never affects the session ConfigHash.
@@ -151,10 +154,11 @@ func ResolveRuntime(p *Profile, d Defaults, baseDomains string, f Overrides) (Ru
 	rt.PiPackages = !d.NoPiPackages && p.PiPackagesEnabled()
 
 	// Resource caps: a profile's limits: overrides the SANDBOXER_MEM/SANDBOXER_CPU
-	// /SANDBOXER_DISK env defaults.
+	// /SANDBOXER_DISK/SANDBOXER_DOCKER_DISK env defaults.
 	rt.Mem = firstNonEmpty(p.Limits.Memory, d.Mem)
 	rt.CPU = firstNonEmpty(p.Limits.CPUs, d.CPU)
 	rt.Disk = firstNonEmpty(p.Limits.Disk, d.Disk)
+	rt.DockerDisk = firstNonEmpty(p.Limits.DockerDisk, d.DockerDisk)
 	return rt, nil
 }
 

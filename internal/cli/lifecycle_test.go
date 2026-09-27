@@ -45,21 +45,21 @@ func TestValidateSessionName(t *testing.T) {
 	}
 }
 
-// TestPodmanSocketPrefix pins the exec wrap: every in-guest user command is
-// prefixed with the podman-socket ensure (idempotent, NON-fatal — a sandbox
-// whose socket cannot come up still runs the command, and the tool that needs
+// TestDockerDaemonPrefix pins the exec wrap: every in-guest user command is
+// prefixed with the docker-daemon ensure (idempotent, NON-fatal — a sandbox
+// whose daemon cannot come up still runs the command, and the tool that needs
 // the socket fails on its own), and the original command re-execs with its
 // argv intact (argv0 preserved as bash -c's $0).
-func TestPodmanSocketPrefix(t *testing.T) {
-	got := podmanSocketPrefix([]string{"npm", "test", "--", "x y"})
+func TestDockerDaemonPrefix(t *testing.T) {
+	got := dockerDaemonPrefix([]string{"npm", "test", "--", "x y"})
 	want := []string{"bash", "-c",
-		"command -v podman-socket >/dev/null 2>&1 && podman-socket >/dev/null 2>&1 || true; exec \"$0\" \"$@\"",
+		"command -v docker-daemon >/dev/null 2>&1 && docker-daemon >/dev/null 2>&1 || true; exec \"$0\" \"$@\"",
 		"npm", "test", "--", "x y"}
 	if !slices.Equal(got, want) {
-		t.Errorf("podmanSocketPrefix = %q, want %q", got, want)
+		t.Errorf("dockerDaemonPrefix = %q, want %q", got, want)
 	}
-	if got := podmanSocketPrefix(nil); got != nil {
-		t.Errorf("podmanSocketPrefix(nil) = %q, want nil", got)
+	if got := dockerDaemonPrefix(nil); got != nil {
+		t.Errorf("dockerDaemonPrefix(nil) = %q, want nil", got)
 	}
 }
 

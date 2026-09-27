@@ -13,11 +13,12 @@ func TestLoadDefaultsFromEnv(t *testing.T) {
 	t.Setenv("SANDBOXER_MEM", "2G")
 	t.Setenv("SANDBOXER_CPU", "50%")
 	t.Setenv("SANDBOXER_DISK", "20G")
+	t.Setenv("SANDBOXER_DOCKER_DISK", "40G")
 
 	d := LoadDefaults()
 	if d.Backend != "custom-backend" || d.Domains != "a.com" ||
 		d.Image != "img:1" ||
-		d.Mem != "2G" || d.CPU != "50%" || d.Disk != "20G" {
+		d.Mem != "2G" || d.CPU != "50%" || d.Disk != "20G" || d.DockerDisk != "40G" {
 		t.Errorf("LoadDefaults from env = %+v", d)
 	}
 }
@@ -26,6 +27,7 @@ func TestLoadDefaultsBare(t *testing.T) {
 	for _, k := range []string{
 		"SANDBOXER_BACKEND", "SANDBOXER_DOMAINS",
 		"SANDBOXER_IMAGE", "SANDBOXER_MEM", "SANDBOXER_CPU", "SANDBOXER_DISK",
+		"SANDBOXER_DOCKER_DISK",
 	} {
 		t.Setenv(k, "")
 	}
@@ -33,6 +35,9 @@ func TestLoadDefaultsBare(t *testing.T) {
 	d := LoadDefaults()
 	if d.Backend != "microsandbox" || d.Domains != DefaultDomains || d.Image != DefaultImage {
 		t.Errorf("bare defaults = %+v", d)
+	}
+	if d.DockerDisk != "" {
+		t.Errorf("unset SANDBOXER_DOCKER_DISK = %q, want empty", d.DockerDisk)
 	}
 }
 

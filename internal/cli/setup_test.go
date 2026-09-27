@@ -64,8 +64,8 @@ func TestRunSetupRunsStampsAndIsIdempotent(t *testing.T) {
 	if err := runSetup(tp, config.Runtime{}, "microsandbox", false, &buf); err != nil {
 		t.Fatalf("setup: %v", err)
 	}
-	if !slices.Equal(gotArgs, podmanSocketPrefix([]string{"bash", "-lc", "make build"})) {
-		t.Errorf("setup argv = %v, want the podman-socket-wrapped bash -lc make build", gotArgs)
+	if !slices.Equal(gotArgs, dockerDaemonPrefix([]string{"bash", "-lc", "make build"})) {
+		t.Errorf("setup argv = %v, want the docker-daemon-wrapped bash -lc make build", gotArgs)
 	}
 	if p, _ := base.SetupPending("s", "make build"); p {
 		t.Error("setup must be stamped done after a clean run")

@@ -121,12 +121,19 @@ type Egress struct {
 // Limits caps a sandbox machine's resources. Every field is optional; an empty
 // field means the microVM default size. Memory is a memory string (e.g. 2G,
 // 512m), CPUs a whole vCPU count or systemd-style quota (2 or 200%), Disk a
-// root-disk size string (e.g. 20G, 512M). All three override the SANDBOXER_MEM
-// / SANDBOXER_CPU / SANDBOXER_DISK env defaults.
+// root-disk size string (e.g. 20G, 512M), DockerDisk the size of the ext4
+// volume mounted at /var/lib/docker — the nested Docker engine's data-root,
+// which needs a real filesystem because the guest root is itself an overlayfs.
+// DockerDisk takes the same shape as Disk (a whole MiB count or an
+// M/G-suffixed size). All four override the SANDBOXER_MEM / SANDBOXER_CPU /
+// SANDBOXER_DISK / SANDBOXER_DOCKER_DISK env defaults.
 type Limits struct {
 	Memory string `json:"memory,omitempty"`
 	CPUs   string `json:"cpus,omitempty"`
 	Disk   string `json:"disk,omitempty"`
+	// DockerDisk sizes the owned ext4 volume mounted at /var/lib/docker; empty
+	// leaves the microVM default.
+	DockerDisk string `json:"dockerDisk,omitempty"`
 }
 
 // ImageSpec customizes the toolbox image a profile's sandbox runs in. Every
@@ -434,8 +441,9 @@ type Profile struct {
 	// never enters the machine's create argv, so toggling it cannot read as a
 	// changed profile and never rebuilds a session. See sandbox.EnsurePiPackages.
 	PiPackages *bool `json:"piPackages,omitempty"`
-	// Limits caps the sandbox machine's memory/cpus/disk; empty fields inherit
-	// the SANDBOXER_MEM/SANDBOXER_CPU/SANDBOXER_DISK env defaults.
+	// Limits caps the sandbox machine's memory/cpus/disk/dockerDisk; empty
+	// fields inherit the SANDBOXER_MEM/SANDBOXER_CPU/SANDBOXER_DISK /
+	// SANDBOXER_DOCKER_DISK env defaults.
 	Limits Limits `json:"limits,omitempty"`
 }
 

@@ -197,15 +197,16 @@ func TestMSB_EgressAllowlist_RealEngine(t *testing.T) {
 // TestMSB_NestedContainer_RealEngine verifies the load-bearing claim that a
 // microsandbox guest "runs container engines natively" (the reason the
 // nestedContainers knob is ignored and the postgres-in-the-sandbox use case that
-// started the migration): docker/podman inside the toolbox image boot, pull and
-// run, and a USER-SWITCHING image works against the guest's own kernel. It
-// skips unless a REAL toolbox image (which carries docker/podman/compose) is
-// pointed at via SANDBOXER_ITEST_MSB_IMAGE — the default alpine itest image has
-// no engine to probe.
+// started the migration): the Docker engine inside the toolbox image boots,
+// pulls and runs, and a USER-SWITCHING image works against the guest's own
+// kernel. podman being ABSENT is asserted too — the Docker migration removed
+// it. The test skips unless a REAL toolbox image (which carries docker/compose)
+// is pointed at via SANDBOXER_ITEST_MSB_IMAGE — the default alpine itest image
+// has no engine to probe.
 func TestMSB_NestedContainer_RealEngine(t *testing.T) {
 	engine := itest.Microsandbox(t)
 	if os.Getenv("SANDBOXER_ITEST_MSB_IMAGE") == "" {
-		t.Skip("nested-container check needs the REAL toolbox image — set SANDBOXER_ITEST_MSB_IMAGE to the toolbox tar (it carries docker/podman/compose)")
+		t.Skip("nested-container check needs the REAL toolbox image — set SANDBOXER_ITEST_MSB_IMAGE to the toolbox tar (it carries docker/compose)")
 	}
 	if !hostResolves("registry-1.docker.io") {
 		t.Skip("no outbound DNS on this host — skipping the nested-container check")
@@ -227,20 +228,22 @@ func TestMSB_NestedContainer_RealEngine(t *testing.T) {
 		t.Fatalf("EnsureSession: %v", err)
 	}
 
-	// The toolbox image carries the engines; the guest runs them natively.
+	// The toolbox image carries the Docker engine; the guest runs it natively.
 	if code, _ := ExecSession(o, name, []string{"docker", "--version"}); code != 0 {
 		t.Fatalf("docker absent inside the guest (code %d)", code)
 	}
-	if code, _ := ExecSession(o, name, []string{"podman", "--version"}); code != 0 {
-		t.Fatalf("podman absent inside the guest (code %d)", code)
+	// podman is REMOVED from the image — its absence is the migration's own
+	// check, not an accident.
+	if code, _ := ExecSession(o, name, []string{"podman", "--version"}); code == 0 {
+		t.Fatal("podman is still present inside the guest — the Docker migration removed it")
 	}
 	// testcontainers & docker clients talk to a docker-compatible API SOCKET,
 	// never a CLI: the image must expose the nested engine on the standard
 	// docker.sock path, and the daemon must SURVIVE the exec that started it
 	// (the ensure runs detached, for the persistent machine — this check runs
 	// in a separate exec than the ensure above).
-	if code, _ := ExecSession(o, name, []string{"podman-socket"}); code != 0 {
-		t.Fatalf("podman-socket ensure failed inside the guest (code %d)", code)
+	if code, _ := ExecSession(o, name, []string{"docker-daemon"}); code != 0 {
+		t.Fatalf("docker-daemon ensure failed inside the guest (code %d)", code)
 	}
 	var sockOut bytes.Buffer
 	so := o
