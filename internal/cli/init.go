@@ -106,8 +106,8 @@ func starterProfile(name string, d config.Defaults) string {
   name = %[1]q;
 
   # Isolation backend: microsandbox — a real VM per sandbox, on libkrun
-  # (see docs/microvm.md). Container engines (docker/podman) run natively
-  # INSIDE the sandbox; they are no longer host backends.
+  # (see docs/microvm.md). The Docker engine runs natively INSIDE the
+  # sandbox; it is no longer a host backend.
   backend = %[2]q;
 
   # The sources the sandbox sees — ALWAYS explicit, there is no implicit

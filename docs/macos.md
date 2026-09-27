@@ -35,7 +35,7 @@ Linux/KVM):
   user, live in both directions;
 - the egress policy engine (name-bound allowlist, default-deny) on the macOS
   network stack;
-- nested containers (podman/docker inside the guest) against the guest kernel.
+- nested containers (the Docker engine inside the guest) against the guest kernel.
 
 If you hit a wall, run `sandboxer doctor --json` and `msb doctor`, and open an
 issue with both outputs plus the failing command's stderr.

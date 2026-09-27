@@ -60,10 +60,11 @@ Two consequences worth stating plainly:
   boundary, not the uid. Files the guest writes into a shared directory land on
   the host owned by **the invoking host user** (virtio-fs maps the identity),
   so guest-root never mints host-root files.
-- **Nested containers work natively.** docker/podman inside the sandbox run
-  against the guest's own kernel with a full uid range — no opt-in, no widened
-  syscall filter, no capability grant on the host side. Their blast radius is
-  the VM's.
+- **Nested containers work natively.** The sandbox ships a real Docker engine
+  (daemon + client) that runs against the guest's own kernel with a full uid
+  range — no opt-in, no widened syscall filter, no capability grant on the host
+  side. Its data-root is a dedicated volume in the VM (the guest root is an
+  overlayfs, not a place for Docker's storage). Blast radius: the VM's.
 
 Host requirements for that boundary: **nix** (a hard requirement of the CLI —
 it evaluates `sandboxer.nix` and builds the toolbox image), the **msb** binary,

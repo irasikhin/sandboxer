@@ -95,6 +95,11 @@ layer (there is no proxy returning 403 anymore).
   defaults).
 - `allowedDomains = [ ]` means what it says: a **fully offline** machine, DNS
   included. Delete the attr (not empty it) to get the built-in defaults.
+- DNS itself is **name-bound** while egress is on: only names on
+  `allowedDomains` resolve — every other name gets NXDOMAIN (the resolver
+  answers, it just refuses), and setting the attr REPLACES the default set
+  wholesale, so a narrow list silently "loses" DNS for everything else. Add
+  the domains you need, delete the attr for the defaults, or turn egress off.
 - The one-time `setup:` hook runs under the **same** allowlist — a network step
   in `setup:` needs its domains allowed too.
 - To rule egress out while debugging, disable it deliberately:
@@ -264,13 +269,29 @@ the cap raise is the real fix when a workload genuinely needs the headroom.
 **Where did the docker/podman backend go?** Removed — every sandbox is a
 microVM now (`backend = "microsandbox"`), which is a strictly stronger
 boundary. Container engines did not disappear, they moved **inside**: the
-toolbox image ships podman with a `docker` shim and `podman-compose`, running
+toolbox image ships the **real Docker engine** (daemon + client), running
 natively against the guest kernel (full uid range, no opt-in — the old
-`nestedContainers` key is retired). Anything that expects the *host's* Docker
-API socket won't find one; inside the guest, tools talk to the guest's own
-engine — which also serves a docker-compatible socket at
-`/var/run/docker.sock` (started on demand by the image's `podman-socket`
-helper), so testcontainers suites run with zero configuration.
+`nestedContainers` key is retired). Its data-root is a dedicated ext4 volume
+at `/var/lib/docker` (`limits.dockerDisk` / `SANDBOXER_DOCKER_DISK`, default
+20G) because the guest root is an overlayfs. Anything that expects the
+*host's* Docker API socket won't find one; inside the guest, tools talk to
+the guest's own daemon — which serves `/var/run/docker.sock` (started by the
+image's `docker-daemon` helper on boot and before every exec/run), so
+testcontainers suites run with zero configuration.
+
+**`docker run` fails with an overlay mount error (or `docker-daemon` exits
+saying the data volume is missing).** The machine has no Docker data volume —
+it predates `limits.dockerDisk` or was created without it. Docker's overlay
+storage cannot live on the guest's overlayfs root, so recreate the session
+(`sandboxer stop <slug>` then `enter`/`exec`); the new machine gets its ext4
+`/var/lib/docker`.
+
+**A large `docker pull` from Docker Hub hangs.** Large Hub layers can stall
+on some networks (measured for `kindest/node` and `rancher/k3s` while small
+images pulled fine). Pull the same tag from the `mirror.gcr.io` mirror the
+default egress allowlist already carries — `docker pull
+mirror.gcr.io/kindest/node:<tag>` — and pass that ref where a tool accepts
+one (`kind create --image …`), or raise the egress list.
 
 **Which platforms are supported?** Linux with KVM is the supported, exercised
 platform. macOS (Apple Silicon, Hypervisor.framework) and Windows (inside
