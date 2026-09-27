@@ -55,21 +55,14 @@
                 pi-agent-orchestrator = final.callPackage ./pi-orchestrator/package.nix { };
                 # crush is FSL-licensed (unfree) → never on cache.nixos.org, so
                 # every image build compiles it from source AND runs its Go
-                # tests. TestRetireClient_DuringPendingCreate polls a 30 s
-                # Eventually for a create goroutine to reach its slow path;
-                # with gotestsum running the packages in parallel on a loaded
-                # runner that window expires and the whole image build fails
-                # (Jenkins PR-43 build 1, 2026-09-21). Give the wait room
-                # instead of dropping the suite — upstream's own CI runs these
-                # tests, and the substitution below fails loudly if upstream
-                # moves the literal, which is the re-check point.
-                crush = prev.crush.overrideAttrs (o: {
-                  postPatch = (o.postPatch or "") + ''
-                    substituteInPlace internal/backend/backend_test.go \
-                      --replace-fail '}}, 30*time.Second, time.Millisecond, "create must reach its slow path")' \
-                      '}}, 2*time.Minute, time.Millisecond, "create must reach its slow path")'
-                  '';
-                });
+                # tests. A postPatch used to widen TestRetireClient_
+                # DuringPendingCreate's 30 s Eventually poll (flaky on loaded
+                # runners — Jenkins PR-43 build 1, 2026-09-21) with a
+                # --replace-fail substitution that failed loudly when upstream
+                # moved the literal. Upstream has since REMOVED that test (the
+                # literal is gone in 0.88.0 and no long Eventually poll remains
+                # in internal/backend), so the override is gone with it — the
+                # loud failure did its job.
                 # dsh rides with the same baked community plugins the root
                 # flake grafts in (dshmarket, dsh-find-plugin, archify,
                 # model-router).
