@@ -15,7 +15,7 @@ import (
 // TestStatIdentityChangesOnRecreate flake is timestamp granularity (fixed by
 // a delay) or inode-cache reuse (not).
 func TestZZZFileidFSProbe(t *testing.T) {
-	t.Logf("probe fs=%s", fsType(t.TempDir()))
+	t.Errorf("PROBE fs=%s", fsType(t.TempDir()))
 	measure := func(tag string, pause time.Duration, n int) {
 		same := 0
 		var sample string
@@ -45,7 +45,7 @@ func TestZZZFileidFSProbe(t *testing.T) {
 				}
 			}
 		}
-		t.Logf("probe %s: same=%d/%d sample=%s", tag, same, n, sample)
+		t.Errorf("PROBE %s: same=%d/%d sample=%s", tag, same, n, sample)
 	}
 	measure("immediate", 0, 3000)
 	measure("pause20ms", 20*time.Millisecond, 300)
