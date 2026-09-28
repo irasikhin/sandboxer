@@ -194,6 +194,23 @@ let
     done
   '';
 
+  # pkl (Apple's configuration language) on the image's OWN JDK. nixpkgs' pkl
+  # is a JVM build and its runtime JRE (temurin-bin-21) alone is ~639 MiB — a
+  # third of the whole image — while the image already bakes jdk25. So the jar
+  # is copied out of the package (it carries no store refs, so the temurin
+  # closure drops entirely) and wrapped against the baked JDK. The two JVM
+  # flags silence the JNA / sun.misc.Unsafe warnings Java 25 otherwise prints
+  # on every invocation. `pkl eval` works offline; `package://` imports fetch
+  # from pkg.pkl-lang.org, which the default egress allowlist carries.
+  pklCli = pkgs.runCommand "pkl" { nativeBuildInputs = [ pkgs.makeWrapper ]; } ''
+    mkdir -p $out/bin $out/opt/pkl
+    cp ${pkgs.pkl}/opt/pkl/jpkl.jar $out/opt/pkl/jpkl.jar
+    makeWrapper ${pkgs.jdk25}/bin/java $out/bin/pkl \
+      --add-flags "--enable-native-access=ALL-UNNAMED" \
+      --add-flags "--sun-misc-unsafe-memory-access=allow" \
+      --add-flags "-jar $out/opt/pkl/jpkl.jar"
+  '';
+
   # `pip` that explains itself. The baked interpreter lives in the read-only
   # nix store, so pip cannot install into it — and nixpkgs' python does not
   # ship pip at all, which leaves an agent with "command not found" (or "No
@@ -717,6 +734,7 @@ in
         tmuxConf
         dockerPlugins
         jdkBin
+        pklCli
         pipHint
         detachCmd
         dockerDaemon

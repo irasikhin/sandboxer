@@ -353,3 +353,23 @@ func TestImageBakesPythonBatteries(t *testing.T) {
 		t.Error("images.nix missing uv — nothing outside the baked set could be installed in a sandbox")
 	}
 }
+
+// TestImageBakesPkl guards the pkl CLI. nixpkgs' pkl is a JVM build whose
+// runtime JRE (temurin-bin-21) alone is ~639 MiB — a third of the image — while
+// the image already bakes jdk25 for maven. So the jar must be copied out of the
+// pkl package and wrapped against the baked JDK, with both JVM flags that
+// silence Java 25's JNA / sun.misc.Unsafe warnings on every invocation.
+func TestImageBakesPkl(t *testing.T) {
+	s := imageDefinition(t)
+	for _, want := range []string{
+		"pklCli",
+		"/opt/pkl/jpkl.jar",
+		"pkgs.jdk25",
+		"--enable-native-access=ALL-UNNAMED",
+		"--sun-misc-unsafe-memory-access=allow",
+	} {
+		if !strings.Contains(s, want) {
+			t.Errorf("images.nix missing pkl piece %q", want)
+		}
+	}
+}
