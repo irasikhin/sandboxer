@@ -26,10 +26,14 @@ import (
 //
 // Together they cover both: btrfs distinguishes by inode number, ext4 by birth
 // time. Both are immutable once the inode exists, so neither moves when the
-// directory's contents change. When statx or STATX_BTIME is unavailable (an old
-// kernel, or a filesystem without birth times) it falls back to device+inode:
-// weaker against inode reuse, but it never spuriously rebuilds, which is the
-// safer failure.
+// directory's contents change. Their power is bounded by the filesystem's
+// collision window, though: an IMMEDIATE rmdir+mkdir can repeat both fields
+// (measured on ext4: 13/3000 pairs), while a recreate separated by >20 ms was
+// never ambiguous (0/300). Real replacements are separated by far more than
+// that, so the guard is reliable where it matters. When statx or STATX_BTIME is
+// unavailable (an old kernel, or a filesystem without birth times) it falls
+// back to device+inode: weaker against inode reuse, but it never spuriously
+// rebuilds, which is the safer failure.
 func statIdentity(path string) (string, bool) {
 	var stx unix.Statx_t
 	if err := unix.Statx(unix.AT_FDCWD, path, 0, unix.STATX_INO|unix.STATX_BTIME, &stx); err == nil {

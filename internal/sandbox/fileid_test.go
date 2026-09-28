@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // TestStatIdentityRealFile: a real path yields a non-empty identity, stable for
@@ -59,6 +60,15 @@ func TestStatIdentityChangesOnRecreate(t *testing.T) {
 		t.Fatal(err)
 	}
 	before, _ := statIdentity(dir)
+
+	// The collision window is sub-millisecond and the test must not race it:
+	// measured on the CI's ext4, 13/3000 IMMEDIATE rmdir+mkdir pairs came back
+	// with the identical dev:inode:btime (a just-freed inode and its timestamp
+	// can both repeat within the same instant), while 0/300 pairs separated by
+	// 20 ms collided. Real replacements — a checkout, a re-created directory —
+	// are separated by far more than that, so the pause keeps the assertion
+	// about the guard's actual job.
+	time.Sleep(50 * time.Millisecond)
 
 	if err := os.RemoveAll(dir); err != nil {
 		t.Fatal(err)
