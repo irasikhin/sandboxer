@@ -55,7 +55,7 @@ const DefaultImage = "ghcr.io/irasikhin/sandboxer-toolbox:latest"
 
 // DefaultDomains is the egress allowlist used when none is configured: AI API
 // endpoints, common package registries across ecosystems, and the container
-// registries the in-sandbox rootless podman pulls from. The Anthropic set
+// registries the in-sandbox Docker engine pulls from. The Anthropic set
 // covers the API plus the auth/config endpoints Claude Code v2.x reaches on
 // startup (platform.claude.com, console.anthropic.com) — omitting them leaves
 // the CLI unable to connect even though api.anthropic.com is allowed.
@@ -71,6 +71,10 @@ const DefaultImage = "ghcr.io/irasikhin/sandboxer-toolbox:latest"
 // allowlist widening, called out in SECURITY.md; drop it in
 // egress.allowedDomains if the ECR/Hub blob path is not worth that.
 //
+// pkg.pkl-lang.org is pkl's package registry: the baked pkl CLI (images.nix)
+// resolves remote `package://` imports there, so without it pkl can only
+// evaluate local files.
+//
 // registry.k8s.io is the Kubernetes project's own image registry — the
 // canonical source for the core addons a cluster gets next (metrics-server,
 // ingress-nginx, coredns upgrades), so the local-cluster tooling the image
@@ -81,7 +85,7 @@ const DefaultImage = "ghcr.io/irasikhin/sandboxer-toolbox:latest"
 const DefaultDomains = "api.anthropic.com,platform.claude.com,console.anthropic.com," +
 	"api.openai.com,api.deepseek.com," +
 	"generativelanguage.googleapis.com,openrouter.ai,registry.npmjs.org,pypi.org," +
-	"files.pythonhosted.org,repo.maven.apache.org,repo1.maven.org,central.sonatype.com," +
+	"files.pythonhosted.org,pkg.pkl-lang.org,repo.maven.apache.org,repo1.maven.org,central.sonatype.com," +
 	"plugins.gradle.org,services.gradle.org,crates.io,static.crates.io,index.crates.io," +
 	"proxy.golang.org,sum.golang.org,rubygems.org,github.com,codeload.github.com," +
 	"raw.githubusercontent.com,objects.githubusercontent.com,api.github.com," +
