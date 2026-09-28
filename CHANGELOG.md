@@ -6,6 +6,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.100.0] — 2026-09-28
+
+### Added
+
+- bake pkl into the toolbox image (8c41d74)
+- allow pkl's package registry in the default egress allowlist (7d19cc5)
+
+
 ## [0.99.0] — 2026-09-27
 
 ### ⚠ Breaking changes
@@ -1587,3 +1595,4 @@ isolated, containerized dev sandbox, on a local Linux machine:
 [0.98.2]: https://github.com/irasikhin/sandboxer/compare/v0.98.1...v0.98.2
 [0.98.3]: https://github.com/irasikhin/sandboxer/compare/v0.98.2...v0.98.3
 [0.99.0]: https://github.com/irasikhin/sandboxer/compare/v0.98.3...v0.99.0
+[0.100.0]: https://github.com/irasikhin/sandboxer/compare/v0.99.0...v0.100.0
