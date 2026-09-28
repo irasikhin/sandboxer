@@ -21,3 +21,14 @@ func TestDefaultAllowlistCoversLocalClusterRegistries(t *testing.T) {
 		}
 	}
 }
+
+// TestDefaultAllowlistCoversPklPackages guards the pairing between the baked
+// pkl CLI and its package registry: remote `package://` imports resolve
+// against pkg.pkl-lang.org, so trimming that domain leaves the tool able to
+// evaluate local files only.
+func TestDefaultAllowlistCoversPklPackages(t *testing.T) {
+	domains := strings.Split(DefaultDomains, ",")
+	if !slices.Contains(domains, "pkg.pkl-lang.org") {
+		t.Error("DefaultDomains missing \"pkg.pkl-lang.org\" — the baked pkl CLI cannot resolve remote `package://` imports")
+	}
+}
