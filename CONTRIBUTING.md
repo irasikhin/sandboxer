@@ -30,6 +30,18 @@ pre-commit run --all-files      # all hooks at once
 go build ./cmd/sandboxer        # local binary
 ```
 
+### Task runner (just)
+
+The devShell ships [`just`](https://just.systems/); run `just` (or `just --list`)
+to see the recipes. `just check` is the green gate (format + vet + lint + tests),
+and the other recipes wrap the commands above, `scripts/itest.sh`,
+`scripts/release.sh` and the nix invocations — run `just --list` for the full set.
+
+```bash
+just check                      # green gate before a commit
+just test -run TestFoo ./internal/config/   # any recipe takes go test arguments
+```
+
 ### Integration tests
 
 The default `go test ./...` runs only the in-process unit tests. A separate

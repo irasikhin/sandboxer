@@ -178,6 +178,7 @@
             gotools
             delve
             golangci-lint
+            just # task runner (justfile)
             nixfmt
             # runtime deps for exercising the CLI locally
             git
@@ -190,6 +191,7 @@
           shellHook = ''
             echo "sandboxer devShell — go toolchain + linters."
             echo "build:  go build ./cmd/sandboxer   image:  nix run .#build-image"
+            echo "tasks:  just --list"
             echo "microvm: msb on PATH (backend = \"microsandbox\")"
           '';
         };
