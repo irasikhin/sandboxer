@@ -6,6 +6,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.100.1] — 2026-09-29
+
+### Tests
+
+- stop the fileid recreate flake racing the collision window (ccae3dd)
+
+### Build
+
+- add justfile task runner (3951391)
+
+
 ## [0.100.0] — 2026-09-28
 
 ### Added
@@ -1596,3 +1607,4 @@ isolated, containerized dev sandbox, on a local Linux machine:
 [0.98.3]: https://github.com/irasikhin/sandboxer/compare/v0.98.2...v0.98.3
 [0.99.0]: https://github.com/irasikhin/sandboxer/compare/v0.98.3...v0.99.0
 [0.100.0]: https://github.com/irasikhin/sandboxer/compare/v0.99.0...v0.100.0
+[0.100.1]: https://github.com/irasikhin/sandboxer/compare/v0.100.0...v0.100.1
