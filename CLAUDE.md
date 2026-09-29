@@ -265,5 +265,6 @@ was extracted from:
   subagent.**
 - Branch off `main`; land via PR; stage explicit paths, never `git add -A` (`flow-incremental-pr`,
   `proc-branch-pr-workflow`).
-- Green gate before commit: `gofmt` + `go vet` + `golangci-lint run` + `go test ./...` (`build-go-tooling`).
+- Green gate before commit: `just check` (wraps `gofmt` + `go vet` + `golangci-lint run` + `go test ./...`;
+  `just` comes with the devShell) (`build-go-tooling`).
 - Human contributor runbook (local setup, integration suite, release steps) lives in `CONTRIBUTING.md`.
