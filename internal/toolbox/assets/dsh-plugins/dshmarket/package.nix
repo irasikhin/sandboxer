@@ -25,9 +25,9 @@
 }:
 
 let
-  version = "1.66.0";
-  sourceHash = "sha256-hmpkwcnyJ3ydCzBT36nCT93yX0Cx1+/yxlLb2BxCZxU=";
-  npmDepsHash = "sha256-wE+3dzkszB8+dWzNcJiR8s5HluJK2OTg1JpnsFGpPgk=";
+  version = "1.66.1";
+  sourceHash = "sha256-iohRR+s/QrdujCftGnJMt1xIyzzk9/hYZx6FG8vzkYA=";
+  npmDepsHash = "sha256-pNDZImN6qm4OaQaaLp9T8ws3KsEkS3W1H0rQ3kle3XI=";
 
   srcWithLock = runCommand "dshmarket-src-${version}" { nativeBuildInputs = [ jq ]; } ''
     mkdir -p $out

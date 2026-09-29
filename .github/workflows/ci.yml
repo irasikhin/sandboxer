@@ -83,7 +83,7 @@ jobs:
       - name: install microsandbox
         run: |
           set -euo pipefail
-          base="https://github.com/microsandbox/microsandbox/releases/download/v${MSB_VERSION}"
+          base="https://github.com/superradcompany/microsandbox/releases/download/v${MSB_VERSION}"
           curl -fsSLO "$base/microsandbox-linux-x86_64.tar.gz"
           mkdir -p msb && tar xzf microsandbox-linux-x86_64.tar.gz -C msb
           echo "SANDBOXER_MSB=$PWD/msb/msb" >> "$GITHUB_ENV"
