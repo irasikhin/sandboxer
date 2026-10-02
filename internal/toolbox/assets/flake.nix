@@ -13,7 +13,7 @@
   description = "sandboxer toolbox image (self-contained)";
 
   inputs = {
-    nixpkgs.url = "github:NixOS/nixpkgs/e94cb152ed51bd6e24eb4a41f1460252beb52cd2";
+    nixpkgs.url = "github:NixOS/nixpkgs/c59305bab2065cfecc4944690d9eedbb56f3a9fa";
   };
 
   outputs =
