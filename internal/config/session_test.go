@@ -177,6 +177,40 @@ func TestLoadDefaultsNoPiPackages(t *testing.T) {
 	}
 }
 
+// TestResolveRuntimeHelmPlugins pins the baked-helm-plugin gate: unlike the pi
+// packages there is no profile field (the switch is env-only), so the default is
+// the whole story and SANDBOXER_NO_HELM_PLUGINS=1 is what turns it off.
+func TestResolveRuntimeHelmPlugins(t *testing.T) {
+	for _, c := range []struct {
+		name   string
+		noHelm bool
+		want   bool
+	}{
+		{"default on", false, true},
+		{"env kills it", true, false},
+	} {
+		rt, err := ResolveRuntime(&Profile{}, Defaults{NoHelmPlugins: c.noHelm}, "", Overrides{})
+		if err != nil {
+			t.Fatalf("%s: %v", c.name, err)
+		}
+		if rt.HelmPlugins != c.want {
+			t.Errorf("%s: HelmPlugins = %v, want %v", c.name, rt.HelmPlugins, c.want)
+		}
+	}
+}
+
+// TestLoadDefaultsNoHelmPlugins: the env kill-switch is read strictly as "1".
+func TestLoadDefaultsNoHelmPlugins(t *testing.T) {
+	t.Setenv("SANDBOXER_NO_HELM_PLUGINS", "1")
+	if d := LoadDefaults(); !d.NoHelmPlugins {
+		t.Error("SANDBOXER_NO_HELM_PLUGINS=1 must set NoHelmPlugins")
+	}
+	t.Setenv("SANDBOXER_NO_HELM_PLUGINS", "")
+	if d := LoadDefaults(); d.NoHelmPlugins {
+		t.Error("unset SANDBOXER_NO_HELM_PLUGINS must stay off")
+	}
+}
+
 // TestProfilePiPackagesDecode: the `piPackages` field survives the strict
 // decode and the JSON snapshot.
 func TestProfilePiPackagesDecode(t *testing.T) {

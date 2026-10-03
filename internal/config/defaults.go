@@ -124,6 +124,11 @@ type Defaults struct {
 	// for registering the image's baked-in pi packages in a sandbox's pi
 	// settings — it wins over a profile's piPackages.
 	NoPiPackages bool
+	// NoHelmPlugins (SANDBOXER_NO_HELM_PLUGINS=1) is the operator kill-switch for
+	// linking the image's baked helm plugins into the sandbox home. Env-only by
+	// design — unlike the pi packages there is no profile field for it, so the
+	// switch never enters a session hash.
+	NoHelmPlugins bool
 	// NoPorts (SANDBOXER_NO_PORTS=1) drops every published port — the operator
 	// kill-switch for the one inbound path into a sandbox, alongside
 	// SANDBOXER_NO_EGRESS for the outbound one.
@@ -133,20 +138,21 @@ type Defaults struct {
 // LoadDefaults reads the SANDBOXER_* environment.
 func LoadDefaults() Defaults {
 	return Defaults{
-		Backend:      envOr("SANDBOXER_BACKEND", "microsandbox"),
-		Session:      os.Getenv("SANDBOXER_SESSION"),
-		Domains:      envOr("SANDBOXER_DOMAINS", DefaultDomains),
-		Image:        envOr("SANDBOXER_IMAGE", DefaultImage),
-		Proxy:        os.Getenv("SANDBOXER_PROXY"),
-		NoProxy:      os.Getenv("SANDBOXER_NO_PROXY"),
-		Mem:          os.Getenv("SANDBOXER_MEM"),
-		CPU:          os.Getenv("SANDBOXER_CPU"),
-		Disk:         os.Getenv("SANDBOXER_DISK"),
-		DockerDisk:   os.Getenv("SANDBOXER_DOCKER_DISK"),
-		Ports:        os.Getenv("SANDBOXER_PORTS"),
-		NoResume:     os.Getenv("SANDBOXER_NO_RESUME") == "1",
-		NoPiPackages: os.Getenv("SANDBOXER_NO_PI_PACKAGES") == "1",
-		NoPorts:      os.Getenv("SANDBOXER_NO_PORTS") == "1",
+		Backend:       envOr("SANDBOXER_BACKEND", "microsandbox"),
+		Session:       os.Getenv("SANDBOXER_SESSION"),
+		Domains:       envOr("SANDBOXER_DOMAINS", DefaultDomains),
+		Image:         envOr("SANDBOXER_IMAGE", DefaultImage),
+		Proxy:         os.Getenv("SANDBOXER_PROXY"),
+		NoProxy:       os.Getenv("SANDBOXER_NO_PROXY"),
+		Mem:           os.Getenv("SANDBOXER_MEM"),
+		CPU:           os.Getenv("SANDBOXER_CPU"),
+		Disk:          os.Getenv("SANDBOXER_DISK"),
+		DockerDisk:    os.Getenv("SANDBOXER_DOCKER_DISK"),
+		Ports:         os.Getenv("SANDBOXER_PORTS"),
+		NoResume:      os.Getenv("SANDBOXER_NO_RESUME") == "1",
+		NoPiPackages:  os.Getenv("SANDBOXER_NO_PI_PACKAGES") == "1",
+		NoHelmPlugins: os.Getenv("SANDBOXER_NO_HELM_PLUGINS") == "1",
+		NoPorts:       os.Getenv("SANDBOXER_NO_PORTS") == "1",
 	}
 }
 

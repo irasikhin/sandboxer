@@ -291,22 +291,48 @@ func TestImageBakesDockerDaemon(t *testing.T) {
 // podman-era fuse-overlayfs pin. kind bind-mounts /lib/modules read-only into
 // every node; the empty dir is created in fakeRootCommands as belt-and-braces.
 // k3d rides the same docker socket (DOCKER_HOST, brought up by docker-daemon).
-// The clients are what an agent drives the cluster with.
+// The clients are what an agent drives the cluster with — kubectl and its plugin
+// family, helm plus the helm workflow (helmfile/vals) and the GitOps CLIs
+// (argocd/flux/kubeseal) — and the validators answer questions about a manifest
+// or a cluster with no client at all.
 func TestImageBakesLocalKubernetes(t *testing.T) {
 	s := imageDefinition(t)
 	for _, want := range []string{
 		"kubectl", "kubernetes-helm", "kustomize", "kubeconform", "stern",
+		"helmfile", "vals", "kubecolor", "kubeseal", "kube-linter", "popeye", "pluto",
+		"argocd", "fluxcd",
 		"/lib/modules",
 	} {
 		if !strings.Contains(s, want) {
 			t.Errorf("images.nix missing local-kubernetes piece %q", want)
 		}
 	}
+	// Whole-line entries: a bare substring would pass on "kubectl" alone, which
+	// the pack already carries.
 	for _, re := range []string{
 		`(?m)^\s{8}kind$`, `(?m)^\s{8}k3d$`, `(?m)^\s{8}k9s$`, `(?m)^\s{8}kubectx$`,
+		`(?m)^\s{8}kubectl-tree$`, `(?m)^\s{8}rakkess$`, `(?m)^\s{8}kubectl-ktop$`,
+		`(?m)^\s{8}kubectl-view-secret$`, `(?m)^\s{8}kubectl-images$`,
 	} {
 		if !regexp.MustCompile(re).MatchString(s) {
 			t.Errorf("images.nix missing local-kubernetes package %q", re)
+		}
+	}
+}
+
+// TestImageBakesHelmPlugins guards the baked helm-diff plugin: helm has no
+// /etc-level plugin directory, so the image can only EXPOSE the plugin at the
+// stable path /etc/sandboxer/helm-plugins/ and the CLI links it into the sandbox
+// home (sandbox.EnsureHelmPlugins). Without the symlink helmfile's diff step
+// would need a network-reaching `helm plugin install` inside every sandbox.
+func TestImageBakesHelmPlugins(t *testing.T) {
+	s := imageDefinition(t)
+	for _, want := range []string{
+		"/etc/sandboxer/helm-plugins",
+		"kubernetes-helmPlugins.helm-diff",
+	} {
+		if !strings.Contains(s, want) {
+			t.Errorf("images.nix missing baked helm plugin piece %q", want)
 		}
 	}
 }

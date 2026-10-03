@@ -554,7 +554,7 @@ composes with scripts and CI.`,
 }
 
 // prepareHome readies the sandbox's private home before anything runs in the
-// sandbox (after EnsureHome), in the order the two steps require:
+// sandbox (after EnsureHome), in the order the steps require:
 //
 //  1. the host's agent configs are seeded when the profile opts in
 //     (hostConfigs = true) — copy-only, never-overwrite semantics live in
@@ -562,7 +562,11 @@ composes with scripts and CI.`,
 //  2. the image's baked-in pi augmentation (sandbox.EnsurePiPackages, then
 //     sandbox.EnsurePiModels), which MERGES into the files step 1 may just
 //     have seeded — hence second: registering first would leave the seed's
-//     never-overwrite rule to skip the host's own pi configuration.
+//     never-overwrite rule to skip the host's own pi configuration;
+//  3. the image's baked helm plugins (sandbox.EnsureHelmPlugins) — last
+//     because nothing orders it against the two above: it only ever creates a
+//     missing link in helm's plugin dir, and never reads a file an earlier step
+//     wrote.
 func prepareHome(t *target, rt config.Runtime, w io.Writer) {
 	if t.profile != nil && t.profile.HostConfigs {
 		t.base.SeedHome(t.slug, w)
@@ -570,6 +574,9 @@ func prepareHome(t *target, rt config.Runtime, w io.Writer) {
 	if rt.PiPackages {
 		t.base.EnsurePiPackages(t.slug, w)
 		t.base.EnsurePiModels(t.slug, w)
+	}
+	if rt.HelmPlugins {
+		t.base.EnsureHelmPlugins(t.slug, w)
 	}
 }
 

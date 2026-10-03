@@ -127,6 +127,28 @@ let
       $out/etc/sandboxer/pi-packages/agent-orchestrator
   '';
 
+  # helm plugins baked into the image, exposed at a STABLE guest path for the
+  # same reason piPackages is: the store path behind the plugin moves on every
+  # image bump, the sandbox home that names it does not.
+  #
+  # Unlike pi, helm cannot be told where to look from a system file: HELM_PLUGINS
+  # names ONE directory and its default is the user's own data dir
+  # (~/.local/share/helm/plugins) — there is no /etc-level plugin dir the image
+  # could drop a file into. So the image only SHIPS the plugin here and
+  # internal/sandbox/helmplugins.go links it into the sandbox home on
+  # create/enter/exec. Keep the leaf names in sync with sandbox.BakedHelmPlugins
+  # (the same literals on the Go side).
+  #
+  # helm-diff is the one helmfile shells out to for `helmfile diff`/`apply`, so
+  # baking it is what makes those commands work with zero setup — a
+  # `helm plugin install` inside a sandbox would need network and a writable
+  # plugin dir.
+  helmPlugins = pkgs.runCommand "sandboxer-helm-plugins" { } ''
+    mkdir -p $out/etc/sandboxer/helm-plugins
+    ln -s ${pkgs.kubernetes-helmPlugins.helm-diff}/helm-diff \
+      $out/etc/sandboxer/helm-plugins/helm-diff
+  '';
+
   # git with a sandbox-awareness guard. A managed source is a HOST worktree:
   # its .git is a pointer FILE whose gitdir names a host path that is not
   # mounted unless the source opted in with git = "ro"/"rw" (by default git
@@ -679,8 +701,14 @@ in
         # drive it. The clients — kubectl (the API), helm (charts), kustomize
         # (overlays), kubectx/kubens (context and namespace switching), stern
         # (multi-pod log tailing), kubeconform (schema-validate rendered
-        # manifests with no cluster at all) and k9s (the TUI) — plus the two
-        # runners:
+        # manifests with no cluster at all) and k9s (the TUI) — the helm
+        # workflow (helmfile renders a chart set, vals resolves the
+        # `${ref+…}` value/secret references it templates into), the GitOps
+        # clients (argocd, flux, kubeseal), the kubectl UX and plugin family
+        # (kubecolor, tree, ktop, view-secret, images), the standalone
+        # access-matrix CLI rakkess, and the
+        # cluster-free validators (kube-linter, popeye, pluto next to
+        # kubeconform) — plus the two runners:
         #
         # kind — nodes as privileged containers on the guest's own Docker
         #     daemon, which is kind's default provider (no env pins): the node
@@ -695,12 +723,14 @@ in
         #     module tree and needs none (the netfilter pieces kube-proxy
         #     programs are built into its kernel).
         #   k3d — k3s containers through the same Docker socket (DOCKER_HOST,
-        #     brought up by docker-daemon). NOT verified on the Docker engine
-        #     yet: a first attempt came up with the node Ready but kubelet
-        #     never finished pod setup ("failed to sync configmap cache"
-        #     timeouts, no overlay/mount errors — and the podman-era k3s
-        #     snapshotter pin changed nothing), so its real blocker is still
-        #     open.
+        #     brought up by docker-daemon). Measured on the Docker engine: the
+        #     node reaches Ready and every kube-system pod settles (the two
+        #     helm-install jobs Completed, the rest Running), and a workload
+        #     pulls from docker.io through k3s's containerd and runs. Caveat:
+        #     the guest kernel has no physdev iptables match, so k3s's
+        #     network-policy controller logs iptables-restore errors for
+        #     KUBE-ROUTER-FORWARD — cluster and workloads are unaffected, but
+        #     NetworkPolicy enforcement is unverified here.
         #
         # Image pulls ride the default egress allowlist. Large Docker Hub
         # layers can STALL in the guest on some networks (measured for
@@ -712,14 +742,57 @@ in
         # The host's docker or Kubernetes is never in reach: a node is a
         # container in the GUEST, on the guest's own kernel, and dies with the
         # machine.
+        #
+        # helmfile's diff step is helm-diff, which helm must find as an
+        # INSTALLED plugin in its plugin dir (HELM_PLUGINS or the home's
+        # ~/.local/share/helm/plugins). The image ships it at the stable path
+        # /etc/sandboxer/helm-plugins/ (helmPlugins above) and the CLI links it
+        # into the sandbox home on create/enter/exec
+        # (sandbox.EnsureHelmPlugins, killed by SANDBOXER_NO_HELM_PLUGINS=1), so
+        # `helmfile diff` and `helmfile apply` work with zero setup — no
+        # `helm plugin install` (which would need network and a writable plugin
+        # dir).
         kubectl
         kubernetes-helm
         kustomize
+        # the helm workflow: helmfile renders a chart set from a values/secrets
+        # hierarchy, vals is the value backend that resolves the `${ref+…}`
+        # references (Vault, cloud secret managers, plain env) in it
+        helmfile
+        vals
+        # GitOps clients: argocd and flux drive a cluster from a git repo;
+        # kubeseal turns a plaintext Secret into a SealedSecret the cluster-side
+        # controller decrypts
+        argocd
+        fluxcd
+        kubeseal
+        # kubectl UX and plugin family. Every kubectl-* binary lands on /bin,
+        # the image's whole PATH, which is the only thing kubectl's plugin
+        # lookup needs — and it also accepts the underscore spelling, so
+        # `kubectl view-secret` finds kubectl-view_secret (the name its package
+        # ships)
+        kubecolor
+        kubectl-tree
+        # rakkess — a standalone access-matrix CLI; its package ships no
+        # kubectl- prefixed binary (so it is `rakkess`, never `kubectl rakkess`)
+        rakkess
+        # `kubectl ktop` — nixpkgs' attr is kubectl-ktop (the deprecated `ktop`
+        # alias resolves to the same package and only adds a rename warning to
+        # every eval) and it ships both the ktop and kubectl-ktop binaries
+        kubectl-ktop
+        kubectl-view-secret
+        kubectl-images
         kind
         k3d
         kubectx
         stern
         kubeconform
+        # cluster-free validators, next to kubeconform: kube-linter (lint
+        # rendered manifests), popeye (score a LIVE cluster's resources) and
+        # pluto (deprecated/removed APIs a manifest or a cluster still uses)
+        kube-linter
+        popeye
+        pluto
         k9s
         # the multiplexer `enter` attaches (detach/reattach, wheel
         # scrolling, panes) — plus the terminfo it needs
@@ -741,6 +814,7 @@ in
         gitGuarded
         guestNss
         piPackages
+        helmPlugins
       ]
       ++ userFiles;
     config = {
