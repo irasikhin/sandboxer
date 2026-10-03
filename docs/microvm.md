@@ -72,12 +72,15 @@ baked into the image env — so **testcontainers** suites (Java/Go/Python) work
 with zero configuration; Ryuk is off because the disposable sandbox machine is
 the cleanup boundary. `docker compose` is the real Compose v2 (plus the
 hyphenated `docker-compose`). The same layer carries a **local Kubernetes**
-toolchain (kubectl/helm/kind/k3d/k9s/…) — kind runs on the default Docker
-provider with containerd's default snapshotter (no env pins; k3d is not
-re-verified yet) — see README §Local Kubernetes. Anything that expects the *host's*
-Docker API socket still
-won't find one: the mount set is the wall, and the only engine socket in the
-sandbox is the guest's own.
+toolchain (kubectl + its plugin family, helm + helmfile/vals with the helm-diff
+plugin baked in, the GitOps CLIs, kubeconform/kube-linter/popeye/pluto,
+kind/k3d/k9s) — kind runs on the default Docker provider with containerd's
+default snapshotter (no env pins; k3d boots k3s the same way — measured, minus
+NetworkPolicy, which the guest kernel's missing physdev match leaves
+unverified) — see
+README §Local Kubernetes. Anything that expects the *host's* Docker API socket
+still won't find one: the mount set is the wall, and the only engine socket in
+the sandbox is the guest's own.
 
 ## Requirements
 

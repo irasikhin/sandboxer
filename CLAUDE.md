@@ -244,11 +244,16 @@ was extracted from:
   containerd's snapshotter cannot mount there (EINVAL). The image's `docker-daemon` helper (idempotent,
   stale-socket safe) starts the daemon; the CLI runs it on create/start (backend.startDockerService) and
   prefixes exec/run. crun is NOT viable for docker on this kernel (moby always sets blockIO; the kernel has
-  no `io.max`) — runc is the runtime. The image also bakes a local-kubernetes pack (`kubectl`, helm,
-  kustomize, kind, k3d, k9s, kubectx, stern, kubeconform): kind runs on its default docker provider with
+  no `io.max`) — runc is the runtime. The image also bakes a local-kubernetes pack: `kubectl` with its plugin
+  family (kubecolor/tree/ktop/view-secret/images), standalone rakkess, helm, kustomize, kind, k3d, k9s,
+  kubectx, stern, the validators kubeconform/kube-linter/popeye/pluto, the GitOps CLIs argocd/flux/kubeseal,
+  and the helm workflow (helmfile + vals, whose diff step is the helm-diff plugin baked at
+  `/etc/sandboxer/helm-plugins` and linked into the sandbox home by `sandbox.EnsureHelmPlugins`; kill switch
+  `SANDBOXER_NO_HELM_PLUGINS=1`). kind runs on its default docker provider with
   containerd's default snapshotter — no `KIND_EXPERIMENTAL_*` env (measured: control-plane Ready, all 9
-  kube-system pods Running) — and `/lib/modules` stays as belt-and-braces; k3d is NOT re-verified on the
-  docker engine (node Ready, pods stuck in volume sync, unchanged by `--snapshotter=native`). Large Docker
+  kube-system pods Running) — and `/lib/modules` stays as belt-and-braces; k3d boots k3s on the same
+  docker engine (measured: node Ready, all kube-system pods Running, a workload pulls and runs) —
+  NetworkPolicy is left unverified because the guest kernel has no `physdev` iptables match. Large Docker
   Hub layers can stall in the guest on some networks (measured: kindest/node, rancher/k3s) — `mirror.gcr.io`
   (in the defaults) is the workaround. `registry.k8s.io` joined `config.DefaultDomains` so the usual cluster
   addons (metrics-server, ingress-nginx) install under the allowlist — NOT for the cluster boot, which uses
