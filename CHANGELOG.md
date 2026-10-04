@@ -6,6 +6,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.101.0] — 2026-10-04
+
+### Added
+
+- bake helmfile, GitOps clients and the helm-diff plugin (bdb06b4)
+- raise the default root disk to 40G and the Docker volume to 60G (64fa479)
+
+
 ## [0.100.1] — 2026-09-29
 
 ### Tests
@@ -1608,3 +1616,4 @@ isolated, containerized dev sandbox, on a local Linux machine:
 [0.99.0]: https://github.com/irasikhin/sandboxer/compare/v0.98.3...v0.99.0
 [0.100.0]: https://github.com/irasikhin/sandboxer/compare/v0.99.0...v0.100.0
 [0.100.1]: https://github.com/irasikhin/sandboxer/compare/v0.100.0...v0.100.1
+[0.101.0]: https://github.com/irasikhin/sandboxer/compare/v0.100.1...v0.101.0
