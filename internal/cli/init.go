@@ -207,7 +207,7 @@ func starterProfile(name string, d config.Defaults) string {
   # Resource caps (empty = the microVM default size): memory/cpus/disk, plus
   # dockerDisk — the ext4 volume at /var/lib/docker the nested Docker engine
   # stores images and containers in.
-  # limits = { memory = "4G"; cpus = "2"; disk = "20G"; dockerDisk = "20G"; };
+  # limits = { memory = "4G"; cpus = "2"; disk = "40G"; dockerDisk = "60G"; };
 
   # A PREBUILT image for this profile (optional) — a pinned release of the
   # stock toolbox, or your own published image; pulled and cached on first

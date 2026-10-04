@@ -654,7 +654,8 @@ func vmPortsPreflightExcept(o RunOpts, exempt map[string]bool) error {
 // it: a fractional CPU count (the runner accepts only a whole number of vCPUs,
 // and rounding up changes what the user asked for), an unparseable memory cap
 // (silently becoming 4 GiB is worse than an error) and an unparseable
-// root-disk or docker-disk size (silently becoming 20G is worse than an error).
+// root-disk or docker-disk size (silently becoming the default size is worse
+// than an error).
 func vmLimitsPreflight(o RunOpts) error {
 	if cpus := cpusFromQuota(o.CPU); cpus != "" {
 		n, err := strconv.ParseFloat(cpus, 64)
@@ -700,20 +701,24 @@ const (
 // vmDefaultRootDisk is the root-disk size every machine gets when the profile
 // sets no limit. The workload — agents pulling images, building in the guest —
 // easily exceeds microsandbox's 4G default, and the root disk is a SPARSE ext4
-// image (upper.ext4), so a large default costs almost nothing until the guest
-// actually writes. A profile lowers or raises it via `limits.disk` /
-// SANDBOXER_DISK.
-const vmDefaultRootDisk = "20G"
+// image (upper.ext4, measured: a 6G upper takes ~1.6 MiB at rest), so a large
+// default costs host space only as the guest writes. 40G leaves headroom for
+// the writable root layer plus /tmp and /var/tmp, which die with the machine.
+// A profile lowers or raises it via `limits.disk` / SANDBOXER_DISK.
+const vmDefaultRootDisk = "40G"
 
 // vmDefaultDockerDisk is the size of the ext4 volume every machine gets
 // mounted at /var/lib/docker when the profile sets no limit — the nested
 // Docker engine's data-root. Docker's overlay storage cannot live on the
 // guest's overlayfs root (measured: containerd's snapshotter mount fails with
 // EINVAL there), so the data-root is a dedicated volume msb owns. Like the
-// root disk it is SPARSE on the host until the guest actually writes, and it
-// dies with the machine. A profile resizes it via `limits.dockerDisk` /
+// root disk it is SPARSE on the host until the guest actually writes (a 60G
+// volume allocates ~5 MiB at rest), and it dies with the machine. 60G covers
+// images, container layers, the BuildKit cache and kind/k3d nodes — a full
+// StarRocks stand alone needs >25 GB under /var/lib/docker, which the old 20G
+// default could not hold. A profile resizes it via `limits.dockerDisk` /
 // SANDBOXER_DOCKER_DISK.
-const vmDefaultDockerDisk = "20G"
+const vmDefaultDockerDisk = "60G"
 
 // parseMemMiB is vmMemMiB's core: the MiB value of a container-style memory cap
 // ("2G", "512M", a raw byte count), with ok=false for anything unparseable.

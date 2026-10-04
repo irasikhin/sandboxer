@@ -60,7 +60,7 @@ was extracted from:
   migration errors in `ValidateBackend`; the `vmRunner` seam went with them). Layout: `msb.go` = the argv
   dialect (pure builders, golden-tested without a hypervisor: create/exec/run, `msbNetworkArgs`,
   `--secret`/auth-env, preflights — /tmp shares, file mounts, fractional/unparseable limits — with the
-  machine size `-m`/`-c`/`--root-disk` (default 20G root disk via `limits.disk`/`SANDBOXER_DISK`) part
+  machine size `-m`/`-c`/`--root-disk` (default 40G root disk via `limits.disk`/`SANDBOXER_DISK`) part
   of the hashed argv) + the msb image-store handoff;
   `vm_session.go` = the lifecycle over the pure `planSession` policy + sweeps; `vm_state.go` = the host-side
   records at `<state>/machines/microsandbox/<name>.json` (SOURCE OF TRUTH; msb labels are discoverability only,
@@ -240,7 +240,7 @@ was extracted from:
   `moby` (dockerd; its nixpkgs wrapper bundles containerd/runc/docker-proxy/docker-init and prefixes its own
   PATH), `docker-compose`/`docker-buildx` on the client's plugin path (`DOCKER_CLI_PLUGIN_DIRS`). The daemon
   data-root is an OWNED ext4 volume at `/var/lib/docker` (`--mount-owned … kind=disk` in the create argv;
-  `limits.dockerDisk` / `SANDBOXER_DOCKER_DISK`, default 20G) — the guest root is an overlayfs and
+  `limits.dockerDisk` / `SANDBOXER_DOCKER_DISK`, default 60G) — the guest root is an overlayfs and
   containerd's snapshotter cannot mount there (EINVAL). The image's `docker-daemon` helper (idempotent,
   stale-socket safe) starts the daemon; the CLI runs it on create/start (backend.startDockerService) and
   prefixes exec/run. crun is NOT viable for docker on this kernel (moby always sets blockIO; the kernel has

@@ -44,8 +44,8 @@ func TestMSBCreateArgv(t *testing.T) {
 		"-e", "TESTCONTAINERS_RYUK_DISABLED=true",
 		"-e", "HOME=/d/.home", "-v", "/d/.home:/d/.home:quota=4294967295",
 		"-m", "2048M", "-c", "2",
-		"--root-disk", "20G",
-		"--mount-owned", "/var/lib/docker:kind=disk,size=20G",
+		"--root-disk", "40G",
+		"--mount-owned", "/var/lib/docker:kind=disk,size=60G",
 		"img:1",
 	}
 	if !slices.Equal(got, want) {
@@ -57,24 +57,24 @@ func TestMSBCreateArgv(t *testing.T) {
 }
 
 // TestMSBCreateArgvDisk pins the root-disk knob: RunOpts.Disk (limits.disk /
-// SANDBOXER_DISK) feeds msb's --root-disk in place of the 20G default.
+// SANDBOXER_DISK) feeds msb's --root-disk in place of the 40G default.
 func TestMSBCreateArgvDisk(t *testing.T) {
 	o := RunOpts{
-		MountDest: true, Image: "img:1", Dest: "/d", Slug: "s", Disk: "40G",
+		MountDest: true, Image: "img:1", Dest: "/d", Slug: "s", Disk: "80G",
 		Stdin: strings.NewReader(""), Stdout: &bytes.Buffer{},
 	}
 	got := msbCreateArgv(o, "n", "h")
-	if i := slices.Index(got, "--root-disk"); i < 0 || i+1 >= len(got) || got[i+1] != "40G" {
-		t.Errorf("msbCreateArgv with Disk=40G = %q, want --root-disk 40G", got)
+	if i := slices.Index(got, "--root-disk"); i < 0 || i+1 >= len(got) || got[i+1] != "80G" {
+		t.Errorf("msbCreateArgv with Disk=80G = %q, want --root-disk 80G", got)
 	}
-	if strings.Contains(strings.Join(got, " "), "--root-disk 20G") {
-		t.Errorf("Disk=40G must not carry the default root disk: %q", got)
+	if strings.Contains(strings.Join(got, " "), "--root-disk 40G") {
+		t.Errorf("Disk=80G must not carry the default root disk: %q", got)
 	}
 }
 
 // TestMSBCreateArgvDockerDisk pins the Docker data-volume knob:
 // RunOpts.DockerDisk (limits.dockerDisk / SANDBOXER_DOCKER_DISK) sizes the owned
-// ext4 volume msb mounts at /var/lib/docker in place of the 20G default.
+// ext4 volume msb mounts at /var/lib/docker in place of the 60G default.
 func TestMSBCreateArgvDockerDisk(t *testing.T) {
 	o := RunOpts{
 		MountDest: true, Image: "img:1", Dest: "/d", Slug: "s", DockerDisk: "40G",
@@ -85,7 +85,7 @@ func TestMSBCreateArgvDockerDisk(t *testing.T) {
 	if !strings.Contains(strings.Join(got, " "), want) {
 		t.Errorf("msbCreateArgv with DockerDisk=40G = %q, want %q", got, want)
 	}
-	if strings.Contains(strings.Join(got, " "), "size=20G") {
+	if strings.Contains(strings.Join(got, " "), "size=60G") {
 		t.Errorf("DockerDisk=40G must not carry the default docker disk: %q", got)
 	}
 }
@@ -372,7 +372,7 @@ func TestMSBRunArgv(t *testing.T) {
 		t.Errorf("run argv tail = %q", tail)
 	}
 	// The one-shot run shares msbCommonArgs, so it carries the root disk too.
-	if j := strings.Join(got, " "); !strings.Contains(j, "--root-disk 20G") {
+	if j := strings.Join(got, " "); !strings.Contains(j, "--root-disk 40G") {
 		t.Errorf("run argv missing the default root disk: %q", got)
 	}
 }
