@@ -273,7 +273,7 @@ toolbox image ships the **real Docker engine** (daemon + client), running
 natively against the guest kernel (full uid range, no opt-in — the old
 `nestedContainers` key is retired). Its data-root is a dedicated ext4 volume
 at `/var/lib/docker` (`limits.dockerDisk` / `SANDBOXER_DOCKER_DISK`, default
-20G) because the guest root is an overlayfs. Anything that expects the
+60G) because the guest root is an overlayfs. Anything that expects the
 *host's* Docker API socket won't find one; inside the guest, tools talk to
 the guest's own daemon — which serves `/var/run/docker.sock` (started by the
 image's `docker-daemon` helper on boot and before every exec/run), so
@@ -314,7 +314,7 @@ duplicated — plus a small private `_home/<slug>`. The big cost is shared, not
 per-sandbox: the toolbox image exists once in msb's store (pulled prebuilt —
 plus, for locally built images, once as a build tar in `<state>/images/`),
 reused by every sandbox; `sandboxer image rm` reclaims both. The guest's own
-root disk is 20 GiB by default (sparse — it takes host space only as the
+root disk is 40 GiB by default (sparse — it takes host space only as the
 guest writes; msb's default is 4 GiB, which in-guest image pulls exceed);
 raise or lower it with `limits.disk` / `SANDBOXER_DISK`. Note that it is
 recreated with the machine (any config change), so keep durable data in the

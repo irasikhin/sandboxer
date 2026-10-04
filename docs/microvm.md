@@ -62,7 +62,7 @@ working against the guest's own kernel with a full uid range — no opt-in
 (`nestedContainers` is a retired key), no seccomp widening, no subuid grants.
 The daemon's data-root is a dedicated ext4 volume at `/var/lib/docker` the
 backend mounts (`--mount-owned … kind=disk`, sized by `limits.dockerDisk` /
-`SANDBOXER_DOCKER_DISK`, default 20G), because the guest root is itself an
+`SANDBOXER_DOCKER_DISK`, default 60G), because the guest root is itself an
 overlayfs and Docker's overlay storage needs a real filesystem. The image's
 `docker-daemon` helper starts the daemon when the machine BOOTS
 (backend.startDockerService, so a headless `exec` finds it too — not just the
@@ -254,10 +254,12 @@ Rejected — with the reason — under `backend = "microsandbox"`:
   share analogue; mount a directory that holds the file instead.
 - shares under `/tmp`, and a too-deep `MSB_HOME` — see Requirements.
 
-Default machine size is **2 vCPU / 4 GiB / 20 GiB root disk** (deliberately
-modest: the workload is several agents in parallel. The root disk is a sparse
-image, so the larger default costs almost nothing until the guest writes);
-raise it with `limits.memory` / `limits.cpus` / `limits.disk`.
+Default machine size is **2 vCPU / 4 GiB / 40 GiB root disk / 60 GiB Docker
+volume** (deliberately modest: the workload is several agents in parallel,
+and a full stand — images, BuildKit cache, kind nodes — can need tens of GB
+under `/var/lib/docker`. Both disks are sparse images, so a larger default
+costs host space only as the guest writes); raise it with `limits.memory` /
+`limits.cpus` / `limits.disk` / `limits.dockerDisk`.
 
 ## Migration status
 

@@ -158,16 +158,38 @@ enter/exec.
 ### Resource limits
 
 ```nix
-limits = { memory = "8G"; cpus = 4; disk = "40G"; };
+limits = { memory = "8G"; cpus = 4; disk = "40G"; dockerDisk = "60G"; };
 ```
 
-Defaults are 2 vCPU / 4 GiB / 20 GiB root disk. `cpus` takes a whole vCPU
-count or a systemd-style quota (`200%`); fractional counts and unparseable
-sizes are rejected up front rather than silently rounded. The 20 GiB root
-disk is a sparse image: it costs host space only as the guest writes. A
-microVM has no swap, so the memory cap is a hard ceiling: a workload that
-exceeds it is OOM-killed with a bare `Killed`. See
+Defaults are 2 vCPU / 4 GiB / 40 GiB root disk / 60 GiB Docker volume.
+`cpus` takes a whole vCPU count or a systemd-style quota (`200%`);
+fractional counts and unparseable sizes are rejected up front rather than
+silently rounded. Both disks are sparse images: they cost host space only as
+the guest writes. A microVM has no swap, so the memory cap is a hard ceiling:
+a workload that exceeds it is OOM-killed with a bare `Killed`. See
 [docs/troubleshooting.md](./docs/troubleshooting.md#a-process-inside-the-sandbox-dies-with-killed).
+
+Where things live — pick the tier by how much the data is worth:
+
+- **root disk** — the guest `/`, plus `/tmp` and `/var/tmp`: OS scratch.
+  Sized by `limits.disk` / `SANDBOXER_DISK` (default 40 GiB); dies with the
+  machine.
+- **Docker volume** — `/var/lib/docker`: images, container layers, BuildKit
+  cache, kind/k3d nodes. Sized by `limits.dockerDisk` /
+  `SANDBOXER_DOCKER_DISK` (default 60 GiB); dies with the machine — a recreate
+  starts it EMPTY.
+- **host shares** — `/work` sources, `$HOME`, rw `extraMounts`: host disk,
+  uncapped by the VM, survives a recreate.
+
+Disk-intensive but disposable work (pulled images, build cache, cluster
+nodes) belongs on the Docker volume; big or valuable data (datasets,
+databases) belongs in a rw `extraMounts` host dir. Package caches (Go, npm,
+Maven) already land in `$HOME`, which is a host share.
+
+Machine sizes are part of the create argv, hence the session hash: changing a
+limit — or upgrading across a default change — marks existing sessions stale.
+The next enter rebuilds the machine, so the root disk and the Docker volume
+start fresh.
 
 Host shares (sources, `$HOME`, rw `extraMounts`) are **not** capped by
 microsandbox's 4 GiB protective per-mount guest-write quota: sandboxer raises
@@ -282,7 +304,7 @@ The image ships the **real Docker engine** (dockerd + client), so
 natively against the guest's own kernel: full uid range, no opt-in, no
 seccomp/subuid machinery, no engine socket from the host. Its data-root is a
 dedicated ext4 volume at `/var/lib/docker` (`limits.dockerDisk` /
-`SANDBOXER_DOCKER_DISK`, default 20G) because the sandbox root is itself an
+`SANDBOXER_DOCKER_DISK`, default 60G) because the sandbox root is itself an
 overlayfs — Docker's overlay storage needs a real filesystem. The daemon
 starts automatically on create/enter/exec and serves
 `/var/run/docker.sock` with `DOCKER_HOST` set, so testcontainers suites run
