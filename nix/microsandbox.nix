@@ -57,7 +57,9 @@ stdenv.mkDerivation {
   inherit version;
 
   src = fetchurl {
-    url = "https://github.com/microsandbox/microsandbox/releases/download/v${version}/${plat.asset}";
+    # Upstream moved from github.com/microsandbox/microsandbox to the
+    # superradcompany org (old path redirects; the new one is canonical).
+    url = "https://github.com/superradcompany/microsandbox/releases/download/v${version}/${plat.asset}";
     inherit (plat) hash;
   };
 
