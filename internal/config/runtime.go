@@ -39,6 +39,11 @@ type Runtime struct {
 	// SANDBOXER_NO_PI_PACKAGES=1). Like AutoResume, not part of the create
 	// argv, so it never affects the session ConfigHash.
 	PiPackages bool
+	// HelmPlugins registers the toolbox image's baked helm plugins in the
+	// sandbox home (killed by SANDBOXER_NO_HELM_PLUGINS=1). Like AutoResume and
+	// PiPackages it is host-side home preparation only — not part of the create
+	// argv, so it never affects the session ConfigHash.
+	HelmPlugins bool
 	// Ports are the resolved host→guest forwards (profile ports / --port,
 	// killed by SANDBOXER_NO_PORTS=1). UNLIKE AutoResume and PiPackages these
 	// DO enter the create argv — both the `-p` forwards and the ingress rules
@@ -152,6 +157,8 @@ func ResolveRuntime(p *Profile, d Defaults, baseDomains string, f Overrides) (Ru
 	rt.AutoResume = !d.NoResume && p.AutoResumeEnabled()
 	// Same shape again for the baked-in pi packages.
 	rt.PiPackages = !d.NoPiPackages && p.PiPackagesEnabled()
+	// And for the baked helm plugins, which are env-only (no profile field).
+	rt.HelmPlugins = !d.NoHelmPlugins
 
 	// Resource caps: a profile's limits: overrides the SANDBOXER_MEM/SANDBOXER_CPU
 	// /SANDBOXER_DISK/SANDBOXER_DOCKER_DISK env defaults.

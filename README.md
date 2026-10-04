@@ -187,6 +187,7 @@ Scalars come from flags and `SANDBOXER_*` env vars:
 | disable port forwards | — | `SANDBOXER_NO_PORTS=1` |
 | disable agent auto-resume | — | `SANDBOXER_NO_RESUME=1` |
 | disable baked-in pi packages | — | `SANDBOXER_NO_PI_PACKAGES=1` |
+| disable baked helm plugins | — | `SANDBOXER_NO_HELM_PLUGINS=1` |
 | skip auto-scaffold | — | `SANDBOXER_NO_SCAFFOLD=1` |
 | msb binary | — | `SANDBOXER_MSB` (default: `msb` from `PATH`) |
 | image | — | `SANDBOXER_IMAGE` (default: the prebuilt toolbox image) |
@@ -293,16 +294,27 @@ it from the `mirror.gcr.io` mirror the defaults already allow instead.
 
 ## Local Kubernetes
 
-The image ships a full local-cluster toolchain — `kubectl`, `helm`,
-`kustomize`, `kind`, `k3d`, `k9s`, `kubectx`/`kubens`, `stern` and
-`kubeconform` — so a sandbox can boot its own cluster instead of reaching for
-the host's:
+The image ships a full local-cluster toolchain — `kubectl` with its plugin
+family (`kubectx`/`kubens`, `kubecolor`, `kubectl tree`, the standalone
+`rakkess`, `kubectl ktop`, `kubectl view-secret`, `kubectl images`), `helm` +
+`helmfile`/`vals` (with the **helm-diff plugin baked in**), `kustomize`, the
+GitOps clients (`argocd`, `flux`, `kubeseal`), `stern`, the cluster-free
+validators (`kubeconform`, `kube-linter`, `popeye`, `pluto`) and `k9s` — so a
+sandbox can boot its own cluster instead of reaching for the host's:
 
 ```bash
 kind create cluster          # single-node k8s on the guest's Docker (kind's default provider)
 k3d cluster create dev       # k3s, through the same Docker socket
-helm install ...             # then drive it with the usual clients
+helmfile diff                # helm workflow: helm-diff is baked in, no `helm plugin install`
+helmfile apply
+kube-linter lint ./manifests # and the validators answer without a cluster at all
 ```
+
+`helmfile diff` and `helmfile apply` work out of the box: the image ships the
+`helm-diff` plugin and `sandboxer` links it into the sandbox home on every
+create/enter/exec, so no `helm plugin install` (which would need network and a
+writable plugin dir) is ever needed. A plugin the sandbox home already has is
+never replaced; `SANDBOXER_NO_HELM_PLUGINS=1` disables the linking entirely.
 
 Both runners drive the **guest's own Docker daemon**: kind through its
 default docker provider (no env pins), k3d through the docker-compatible API
@@ -314,11 +326,12 @@ reach. The Docker data volume fixed the old overlayfs limitation: with the
 data-root on a real ext4 volume, containerd's default overlayfs snapshotter
 works, so **kind needs no `--snapshotter` pin or `KIND_EXPERIMENTAL_*` env at
 all** (measured: control-plane Ready, all nine kube-system pods Running).
-**k3d is not re-verified on the Docker engine yet**: the node comes up Ready
-but pod setup stalls in volume sync, unchanged by the old
-`--snapshotter=native` workaround — treat it as experimental until measured
-again. A Docker Hub node image that stalls can be pulled from the
-`mirror.gcr.io` mirror instead:
+**k3d boots k3s the same way** (measured on the guest's Docker: node Ready in
+about a minute, all kube-system pods Running, a workload pulls from docker.io
+and runs). One caveat: the guest kernel has no `physdev` iptables match, so
+k3s's network-policy controller logs iptables-restore errors — NetworkPolicy
+enforcement in k3d is unverified. A Docker Hub node image that stalls can be
+pulled from the `mirror.gcr.io` mirror instead:
 
 ```bash
 kind create cluster --image mirror.gcr.io/kindest/node:<tag>
