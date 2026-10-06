@@ -53,8 +53,10 @@ func TestWriteContext(t *testing.T) {
 	// and so carry no lock), and a missing one fails the build inside the
 	// builder, far from here.
 	for _, dir := range vendored {
-		if dir == "dsh-plugins" {
-			continue // a tree of plugin dirs, asserted below
+		// dsh-plugins is a tree of plugin dirs (asserted below) and garden is a
+		// fetchurl repackaging with no npm install, so neither carries a lockfile.
+		if dir == "dsh-plugins" || dir == "garden" {
+			continue
 		}
 		files = append(files, dir+"/package.nix", dir+"/package-lock.json")
 	}

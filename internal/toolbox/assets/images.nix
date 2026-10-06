@@ -233,6 +233,43 @@ let
       --add-flags "-jar $out/opt/pkl/jpkl.jar"
   '';
 
+  # The standard dynamic-loader paths, for binaries the nix store does NOT
+  # own. A nix-patched ELF never asks for this path (its interpreter is a
+  # store path), but a FOREIGN dynamically-linked binary — garden's
+  # self-extracted node runtime, a krew-installed kubectl plugin — names
+  # /lib64/ld-linux-x86-64.so.2 (x86_64) or /lib/ld-linux-aarch64.so.1
+  # (aarch64), and the image has neither. Those interpreters resolve libc/
+  # libm/… from their own store system-dirs, so the interpreter path is the
+  # ONLY thing missing here — which is why one symlink is enough. glibc is
+  # named explicitly rather than via pkgs.glibcLocales etc.: this IS the
+  # loader the compat path must point at.
+  loaderCompat = pkgs.runCommand "foreign-loader-compat" { } (
+    if pkgs.stdenv.hostPlatform.isx86_64 then
+      ''
+        mkdir -p $out/lib64 $out/lib
+        ln -s ${pkgs.glibc}/lib64/ld-linux-x86-64.so.2 $out/lib64/ld-linux-x86-64.so.2
+        ln -s ${pkgs.glibc}/lib/ld-linux-x86-64.so.2 $out/lib/ld-linux-x86-64.so.2
+      ''
+    else if pkgs.stdenv.hostPlatform.isAarch64 then
+      ''
+        mkdir -p $out/lib
+        ln -s ${pkgs.glibc}/lib/ld-linux-aarch64.so.1 $out/lib/ld-linux-aarch64.so.1
+      ''
+    else
+      throw "sandboxer: no loader-compat paths for ${pkgs.stdenv.hostPlatform.system}"
+  );
+
+  # The garden CLI on PATH. The launcher itself is nix-patched (see
+  # assets/garden/package.nix), but the node runtime it EXTRACTS on first run
+  # is a generic foreign ELF: libstdc++ (the gcc lib output) is not among the
+  # loader's own system dirs, so it must arrive via LD_LIBRARY_PATH. --prefix,
+  # not --set: a caller's own LD_LIBRARY_PATH keeps winning.
+  gardenCli = pkgs.runCommand "garden-cli" { nativeBuildInputs = [ pkgs.makeWrapper ]; } ''
+    mkdir -p $out/bin
+    makeWrapper ${pkgs.garden}/bin/garden $out/bin/garden \
+      --prefix LD_LIBRARY_PATH : ${pkgs.stdenv.cc.cc.lib}/lib
+  '';
+
   # `pip` that explains itself. The baked interpreter lives in the read-only
   # nix store, so pip cannot install into it — and nixpkgs' python does not
   # ship pip at all, which leaves an agent with "command not found" (or "No
@@ -262,6 +299,22 @@ let
     mkdir -p $out/usr/libexec/docker/cli-plugins
     ln -s ${pkgs.docker-compose}/bin/docker-compose $out/usr/libexec/docker/cli-plugins/docker-compose
     ln -s ${pkgs.docker-buildx}/bin/docker-buildx $out/usr/libexec/docker/cli-plugins/docker-buildx
+  '';
+
+  # The plugin SPELLINGS kubectl's lookup actually asks for. For a dashed
+  # subcommand kubectl rewrites every `-` in the name to `_` before searching
+  # PATH (measured on 1.37: `kubectl view-allocations` looks for
+  # kubectl-view_allocations), and krew is not a kubectl-* binary at all — its
+  # package ships only `krew` — so both spellings would answer "unknown
+  # command" even though the packages are baked. kubectl-view-secret's own
+  # package already follows the convention (it ships kubectl-view_secret),
+  # which is why only these two need an alias. Symlinks, not copies: the
+  # wrapped binaries stay the ones the packages built.
+  kubectlAliases = pkgs.runCommand "kubectl-aliases" { } ''
+    mkdir -p $out/bin
+    ln -s ${pkgs.kubectl-view-allocations}/bin/kubectl-view-allocations \
+      $out/bin/kubectl-view_allocations
+    ln -s ${pkgs.krew}/bin/krew $out/bin/kubectl-krew
   '';
 
   # testcontainers & friends talk to a docker-compatible API SOCKET, never a
@@ -798,6 +851,142 @@ in
         # scrolling, panes) — plus the terminfo it needs
         tmux
         ncurses
+        # k8s inner-loop pack: the dev-LOOP CLIs — the counterpart to the
+        # local-kubernetes pack above, which declares a cluster and drives it
+        # from outside. These build/run/watch against one. tilt, devspace and
+        # skaffold live-update a running container from an edit (no rebuild,
+        # no redeploy); telepresence2, okteto and mirrord bridge a process
+        # running in this sandbox into the cluster's network and DNS, so it
+        # reaches cluster services by name; devpod is containerized dev
+        # environments (a devcontainer definition, run on the guest's own
+        # docker). garden is deliberately NOT here: it is not in nixpkgs, so
+        # the vendored gardenCli in the second contents list below provides it.
+        #
+        # The kubectl augmentations, one clause each:
+        #   kubectl-neat — strips the server-side noise (status, uid,
+        #     resourceVersion, injected defaults) from a fetched manifest.
+        #   kubectl-view-allocations — ranks pods/nodes by requests vs limits
+        #     against node capacity. Its package ships only the hyphen name,
+        #     so the kubectlAliases derivation (second contents list) adds the
+        #     kubectl-view_allocations spelling kubectl's lookup asks for.
+        #   kubectl-explore — explains a manifest field from the live API's
+        #     own schema (no docs tab needed).
+        #   kubectl-doctor — triages a broken pod: its events, logs and
+        #     container state in one command.
+        #   kubectl-validate — the kubernetes-sigs schema validator (the
+        #     successor to kubectl's own --validate), next to kubeconform.
+        #   kubectl-node-shell — a root shell on a node (nsenter into the
+        #     node's namespaces) — in here that is a kind/k3d node container.
+        #   kubedog — watches a deployment's rollout until it converges.
+        #   kubetail — follows several pods' logs at once, merged.
+        #   kubefwd — bulk-forwards every service of a namespace to localhost.
+        #   kubecm — kubeconfig/context housekeeping (merge, switch, rename).
+        #   krew — installs further plugins. Its package ships only `krew`,
+        #     so kubectlAliases (second contents list) adds kubectl-krew for
+        #     the `kubectl krew` spelling. A krew-installed plugin is a
+        #     FOREIGN dynamically-linked binary the nix store does not own, so
+        #     it names a loader that only exists via loaderCompat (below).
+        #   kube-score — scores a manifest against best practices.
+        #   kubeaudit — audits a manifest or a cluster's security posture.
+        #   chainsaw — the declarative e2e test runner for operators/CRDs.
+        #   helm-docs — renders a chart's docs from values.yaml + templates.
+        #   nova — checks a chart for newer versions of what it pins.
+        tilt
+        devspace
+        skaffold
+        telepresence2
+        okteto
+        mirrord
+        devpod
+        kubectl-neat
+        kubectl-view-allocations
+        kubectl-explore
+        kubectl-doctor
+        kubectl-validate
+        kubectl-node-shell
+        kubedog
+        kubetail
+        kubefwd
+        kubecm
+        krew
+        kube-score
+        kubeaudit
+        chainsaw
+        helm-docs
+        nova
+        # modern terminal pack: the popular replacements a developer expects
+        # on a modern box — the image's own UX, not another build tool. Grouped
+        # as the entries are listed: ls/cd/file navigation (eza, zoxide, broot,
+        # yazi); resource monitoring (btop, bottom, procs, dust, duf, bandwhich,
+        # gping, trippy, mtr — the gold standard next to the plain traceroute
+        # above — and doggo, next to dig); text/data (glow, gron, dasel, miller
+        # — the `mlr` CSV/TSV/JSON swiss army, csvlens, htmlq, hexyl, ouch, sd,
+        # hyperfine, tealdeer — the `tldr` binary, the Rust client — navi,
+        # atuin, watchexec); HTTP (xh, curlie, websocat); task and
+        # dev env (just, go-task, direnv, mprocs); git/container
+        # (lazygit, lazydocker, dive, ctop, skopeo, crane); repo quality
+        # (git-cliff, act, pre-commit, shfmt, typos, hadolint, gitleaks); system
+        # info (onefetch, pfetch); secrets (sops, age, gnupg — signed commits
+        # and decryption need gpg); database (pgcli, the postgres counterpart to
+        # sqlite above); fuzzy finding (television); JSON (fx,
+        # jnv).
+        eza
+        zoxide
+        broot
+        yazi
+        btop
+        bottom
+        procs
+        dust
+        duf
+        bandwhich
+        gping
+        trippy
+        mtr
+        doggo
+        glow
+        gron
+        dasel
+        miller
+        csvlens
+        htmlq
+        hexyl
+        ouch
+        sd
+        hyperfine
+        tealdeer
+        navi
+        atuin
+        watchexec
+        xh
+        curlie
+        websocat
+        just
+        go-task
+        direnv
+        mprocs
+        lazygit
+        lazydocker
+        dive
+        ctop
+        skopeo
+        crane
+        git-cliff
+        act
+        pre-commit
+        shfmt
+        typos
+        hadolint
+        gitleaks
+        pfetch
+        onefetch
+        sops
+        age
+        gnupg
+        pgcli
+        television
+        fx
+        jnv
       ])
       ++ agentPkgs
       ++ toolPkgs
@@ -806,6 +995,7 @@ in
         gitConfig
         tmuxConf
         dockerPlugins
+        kubectlAliases
         jdkBin
         pklCli
         pipHint
@@ -815,6 +1005,11 @@ in
         guestNss
         piPackages
         helmPlugins
+        # garden (the wrapped CLI) and the standard loader paths its
+        # self-extracted node runtime needs — deliberately HERE, not in the
+        # k8s pack above, which must not get the unwrapped pkgs.garden.
+        gardenCli
+        loaderCompat
       ]
       ++ userFiles;
     config = {

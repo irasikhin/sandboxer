@@ -37,6 +37,10 @@
         # pi's multi-agent orchestration package, baked in and registered in
         # every sandbox's pi settings by default (sandbox.EnsurePiPackages).
         pi-agent-orchestrator = final.callPackage ./internal/toolbox/assets/pi-orchestrator/package.nix { };
+        # Garden CLI (garden.io), also not in nixpkgs: the upstream release
+        # binary, wrapped by images.nix with the loader compatibility its
+        # self-extracted node runtime needs.
+        garden = final.callPackage ./internal/toolbox/assets/garden/package.nix { };
       };
     in
     {

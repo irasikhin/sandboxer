@@ -399,3 +399,66 @@ func TestImageBakesPkl(t *testing.T) {
 		}
 	}
 }
+
+// TestImageBakesInnerLoopTools guards the k8s inner-loop pack: the dev-loop
+// CLIs an agent reaches for when the task is "iterate on this against the local
+// cluster" rather than "render and ship it". Without the pack every such task
+// starts (and often ends) at command-not-found — no live-update loop, no
+// service bridge, no per-pod triage. garden is intentionally NOT a nixpkgs attr:
+// the vendored gardenCli plus the loaderCompat path are what make it AND every
+// krew-installed foreign plugin runnable here.
+func TestImageBakesInnerLoopTools(t *testing.T) {
+	s := imageDefinition(t)
+	for _, want := range []string{
+		"tilt", "devspace", "skaffold", "telepresence2", "okteto",
+		//nolint:misspell // mirrord is the tool's name, not a typo for mirrored
+		"mirrord", "devpod", "kubectl-neat", "kubectl-view-allocations", "kubectl-explore",
+		"kubectl-doctor", "kubectl-validate", "kubectl-node-shell", "kubedog",
+		"kubetail", "kubefwd", "kubecm", "krew", "kube-score", "kubeaudit",
+		"chainsaw", "helm-docs", "nova",
+	} {
+		// Whole-line: a bare substring would pass on "kubectl" alone (the
+		// local-kubernetes pack already carries it) or on a mention in prose.
+		re := `(?m)^\s{8}` + regexp.QuoteMeta(want) + `$`
+		if !regexp.MustCompile(re).MatchString(s) {
+			t.Errorf("images.nix missing inner-loop package %q", want)
+		}
+	}
+	for _, want := range []string{"gardenCli", "loaderCompat"} {
+		if !strings.Contains(s, want) {
+			t.Errorf("images.nix missing %q — garden/foreign plugins cannot run", want)
+		}
+	}
+	// kubectl's plugin lookup rewrites `-` to `_` in a dashed subcommand and
+	// krew ships no kubectl-prefixed binary, so these alias spellings are what
+	// `kubectl view-allocations` and `kubectl krew` actually probe for.
+	for _, want := range []string{"kubectlAliases", "kubectl-view_allocations", "kubectl-krew"} {
+		if !strings.Contains(s, want) {
+			t.Errorf("images.nix missing %q — kubectl plugin lookup breaks", want)
+		}
+	}
+}
+
+// TestImageBakesTerminalPack guards the modern-terminal pack — the replacements
+// a developer expects on a modern box rather than the legacy ones. The image
+// PROMISES that UX, and the packs are only useful if they are actually on PATH:
+// an agent that documents `eza`/`bat`-style habits hits command-not-found and
+// falls back to the least-capable tool instead of the one it knows.
+func TestImageBakesTerminalPack(t *testing.T) {
+	s := imageDefinition(t)
+	for _, want := range []string{
+		"eza", "zoxide", "broot", "yazi", "btop", "bottom", "procs", "dust",
+		"duf", "bandwhich", "gping", "trippy", "mtr", "doggo", "glow", "gron",
+		"dasel", "miller", "csvlens", "htmlq", "hexyl", "ouch", "sd",
+		"hyperfine", "tealdeer", "navi", "atuin", "watchexec", "xh", "curlie",
+		"websocat", "just", "go-task", "direnv", "mprocs", "lazygit",
+		"lazydocker", "dive", "ctop", "skopeo", "crane", "git-cliff", "act",
+		"pre-commit", "shfmt", "typos", "hadolint", "gitleaks", "pfetch",
+		"onefetch", "sops", "age", "gnupg", "pgcli", "television", "fx", "jnv",
+	} {
+		re := `(?m)^\s{8}` + regexp.QuoteMeta(want) + `$`
+		if !regexp.MustCompile(re).MatchString(s) {
+			t.Errorf("images.nix missing terminal package %q", want)
+		}
+	}
+}

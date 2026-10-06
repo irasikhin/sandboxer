@@ -41,10 +41,13 @@ set -euo pipefail
 # and stay present across image bumps. Profiles the image does not bake are
 # never touched.
 #
-# The initialization replicates dsh's own initProfile byte for byte (manifest
-# shape, empty user patch layer, pnpm workspace settings), read from the SAME
-# dsh release this launcher ships with — the templates live beside dsh, not
-# in the wrapper. An existing manifest is user state (possibly seeded from
+# The initialization replicates dsh's own initProfile (manifest shape, empty
+# user patch layer, pnpm workspace settings), read from the SAME dsh release
+# this launcher ships with — the templates live beside dsh, not in the
+# wrapper. dsh 0.2.0 dropped `patchReload` from that template (the key is
+# gone from the release entirely), so the manifest written here carries
+# exactly name/private/dependencies/dsh.profile.bundles — no key dsh no
+# longer defines. An existing manifest is user state (possibly seeded from
 # the host home): only the missing baked bundle names are appended, nothing
 # is reordered or removed, and a manifest jq cannot parse is left alone.
 ensure_dsh_profile() {
@@ -53,20 +56,19 @@ ensure_dsh_profile() {
   local home="${DSH_HOME:-$HOME/.dsh}"
   local dir="$home/profiles/$name"
 
-  local spec bundles patchreload
+  local spec bundles
   spec=$(jq -r --arg p "$name" '.[$p] // empty' @profiles@ 2>/dev/null) || return 0
   [[ -n $spec ]] || return 0
   bundles=$(jq -r '.bundles' <<<"$spec")
-  patchreload=$(jq -r '.patchReload' <<<"$spec")
   local plugins
   plugins=$(jq -c '.plugins' <<<"$spec")
 
   mkdir -p "$dir"
   if [[ ! -f "$dir/package.json" ]]; then
     jq -n --arg name "dsh-profile-$name" --argjson bundles "$bundles" \
-      --argjson plugins "$plugins" --arg pr "$patchreload" '
+      --argjson plugins "$plugins" '
         { name: $name, private: true, dependencies: {},
-          dsh: { profile: { bundles: ($bundles + $plugins), patchReload: $pr } } }' \
+          dsh: { profile: { bundles: ($bundles + $plugins) } } }' \
       > "$dir/package.json"
     cat > "$dir/cordis.patch.yml" <<'EOF'
 # Your patch layer for this dsh profile, applied after every bundle layer:

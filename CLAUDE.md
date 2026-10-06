@@ -257,7 +257,17 @@ was extracted from:
   Hub layers can stall in the guest on some networks (measured: kindest/node, rancher/k3s) — `mirror.gcr.io`
   (in the defaults) is the workaround. `registry.k8s.io` joined `config.DefaultDomains` so the usual cluster
   addons (metrics-server, ingress-nginx) install under the allowlist — NOT for the cluster boot, which uses
-  the images the kind node image ships.
+  the images the kind node image ships. Two more packs ride the same list, guarded by
+  TestImageBakesInnerLoopTools/TestImageBakesTerminalPack: a k8s **inner-loop** pack (tilt/devspace/skaffold
+  live-update loops; telepresence2/okteto/mirrord bridging a sandbox process into cluster networking; devpod;
+  the kubectl augmentations neat/view-allocations/explore/doctor/validate/node-shell/kubedog/kubetail/
+  kubefwd/kubecm/krew/kube-score/kubeaudit; chainsaw/helm-docs/nova) and a **modern terminal** pack
+  (eza/zoxide/broot/yazi, btop/bottom/dust/duf, glow/dasel/miller, lazygit/lazydocker/dive/skopeo/crane,
+  git-cliff/act/pre-commit/shfmt/hadolint/gitleaks, sops/age/gnupg, pgcli, …). garden is deliberately NOT in
+  nixpkgs: it is vendored at `internal/toolbox/assets/garden/`, and its self-extracting launcher unpacks a
+  generic node at first run — the reason the image ships `loaderCompat` (the standard `/lib64/ld-linux-…`
+  path into the baked glibc) and the `gardenCli` wrapper adds gcc's lib dir to `LD_LIBRARY_PATH`; a
+  krew-installed foreign plugin gets that loader path for free.
 - **Integration tests** (`internal/itest`, `//go:build integration`): drive a real msb on KVM/HVF and skip
   cleanly when prerequisites are missing (no msb, no /dev/kvm); run via `scripts/itest.sh`. Excluded from the
   coverage gate; ci.yml runs the msb slice on KVM-capable runners. (The general test conventions are

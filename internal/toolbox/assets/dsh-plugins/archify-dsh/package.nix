@@ -17,8 +17,8 @@
 }:
 
 let
-  version = "0.1.0";
-  sourceHash = "sha256-MZKv5UlJ2mSUrOo70r9RE6WOp4ZRETsSibzHISEw3zg=";
+  version = "1.0.0";
+  sourceHash = "sha256-0AnEcJAAkV4lTXCbjwI7INLM7RQs0IblbwPZa683C1A=";
 in
 stdenv.mkDerivation {
   pname = "archify-dsh";

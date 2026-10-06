@@ -48,9 +48,9 @@
 }:
 
 let
-  version = "0.1.5-rc.3";
-  sourceHash = "sha256-SXfSkjOlkopO8cFuRL3BnXe7848Wgj1U7IfFsBmIML8=";
-  npmDepsHash = "sha256-+rIbQPogejhQHOOJDZi4gnPveq7oQO3xMgFLcBmqMSI=";
+  version = "0.2.0-rc.2";
+  sourceHash = "sha256-vSeEfERc1opWWsH5HAa7vMdjnvkwcfZ4u1nF66/ziFk=";
+  npmDepsHash = "sha256-H9N7XIquNzRVRcHqbcCPDauh3nDkmwr9PQSOAz1Kvo4=";
 
   # Baked plugins by npm identity: the src dir under each derivation's
   # lib/node_modules that lands in this package's node_modules verbatim.
@@ -133,6 +133,30 @@ buildNpmPackage {
       rm -rf "$out/lib/node_modules/@deepseek-ai/dsh/node_modules/node-pty/prebuilds/darwin-"* \
              "$out/lib/node_modules/@deepseek-ai/dsh/node_modules/node-pty/prebuilds/win32-"*
     ''}
+    # @deepseek-ai/dsh-app-boot resolves Node's internals through the
+    # node-addon-require-builtin ADDON only. dsh 0.2.0's boot path dropped the
+    # require(id) branch that @deepseek-ai/cordis-plugin-loader still carries
+    # in its requireInternal (plain require first under --expose-internals,
+    # addon otherwise), while the addon pattern-matches the node binary's own
+    # machine code — a nixpkgs-built node is not a shape it recognizes. The
+    # launcher ALWAYS passes --expose-internals (NODE_OPTIONS refuses that
+    # flag, so argv is the only channel), so both internalModules() call
+    # sites — the main thread in lib/index.js and the profile worker in
+    # lib/worker/profile-resolution-bootstrap.js — must get that precedence
+    # back: predeclare the require and select a plain require(id) when the
+    # flag is present, else the addon (cordis's own fallback order).
+    # Upstream restoring the branch must fail this build via
+    # --replace-fail — remove the block then, do not soften it.
+    substituteInPlace "$out/lib/node_modules/@deepseek-ai/dsh/node_modules/@deepseek-ai/dsh-app-boot/lib/index.js" \
+      --replace-fail \
+      '	const addon = createRequire(import.meta.url)("node-addon-require-builtin");' \
+      '	const req = createRequire(import.meta.url);
+	const addon = process.execArgv.includes("--expose-internals") ? { requireBuiltin: (id) => req(id) } : req("node-addon-require-builtin");'
+    substituteInPlace "$out/lib/node_modules/@deepseek-ai/dsh/node_modules/@deepseek-ai/dsh-app-boot/lib/worker/profile-resolution-bootstrap.js" \
+      --replace-fail \
+      '	const addon = createRequire(import.meta.url)("node-addon-require-builtin");' \
+      '	const req = createRequire(import.meta.url);
+	const addon = process.execArgv.includes("--expose-internals") ? { requireBuiltin: (id) => req(id) } : req("node-addon-require-builtin");'
     # dsh runs through ./dsh-launch.sh, which owns everything that has to be
     # in argv: --expose-internals (NO profile boots without it — see the
     # script), the baked-plugin profile bootstrapping, the web bind overlay
