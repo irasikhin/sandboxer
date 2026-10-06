@@ -6,6 +6,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.102.0] — 2026-10-06
+
+### Added
+
+- bake the Garden CLI with its foreign-binary loader compat (1708006)
+- bake the k8s inner-loop and modern terminal packs (b47f65d)
+
+### Chores
+
+- update nixpkgs to latest nixos-unstable (e4606bc)
+- dsh 0.2.0-rc.2 (b62a446)
+- pi 1.0.4 (3b03cc5)
+- dshmarket 1.66.9 (9d3a504)
+- archify-dsh 1.0.0 (d1fe450)
+
+
 ## [0.101.0] — 2026-10-04
 
 ### Added
@@ -1617,3 +1633,4 @@ isolated, containerized dev sandbox, on a local Linux machine:
 [0.100.0]: https://github.com/irasikhin/sandboxer/compare/v0.99.0...v0.100.0
 [0.100.1]: https://github.com/irasikhin/sandboxer/compare/v0.100.0...v0.100.1
 [0.101.0]: https://github.com/irasikhin/sandboxer/compare/v0.100.1...v0.101.0
+[0.102.0]: https://github.com/irasikhin/sandboxer/compare/v0.101.0...v0.102.0
