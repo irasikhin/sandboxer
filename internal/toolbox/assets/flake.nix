@@ -53,6 +53,10 @@
               (final: prev: {
                 pi = final.callPackage ./pi/package.nix { };
                 pi-agent-orchestrator = final.callPackage ./pi-orchestrator/package.nix { };
+                # Garden CLI — the release binary repackaged, and wrapped by
+                # images.nix with the loader compat its self-extracted node
+                # needs; not in nixpkgs.
+                garden = final.callPackage ./garden/package.nix { };
                 # crush is FSL-licensed (unfree) → never on cache.nixos.org, so
                 # every image build compiles it from source AND runs its Go
                 # tests. A postPatch used to widen TestRetireClient_

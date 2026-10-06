@@ -233,6 +233,43 @@ let
       --add-flags "-jar $out/opt/pkl/jpkl.jar"
   '';
 
+  # The standard dynamic-loader paths, for binaries the nix store does NOT
+  # own. A nix-patched ELF never asks for this path (its interpreter is a
+  # store path), but a FOREIGN dynamically-linked binary — garden's
+  # self-extracted node runtime, a krew-installed kubectl plugin — names
+  # /lib64/ld-linux-x86-64.so.2 (x86_64) or /lib/ld-linux-aarch64.so.1
+  # (aarch64), and the image has neither. Those interpreters resolve libc/
+  # libm/… from their own store system-dirs, so the interpreter path is the
+  # ONLY thing missing here — which is why one symlink is enough. glibc is
+  # named explicitly rather than via pkgs.glibcLocales etc.: this IS the
+  # loader the compat path must point at.
+  loaderCompat = pkgs.runCommand "foreign-loader-compat" { } (
+    if pkgs.stdenv.hostPlatform.isx86_64 then
+      ''
+        mkdir -p $out/lib64 $out/lib
+        ln -s ${pkgs.glibc}/lib64/ld-linux-x86-64.so.2 $out/lib64/ld-linux-x86-64.so.2
+        ln -s ${pkgs.glibc}/lib/ld-linux-x86-64.so.2 $out/lib/ld-linux-x86-64.so.2
+      ''
+    else if pkgs.stdenv.hostPlatform.isAarch64 then
+      ''
+        mkdir -p $out/lib
+        ln -s ${pkgs.glibc}/lib/ld-linux-aarch64.so.1 $out/lib/ld-linux-aarch64.so.1
+      ''
+    else
+      throw "sandboxer: no loader-compat paths for ${pkgs.stdenv.hostPlatform.system}"
+  );
+
+  # The garden CLI on PATH. The launcher itself is nix-patched (see
+  # assets/garden/package.nix), but the node runtime it EXTRACTS on first run
+  # is a generic foreign ELF: libstdc++ (the gcc lib output) is not among the
+  # loader's own system dirs, so it must arrive via LD_LIBRARY_PATH. --prefix,
+  # not --set: a caller's own LD_LIBRARY_PATH keeps winning.
+  gardenCli = pkgs.runCommand "garden-cli" { nativeBuildInputs = [ pkgs.makeWrapper ]; } ''
+    mkdir -p $out/bin
+    makeWrapper ${pkgs.garden}/bin/garden $out/bin/garden \
+      --prefix LD_LIBRARY_PATH : ${pkgs.stdenv.cc.cc.lib}/lib
+  '';
+
   # `pip` that explains itself. The baked interpreter lives in the read-only
   # nix store, so pip cannot install into it — and nixpkgs' python does not
   # ship pip at all, which leaves an agent with "command not found" (or "No
@@ -815,6 +852,11 @@ in
         guestNss
         piPackages
         helmPlugins
+        # garden (the wrapped CLI) and the standard loader paths its
+        # self-extracted node runtime needs — deliberately HERE, not in the
+        # k8s pack above, which must not get the unwrapped pkgs.garden.
+        gardenCli
+        loaderCompat
       ]
       ++ userFiles;
     config = {

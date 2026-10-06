@@ -4,8 +4,8 @@
 // The embedded flake (assets/flake.nix) references one public input (nixpkgs)
 // and is written into the build context together with the generated
 // agents.nix/tools.nix/overlay.nix, the files/env JSON and the vendored
-// packages (pi, its orchestration package, dsh, and dsh's baked plugins),
-// so the build never needs
+// packages (pi, its orchestration package, dsh, dsh's baked plugins, and the
+// garden CLI), so the build never needs
 // the sandboxer repo or a local checkout.
 // The sandboxer binary is NOT part of the image — it is a host tool (see
 // writeContext).
@@ -31,14 +31,14 @@ import (
 // root flake imports the same images.nix, so the image a user gets and the
 // image CI builds cannot drift apart again.
 //
-//go:embed assets/flake.nix assets/images.nix assets/pi assets/pi-orchestrator assets/dsh assets/dsh-plugins
+//go:embed assets/flake.nix assets/images.nix assets/pi assets/pi-orchestrator assets/dsh assets/dsh-plugins assets/garden
 var assets embed.FS
 
 // vendored are the package dirs copied verbatim into the build context: the
 // nixpkgs attrs the embedded flake's overlay grafts in (pi, pi's orchestration
-// package, dsh, and dsh's baked community plugins — none of them is in
-// nixpkgs).
-var vendored = []string{"pi", "pi-orchestrator", "dsh", "dsh-plugins"}
+// package, dsh, dsh's baked community plugins and the garden CLI — none of them
+// is in nixpkgs).
+var vendored = []string{"pi", "pi-orchestrator", "dsh", "dsh-plugins", "garden"}
 
 // stubOverlay is the overlay.nix written when the profile has none: the
 // flake's import is unconditional, and a no-op overlay keeps a stock build
