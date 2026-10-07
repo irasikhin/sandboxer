@@ -69,7 +69,7 @@ func TestMountsShape(t *testing.T) {
 	narrowed := Source{Path: "/slug/repo/feat/x", Managed: true, Include: []string{"/src/proto/"}}
 
 	t.Run("unnarrowed mounts the root, plus adopted trees only", func(t *testing.T) {
-		mountDest, m, err := Mounts([]Source{managed, adopted})
+		mountDest, m, _, err := Mounts([]Source{managed, adopted})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -82,7 +82,7 @@ func TestMountsShape(t *testing.T) {
 	})
 
 	t.Run("narrowed never mounts the root", func(t *testing.T) {
-		mountDest, m, err := Mounts([]Source{narrowed})
+		mountDest, m, _, err := Mounts([]Source{narrowed})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -98,7 +98,7 @@ func TestMountsShape(t *testing.T) {
 	t.Run("one narrowed source moves every source onto its own mount", func(t *testing.T) {
 		// The root mount is all-or-nothing, so an unnarrowed source sharing the
 		// sandbox must get an explicit mount or it would vanish.
-		mountDest, m, err := Mounts([]Source{narrowed, {Path: "/slug/other/feat/x", Managed: true}, adopted})
+		mountDest, m, _, err := Mounts([]Source{narrowed, {Path: "/slug/other/feat/x", Managed: true}, adopted})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -113,7 +113,7 @@ func TestMountsShape(t *testing.T) {
 	})
 
 	t.Run("mounts are sorted for a stable argv", func(t *testing.T) {
-		_, m, err := Mounts([]Source{{Path: "/wt", Managed: true, Include: []string{"/z/", "/a/", "/m/"}}})
+		_, m, _, err := Mounts([]Source{{Path: "/wt", Managed: true, Include: []string{"/z/", "/a/", "/m/"}}})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -136,7 +136,7 @@ func TestMountsNestedInclude(t *testing.T) {
 		Managed: true,
 		Include: []string{"/src/proto/", "/src/"}, // child listed FIRST on purpose
 	}
-	mountDest, m, err := Mounts([]Source{src})
+	mountDest, m, _, err := Mounts([]Source{src})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -324,7 +324,7 @@ func TestMountFingerprintStableAcrossSync(t *testing.T) {
 		t.Fatal(err)
 	}
 	fp := func() string {
-		_, m, err := Mounts(b.Srcs("v"))
+		_, m, _, err := Mounts(b.Srcs("v"))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -401,7 +401,7 @@ func TestCheckViewDirsRejectsSymlinkEscape(t *testing.T) {
 // nested parent+child — DISTINCT paths — is preserved.
 func TestMountsDedupsExactDuplicates(t *testing.T) {
 	// exact duplicate collapses
-	_, m, err := Mounts([]Source{{Path: "/wt", Managed: true, Include: []string{"/api/", "/api/", "/api"}}})
+	_, m, _, err := Mounts([]Source{{Path: "/wt", Managed: true, Include: []string{"/api/", "/api/", "/api"}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -409,7 +409,7 @@ func TestMountsDedupsExactDuplicates(t *testing.T) {
 		t.Errorf("mounts = %v, want a single /wt/api", m)
 	}
 	// distinct nested paths are both kept
-	_, m2, err := Mounts([]Source{{Path: "/wt", Managed: true, Include: []string{"/src/", "/src/proto/"}}})
+	_, m2, _, err := Mounts([]Source{{Path: "/wt", Managed: true, Include: []string{"/src/", "/src/proto/"}}})
 	if err != nil {
 		t.Fatal(err)
 	}

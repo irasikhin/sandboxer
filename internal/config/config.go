@@ -191,11 +191,31 @@ func isTrackingRev(rev string) bool {
 	return rev == "" || rev == "latest"
 }
 
-// WholeRepo reports whether include selects the whole repository — no patterns,
-// or the single catch-all "**" — so the container gets the source's worktree
-// whole and needs no per-directory view mounts.
+// SplitInclude separates the exposure entries from the exclusions: an entry
+// starting with "!" is a negation — a subtree to carve OUT of the exposure —
+// and is returned WITHOUT that one "!" in negatives; every other entry is
+// returned verbatim in positives. Pure and order-preserving within each list.
+// Negations are resolved and applied to the mount set by sandbox.Mounts;
+// ValidateInclude still refuses them in the config, so this is the runtime's
+// seam.
+func SplitInclude(include []string) (positives, negatives []string) {
+	for _, e := range include {
+		if n, negated := strings.CutPrefix(e, "!"); negated {
+			negatives = append(negatives, n)
+			continue
+		}
+		positives = append(positives, e)
+	}
+	return positives, negatives
+}
+
+// WholeRepo reports whether include EXPOSES the whole repository: no positive
+// entry, or exactly one positive catch-all "**". A negation is not narrowing —
+// it does not remove a directory from the mount set but masks its content — so
+// ["**", "!/vendor/"] is still whole-repo exposure with one masked subtree.
 func WholeRepo(include []string) bool {
-	return len(include) == 0 || (len(include) == 1 && include[0] == "**")
+	positives, _ := SplitInclude(include)
+	return len(positives) == 0 || (len(positives) == 1 && positives[0] == "**")
 }
 
 // ValidateInclude rejects an include entry a container mount cannot honor.
@@ -216,14 +236,20 @@ func WholeRepo(include []string) bool {
 // walks directories only, so a pattern can never select a file set — a
 // file-granular bind mount breaks atomic saves (write-temp + rename over the
 // mountpoint fails with EBUSY), which is how editors and agents write files.
-// A negation ("!/vendor/") has no meaning for a mount set, so it stays rejected.
+// A negation ("!/vendor/") is an exclusion — sandbox.Mounts enforces one by
+// overmounting an empty read-only directory at the path — but the config layer
+// does not accept the spelling yet, so it stays rejected here.
 //
 // Whether a literal path is actually a directory, and whether a pattern matches
 // anything, is NOT checked here — that needs the repo on disk and lives in
 // sandbox.checkViewDirs / the expansion, which reject with an actionable
 // message. So this stays pure syntax.
 func ValidateInclude(include []string) error {
-	if WholeRepo(include) {
+	// WholeRepo ignores negations (they do not narrow), so the early return
+	// must not swallow an include that carries one — a negation has to keep
+	// reaching the rejection below.
+	_, negatives := SplitInclude(include)
+	if len(negatives) == 0 && WholeRepo(include) {
 		return nil
 	}
 	for _, p := range include {

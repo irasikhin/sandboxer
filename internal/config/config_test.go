@@ -375,6 +375,12 @@ func TestValidateInclude(t *testing.T) {
 		{name: "double-star alone among entries", include: []string{"/ok/", "/**/"}, wantErr: "the whole repo"},
 		{name: "anchored bare double-star", include: []string{"/ok/", "/**"}, wantErr: "the whole repo"},
 		{name: "negation", include: []string{"!/vendor/"}, wantErr: "negation is not supported"},
+		// Only negations: WholeRepo would call this whole-repo exposure (no
+		// positives), so the rejection must still come from the negation case.
+		{name: "only negations", include: []string{"!/a/", "!/b/"}, wantErr: "negation is not supported"},
+		// A negation beside the catch-all is rejected by the catch-all rule
+		// (the pre-WholeRepo behavior, byte-identical).
+		{name: "negation beside the catch-all", include: []string{"**", "!/vendor/"}, wantErr: "the whole repo"},
 		{name: "unanchored", include: []string{"src/proto/"}, wantErr: "must be anchored"},
 		{name: "unanchored no slash", include: []string{"api"}, wantErr: "must be anchored"},
 		{name: "unanchored glob", include: []string{"*.md"}, wantErr: "must be anchored"},
@@ -465,8 +471,9 @@ func TestGitShared(t *testing.T) {
 	}
 }
 
-// TestWholeRepo: only an absent or explicitly catch-all include means "no
-// narrowing" — anything else puts the sandbox on view mounts.
+// TestWholeRepo: only the POSITIVE entries decide whether an include means
+// "no narrowing" — a negation alongside "**" (or alone) is still whole-repo
+// exposure, with the negated subtrees masked out of it.
 func TestWholeRepo(t *testing.T) {
 	for _, tc := range []struct {
 		include []string
@@ -475,12 +482,31 @@ func TestWholeRepo(t *testing.T) {
 		{nil, true},
 		{[]string{}, true},
 		{[]string{"**"}, true},
+		{[]string{"**", "!/vendor/"}, true}, // a negation does not narrow
+		{[]string{"!/vendor/"}, true},       // no positives = whole tree, one mask
 		{[]string{"/src/"}, false},
-		{[]string{"**", "/src/"}, false}, // not the single catch-all
+		{[]string{"**", "/src/"}, false},              // not the single catch-all
+		{[]string{"**", "!/vendor/", "/src/"}, false}, // a real positive narrows
 	} {
 		if got := WholeRepo(tc.include); got != tc.want {
 			t.Errorf("WholeRepo(%v) = %v, want %v", tc.include, got, tc.want)
 		}
+	}
+}
+
+// TestSplitInclude: the "!" prefix is the negation marker, exactly one is
+// stripped, entries without it are untouched and the order of each side is the
+// config order.
+func TestSplitInclude(t *testing.T) {
+	pos, neg := SplitInclude([]string{"/src/", "!/vendor/", "**/proto/", "!!/odd/"})
+	if want := []string{"/src/", "**/proto/"}; !slices.Equal(pos, want) {
+		t.Errorf("positives = %v, want %v", pos, want)
+	}
+	if want := []string{"/vendor/", "!/odd/"}; !slices.Equal(neg, want) {
+		t.Errorf("negatives = %v, want %v", neg, want)
+	}
+	if p, n := SplitInclude(nil); len(p) != 0 || len(n) != 0 {
+		t.Errorf("SplitInclude(nil) = (%v, %v), want both empty", p, n)
 	}
 }
 

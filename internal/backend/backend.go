@@ -26,15 +26,27 @@ type RunOpts struct {
 	// A narrowed sandbox clears it, and that is the CONTAINMENT BOUNDARY: the
 	// worktrees under Dest are complete on the host, so sharing Dest would
 	// hand the sandbox every excluded file. Unshared, they are unreachable —
-	// what is not in SrcMounts does not exist inside. Never set this because a
-	// mount seems to be missing; the false is what makes narrowing real. See
-	// sandbox.Mounts, which decides both fields together.
+	// what is not in SrcMounts does not exist inside (a MaskMounts entry is the
+	// one, narrower exclusion: the path stays visible as an empty dir). Never
+	// set this because a mount seems to be missing; the false is what makes
+	// narrowing real. See sandbox.Mounts, which decides both together.
 	MountDest bool
 	// SrcMounts are the source directories shared rw at their own host
 	// paths: the adopted worktrees when MountDest (they live outside Dest), else
 	// every source's exposed directories. Sorted by the caller: the order is
 	// part of the session-hash contract.
 	SrcMounts []string
+	// MaskMounts are the exclusions: each is a read-only overmount of an EMPTY
+	// host directory (Source, shared by every mask) at an excluded path inside
+	// an already-mounted parent (Target, an absolute dir SrcMounts or the Dest
+	// root covers). Inside the guest the subtree is unreachable (read → ENOENT)
+	// and unwritable (EROFS), while the NAME stays visible as an empty
+	// directory — different from an unmounted path, which does not exist. Sorted
+	// by the caller; it rides the hashed create argv (so adding or dropping a
+	// negation rebuilds the machine) but is deliberately NOT part of
+	// MountGen/MountIDs: every target is a strict descendant of a fingerprinted
+	// mount, and the source is one inode-stable empty dir.
+	MaskMounts []config.Mount
 	// GitMounts are the opt-in git-dir shares (sandbox.GitMounts): a source
 	// whose profile entry set git = "ro"/"rw" shares its repository's common
 	// git dir at its own host path, so git works inside the sandbox. Empty by

@@ -166,6 +166,54 @@ func TestMSBGitMountPreflight(t *testing.T) {
 	}
 }
 
+// TestMSBCreateArgvMaskMounts pins the exclusion argv: each mask is a
+// read-only volume of the shared empty dir at the excluded path, emitted AFTER
+// the source share it carves (the engine needs the parent mounted first), and
+// its presence flips the session hash. With no mask the argv is exactly as
+// before.
+func TestMSBCreateArgvMaskMounts(t *testing.T) {
+	o := RunOpts{
+		Image: "img:1", Dest: "/d", Slug: "s",
+		SrcMounts:  []string{"/d/svc/a"},
+		MaskMounts: []config.Mount{{Source: "/state/_empty", Target: "/d/svc/a/vendor", Mode: "ro"}},
+		Stdin:      strings.NewReader(""), Stdout: &bytes.Buffer{},
+	}
+	argv := msbCreateArgv(o, "n", "h")
+	parent := slices.Index(argv, "/d/svc/a:/d/svc/a:quota=4294967295")
+	mask := slices.Index(argv, "/state/_empty:/d/svc/a/vendor:ro")
+	if parent < 0 || mask < 0 {
+		t.Fatalf("argv missing the parent share or the mask: %q", argv)
+	}
+	if parent > mask {
+		t.Errorf("the mask must follow the share it carves: %q", argv)
+	}
+
+	plain := o
+	plain.MaskMounts = nil
+	if strings.Contains(strings.Join(msbCreateArgv(plain, "n", "h"), " "), "_empty") {
+		t.Error("a mask-free argv carries an _empty volume")
+	}
+	if vmSessionWantHash(o) == vmSessionWantHash(plain) {
+		t.Error("adding a mask did not flip the session hash")
+	}
+}
+
+// TestMSBMaskMountPreflight: a mask target under /tmp is shadowed by the guest
+// tmpfs exactly like any other guest path, and must be reported rather than
+// silently leaving the subtree observable.
+func TestMSBMaskMountPreflight(t *testing.T) {
+	o := RunOpts{
+		Image: "img:1", Dest: "/d", Slug: "s", HomeDir: "/d/.home",
+		SrcMounts:  []string{"/src"},
+		MaskMounts: []config.Mount{{Source: "/state/_empty", Target: "/tmp/src/vendor", Mode: "ro"}},
+		Stdin:      strings.NewReader(""), Stdout: &bytes.Buffer{},
+	}
+	err := msbPreflight(o)
+	if err == nil || !strings.Contains(err.Error(), "/tmp/src/vendor") {
+		t.Fatalf("msbPreflight = %v, want the shadowed mask target named", err)
+	}
+}
+
 // TestMSBHashArgv pins the hash contract: the name and the labels are excluded
 // (a rename or a relabel must never recreate a machine), while a real
 // configuration change flips it.
