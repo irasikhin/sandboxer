@@ -42,7 +42,9 @@ empty directories in the container's own layer, so the container's view is
 structurally identical to the old sparse tree — at the same paths.
 
 Not mounting the root IS the boundary. The excluded files are on the host, one
-directory above the mounted ones; nothing else hides them. `RunOpts.MountDest`
+directory above the mounted ones; nothing else hides them. (A `!` exclusion is
+the one exception — it rides either shape and masks its target on top, see
+"Exclusions (`!` entries)".) `RunOpts.MountDest`
 carries the decision into the argv, and two tests pin it — one on the argv
 (`TestRunArgvNarrowedNeverMountsDest`), one on a real engine
 (`TestRun_RealEngine_SrcsWall`). Both were confirmed to fail when the invariant
@@ -54,11 +56,12 @@ engine test with "WALL BREACHED: serviceB visible").
 A mount names a path, so every include entry must resolve to directories.
 gitignore semantics cannot survive the move:
 
-- a **file-selecting glob** or a **negation** (`!/vendor/`) selects a file
-  *set* only a matcher can evaluate. Expanding it means one mount per matched
-  file, and a file-granular bind mount **breaks atomic saves**: write-temp +
-  rename over the mountpoint fails with `EBUSY`, which is how editors and agents
-  write files.
+- a **file-selecting glob** selects a file *set* only a matcher can evaluate.
+  Expanding it means one mount per matched file, and a file-granular bind mount
+  **breaks atomic saves**: write-temp + rename over the mountpoint fails with
+  `EBUSY`, which is how editors and agents write files. A **negation**
+  (`!/vendor/`) is directory-shaped — it names a subtree, not a file set — so it
+  survives as an EXCLUSION: see "Exclusions (`!` entries)".
 - a **bare file** (`/go.mod`) hits the same problem — name its directory.
 
 Directory *patterns* do not hit it, so they are allowed: an entry may be
@@ -84,9 +87,11 @@ keep this safe:
   resolve. What it cannot do is escape: an unmatched location is not mounted,
   and `checkViewDirs`' prefix and realpath checks still bound every candidate.
 
-`ValidateInclude` refuses the remaining shapes (negation, unanchored non-`**`
-paths, malformed brackets) with the form to use instead, at `config validate`
-time. `resolveSrcs` validates too, because `create` materializes the sandbox
+`ValidateInclude` accepts negations (the same directory grammar, and an include
+may not be exclusions only) and refuses the remaining shapes (unanchored
+non-`**` paths, malformed brackets, exclusion-only includes) with the form to
+use instead, at `config validate` time. `resolveSrcs` validates too, because
+`create` materializes the sandbox
 *before* it resolves the runtime, so the config-level check alone would fire
 too late; a pattern's *zero-match* error necessarily fires after
 materialization — the expansion needs the tree on disk.
@@ -103,6 +108,47 @@ exists would mount the host's `/etc` past the wall (a lexical prefix check does
 not catch it — the symlink's own path is inside the worktree). Symlinks *inside*
 the mounted content are left alone; the container resolves those in its own
 namespace.
+
+## Exclusions (`!` entries)
+
+An include entry starting with `!` is a NEGATION — `!<dir>` or `!<pattern>` —
+validated with the same directory grammar as a positive (anchored, directories
+only, `path.Match` segments, a whole `**` segment for any depth) and enforced
+as a mask over the exposure:
+
+- **Negation wins, order-free.** An exposed directory at or under a negation is
+  dropped; the two entries in either order give the same mount set.
+- A source **left with nothing** is a hard error — a negation cannot silently
+  empty a view (the same fail-closed rule as a zero-match pattern).
+- A negation **outside every exposed directory is ignored**: that path is
+  already invisible, and erroring would make a harmless config fatal.
+- A **zero-match negation is a hard error**, exactly like a zero-match
+  positive.
+- An include of **exclusions only is refused** — a negation carves out of what
+  is explicitly exposed, so at least one positive (possibly the whole-tree
+  `**`) must accompany it. `["**", "!/x/"]` is the whole tree minus `x`.
+
+**Mechanism: an empty read-only overmount.** Each surviving negation becomes a
+read-only mount of a lazily-created empty host directory (`<state>/_empty`) over
+the excluded path. Measured on msb 0.7.1 (real microVM, KVM): a read gives
+`ENOENT`, a write fails with `EROFS`, and the NAME stays visible as an empty
+directory — the one intentional difference from an unmounted path, which does
+not exist at all. Deep nesting works. msb tolerates either argv order; masks are
+emitted after all source mounts regardless.
+
+Why not **split the parent into its non-excluded children** instead: include
+selects directories, so the files directly in the parent would vanish (the
+file-mount objection above), and the mount list would explode with the tree's
+shape.
+
+**Session:** masks ride the hashed create argv, so a mask change reads as stale
+via the session hash. They are deliberately NOT in `MountGen`/`MountIDs`: every
+mask target is a strict descendant of a fingerprinted mount, and the empty
+source is inode-stable.
+
+**Git:** still mutually exclusive with `include`, exclusions included
+(`config.ValidateGit` refuses `["**", "!/x/"]` too): a shared git dir carries
+the history that reconstitutes the masked files (`git show HEAD:<path>`).
 
 ## Alternatives rejected
 
@@ -128,8 +174,13 @@ AppArmor would be genuinely mandatory rather than discretionary, but that is a
 hard host dependency sandboxer does not have.
 
 **Masking excluded paths over a full mount** (tmpfs over what must be hidden).
-Fail-open: anything new on the host that is not in the mask list is visible.
-`proc-security-posture` is fail-closed; an unmounted path is.
+Rejected as a *derived* mechanism: the mask list would have to enumerate what
+to hide, and anything new on the host that is not in it is visible — fail-open,
+where `proc-security-posture` wants fail-closed (an unmounted path is). An
+EXPLICIT, user-written negation is the narrow exception, and it is not derived:
+the masked set is re-expanded against the worktree on every mount computation
+and rides the argv/session hash, so it cannot go silently stale — see
+"Exclusions (`!` entries)".
 
 **A read-only root to make out-of-view writes fail loudly.** Designed, then
 found unnecessary — see below. It would also have needed a host-side skeleton of
@@ -202,6 +253,7 @@ this change — the argv it generates is byte-identical to before.
 
 Automatic and in place. A worktree narrowed by an older sandboxer is widened on
 the next sync (`worktree.Unsparse` disables sparse-checkout), keeping the branch
-and any uncommitted work — no recreate. A config carrying a negation or an
-unanchored path starts failing `config validate` with the form to use;
-directory patterns (`**/x/`, `/services/*/`) are valid and expand on disk.
+and any uncommitted work — no recreate. An unanchored path or an
+exclusion-only include starts failing `config validate` with the form to use;
+negations (`!/vendor/`) and directory patterns (`**/x/`, `/services/*/`) are
+valid, and a negation expands its target on disk like a pattern.
