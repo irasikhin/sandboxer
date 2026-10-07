@@ -81,7 +81,8 @@ was extracted from:
   `worktreesDir` — abs/~/project-relative; in-project overrides are git-ignored too; clean never
   removes a root wholesale, only the sandbox dirs); the rest of the runtime state lives under
   `config.StateDir(project)` = `$XDG_STATE_HOME/sandboxer/<project-id>` (`<project-id>` = basename + short
-  hash of the abs path) — the `_meta`/`_logs`/`_home/<slug>` dirs. Both are outside the repo, so
+  hash of the abs path) — the `_meta`/`_logs`/`_home/<slug>` dirs, plus `_empty/` (the mask source,
+  created lazily, only when a negation exists). Both are outside the repo, so
   credentials/scratch can never be committed. `sandboxer clean` wipes both (config stays).
 - **Sandbox backing = srcs** (`internal/worktree`, `internal/sandbox/srcs.go`): a sandbox exposes SOURCES —
   `srcs: [{src, branch, include}]` — each a git worktree at `<sandboxesRoot>/<slug>/<branch>/<repo>/`
@@ -103,15 +104,22 @@ was extracted from:
   `include` — a list of DIRECTORIES (literal anchored paths or ant-style directory patterns: `/services/*/`,
   `**/proto/` — a whole `**` segment matches any depth, expanded on disk per mount computation, zero matches =
   error) that narrows the guest's MOUNT SET, never the worktree (the host tree is always a complete
-  checkout, so an IDE can open it; negations/unanchored paths are rejected, and patterns match directories
-  only, never files — a mount names a path, not a file set; see `docs/view-mounts-design.md`). srcs is ALWAYS explicit — an empty list is rejected;
+  checkout, so an IDE can open it; unanchored paths are rejected, and patterns match directories
+  only, never files — a mount names a path, not a file set; see `docs/view-mounts-design.md`). A `!` entry is an
+  EXCLUSION (same directory grammar; negation wins over an exposure at/under it, a source left with nothing or a
+  zero-match negation is a hard error, one outside every exposure is ignored, and an include cannot be
+  exclusions ONLY), enforced by overmounting the lazily-created empty read-only `<state>/_empty` dir at the
+  excluded path (content ENOENT, writes EROFS, the NAME stays an empty dir). Masks ride the hashed create
+  argv but deliberately NOT MountGen/MountIDs (targets are strict descendants of fingerprinted mounts; the
+  empty source is inode-stable). srcs is ALWAYS explicit — an empty list is rejected;
   the scaffolded config seeds `srcs = [{src = "."; branch = "feat/<name>";}]`. Relative src paths
   resolve against the PROJECT ROOT (not the profile file's dir). **Git does not enter the sandbox unless a
   source opts in**: no git-dir shares by default, no `GIT_CONFIG_*` — the
   MOUNT SET is the wall (`sandbox.Mounts` decides it): unnarrowed = one stable rw mount of `<slug>/` (plus
   adopted paths), so srcs edits are picked up by every enter/exec (a LIVE session sees them immediately);
   narrowed = `<slug>/` is NOT mounted at all (the host worktrees under it are complete — that absence IS the
-  boundary) and each include dir is mounted rw at its own path. Commits happen on the host. Resolved sources are recorded at `_meta/<slug>.srcs.json`; a dropped source's worktree is
+  boundary) and each include dir is mounted rw at its own path (an exclusion's mask rides on top of either
+  shape). Commits happen on the host. Resolved sources are recorded at `_meta/<slug>.srcs.json`; a dropped source's worktree is
   REMOVED when clean (branch kept) and moved to `_detached/` only when it holds uncommitted work (a worktree in
   detached-HEAD state is left in place, and a non-worktree dir with content is renamed aside, never
   deleted). Teardown removes managed worktrees only and KEEPS branches (`recreate --full`
@@ -123,7 +131,8 @@ was extracted from:
   identity mapping IS the mechanism: a worktree's `.git` is a pointer file holding an ABSOLUTE host path, so
   mounting the dir where it already lives makes it resolve in the guest with no rewriting (which would break
   the host's view of the same file) and keeps `git worktree prune` from unregistering the host's worktree.
-  `git` + `include` = HARD ERROR (`config.ValidateGit`): history carries the excluded files back in.
+  `git` + `include` = HARD ERROR (`config.ValidateGit`), narrowing OR exclusions: history carries the
+  withheld files back in.
   `rw` also hands over `.git/hooks`+`.git/config` = code the HOST's git later runs — documented in
   SECURITY.md, not blocked. `SANDBOXER_NO_GIT=1` = kill switch (applied in `target.mounts`, like `noEgress`).
   The share is in the create argv → session hash, but deliberately NOT in MountGen (a git dir is not

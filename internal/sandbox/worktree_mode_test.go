@@ -99,7 +99,7 @@ func TestMakeSandboxDotSrcFull(t *testing.T) {
 		t.Errorf("worktree not clean:\n%s", st)
 	}
 	// and: an unnarrowed sandbox mounts its <slug>/ root and nothing else
-	if mountDest, m, err := Mounts(srcs); err != nil || !mountDest || len(m) != 0 {
+	if mountDest, m, _, err := Mounts(srcs); err != nil || !mountDest || len(m) != 0 {
 		t.Errorf("Mounts = (%v, %v, %v), want (true, none, nil) — managed lives under <slug>/", mountDest, m, err)
 	}
 	// and: the in-project ./sandboxes root was git-ignored, exactly once even
@@ -220,7 +220,7 @@ func TestMakeSandboxIncludeKeepsHostTreeWhole(t *testing.T) {
 
 	// and: the container gets ONLY serviceA, mounted directly — the root, which
 	// holds serviceB and CLAUDE.md, is not mounted at all.
-	mountDest, mounts, err := Mounts(b.Srcs("narrow"))
+	mountDest, mounts, _, err := Mounts(b.Srcs("narrow"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -340,7 +340,7 @@ func TestSrcsAdoptExistingWorktree(t *testing.T) {
 		t.Errorf("adopted checkout was narrowed: %v", err)
 	}
 	want := filepath.Join(mine, "serviceA")
-	if mountDest, m, err := Mounts(srcs); err != nil || mountDest || len(m) != 1 || m[0] != want {
+	if mountDest, m, _, err := Mounts(srcs); err != nil || mountDest || len(m) != 1 || m[0] != want {
 		t.Errorf("Mounts = (%v, %v, %v), want (false, [%s], nil)", mountDest, m, err, want)
 	}
 	// teardown never touches an adopted worktree — only the link goes
@@ -1197,7 +1197,7 @@ func TestSyncSrcsReattachSetAside(t *testing.T) {
 		t.Errorf("_detached survived the re-attach (err=%v)", err)
 	}
 	// The source is narrowed, so it is mounted by view — never via the root.
-	mountDest, m, err := Mounts(srcs)
+	mountDest, m, _, err := Mounts(srcs)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -193,6 +193,15 @@ func msbCommonArgs(o RunOpts) []string {
 	for _, m := range o.SrcMounts {
 		args = append(args, "-v", msbShare(m))
 	}
+	// The exclusions, right after the sources they carve: each is an EMPTY
+	// read-only host dir overmounted at the excluded path, so inside a mounted
+	// parent the subtree is unreachable (read → ENOENT) and unwritable (EROFS)
+	// while its NAME stays as an empty directory. Emitted after every source
+	// mount so the parent share lands first — the engine only needs the order
+	// for nested mounts, and the masks are always strict descendants.
+	for _, m := range o.MaskMounts {
+		args = append(args, "-v", msbVolume(m))
+	}
 	// The opt-in git-dir shares, right after the sources they belong to: a
 	// worktree's .git names its git dir by ABSOLUTE HOST PATH, so identity
 	// mapping is not a convention here but the mechanism (see
@@ -563,6 +572,9 @@ func msbPreflightExcept(o RunOpts, exempt map[string]bool) error {
 		return err
 	}
 	paths := append([]string{o.Dest, o.HomeDir}, o.SrcMounts...)
+	for _, m := range o.MaskMounts {
+		paths = append(paths, m.Target)
+	}
 	for _, m := range o.GitMounts {
 		paths = append(paths, m.Target)
 	}

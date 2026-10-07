@@ -154,9 +154,11 @@ explicitly, and the branch names the dirs its worktree sits under. The sandbox
 sees ONLY the files the srcs select — git metadata never enters it — so the
 agent edits files while your working tree, branches and git stay untouched;
 you review and commit the result with plain git on the host. srcs entries can
-narrow a repo with directory include patterns ("/src/", "**/generated/"),
-span several repos, or pin an existing branch/worktree; other trees come in
-via extraMounts.
+narrow a repo with directory include patterns ("/src/", "**/generated/") or
+carve a subtree back OUT with a "!" entry ("!/src/vendor/" — enforced by an
+empty read-only overmount, so the name stays while its content and any write
+do not), span several repos, or pin an existing branch/worktree; other trees
+come in via extraMounts.
 
 The agent runs inside a real microVM (libkrun — microsandbox) booted
 from the toolbox image (the agents baked in — see 'sandboxer agents'); each

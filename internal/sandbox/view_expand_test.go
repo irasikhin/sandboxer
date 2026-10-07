@@ -143,7 +143,7 @@ func TestExpandIncludeUnreadableDirFailsClosed(t *testing.T) {
 	t.Cleanup(func() { _ = os.Chmod(sealed, 0o755) })
 
 	srcs := []Source{{RepoRoot: root, Path: root, Branch: "feat/x", Managed: true, Include: []string{"/**/proto/"}}}
-	_, _, err := Mounts(srcs)
+	_, _, _, err := Mounts(srcs)
 	if err == nil {
 		t.Fatal("Mounts resolved a pattern through an unreadable dir, want a refusal")
 	}
@@ -165,7 +165,7 @@ func TestMountsPatternDynamicSet(t *testing.T) {
 	}
 	srcs := []Source{{RepoRoot: root, Path: root, Managed: true, Include: []string{"/**/proto/"}}}
 
-	mountDest, before, err := Mounts(srcs)
+	mountDest, before, _, err := Mounts(srcs)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -177,7 +177,7 @@ func TestMountsPatternDynamicSet(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(root, "svc2", "proto"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	_, after, err := Mounts(srcs)
+	_, after, _, err := Mounts(srcs)
 	if err != nil {
 		t.Fatal(err)
 	}
