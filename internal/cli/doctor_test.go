@@ -77,12 +77,12 @@ func TestOlderMsb(t *testing.T) {
 		line string
 		old  bool
 	}{
-		{"msb 0.6.5", true},
-		{"msb 0.6.7", false},
-		{"msb 0.6.10", false},
-		{"msb 0.7.0", false},
+		{"msb 0.7.7", true},
+		{"msb 0.7.8", false},
+		{"msb 0.7.10", false},
+		{"msb 0.8.0", false},
 		{"microsandbox 0.5.9", true},
-		{"msb 0.6.7-fake", false}, // unparseable segment → fail-open
+		{"msb 0.7.8-fake", false}, // unparseable segment → fail-open
 		{"garbage", false},
 		{"", false},
 	}
