@@ -6,6 +6,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.102.1] — 2026-10-13
+
+### Fixed
+
+- pass --net-strict=false so the msb wall never intercepts guest TLS (77af827)
+
+### Chores
+
+- bump microsandbox to 0.7.8 (4971576)
+
+
 ## [0.102.0] — 2026-10-06
 
 ### Added
@@ -1634,3 +1645,4 @@ isolated, containerized dev sandbox, on a local Linux machine:
 [0.100.1]: https://github.com/irasikhin/sandboxer/compare/v0.100.0...v0.100.1
 [0.101.0]: https://github.com/irasikhin/sandboxer/compare/v0.100.1...v0.101.0
 [0.102.0]: https://github.com/irasikhin/sandboxer/compare/v0.101.0...v0.102.0
+[0.102.1]: https://github.com/irasikhin/sandboxer/compare/v0.102.0...v0.102.1
