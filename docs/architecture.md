@@ -244,8 +244,13 @@ the rules):
   plus one `--net-rule allow@*.domain:tcp:80,allow@*.domain:tcp:443` per
   domain in `egress.allowedDomains` / `--allow-domains`: the domain **and its
   subdomains**, HTTP and HTTPS, nothing else. Rules are name-bound, so a
-  raw-IP dial is refused even for an allowed domain's own address. An
-  explicitly **empty** allowlist is `--no-net` alone — a fully offline
+  raw-IP dial is refused even for an allowed domain's own address. Every
+  walled posture also carries `--net-strict=false`: msb >= 0.7.3 defaults to a
+  strict hostname mode that authorizes a hostname allow by intercepting TLS
+  in the guest (its interception resets every handshake — measured on 0.7.8,
+  even with certificate checks off), and sandboxer's wall must authorize by
+  the DNS answer instead, never terminate guest TLS. An
+  explicitly **empty** allowlist leaves the wall ruleless — a fully offline
   machine, a valid state. Disable deliberately with `egress.enabled = false`
   / `SANDBOXER_NO_EGRESS=1` (an open network; every run labels it).
 - **`egress.proxy`** — BYO forward proxy, and with the allowlist on it is the

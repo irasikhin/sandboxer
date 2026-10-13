@@ -210,6 +210,7 @@ func TestMSBNetworkArgs(t *testing.T) {
 			o:    RunOpts{RT: config.Runtime{Egress: true, Domains: []string{"github.com", ".example.com", "github.com", " "}}},
 			want: []string{
 				"--no-net",
+				"--net-strict=false",
 				"--net-rule", "allow@*.example.com:tcp:80,allow@*.example.com:tcp:443",
 				"--net-rule", "allow@*.github.com:tcp:80,allow@*.github.com:tcp:443",
 			},
@@ -217,7 +218,7 @@ func TestMSBNetworkArgs(t *testing.T) {
 		{
 			name: "empty allowlist is fully offline",
 			o:    RunOpts{RT: config.Runtime{Egress: true}},
-			want: []string{"--no-net"},
+			want: []string{"--no-net", "--net-strict=false"},
 		},
 		{
 			name: "egress off is open",
@@ -236,6 +237,7 @@ func TestMSBNetworkArgs(t *testing.T) {
 				"-e", "HTTPS_PROXY=http://p.corp.example:8080", "-e", "https_proxy=http://p.corp.example:8080",
 				"-e", "NO_PROXY=localhost", "-e", "no_proxy=localhost",
 				"--no-net",
+				"--net-strict=false",
 				"--net-rule", "allow@*.github.com:tcp:80,allow@*.github.com:tcp:443",
 				"--net-rule", "allow@p.corp.example:tcp:8080",
 			},
@@ -253,6 +255,7 @@ func TestMSBNetworkArgs(t *testing.T) {
 				"-e", "HTTPS_PROXY=http://host.microsandbox.internal:8888",
 				"-e", "https_proxy=http://host.microsandbox.internal:8888",
 				"--no-net",
+				"--net-strict=false",
 				"--net-rule", "allow@host:tcp:8888",
 			},
 		},
@@ -1285,6 +1288,7 @@ func TestMSBPortArgs(t *testing.T) {
 	}
 	if got, want := msbNetworkArgs(o), []string{
 		"--no-net",
+		"--net-strict=false",
 		"--net-rule", "allow@*.github.com:tcp:80,allow@*.github.com:tcp:443",
 		"--net-rule", "allow:ingress@0.0.0.0/0:tcp:3080",
 		"--net-rule", "allow:ingress@0.0.0.0/0:udp:53",

@@ -210,9 +210,13 @@ policy engine — no side process on the host. The config states map onto
    allow rule for HTTP and HTTPS: `allow@*.domain:tcp:80,allow@*.domain:tcp:443`
    — the domain and its subdomains, those two ports, DNS via the gateway, and
    nothing else. Rules are matched by name, so a raw IP dial is refused even
-   for an allowed domain's own address.
-3. **egress on + an empty allowlist (no proxy)** → `--no-net` alone: fully
-   offline.
+   for an allowed domain's own address. The wall also passes
+   `--net-strict=false`: msb >= 0.7.3 defaults to a strict hostname mode whose
+   in-guest TLS interception resets every handshake (measured on 0.7.8, even
+   with certificate checks off), while sandboxer's wall authorizes by the DNS
+   answer and never intercepts guest TLS.
+3. **egress on + an empty allowlist (no proxy)** → the wall with no rules:
+   fully offline.
 4. **egress off** (`egress.enabled = false` / `SANDBOXER_NO_EGRESS=1`) → open
    network; with a proxy configured the env is still set (routing convenience,
    no wall).
