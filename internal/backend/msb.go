@@ -48,6 +48,11 @@ import (
 // msb CLI). SANDBOXER_MSB overrides the looked-up path.
 const msbEngine = "microsandbox"
 
+// msbNetStrictOff opts out of microsandbox's strict hostname mode, which is
+// default-on since msb 0.7.3 and makes a hostname allow require TLS
+// interception in the guest (msbNetworkArgs spells out what that costs).
+const msbNetStrictOff = "--net-strict=false"
+
 // msbSecretsEnv opts into microsandbox's host-scoped --secret for the agents'
 // auth env instead of a plain --env. See msbSecretArgs for the trade.
 const msbSecretsEnv = "SANDBOXER_MSB_SECRETS"
@@ -274,13 +279,26 @@ func msbIngressRules(o RunOpts) []string {
 //     all egress rides the proxy.
 //   - egress on, no proxy → --no-net plus one allow rule per domain: the
 //     domain AND its subdomains over HTTP and HTTPS, matched by NAME — a raw
-//     IP, even an allowed domain's own, is refused. An EMPTY allowlist is
-//     --no-net alone: a fully offline machine, a valid state (a default-deny
+//     IP, even an allowed domain's own, is refused. An EMPTY allowlist leaves
+//     the wall ruleless: a fully offline machine, a valid state (a default-deny
 //     VM with no rules simply reaches nothing).
 //   - egress disabled + proxy → an open network with the proxy env set:
 //     routing convenience, no wall.
 //   - egress disabled (egress.enabled = false / SANDBOXER_NO_EGRESS) → open,
 //     no flags at all.
+//
+// Every posture that raises the wall (--no-net) additionally pins msbNetStrictOff.
+// Since 0.7.3 strict hostname mode is DEFAULT-ON, and strict mode authorizes an
+// HTTPS connection only by INTERCEPTING TLS in the guest with an ephemeral CA.
+// Measured on msb 0.7.8: with strict on, every TLS handshake under the
+// allowlist is reset ("unexpected eof while reading") even with certificate
+// validation disabled, while plain HTTP passes — HTTPS-only tooling (agent
+// APIs, package and image registries) then fails as if the network were down.
+// --net-strict=false restores the posture verified on 0.6.7–0.7.1: the wall
+// authorizes by what the guest's DNS ANSWER resolved to and never intercepts
+// guest TLS. The value form requires msb >= 0.7.3 (0.7.1 rejects it) — i.e. the
+// pinned runtime. Postures that only mount a non-hostname group target (the
+// loopback door with egress off) trigger no interception and are left alone.
 //
 // These flags live in the create argv, so they fold into the session hash: a
 // domain added, a proxy set or egress toggled recreates the machine.
@@ -314,7 +332,7 @@ func msbNetworkArgs(o RunOpts) []string {
 		// proxy forces (the VM sees only the dial to the proxy, never the
 		// target names). An empty allowlist leaves only the door: all egress
 		// rides the proxy.
-		args = append(args, "--no-net")
+		args = append(args, "--no-net", msbNetStrictOff)
 		args = append(args, msbAllowlistRules(o.RT.Domains)...)
 		if doorRule != "" {
 			args = append(args, "--net-rule", doorRule)
@@ -324,7 +342,7 @@ func msbNetworkArgs(o RunOpts) []string {
 	if !egressRequired(o) {
 		return nil
 	}
-	args := append([]string{"--no-net"}, msbAllowlistRules(o.RT.Domains)...)
+	args := append([]string{"--no-net", msbNetStrictOff}, msbAllowlistRules(o.RT.Domains)...)
 	return append(args, msbIngressRules(o)...)
 }
 

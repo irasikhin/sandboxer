@@ -73,7 +73,7 @@ func msbBin() string {
 // (keep the two in step; the integration suite gates a bump). doctor warns on
 // an older installed msb: the migration's live bugs #3 and #5 were exactly a
 // dialect gap between the verified release and the host's binary.
-const MsbVerifiedVersion = "0.6.7"
+const MsbVerifiedVersion = "0.7.8"
 
 // MsbStatus reports the microsandbox backend's host readiness for `doctor`:
 // whether the msb binary is found (via msbBin), its `--version` line when it

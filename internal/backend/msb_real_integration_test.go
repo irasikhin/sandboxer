@@ -182,6 +182,12 @@ func TestMSB_EgressAllowlist_RealEngine(t *testing.T) {
 	// HTTPS-only tooling (agent APIs, package and image registries) failed
 	// as if the network were down, and this test's HTTP-only probe stayed
 	// green. Keep both probes.
+	//
+	// Root cause, measured on 0.7.8: 0.7.3+ defaults to strict hostname mode,
+	// which authorizes a hostname allow by INTERCEPTING TLS in the guest —
+	// the interception resets the handshake (even with certificate checks
+	// off). sandboxer passes --net-strict=false so the wall stays
+	// non-intercepting and authorizes by the DNS answer instead.
 	for _, url := range []string{"http://example.com/", "https://example.com/"} {
 		if code, _ := ExecSession(o, name, []string{"sh", "-c",
 			"wget -q -T 8 -O /dev/null " + url + " 2>/dev/null"}); code != 0 {

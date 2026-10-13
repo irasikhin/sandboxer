@@ -30,22 +30,22 @@
 }:
 
 let
-  version = "0.7.1";
+  version = "0.7.8";
   # The versioned libkrunfw soname the release ships; msb dlopens exactly this
   # file name from beside itself.
   libkrunfw = "libkrunfw.so.5.6.1";
   platforms = {
     "x86_64-linux" = {
       asset = "microsandbox-linux-x86_64.tar.gz";
-      hash = "sha256-eIuJaCDxy2EXbPow1aiRDYRgjT7nnQcm6JcQsC3dGqQ=";
+      hash = "sha256-hvn3LcPmOccXW8B5CbS2POQSUXwe+KLhkhFxr1aC/e0=";
     };
     "aarch64-linux" = {
       asset = "microsandbox-linux-aarch64.tar.gz";
-      hash = "sha256-5sDhciwlYHIPZnU+U4eCFF/HLKr7Lo0Y6MlA1Ry1wuw=";
+      hash = "sha256-apkF/oCn5OP/VUiW73M6PMbtZTkkE1Yxwo3s5loBHP0=";
     };
     "aarch64-darwin" = {
       asset = "microsandbox-darwin-aarch64.tar.gz";
-      hash = "sha256-sHky3Q7wRYTEHbHSilTPw56gw6s5NgQrbbtqh4/41Is=";
+      hash = "sha256-Xb4Nkhxrb4B9LFn4fgo8OmSEJIcba+5RO4N6jGAKJJM=";
     };
   };
   plat =

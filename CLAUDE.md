@@ -138,7 +138,10 @@ was extracted from:
 - **Egress** (`backend.msbNetworkArgs`): outbound traffic is restricted to an allowlist
   (`egress.allowedDomains` / `--allow-domains`) by msb's NAME-BOUND policy engine — the machine boots
   `--no-net` (default deny) + `--net-rule allow@*.domain:tcp:80,allow@*.domain:tcp:443` per domain (domain +
-  subdomains, raw IPs refused; empty list = fully offline, a valid state). No sidecar — the
+  subdomains, raw IPs refused; empty list = fully offline, a valid state) — plus `--net-strict=false`, because
+  msb >= 0.7.3 defaults to a strict hostname mode whose in-guest TLS interception resets every handshake
+  (measured on 0.7.8, even with cert checks off); the wall authorizes by the DNS answer and never intercepts
+  guest TLS. No sidecar — the
   `sandboxer-proxy` image no longer exists and the binary is never in the network path; the BYO proxy
   (`egress.proxy` / `SANDBOXER_PROXY`) remains, and with egress ON it is the COMBINED WALL, not an open
   network: `--no-net` + the allowlist rules + exactly ONE extra door — the proxy's port
