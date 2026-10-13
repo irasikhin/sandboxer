@@ -191,11 +191,31 @@ func isTrackingRev(rev string) bool {
 	return rev == "" || rev == "latest"
 }
 
-// WholeRepo reports whether include selects the whole repository — no patterns,
-// or the single catch-all "**" — so the container gets the source's worktree
-// whole and needs no per-directory view mounts.
+// SplitInclude separates the exposure entries from the exclusions: an entry
+// starting with "!" is a negation — a subtree to carve OUT of the exposure —
+// and is returned WITHOUT that one "!" in negatives; every other entry is
+// returned verbatim in positives. Pure and order-preserving within each list.
+// Negations are validated by ValidateInclude with the same directory grammar
+// as a positive (an include may not be exclusions only) and resolved/applied
+// to the mount set by sandbox.Mounts.
+func SplitInclude(include []string) (positives, negatives []string) {
+	for _, e := range include {
+		if n, negated := strings.CutPrefix(e, "!"); negated {
+			negatives = append(negatives, n)
+			continue
+		}
+		positives = append(positives, e)
+	}
+	return positives, negatives
+}
+
+// WholeRepo reports whether include EXPOSES the whole repository: no positive
+// entry, or exactly one positive catch-all "**". A negation is not narrowing —
+// it does not remove a directory from the mount set but masks its content — so
+// ["**", "!/vendor/"] is still whole-repo exposure with one masked subtree.
 func WholeRepo(include []string) bool {
-	return len(include) == 0 || (len(include) == 1 && include[0] == "**")
+	positives, _ := SplitInclude(include)
+	return len(positives) == 0 || (len(positives) == 1 && positives[0] == "**")
 }
 
 // ValidateInclude rejects an include entry a container mount cannot honor.
@@ -216,48 +236,98 @@ func WholeRepo(include []string) bool {
 // walks directories only, so a pattern can never select a file set — a
 // file-granular bind mount breaks atomic saves (write-temp + rename over the
 // mountpoint fails with EBUSY), which is how editors and agents write files.
-// A negation ("!/vendor/") has no meaning for a mount set, so it stays rejected.
+// A negation ("!/vendor/") is an exclusion: the same directory grammar one
+// "!" stripped, enforced by sandbox.Mounts overmounting an empty read-only
+// directory at the path. An include may not consist of exclusions only — a
+// negation carves a subtree OUT of what is explicitly exposed, so at least one
+// positive entry (possibly the whole-tree "**") must accompany it.
 //
 // Whether a literal path is actually a directory, and whether a pattern matches
 // anything, is NOT checked here — that needs the repo on disk and lives in
 // sandbox.checkViewDirs / the expansion, which reject with an actionable
 // message. So this stays pure syntax.
 func ValidateInclude(include []string) error {
-	if WholeRepo(include) {
-		return nil
+	positives, negatives := SplitInclude(include)
+	if len(positives) == 0 && len(negatives) == 0 {
+		return nil // no include: whole repo, no masks
 	}
-	for _, p := range include {
-		switch {
-		case p == "":
+	for _, p := range positives {
+		switch p {
+		case "":
 			return errors.New("srcs include: empty pattern — remove it, or use a directory like \"/src/proto/\"")
-		case strings.HasPrefix(p, "!"):
-			return fmt.Errorf("srcs include %q: negation is not supported — narrowing mounts the listed "+
-				"directories, so list what to EXPOSE rather than what to exclude", p)
-		case p == "/" || p == "//":
+		case "/", "//":
 			return errors.New("srcs include \"/\": that is the whole repo — drop include entirely instead")
 		}
 		segs := strings.Split(strings.Trim(p, "/"), "/")
-		if !strings.HasPrefix(p, "/") && segs[0] != "**" {
-			return fmt.Errorf("srcs include %q: must be anchored at the repo root — write \"/%s\" "+
-				"(or \"**/%s\" to match the directory at any depth)", p, p, p)
-		}
-		if len(segs) == 1 && segs[0] == "**" {
-			// "/**", "/**/", "**/" — a lone "**" entry is WholeRepo and never
-			// gets here, so this only trips alongside other entries.
+		if len(segs) == 1 && segs[0] == "**" && (p != "**" || len(positives) > 1) {
+			// A lone explicit "**" is the whole-tree exposure and is valid (a
+			// negation may accompany it); every other spelling of the catch-all
+			// ("/**", "/**/", "**/") and "**" beside another positive are a
+			// redundant whole-repo entry — the pre-exclusion rejection.
 			return fmt.Errorf("srcs include %q: that is the whole repo — drop include entirely instead", p)
 		}
-		for _, seg := range segs {
-			switch {
-			case seg == "" || seg == "." || seg == "..":
-				return fmt.Errorf("srcs include %q: must be a plain repo-relative directory path "+
-					"(no empty, \".\" or \"..\" segments)", p)
-			case seg == "**":
-				// the recursive wildcard — any number of directories, incl. zero
-			case strings.ContainsAny(seg, `*?[\`):
-				if _, err := path.Match(seg, "x"); err != nil {
-					return fmt.Errorf("srcs include %q: bad pattern segment %q — segments may use *, ? and "+
-						"[...] (or a whole \"**\" segment); close the bracket or name the directory literally", p, seg)
-				}
+		if err := validateIncludeEntry(p, p); err != nil {
+			return err
+		}
+	}
+	for _, n := range negatives {
+		if err := validateNegation(n); err != nil {
+			return err
+		}
+	}
+	if len(positives) == 0 {
+		return errors.New("srcs include has only exclusions — a negation carves a subtree out of what is " +
+			"EXPLICITLY exposed; list the directories to expose (or \"**\" for the whole tree) alongside " +
+			"the \"!...\" entries")
+	}
+	return nil
+}
+
+// validateNegation checks one exclusion entry. dir is the entry with exactly
+// one "!" stripped; the grammar is the same as for an exposure, while every
+// message names the entry as the user wrote it (label carries the "!"). The
+// shapes only a negation can have — empty, a second "!", excluding everything
+// — get their own errors.
+func validateNegation(dir string) error {
+	label := "!" + dir
+	switch {
+	case dir == "":
+		return errors.New("srcs include \"!\": a negation is empty — write \"!/<dir>/\"")
+	case strings.HasPrefix(dir, "!"):
+		return fmt.Errorf("srcs include %q: one \"!\" marks a negation — write %q", label,
+			"!"+strings.TrimLeft(dir, "!"))
+	case dir == "/" || dir == "//" || strings.Trim(dir, "/") == "**":
+		return fmt.Errorf("srcs include %q: that would exclude the whole tree — a negation carves out "+
+			"one subtree of an explicit exposure; name the directory to exclude", label)
+	}
+	return validateIncludeEntry(dir, label)
+}
+
+// validateIncludeEntry applies the shared directory grammar to dir (anchored,
+// no empty/"."/".." segments, valid path.Match pattern segments), naming label
+// — the entry as the user wrote it — in every message, so a negation keeps its
+// leading "!" even in the anchoring suggestion.
+func validateIncludeEntry(dir, label string) error {
+	segs := strings.Split(strings.Trim(dir, "/"), "/")
+	if !strings.HasPrefix(dir, "/") && segs[0] != "**" {
+		bang := ""
+		if strings.HasPrefix(label, "!") {
+			bang = "!"
+		}
+		return fmt.Errorf("srcs include %q: must be anchored at the repo root — write \"%s/%s\" "+
+			"(or \"%s**/%s\" to match the directory at any depth)", label, bang, dir, bang, dir)
+	}
+	for _, seg := range segs {
+		switch {
+		case seg == "" || seg == "." || seg == "..":
+			return fmt.Errorf("srcs include %q: must be a plain repo-relative directory path "+
+				"(no empty, \".\" or \"..\" segments)", label)
+		case seg == "**":
+			// the recursive wildcard — any number of directories, incl. zero
+		case strings.ContainsAny(seg, `*?[\`):
+			if _, err := path.Match(seg, "x"); err != nil {
+				return fmt.Errorf("srcs include %q: bad pattern segment %q — segments may use *, ? and "+
+					"[...] (or a whole \"**\" segment); close the bracket or name the directory literally", label, seg)
 			}
 		}
 	}
@@ -283,11 +353,12 @@ func ValidateSrcs(srcs []Src) error {
 }
 
 // ValidateGit checks a source's git mode and refuses the one combination that
-// would be a lie: git together with a narrowing include.
+// would be a lie: git together with a narrowing OR excluding include.
 //
 // include narrows what the sandbox can reach by mounting only the listed
-// directories — the excluded files exist on the host but not inside. A shared
-// git dir carries the complete history of every branch, so `git show
+// directories, and a "!" entry masks a subtree out of even a whole-tree
+// exposure — either way the withheld files exist on the host but not inside. A
+// shared git dir carries the complete history of every branch, so `git show
 // HEAD:excluded/file` reconstitutes exactly what the include withheld: the two
 // keys claim opposite things about the same source, and silently letting the
 // weaker one win is how a narrowed sandbox ends up leaking its whole repo.
@@ -300,11 +371,12 @@ func ValidateGit(mode string, include []string) error {
 			"%q (share the repository's git dir read-only: log/diff/blame inside, the host repo stays untouched) "+
 			"or %q (share it read-write: the agent can commit)", mode, GitOff, GitRO, GitRW)
 	}
-	if GitShared(mode) && !WholeRepo(include) {
-		return fmt.Errorf("srcs: git = %q cannot be combined with include — include narrows the sandbox by "+
-			"mounting only %v, but a shared git dir carries the FULL history of every branch, so the excluded "+
-			"files come back through `git show HEAD:<path>`; keep include (and commit on the host) or drop it "+
-			"and keep git", mode, include)
+	_, negatives := SplitInclude(include)
+	if GitShared(mode) && (len(negatives) > 0 || !WholeRepo(include)) {
+		return fmt.Errorf("srcs: git = %q cannot be combined with include — include narrows the sandbox or "+
+			"carves subtrees out of it, and a shared git dir carries the FULL history of every branch, so what "+
+			"it withholds comes back through `git show HEAD:<path>`; keep include (and commit on the host) or "+
+			"drop it and keep git", mode)
 	}
 	return nil
 }

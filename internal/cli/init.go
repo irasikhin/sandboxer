@@ -120,18 +120,22 @@ func starterProfile(name string, d config.Defaults) string {
   # visible inside the sandbox (git itself never is; review and commit on
   # the host). include lists directories: literal anchored paths
   # ("/services/api/") or patterns ("/services/*/", "**/proto/" — a whole "**"
-  # segment matches any depth). srcs edits apply on the next enter/exec — even
-  # a running session sees them live.
+  # segment matches any depth). A "!" entry excludes a subtree from what an
+  # exposed directory contains ("!/services/api/vendor/" — the NAME stays
+  # visible as an empty read-only dir; its content and any write are gone),
+  # and an include cannot be exclusions only. srcs edits apply on the next
+  # enter/exec — even a running session sees them live.
   #
   # git = "ro" | "rw" opts ONE source out of that default and shares its
   # repository's git dir, so git works inside the sandbox: "ro" for history
   # (log/diff/blame; the host repo cannot be written), "rw" to let the agent
   # commit — which hands it the whole repository, hooks and config included.
-  # Mutually exclusive with include (history would carry the excluded files
-  # back in). Off everywhere at runtime: SANDBOXER_NO_GIT=1.
+  # Mutually exclusive with a narrowing or excluding include (history would
+  # carry the withheld files back in). Off everywhere at runtime:
+  # SANDBOXER_NO_GIT=1.
   srcs = [
     { src = "."; branch = "feat/%[1]s"; } # this repo, whole — rename the branch your way
-    # { src = "."; branch = "devops/thing"; include = [ "/services/api/" "**/proto/" ]; }
+    # { src = "."; branch = "devops/thing"; include = [ "/services/api/" "**/proto/" "!/services/api/vendor/" ]; }
     # { src = "../legacy"; branch = "devops/thing"; git = "ro"; }  # + git history inside
     # { src = "../shared-lib"; branch = "devops/thing"; }   # another repo, whole
     # { src = "https://github.com/org/proto"; branch = "main"; } # remote → cloned

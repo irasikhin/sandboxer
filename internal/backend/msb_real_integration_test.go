@@ -124,6 +124,63 @@ func TestMSB_NarrowingWall_RealEngine(t *testing.T) {
 	}
 }
 
+// TestMSB_MaskHidesContent_RealEngine: an EXCLUSION (a negated include entry)
+// is enforced by overmounting an EMPTY read-only host dir at the excluded path.
+// Inside the guest the subtree is unreachable (read → ENOENT) and unwritable
+// (EROFS), yet the NAME still exists as an empty directory — deliberately
+// DIFFERENT from an unmounted path, which does not exist at all (the narrowing
+// wall in TestMSB_NarrowingWall_RealEngine). The host side keeps every file.
+func TestMSB_MaskHidesContent_RealEngine(t *testing.T) {
+	engine := itest.Microsandbox(t)
+	parent := itest.MSBTempDir(t)
+	mustWrite(t, filepath.Join(parent, "visible", "f.txt"), "VISIBLE")
+	mustWrite(t, filepath.Join(parent, "hidden", "s.txt"), "SECRET")
+
+	o := msbITOpts(t, engine, "itmsbmask", parent)
+	o.MountDest = false
+	o.SrcMounts = []string{parent} // the exposed parent is shared whole…
+	o.MaskMounts = []config.Mount{{Source: t.TempDir(), Target: filepath.Join(parent, "hidden"), Mode: "ro"}}
+	name := SessionName(o.Slug, o.BaseDir)
+	itest.CleanupSandbox(t, name)
+	if _, err := EnsureSession(o); err != nil {
+		t.Fatalf("EnsureSession: %v", err)
+	}
+
+	// …the visible part still reads.
+	var out bytes.Buffer
+	vo := o
+	vo.Stdout = &out
+	if code, _ := ExecSession(vo, name, []string{"cat", filepath.Join(parent, "visible", "f.txt")}); code != 0 || strings.TrimSpace(out.String()) != "VISIBLE" {
+		t.Errorf("visible file = %q (code %d), want VISIBLE", out.String(), code)
+	}
+	// The masked file is unreachable: read → ENOENT (non-zero exit).
+	if code, _ := ExecSession(o, name, []string{"cat", filepath.Join(parent, "hidden", "s.txt")}); code == 0 {
+		t.Error("SECURITY: a masked file was readable inside the guest")
+	}
+	// A write into the mask fails — the overmount is read-only.
+	if code, _ := ExecSession(o, name, []string{"sh", "-c", "echo X > " + filepath.Join(parent, "hidden", "w.txt")}); code == 0 {
+		t.Error("a write into the masked dir succeeded, want a read-only refusal")
+	}
+	// The NAME survives as an empty directory — this is the mask, not the
+	// unmounted wall: the path exists, its content and writes do not.
+	var lsOut bytes.Buffer
+	lo := o
+	lo.Stdout = &lsOut
+	if code, _ := ExecSession(lo, name, []string{"sh", "-c", "ls " + parent}); code != 0 || !strings.Contains(lsOut.String(), "hidden") {
+		t.Errorf("ls %s = %q (code %d), want the masked name still listed", parent, lsOut.String(), code)
+	}
+	if code, _ := ExecSession(o, name, []string{"sh", "-c", "test -d " + filepath.Join(parent, "hidden")}); code != 0 {
+		t.Error("the masked path is not a directory inside the guest — the name must survive as an empty dir")
+	}
+	// A guest write through the still-mounted visible part lands on the host.
+	if code, _ := ExecSession(o, name, []string{"sh", "-c", "echo FROM-GUEST > " + filepath.Join(parent, "visible", "g.txt")}); code != 0 {
+		t.Fatalf("guest write into the visible dir failed (code %d)", code)
+	}
+	if b, err := os.ReadFile(filepath.Join(parent, "visible", "g.txt")); err != nil || strings.TrimSpace(string(b)) != "FROM-GUEST" {
+		t.Errorf("guest write did not land on the host: %q, %v", string(b), err)
+	}
+}
+
 // TestMSB_GuestWriteUID_RealEngine: a file written from inside the guest lands
 // on the host owned by the invoking user (no root-owned worktree).
 func TestMSB_GuestWriteUID_RealEngine(t *testing.T) {

@@ -69,15 +69,17 @@ type target struct {
 }
 
 // mountPlan is everything a machine's shares are made of: the source mounts,
-// whether the sandbox's <slug>/ root is one of them, the opt-in git-dir shares,
-// the mounts' inode fingerprint (RunOpts.MountGen) and the same identities
-// encoded for the session label (RunOpts.MountIDs).
+// whether the sandbox's <slug>/ root is one of them, the read-only mask mounts
+// that carve excluded subtrees out of them, the opt-in git-dir shares, the
+// mounts' inode fingerprint (RunOpts.MountGen) and the same identities encoded
+// for the session label (RunOpts.MountIDs).
 type mountPlan struct {
-	Dest bool
-	Src  []string
-	Git  []config.Mount
-	Gen  string
-	IDs  string
+	Dest  bool
+	Src   []string
+	Masks []config.Mount
+	Git   []config.Mount
+	Gen   string
+	IDs   string
 }
 
 // mounts derives the sandbox's whole mount plan. Every field is ALWAYS derived
@@ -96,9 +98,15 @@ type mountPlan struct {
 // from a default sandbox anyway. SANDBOXER_NO_GIT=1 drops them here, at the
 // single point every launching command passes through — the operator
 // kill-switch outranks the profile, like SANDBOXER_NO_EGRESS over egress.
+//
+// The masks are not fingerprinted either, for a stronger reason: every mask
+// target is a strict descendant of a mount that IS fingerprinted, so that
+// mount moving flips the hash already, and the mask SOURCE is one inode-stable
+// empty dir. They do ride the hashed argv (RunOpts.MaskMounts), so adding or
+// dropping a negation rebuilds the machine.
 func (t *target) mounts() (mountPlan, error) {
 	srcs := t.base.Srcs(t.slug)
-	mountDest, srcMounts, err := sandbox.Mounts(srcs)
+	mountDest, srcMounts, maskTargets, err := sandbox.Mounts(srcs)
 	if err != nil {
 		return mountPlan{}, err
 	}
@@ -108,6 +116,20 @@ func (t *target) mounts() (mountPlan, error) {
 		Src:  srcMounts,
 		Gen:  sandbox.FingerprintIDs(ids),
 		IDs:  sandbox.EncodeMountIDs(ids),
+	}
+	if len(maskTargets) > 0 {
+		// An exclusion is enforced by overmounting an EMPTY read-only dir
+		// (see sandbox.Mounts): all masks share one host dir. Created only when
+		// there is a mask, so a mask-free sandbox's state dir and argv stay
+		// exactly as before.
+		empty := filepath.Join(t.base.Dir, "_empty")
+		if err := os.MkdirAll(empty, 0o755); err != nil {
+			return mountPlan{}, err
+		}
+		p.Masks = make([]config.Mount, len(maskTargets))
+		for i, target := range maskTargets {
+			p.Masks[i] = config.Mount{Source: empty, Target: target, Mode: "ro"}
+		}
 	}
 	if !noGit() {
 		p.Git = sandbox.GitMounts(srcs)

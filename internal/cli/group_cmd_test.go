@@ -96,7 +96,7 @@ func TestConfigValidateSemantic(t *testing.T) {
 			"missing dot"},
 		{"negated include",
 			`{ name = "x"; srcs = [ { src = "."; branch = "b/x"; include = [ "!/vendor/" ]; } ]; }`,
-			"negation is not supported"},
+			"only exclusions"},
 		{"missing branch",
 			`{ name = "x"; srcs = [ { src = "."; } ]; }`,
 			"branch is required"},
@@ -117,6 +117,17 @@ func TestConfigValidateSemantic(t *testing.T) {
 				t.Errorf("validate = (%d, %q), want exit 1 with %q", code, errs, c.want)
 			}
 		})
+	}
+
+	// An exclusion beside an explicit exposure is a valid config: the negation
+	// grammar matches the positive grammar and the include is not exclusions
+	// only.
+	okCfg := `{ name = "ok"; srcs = [ { src = "."; branch = "b/x"; include = [ "/svc/" "!/svc/vendor/" ]; } ]; }`
+	if err := os.WriteFile(config.ConfigPath(), []byte(okCfg+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if code, out, errs := run("config", "validate"); code != 0 || !strings.Contains(out, "ok") {
+		t.Errorf("validate with an exclusion = (%d, %q, %q), want accepted", code, out, errs)
 	}
 
 	// A multi-profile file labels the failing section.

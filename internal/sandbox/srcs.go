@@ -869,10 +869,17 @@ func dirExists(p string) bool {
 //     mount resolved in the container's namespace); view mounts are not, so the
 //     lexical prefix belt is not enough — the REAL path must stay in the tree.
 //
+// Exclusions are validated by the same rules: a negation's target must exist on
+// the branch and stay inside the worktree (a symlinked one escaping would let
+// the mask land on host files), and a whole-repo include (["**", "!/x/"]) is
+// still validated — the "**" only says the tree is exposed whole, it says
+// nothing about the negations inside it.
+//
 // The message names the branch, since a missing/typo'd path usually exists on
 // another one.
 func checkViewDirs(s Source) error {
-	if config.WholeRepo(s.Include) {
+	positives, negatives := config.SplitInclude(s.Include)
+	if config.WholeRepo(s.Include) && len(negatives) == 0 {
 		return nil
 	}
 	name := filepath.Base(s.RepoRoot)
@@ -884,11 +891,11 @@ func checkViewDirs(s Source) error {
 	if err != nil {
 		return fmt.Errorf("srcs %s: %w", name, err)
 	}
-	detailed, err := viewDirsDetailed(s)
-	if err != nil {
-		return err
-	}
-	for _, v := range detailed {
+	// validate is shared by exposed dirs and negations: both name a directory
+	// inside the worktree (a negation's NAME is the path the mask is placed at,
+	// and it must be a real, contained directory for the overmount to make
+	// sense), so both get the same belt.
+	validate := func(v viewDir) error {
 		// ValidateInclude already rejects ".."-style entries; this lexical belt
 		// guarantees no include-derived mount PATH leaves the worktree. For
 		// expanded pattern dirs the existence/containment checks are a TOCTOU
@@ -915,8 +922,26 @@ func checkViewDirs(s Source) error {
 				"include would bind-mount host files past the sandbox boundary; expose a real directory",
 				name, v.pattern, real)
 		}
+		return nil
 	}
-	return nil
+	check := func(entries []string, negated bool) error {
+		detailed, err := viewDirsDetailed(s, entries, negated)
+		if err != nil {
+			return err
+		}
+		for _, v := range detailed {
+			if err := validate(v); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	if !config.WholeRepo(s.Include) {
+		if err := check(positives, false); err != nil {
+			return err
+		}
+	}
+	return check(negatives, true)
 }
 
 // detachSrc takes a managed worktree out of the mounted <slug>/ tree when its
@@ -1109,7 +1134,10 @@ func (b *Base) detachTarget(slug string, s Source) (string, error) {
 // Narrowed reports whether any source restricts what the container sees of it.
 // It is the switch between the sandbox's two mount shapes (see Mounts): with no
 // narrowed source the container gets the <slug>/ root whole, exactly as it
-// always has; one narrowed source moves every source onto its own mount.
+// always has; one narrowed source moves every source onto its own mount. An
+// EXCLUSION does not narrow — a whole-repo source with negations keeps riding
+// the root mount (its negations are masked inside it), because a negation is an
+// overmount, not a mount-set change.
 func Narrowed(srcs []Source) bool {
 	for _, s := range srcs {
 		if !config.WholeRepo(s.Include) {
@@ -1127,32 +1155,38 @@ type viewDir struct {
 	dir     string // abs host directory under s.Path
 }
 
-// viewDirsDetailed resolves a narrowed source's include entries to concrete
-// host directories. A literal entry maps lexically — no disk access, exactly
-// the pre-pattern behavior (existence is checkViewDirs' job, with its original
-// message). A pattern entry is expanded against the worktree on disk and must
-// select at least one directory: fail closed — a pattern matching nothing
-// would otherwise come up as a silently empty sandbox, the very failure mode
-// checkViewDirs exists to prevent.
-func viewDirsDetailed(s Source) ([]viewDir, error) {
+// viewDirsDetailed resolves a source's include entries to concrete host
+// directories. entries are exposure spellings, or — when negated —
+// config.SplitInclude's negatives, in which case diagnostics name them with
+// the leading "!" the user wrote. A literal entry maps lexically — no disk
+// access, exactly the pre-pattern behavior (existence is checkViewDirs' job,
+// with its original message). A pattern entry is expanded against the worktree
+// on disk and must select at least one directory: fail closed — a pattern
+// matching nothing would otherwise come up as a silently empty sandbox, the
+// very failure mode checkViewDirs exists to prevent.
+func viewDirsDetailed(s Source, entries []string, negated bool) ([]viewDir, error) {
 	name := filepath.Base(s.RepoRoot)
-	out := make([]viewDir, 0, len(s.Include))
-	for _, p := range s.Include {
+	out := make([]viewDir, 0, len(entries))
+	for _, p := range entries {
+		label := p
+		if negated {
+			label = "!" + p
+		}
 		if !includeIsPattern(p) {
-			out = append(out, viewDir{pattern: p, dir: filepath.Join(s.Path, filepath.FromSlash(strings.Trim(p, "/")))})
+			out = append(out, viewDir{pattern: label, dir: filepath.Join(s.Path, filepath.FromSlash(strings.Trim(p, "/")))})
 			continue
 		}
 		dirs, err := expandInclude(s.Path, p)
 		if err != nil {
-			return nil, fmt.Errorf("srcs %s: include %q: %w", name, p, err)
+			return nil, fmt.Errorf("srcs %s: include %q: %w", name, label, err)
 		}
 		if len(dirs) == 0 {
 			return nil, fmt.Errorf("srcs %s: include %q matches no directory on branch %s — patterns select "+
 				"directories, never files (a file cannot be mounted alone); check it with: sandboxer config edit",
-				name, p, s.Branch)
+				name, label, s.Branch)
 		}
 		for _, d := range dirs {
-			out = append(out, viewDir{pattern: p, dir: d})
+			out = append(out, viewDir{pattern: label, dir: d})
 		}
 	}
 	return out, nil
@@ -1163,39 +1197,49 @@ func viewDirsDetailed(s Source) ([]viewDir, error) {
 // a narrowed source, else the worktree itself. These are bind-mounted at their
 // own paths, so what is NOT listed is not mounted and therefore does not exist
 // inside the container — the host tree stays complete regardless (that is the
-// point: an IDE can open it). It errors when a pattern matches nothing or the
-// worktree cannot be walked.
+// point: an IDE can open it). An exclusion is the one exception: it is
+// overmounted with an empty directory, so the NAME remains while the content
+// and any write do not (see Mounts and masks.go). It errors when a pattern
+// matches nothing or the worktree cannot be walked.
 func ViewDirs(s Source) ([]string, error) {
 	if config.WholeRepo(s.Include) {
 		return []string{s.Path}, nil
 	}
-	detailed, err := viewDirsDetailed(s)
+	positives, _ := config.SplitInclude(s.Include)
+	detailed, err := viewDirsDetailed(s, positives, false)
 	if err != nil {
 		return nil, err
 	}
-	out := make([]string, len(detailed))
-	for i, v := range detailed {
-		out[i] = v.dir
-	}
-	return out, nil
+	return viewDirPaths(detailed), nil
 }
 
-// Mounts returns the container's source bind mounts and whether the sandbox's
-// <slug>/ root is mounted as one.
+// Mounts returns the container's source bind mounts, whether the sandbox's
+// <slug>/ root is mounted as one, and the mask targets that carve EXCLUDED
+// subtrees out of those mounts (absolute host paths).
 //
 // Nothing narrowed: the root IS the mount — one stable window whose contents a
 // live session sees change (the pre-view behavior, kept byte-identical so an
-// unnarrowed sandbox's argv, and its session hash, never moved).
+// unnarrowed sandbox's argv, and its session hash, never moved). An exclusion
+// does not narrow: a source exposing "**" minus a subtree still rides the root
+// mount, and its masks are emitted on top of it.
 //
 // Anything narrowed: the root is NOT mounted and every source is mounted
 // individually. This is the whole containment boundary — the excluded files sit
 // on the host inside an unmounted directory, so they are unreachable from the
-// container rather than merely unreadable. Skipping the root mount is therefore
-// load-bearing, not an optimization; TestMounts_NarrowedNeverMountsDest pins it.
+// container rather than merely unreadable. A NEGATION excludes differently: the
+// path stays visible as an EMPTY directory, because an empty read-only host dir
+// is overmounted there (see sourceExposure) — unmounted means "does not exist",
+// masked means "exists, empty, unwritable". Skipping the root mount is
+// therefore load-bearing, not an optimization; TestMounts_NarrowedNeverMountsDest
+// pins it.
+//
 // Sorted and de-duplicated for a stable, minimal argv (the session ConfigHash
 // depends on it): an exact-duplicate include (or a child listed twice) must not
 // emit the same --volume twice — a nested parent+child stays as two DISTINCT
-// paths, only literal repeats collapse.
+// paths, only literal repeats collapse. Masks are sorted and de-duplicated the
+// same way, and every one is a strict descendant of a mount in this same plan —
+// emitting them after the mounts preserves the parent-before-child order the
+// engine needs.
 //
 // Include patterns are expanded against the live worktree on every call, so
 // the resolved set — and with it the argv and the session hash — tracks the
@@ -1204,24 +1248,35 @@ func ViewDirs(s Source) ([]string, error) {
 // tracks inode moves. Whether that stale verdict rebuilds the session or
 // merely reports itself is the CLI's call, not this one (sessions-design D3).
 // Only the narrowed branch can error (pattern matching nothing, unreadable
-// worktree); adopted and unnarrowed sources are literal paths.
-func Mounts(srcs []Source) (mountDest bool, mounts []string, err error) {
+// worktree, an exclusion that leaves nothing exposed); adopted and unnarrowed
+// sources are literal paths.
+func Mounts(srcs []Source) (mountDest bool, mounts []string, masks []string, err error) {
 	if !Narrowed(srcs) {
 		for _, s := range srcs {
 			if !s.Managed { // adopted worktrees live outside <slug>/
 				mounts = append(mounts, s.Path)
 			}
+			// A whole-repo source rides the root mount, but not its masks: an
+			// exclusion is an overmount ON the mounted directory, so it must stay
+			// in the plan wherever that directory comes from (for a managed
+			// source, the root mount; for an adopted one, its own).
+			_, srcMasks, err := sourceExposure(s)
+			if err != nil {
+				return false, nil, nil, err
+			}
+			masks = append(masks, srcMasks...)
 		}
-		return true, sortedUnique(mounts), nil
+		return true, sortedUnique(mounts), sortedUnique(masks), nil
 	}
 	for _, s := range srcs {
-		dirs, err := ViewDirs(s)
+		srcMounts, srcMasks, err := sourceExposure(s)
 		if err != nil {
-			return false, nil, err
+			return false, nil, nil, err
 		}
-		mounts = append(mounts, dirs...)
+		mounts = append(mounts, srcMounts...)
+		masks = append(masks, srcMasks...)
 	}
-	return false, sortedUnique(mounts), nil
+	return false, sortedUnique(mounts), sortedUnique(masks), nil
 }
 
 // GitMounts returns the git directories the sandbox shares — one per source

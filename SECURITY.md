@@ -80,7 +80,11 @@ Windows/WSL2 are **cross-platform in code but not live-verified** — see
   worktree on its configured branch. The guest is shared ONLY the directories
   the profile's `include` lists (all of it when `include` is absent) — **the
   mount set is the boundary**: an excluded path is not shared, so it does not
-  exist inside the sandbox, and the agent cannot reach it by any path. By
+  exist inside the sandbox, and the agent cannot reach it by any path. A `!`
+  exclusion is the one nuance to "does not exist": it overmounts an EMPTY
+  read-only directory at the excluded path, so the contents are unreachable
+  (`ENOENT`) and writes fail (`EROFS`), but the NAME remains visible as an
+  empty directory — an exclusion hides content, not existence. By
   default no git metadata is shared either, so the agent cannot read repo
   history, widen the selection, touch refs, or reach hooks/config at all; you
   review and commit its file edits on the host (`git log`/`git diff`/`git merge
@@ -98,9 +102,10 @@ Windows/WSL2 are **cross-platform in code but not live-verified** — see
   path — which is what makes the worktree's `.git` pointer resolve inside the
   guest — and it hands over the WHOLE repository, not the sandbox's branch:
 
-  - **Every branch's history becomes readable**, including files a narrowing
-    `include` would have withheld (`git show HEAD:excluded/path`), and any
-    secret ever committed. The two keys are therefore mutually exclusive;
+  - **Every branch's history becomes readable**, including files a narrowing or
+    excluding `include` would have withheld (`git show HEAD:excluded/path`),
+    and any secret ever committed. The two keys are therefore mutually
+    exclusive — exclusions count, `["**", "!/vendor/"]` is refused too;
     `config.ValidateGit` refuses the combination rather than letting the weaker
     one silently win.
   - **`rw` additionally makes `.git/hooks` and `.git/config` writable**, and

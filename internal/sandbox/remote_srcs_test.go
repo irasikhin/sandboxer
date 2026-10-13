@@ -50,7 +50,7 @@ func TestSyncSrcsRemoteClone(t *testing.T) {
 	}
 	// The remote is a managed worktree, so it rides the single <slug>/ mount —
 	// no extra bind mount (unlike an adopted local worktree).
-	mountDest, mounts, err := Mounts(srcs)
+	mountDest, mounts, _, err := Mounts(srcs)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -97,7 +97,7 @@ func TestSyncSrcsRemoteBranchInclude(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(s.Path, "serviceB", "f.txt")); err != nil {
 		t.Errorf("the host worktree must be a complete checkout: %v", err)
 	}
-	mountDest, mounts, err := Mounts([]Source{s})
+	mountDest, mounts, _, err := Mounts([]Source{s})
 	if err != nil {
 		t.Fatal(err)
 	}
