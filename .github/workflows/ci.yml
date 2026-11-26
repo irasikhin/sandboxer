@@ -25,7 +25,7 @@ jobs:
       # The config layer shells out to nix-instantiate (sandboxer.nix is the
       # config format), so the unit tests need a real nix — eval only, no
       # builds.
-      - uses: cachix/install-nix-action@v31
+      - uses: cachix/install-nix-action@v32
       - run: go build ./...
       # Cross-build the other release target so arch-specific breakage is
       # caught here, not only at release time.
@@ -64,7 +64,7 @@ jobs:
         with:
           go-version-file: go.mod
       # The config layer shells out to nix-instantiate, same as the unit tests.
-      - uses: cachix/install-nix-action@v31
+      - uses: cachix/install-nix-action@v32
       # Standard runners ship /dev/kvm but the runner user is not in the kvm
       # group; this udev rule opens it (the same step the Android emulator
       # action uses). If a future image drops KVM the tests skip, not fail.
@@ -154,7 +154,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: cachix/install-nix-action@v31
+      - uses: cachix/install-nix-action@v32
         with:
           extra_nix_config: |
             experimental-features = nix-command flakes

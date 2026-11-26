@@ -49,7 +49,7 @@ jobs:
       # (same step as release.yml's image smoke build).
       - name: free disk space
         run: sudo rm -rf /opt/hostedtoolcache /usr/local/lib/android /usr/share/dotnet || true
-      - uses: cachix/install-nix-action@v31
+      - uses: cachix/install-nix-action@v32
         with:
           extra_nix_config: |
             experimental-features = nix-command flakes
